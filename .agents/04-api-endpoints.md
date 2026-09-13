@@ -30,7 +30,7 @@
 |-------------|------|------|------|------|
 | 获取所有比赛 | GET | /api/matches | 获取所有比赛记录 | electron/socket-server.ts |
 | 创建比赛 | POST | /api/matches | 创建新比赛（payload 可含 leftRank/rightRank 排位排名，仅数字、可选） | electron/socket-server.ts |
-| 更新比赛 | PATCH | /api/matches/:matchId | 更新比赛信息（含选手名、排位排名、赛制；后台「保存比赛信息」走此接口） | electron/socket-server.ts |
+| 更新比赛 | PATCH | /api/matches/:matchId | 更新比赛信息（含选手名、排位排名、赛制，以及所属战队 leftTeamId/leftTeamName/rightTeamId/rightTeamName 可选，未传时保留原值；后台「保存比赛信息」与「战队修改」都走此接口） | electron/socket-server.ts |
 | 更新比赛标签 | PATCH | /api/matches/:matchId/tags | 更新比赛标签 | electron/socket-server.ts |
 | 批量添加标签 | POST | /api/matches/batch-tags | 为多场比赛追加标签（合并保留原有，body: matchIds/tags） | electron/socket-server.ts |
 | 删除比赛 | DELETE | /api/matches/:matchId | 删除单个比赛 | electron/socket-server.ts |
@@ -102,6 +102,7 @@
 |-------------|------|------|------|------|
 | 获取录入列表 | GET | /api/profiles | 获取选手与战队录入（公开 GET，推流页9 战队联想/页面3 战队标识依赖） | electron/socket-server.ts |
 | 保存选手录入 | POST | /api/profiles/players | 新增/更新选手（未传 id 但同名视为更新；name 必填） | electron/socket-server.ts |
+| 导入选手（JSON 批量） | POST | /api/profiles/players/import | 批量导入选手，接受数组或 `{players:[...]}`；每条仅识别 name/rank/declaration（其余键忽略防注入），rank 仅纯数字、缺 name 跳过、同名沿用旧 id 更新；成功广播 profiles:update | electron/socket-server.ts |
 | 删除选手录入 | DELETE | /api/profiles/players/:playerId | 删除选手（连同头像文件） | electron/socket-server.ts |
 | 保存战队录入 | POST | /api/profiles/teams | 新增/更新战队（未传 id 但同名视为更新；name 必填） | electron/socket-server.ts |
 | 删除战队录入 | DELETE | /api/profiles/teams/:teamId | 删除战队（连同 logo 文件） | electron/socket-server.ts |

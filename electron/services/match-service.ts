@@ -1033,6 +1033,11 @@ export function updateMatch(paths: AppPaths, matchId: string, payload: unknown):
     pushMatchFlowUndo(store, current);
   }
   const tags = raw.tags === undefined ? current.tags : normalizeTags(raw.tags);
+  // 所属战队：允许创建后修改（左右选手所属战队）
+  const leftTeamName = raw.leftTeamName === undefined ? current.leftTeamName : normalizeTeamName(raw.leftTeamName);
+  const leftTeamId = raw.leftTeamId === undefined ? current.leftTeamId : normalizeTeamId(raw.leftTeamId);
+  const rightTeamName = raw.rightTeamName === undefined ? current.rightTeamName : normalizeTeamName(raw.rightTeamName);
+  const rightTeamId = raw.rightTeamId === undefined ? current.rightTeamId : normalizeTeamId(raw.rightTeamId);
   store.matches[index] = computeMatchProgress({
     ...current,
     leftPlayer,
@@ -1040,6 +1045,10 @@ export function updateMatch(paths: AppPaths, matchId: string, payload: unknown):
     leftRank,
     rightRank,
     bestOf: nextBestOf,
+    leftTeamName,
+    leftTeamId,
+    rightTeamName,
+    rightTeamId,
     tags,
     updatedAt: new Date().toISOString(),
   });

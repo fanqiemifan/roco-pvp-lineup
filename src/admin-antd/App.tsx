@@ -357,6 +357,16 @@ function Dashboard() {
   });
   const [sprites, setSprites] = useState<SpriteRecord[]>([]);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
+  // 快速创建比赛：从「信息录入」选手多选后随机配对生成对局
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [quickCreatePlayerNames, setQuickCreatePlayerNames] = useState<string[]>([]);
+  const [quickCreateBestOf, setQuickCreateBestOf] = useState<number>(3);
+  const [quickCreateTags, setQuickCreateTags] = useState<string[]>([]);
+  const [quickCreateSaving, setQuickCreateSaving] = useState(false);
+  // 当前比赛战队修改：开一局创建时未选战队可在此补填
+  const [teamEditOpen, setTeamEditOpen] = useState(false);
+  const [teamEditSaving, setTeamEditSaving] = useState(false);
+  const [teamEditForm] = Form.useForm<{ leftTeam?: string; rightTeam?: string }>();
   const [editingHistoryTagMatchId, setEditingHistoryTagMatchId] = useState<string | null>(null);
   const [editingHistoryTagValues, setEditingHistoryTagValues] = useState<string[]>([]);
   const [savingHistoryTagMatchId, setSavingHistoryTagMatchId] = useState<string | null>(null);
@@ -433,6 +443,10 @@ function Dashboard() {
   const [teamLogoFile, setTeamLogoFile] = useState<File | null>(null);
   const [teamLogoUrl, setTeamLogoUrl] = useState<string | null>(null);
   const [teamSaving, setTeamSaving] = useState(false);
+  // 选手批量导入（JSON）：预览确认弹窗与解析结果
+  const [playerImportOpen, setPlayerImportOpen] = useState(false);
+  const [playerImportPreview, setPlayerImportPreview] = useState<Array<{ name: string; rank: string; declaration: string }>>([]);
+  const [playerImporting, setPlayerImporting] = useState(false);
   const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
   const [page4Notice, setPage4Notice] = useState<NoticeState>(null);
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
@@ -1380,30 +1394,35 @@ function Dashboard() {
     }
   }
 
+  /** 统一提交创建比赛请求并应用服务端状态（创建/快速创建共用） */
+  async function postCreateMatch(values: CreateMatchValues) {
+    // 所属战队：按名称匹配「信息录入」战队，命中则复用其 id（推流页可展示战队 logo）
+    const teamList = profiles?.teams ?? [];
+    const leftTeamName = (values.leftTeam ?? '').trim();
+    const rightTeamName = (values.rightTeam ?? '').trim();
+    const leftTeam = leftTeamName ? teamList.find((team) => team.name === leftTeamName) : undefined;
+    const rightTeam = rightTeamName ? teamList.find((team) => team.name === rightTeamName) : undefined;
+    const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>('/api/matches', {
+      method: 'POST',
+      json: {
+        ...values,
+        leftTeamName,
+        leftTeamId: leftTeam?.id ?? '',
+        rightTeamName,
+        rightTeamId: rightTeam?.id ?? '',
+        tags: values.tags ?? [],
+      },
+    });
+    applyServerState({
+      store: data.store,
+      scoreboard: data.scoreboard,
+      panels: data.panels,
+    });
+  }
+
   async function createMatch(values: CreateMatchValues) {
     try {
-      // 所属战队：按名称匹配「信息录入」战队，命中则复用其 id（推流页可展示战队 logo）
-      const teamList = profiles?.teams ?? [];
-      const leftTeamName = (values.leftTeam ?? '').trim();
-      const rightTeamName = (values.rightTeam ?? '').trim();
-      const leftTeam = leftTeamName ? teamList.find((team) => team.name === leftTeamName) : undefined;
-      const rightTeam = rightTeamName ? teamList.find((team) => team.name === rightTeamName) : undefined;
-      const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>('/api/matches', {
-        method: 'POST',
-        json: {
-          ...values,
-          leftTeamName,
-          leftTeamId: leftTeam?.id ?? '',
-          rightTeamName,
-          rightTeamId: rightTeam?.id ?? '',
-          tags: values.tags ?? [],
-        },
-      });
-      applyServerState({
-        store: data.store,
-        scoreboard: data.scoreboard,
-        panels: data.panels,
-      });
+      await postCreateMatch(values);
       // 新赛事创建后即为当前赛事，头像按赛事隔离上传到新赛事下
       if (createLeftAvatar) {
         await uploadSingleFile('/api/upload/avatar/left', createLeftAvatar);
@@ -1422,6 +1441,97 @@ function Dashboard() {
       message.success('新赛事已创建');
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** 快速创建比赛：从「信息录入」选手多选、校验为双数后随机配对生成多场对局（公平起见随机分配，杜绝固定对阵） */
+  async function quickCreateMatches() {
+    const players = (profiles?.players ?? []).filter((player) => quickCreatePlayerNames.includes(player.name));
+    if (players.length < 2) {
+      message.warning('请至少选择 2 名选手');
+      return;
+    }
+    if (players.length % 2 !== 0) {
+      message.warning(`选手数量必须为双数，当前 ${players.length} 人会存在一场不足 2 名选手的对局，请再选择 1 名或去掉 1 名`);
+      return;
+    }
+    setQuickCreateSaving(true);
+    try {
+      // 随机洗牌（Fisher–Yates），保证配对随机、避免公平性问题
+      const shuffled = [...players];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      let created = 0;
+      for (let i = 0; i < shuffled.length; i += 2) {
+        const left = shuffled[i];
+        const right = shuffled[i + 1];
+        await postCreateMatch({
+          leftPlayer: left.name,
+          rightPlayer: right.name,
+          leftRank: left.rank || '',
+          rightRank: right.rank || '',
+          bestOf: quickCreateBestOf,
+          tags: quickCreateTags,
+        });
+        created += 1;
+      }
+      setRosterNotice({ tone: 'success', text: `已随机配对创建 ${created} 场比赛` });
+      message.success(`已随机分配创建 ${created} 场比赛`);
+      setQuickCreateOpen(false);
+      setQuickCreatePlayerNames([]);
+      setQuickCreateTags([]);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQuickCreateSaving(false);
+    }
+  }
+
+  // 战队修改：打开弹窗并回填当前比赛左右战队名称
+  function openTeamEdit() {
+    if (!activeMatch) {
+      return;
+    }
+    teamEditForm.setFieldsValue({
+      leftTeam: activeMatch.leftTeamName || undefined,
+      rightTeam: activeMatch.rightTeamName || undefined,
+    });
+    setTeamEditOpen(true);
+  }
+
+  // 保存当前比赛所属战队：按名称匹配「信息录入」战队复用 id；手动输入则仅记名称
+  async function saveTeamEdit(values: { leftTeam?: string; rightTeam?: string }) {
+    if (!activeMatch) {
+      return;
+    }
+    const teamList = profiles?.teams ?? [];
+    const leftTeamName = (values.leftTeam ?? '').trim();
+    const rightTeamName = (values.rightTeam ?? '').trim();
+    const leftTeam = leftTeamName ? teamList.find((team) => team.name === leftTeamName) : undefined;
+    const rightTeam = rightTeamName ? teamList.find((team) => team.name === rightTeamName) : undefined;
+    setTeamEditSaving(true);
+    try {
+      const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState }>(`/api/matches/${encodeURIComponent(activeMatch.id)}`, {
+        method: 'PATCH',
+        json: {
+          leftTeamName,
+          leftTeamId: leftTeam?.id ?? '',
+          rightTeamName,
+          rightTeamId: rightTeam?.id ?? '',
+        },
+      });
+      applyServerState({
+        store: data.store,
+        scoreboard: data.scoreboard,
+      });
+      setTeamEditOpen(false);
+      message.success('战队已更新');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTeamEditSaving(false);
     }
   }
 
@@ -1542,6 +1652,87 @@ function Dashboard() {
       message.success(`已删除选手「${player.name}」`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** 下载选手导入示例 JSON（英文字段名，中文说明见界面提示） */
+  function downloadPlayerImportTemplate() {
+    const sample = [
+      { name: '选手A', rank: '100', declaration: '目标冠军！' },
+      { name: '选手B', rank: '88', declaration: '为胜利而战' },
+      { name: '选手C', rank: '', declaration: '宣言（可选）' },
+    ];
+    const blob = new Blob([JSON.stringify(sample, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = '选手导入示例.json';
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * 解析选手导入 JSON：仅白名单读取名字 name / 排位排名 rank / 宣言 declaration 三个英文字段，
+   * 其余字段一律丢弃（防注入病毒）；排名仅保留数字。解析通过后打开确认弹窗。
+   */
+  function handlePlayerImportFile(file: File) {
+    void file
+      .text()
+      .then((text) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          message.error('JSON 解析失败，请检查文件是否为合法 JSON。');
+          return;
+        }
+        if (!Array.isArray(parsed)) {
+          message.error('导入文件必须是 JSON 数组，例如：[ { "name": "选手A", "rank": "100" } ]。');
+          return;
+        }
+        const cleaned: Array<{ name: string; rank: string; declaration: string }> = [];
+        for (const item of parsed) {
+          if (!item || typeof item !== 'object') continue;
+          const raw = item as Record<string, unknown>;
+          const name = String(raw.name ?? '').trim().slice(0, 32);
+          if (!name) continue;
+          cleaned.push({
+            name,
+            rank: String(raw.rank ?? '').replace(/\D/g, '').slice(0, 10),
+            declaration: String(raw.declaration ?? '').trim().slice(0, 120),
+          });
+        }
+        if (cleaned.length === 0) {
+          message.error('文件中没有可导入的有效选手记录（每条至少需要英文字段「name」）。');
+          return;
+        }
+        setPlayerImportPreview(cleaned);
+        setPlayerImportOpen(true);
+      })
+      .catch(() => {
+        message.error('读取文件失败，请重试。');
+      });
+    return false;
+  }
+
+  /** 确认批量导入选手（排除额外字段后提交后端做二次白名单校验） */
+  async function confirmPlayerImport() {
+    setPlayerImporting(true);
+    try {
+      const data = await requestJson<{ success: boolean; profiles: ProfileStoreState }>('/api/profiles/players/import', {
+        method: 'POST',
+        json: playerImportPreview,
+      });
+      setProfiles(data.profiles);
+      setPlayerImportPreview([]);
+      setPlayerImportOpen(false);
+      message.success(`已导入 ${playerImportPreview.length} 名选手（同名记录已更新排名与宣言）`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPlayerImporting(false);
     }
   }
 
@@ -3090,7 +3281,12 @@ function Dashboard() {
                   <Card
                     className="roster-overview-card roster-match-list-card"
                     title="比赛列表"
-                    extra={<Button type="primary" onClick={() => setCreateMatchOpen(true)}>开一局</Button>}
+                    extra={
+                      <Space size={8}>
+                        <Button onClick={() => setQuickCreateOpen(true)}>快速创建比赛</Button>
+                        <Button type="primary" onClick={() => setCreateMatchOpen(true)}>开一局</Button>
+                      </Space>
+                    }
                   >
                     <div className="match-list-scroll">
                       <List
@@ -3295,6 +3491,7 @@ function Dashboard() {
                           <div className="current-match-action-row">
                             <Space wrap size={12} className="current-match-action-group">
                               <Button type="primary" htmlType="submit">保存比赛信息</Button>
+                              <Button type="dashed" onClick={openTeamEdit}>战队修改</Button>
                               <Button
                                 onClick={() => void runMatchAction('start')}
                                 disabled={!currentGame || currentGame.status !== 'pending' || !currentGame.leftLineup.length || !currentGame.rightLineup.length}
@@ -3620,7 +3817,17 @@ function Dashboard() {
                     onChange={(value) => setProfileTab(value as 'players' | 'teams')}
                   />
                   {profileTab === 'players' ? (
-                    <Button type="primary" onClick={() => openPlayerEditor(null)}>新增选手</Button>
+                    <>
+                      <Button onClick={downloadPlayerImportTemplate}>下载示例</Button>
+                      <Upload
+                        accept=".json,application/json"
+                        showUploadList={false}
+                        beforeUpload={(file) => handlePlayerImportFile(file as File)}
+                      >
+                        <Button>导入JSON</Button>
+                      </Upload>
+                      <Button type="primary" onClick={() => openPlayerEditor(null)}>新增选手</Button>
+                    </>
                   ) : (
                     <Button type="primary" onClick={() => openTeamEditor(null)}>新增战队</Button>
                   )}
@@ -4707,6 +4914,128 @@ function Dashboard() {
       </Layout>
 
       <Modal
+        title="快速创建比赛"
+        open={quickCreateOpen}
+        onCancel={() => setQuickCreateOpen(false)}
+        onOk={() => void quickCreateMatches()}
+        okText="随机配对创建"
+        cancelText="取消"
+        confirmLoading={quickCreateSaving}
+        width={640}
+      >
+        <Form layout="vertical">
+          <Form.Item
+            label="参赛选手（可多选，支持搜索；选择数量必须为双数）"
+            required
+            extra={(() => {
+              const count = quickCreatePlayerNames.length;
+              const isEven = count % 2 === 0;
+              return (
+                <Text type={isEven ? 'secondary' : 'danger'}>
+                  已选择 {count} 人{count > 0 && !isEven ? ' —— 当前为奇数，会存在一场不足 2 名选手的对局，请再选 1 名或去掉 1 名' : ''}
+                </Text>
+              );
+            })()}
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              style={{ width: '100%' }}
+              placeholder="搜索并选择已录入选手"
+              value={quickCreatePlayerNames}
+              maxTagCount="responsive"
+              filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes(input.trim().toLowerCase())}
+              options={(profiles?.players ?? []).map((player) => ({
+                value: player.name,
+                label: `${player.name}${player.rank ? `（排名 ${player.rank}）` : ''}`,
+              }))}
+              onChange={(value) => setQuickCreatePlayerNames(value as string[])}
+            />
+          </Form.Item>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={12}>
+              <Form.Item label="比赛赛制">
+                <Select
+                  style={{ width: '100%' }}
+                  value={quickCreateBestOf}
+                  onChange={(value) => setQuickCreateBestOf(value as number)}
+                  options={[
+                    { value: 1, label: 'BO1' },
+                    { value: 3, label: 'BO3' },
+                    { value: 5, label: 'BO5' },
+                    { value: 7, label: 'BO7' },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item label="赛事标签（可选）">
+                <Select
+                  mode="multiple"
+                  allowClear
+                  style={{ width: '100%' }}
+                  placeholder="可选，选择赛事标签"
+                  value={quickCreateTags}
+                  onChange={(value) => setQuickCreateTags(value as string[])}
+                  options={allHistoryTags.map((tag) => ({ value: tag, label: tag }))}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            确认后将把所选选手随机洗牌并两两配对，为每对生成一场比赛（同「开一局」创建），保证配对随机、避免固定对阵造成的公平性问题。
+          </Paragraph>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={activeMatch ? `战队修改：${activeMatch.leftPlayer || '左侧'} vs ${activeMatch.rightPlayer || '右侧'}` : '战队修改'}
+        open={teamEditOpen}
+        onCancel={() => setTeamEditOpen(false)}
+        onOk={() => teamEditForm.submit()}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={teamEditSaving}
+      >
+        <Form
+          form={teamEditForm}
+          layout="vertical"
+          onFinish={(values) => void saveTeamEdit(values)}
+        >
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={12}>
+              <Form.Item label="左侧所属战队（可选）" name="leftTeam">
+                <AutoComplete
+                  maxLength={40}
+                  style={{ width: '100%' }}
+                  placeholder="选择已录入战队复用，或手动输入"
+                  options={(profiles?.teams ?? []).map((team) => ({ value: team.name, label: team.name }))}
+                  filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+                  allowClear
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={12}>
+              <Form.Item label="右侧所属战队（可选）" name="rightTeam">
+                <AutoComplete
+                  maxLength={40}
+                  style={{ width: '100%' }}
+                  placeholder="选择已录入战队复用，或手动输入"
+                  options={(profiles?.teams ?? []).map((team) => ({ value: team.name, label: team.name }))}
+                  filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+                  allowClear
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            选择「信息录入」中的战队会自动复用其 id（推流页 3 可展示战队 logo）；手动输入则仅记录战队名称。
+          </Paragraph>
+        </Form>
+      </Modal>
+
+      <Modal
         title="创建赛事"
         open={createMatchOpen}
         onCancel={() => {
@@ -4938,6 +5267,42 @@ function Dashboard() {
             <TextArea rows={2} maxLength={120} placeholder="例如：目标冠军！" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="导入选手（JSON）"
+        open={playerImportOpen}
+        onCancel={() => setPlayerImportOpen(false)}
+        onOk={() => void confirmPlayerImport()}
+        okText="确认导入"
+        cancelText="取消"
+        confirmLoading={playerImporting}
+        width={560}
+      >
+        <Paragraph>
+          将导入 <Text strong>{playerImportPreview.length}</Text> 条选手记录。仅识别以下英文字段，其余字段一律忽略（防止恶意字段注入）：
+        </Paragraph>
+        <Space size={16} wrap style={{ marginBottom: 12 }}>
+          <span><Text code>name</Text> <Text type="secondary">选手名字（必填）</Text></span>
+          <span><Text code>rank</Text> <Text type="secondary">排位排名（仅数字）</Text></span>
+          <span><Text code>declaration</Text> <Text type="secondary">宣言</Text></span>
+        </Space>
+        <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          同名选手将更新其排名与宣言，并保留原头像与常用精灵。
+        </Paragraph>
+        <Table
+          size="small"
+          rowKey={(record, index) => `${index}`}
+          dataSource={playerImportPreview}
+          pagination={false}
+          scroll={{ y: 220 }}
+          locale={{ emptyText: '无可导入记录' }}
+          columns={[
+            { title: '名字', dataIndex: 'name', key: 'name', render: (value: string) => <Text strong>{value}</Text> },
+            { title: '排位排名', dataIndex: 'rank', key: 'rank', width: 100, render: (value: string) => value || '-' },
+            { title: '宣言', dataIndex: 'declaration', key: 'declaration', ellipsis: true, render: (value: string) => value || '-' },
+          ]}
+        />
       </Modal>
 
       <Modal

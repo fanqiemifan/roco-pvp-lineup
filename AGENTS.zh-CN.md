@@ -41,7 +41,9 @@
 - 推流页面切换入场动效（fadeUp）：`src/styles/stage-enter.css` + `src/scripts/stage-enter.js` 是页面内入场动效的公共实现——推流载体（`stage-carrier.js`）完成 iframe 加载后 postMessage `stage-enter`，页面脚本在根节点加 `is-stage-entered` 触发 `.fx-enter` 区块依次上浮淡入（内联 `--fx-delay` 控制延迟）；推流页面 1/2/3/5/6/7/8/9/10 均已接入，page3 每次切入额外播放一次阵容入场（`page3-display.js` 监听 `stage-enter` 调 `animateLineup('enter')`），page11-13 自带元素动效不接入。
 - 排位排名（page3 比分栏图标）：在「开一局」创建弹窗或赛事面板「当前比赛」表单输入（仅数字、可选），随对局存入 `matches.json` 并由 `syncScoreboardFromMatch` 同步到记分牌；「直播推流」面板的 `page3RankVisible` 开关控制推流页显隐（开启但未输入排名只显示图标，超过 10000 显示 `10000+`）。
 - 信息录入（选手/战队档案）：导航栏「信息录入」单卡片 + Segmented 切换选手/战队视图，服务在 `electron/services/profile-service.ts`，数据落盘 `cache/profiles.json`；选手头像与战队 logo 存于 `cache/profiles/{players,teams}/<id>.png`，经公开静态路径 `/runtime/profiles/**` 访问。创建赛事时输入选手名字自动联想已录入选手（复用头像/排名），「所属战队」可选录入战队或手填；page9 团队积分榜战队名称输入框同样联想录入战队。
+- 选手 JSON 批量导入（选手信息页）：「信息录入 → 选手信息」顶部有「导入JSON」与「下载示例」。导入文件须为数组，每条**只识别白名单字段** `name`（选手名字，必填）/ `rank`（排位排名，仅纯数字）/ `declaration`（宣言）——其余任何键（id、pets、头像、`__proto__`、脚本等）一律忽略，前后端双侧白名单防注入；异常字段、超长文本会被裁剪，缺 `name` 的记录跳过。命名规范为英文字段名 + 中文界面标签。后端入口 `importPlayerProfiles` + `POST /api/profiles/players/import`（接受数组或 `{players:[...]}`），提交后广播 `profiles:update`。
 - 战队标识（page3 战队 div）：赛事携带 `leftTeamId/leftTeamName/rightTeamId/rightTeamName`，「直播推流」面板的 `page3TeamVisible` 开关控制显隐；开启后页面3 左右两侧（左 x257 y958 / 右 x1569 y958）显示 94×94 圆角 18 的战队 div，外描边 2px C9C9C9（box-shadow），底部 24px 高 F2ECDF 色块叠加战队名称（MiSans-Semibold 15px #585858，canvas 渲染 PNG 缓存避免字体兼容问题）；logo 优先按 teamId 匹配录入战队，未录入仅显示名称色块。
+- 赛事面板操作：「比赛列表」卡片头部在「开一局」旁有「快速创建比赛」——弹窗内可从「信息录入」选手**多选**（支持搜索），数量须为**双数**，再选「比赛赛制」与「赛事标签」，确认后用 **Fisher–Yates 随机洗牌 + 两两配对**逐一创建对局（公平起见随机分配，杜绝固定对阵），复用选手名字与排位排名；「当前比赛」操作面板在「开始本次对局」旁有「战队修改」——因创建时未选战队后续补填，从「信息录入」战队联想复用 id 或手动输入，PATCH `/api/matches/:id` 更新。创建比赛走统一入口 `postCreateMatch`（在前端抽取，创建与快速创建共用）。
 - 详细索引（类型、API 路由、函数、socket 事件、常量、文件地图）在 `.agents/01..10-*.md` —— 遇到问题先查它们；行为有变化时要同步更新这些文档。
 
 ## 注意事项

@@ -251,6 +251,38 @@ export function saveTeamProfile(paths: AppPaths, payload: unknown): ProfileStore
   return getProfileStore(paths);
 }
 
+/**
+ * 批量导入选手录入（JSON）。
+ * 安全约定：每条记录仅识别 name / rank / declaration 三个白名单字段，其余键名（含 id、pets、头像、
+ * 脚本或路径等注入字段）一律忽略，防止恶意 JSON 注入。排名仅保留数字。
+ * 同名选手视为更新：沿用旧 id 与头像、保留已有常用精灵，仅更新名字 / 排名 / 宣言；达到上限后仍可更新但不再新增。
+ * 返回保存后的完整状态。
+ */
+export function importPlayerProfiles(paths: AppPaths, payload: unknown): ProfileStoreState {
+  if (!Array.isArray(payload)) {
+    throw new Error('导入数据必须是选手数组');
+  }
+  const { store } = readStoreFile(paths);
+  for (const item of payload) {
+    const raw = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const name = normalizeName(raw.name);
+    if (!name) {
+      continue;
+    }
+    const declaration = normalizeText(raw.declaration);
+    const rank = normalizeRank(raw.rank);
+    const byName = store.players.findIndex((entry) => entry.name === name);
+    if (byName >= 0) {
+      // 同名更新：沿用旧 id/头像，保留已有常用精灵，仅更新名字 / 排名 / 宣言
+      store.players[byName] = { ...store.players[byName], name, declaration, rank };
+    } else if (store.players.length < MAX_PLAYERS) {
+      store.players.push({ id: createProfileId('p'), name, pets: '', declaration, rank });
+    }
+  }
+  writeStoreFile(paths, store);
+  return getProfileStore(paths);
+}
+
 /** 删除战队录入（连同 logo 文件） */
 export function deleteTeamProfile(paths: AppPaths, teamId: string): ProfileStoreState {
   const id = normalizeId(teamId);

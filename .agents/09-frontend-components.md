@@ -10,7 +10,8 @@
 - constants.ts / types.ts — 本地常量与类型
 
 ### 视图页面（ViewKey）
-- roster - 阵容编辑（RosterPanelEditor：左右面板编辑、精灵搜索、快速填充；顶部「当前比赛」表单含左右选手名+排位排名（仅数字，PATCH 保存比赛信息时一并提交）；待开始小局时编辑器显示源为赛事草稿（getPendingDraftContext + 草稿回填 effect，按 matchId|gameNumber 去重），全局面板仅供推流页、不覆写编辑器（syncPanelFromApi pending 感知），推流页仍不显示未开局阵容）
+- roster - 阵容编辑（RosterPanelEditor：左右面板编辑、精灵搜索、快速填充；顶部「当前比赛」表单含左右选手名+排位排名（仅数字，PATCH 保存比赛信息时一并提交）；「比赛列表」卡片头部有「快速创建比赛」按钮（多选录入选手+双数校验+赛制+标签，确认后 Fisher–Yates 随机洗牌两两配对逐一 `POST /api/matches` 创建，杜绝固定对阵）与「开一局」；「当前比赛」表单外有「战队修改」按钮（PATCH 补填/修改所属战队，联想录入战队或手动输入）；小结局时编辑器显示源为赛事草稿（getPendingDraftContext + 草稿回填 effect，按 matchId|gameNumber 去重），全局面板仅供推流页、不覆写编辑器（syncPanelFromApi pending 感知），推流页仍不显示未开局阵容）
+- 信息录入 - 选手/战队档案（导航栏单卡片 + Segmented 切换；选手信息页顶部有「导入JSON」与「下载示例」按钮——导入白名单字段 name/rank/declaration，前端 JSON.parse 校验为数组后预览中文列名与确认，后端再白名单校验兜底）
 - live - 实时控制（比赛开始、胜负记录、撤销/恢复）
 - history - 比赛历史（列表、删除、批量删除、撤销删除；「推送」勾选列推送比赛结果到页面6、「预告」勾选列推送比赛预告到页面8、「对局」勾选列配合「推送对局推送」按钮推送对局到页面7，可勾选待开始与进行中的对局）
 - stats - 数据统计（StatsView：使用率/上场率排行、属性分布、标签趋势；1920px 断点布局）

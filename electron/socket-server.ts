@@ -24,6 +24,7 @@ import {
 import {
   getProfileStore,
   savePlayerProfile,
+  importPlayerProfiles,
   deletePlayerProfile,
   saveTeamProfile,
   deleteTeamProfile,
@@ -637,6 +638,23 @@ export async function createLocalServer(
   app.post('/api/profiles/players', (request, response) => {
     try {
       const profiles = savePlayerProfile(paths, request.body ?? {});
+      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
+      response.json({ success: true, profiles });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 批量导入选手（JSON）：仅识别 body 数组，或 { players: [...] } 形式
+  app.post('/api/profiles/players/import', (request, response) => {
+    try {
+      const body = request.body;
+      const list = Array.isArray(body)
+        ? body
+        : body && Array.isArray(body.players)
+          ? body.players
+          : null;
+      const profiles = importPlayerProfiles(paths, list);
       io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
       response.json({ success: true, profiles });
     } catch (error) {
