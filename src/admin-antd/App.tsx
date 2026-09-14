@@ -3163,15 +3163,7 @@ function Dashboard() {
     // view 也作为依赖：预览外壳在「页面预览」与「对局推送」两个视图中分别挂载，切换后需重新计算缩放
   }, [previewSlot, view]);
 
-  if (loading) {
-    return (
-      <div className="admin-antd-loading">
-        <Spin size="large" />
-        <Text>正在加载新的 Ant Design 后台...</Text>
-      </div>
-    );
-  }
-
+  // 注意：该 useMemo 必须位于任何条件 return 之前（React Hooks 规则），否则 loading 切换时 hook 数量变化会触发 React #310 白屏
   const menuItems: MenuProps['items'] = useMemo(
     () => [
       { key: 'roster', icon: <NavIcon name="roster" />, label: VIEW_LABEL.roster },
@@ -3187,6 +3179,15 @@ function Dashboard() {
     ],
     []
   );
+
+  if (loading) {
+    return (
+      <div className="admin-antd-loading">
+        <Spin size="large" />
+        <Text>正在加载新的 Ant Design 后台...</Text>
+      </div>
+    );
+  }
 
   const historyColumns: ColumnsType<MatchRecord> = [
     {

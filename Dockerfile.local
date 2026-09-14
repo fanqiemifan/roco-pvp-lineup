@@ -1,0 +1,28 @@
+# 本地快速同步用：宿主构建产物、容器只负责运行。
+# 使用前提：先在宿主机执行 `npm run build`（产出 dist/ 与 dist-electron/）。
+# 用法：`docker compose -f docker-compose.local.yml up -d --build`
+# 仅改代码时：宿主机 `npm run build` 后再次执行即可，绕开容器内全量构建。
+# 服务器部署仍使用默认 `Dockerfile`（容器内自构建），本文件不影响服务器。
+
+FROM nikolaik/python-nodejs:python3.11-nodejs20
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# 依赖层：package-lock.json 不变时 Docker 命中缓存，不重装
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
+# 产物层：直接拷贝宿主机构建好的产物（平台无关：纯 tsc 编译 JS + 前端静态资源）
+COPY dist ./dist
+COPY dist-electron ./dist-electron
+COPY src ./src
+COPY resources ./resources
+COPY shared ./shared
+
+RUN mkdir -p /app/LuokePVPWebui/runtime /app/LuokePVPWebui/cache
+
+EXPOSE 9988
+
+CMD ["node", "dist-electron/electron/server-entry.js", "--host", "0.0.0.0", "--port", "9988"]

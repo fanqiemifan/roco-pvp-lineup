@@ -1,0 +1,24 @@
+# 本地开发/快速同步用配置：与 docker-compose.yml 的区别仅在构建方式。
+#   - 默认（服务器）: docker compose up -d --build          → Dockerfile（容器内自构建）
+#   - 本地快速同步:   docker compose -f docker-compose.local.yml up -d --build  → Dockerfile.local（拷贝宿主构建产物）
+# 本地流程：改代码 → npm run build → 重新执行上面本地命令（依赖层命中缓存，只 COPY 产物，秒级）。
+# 使用独立容器名与数据目录，避免与服务器版容器/数据互相覆盖。
+
+name: roco-pvp-lineup-local
+
+services:
+  roco-pvp-lineup:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    image: roco-pvp-lineup:local
+    container_name: roco-pvp-lineup-local
+    ports:
+      - "9988:9988"
+    volumes:
+      - ./LuokePVPWebui:/app/LuokePVPWebui
+    environment:
+      NODE_ENV: production
+      ADMIN_USER: admin
+      ADMIN_PASS: "123"
+    restart: unless-stopped

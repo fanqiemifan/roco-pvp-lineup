@@ -208,6 +208,7 @@
     function renderEmptySlot(slotEl) {
         slotEl.className = 'page3-spirit-slot';
         slotEl.innerHTML = '';
+        delete slotEl.dataset.spriteKey;
     }
 
     function renderSlot(slotEl, slotData, mtime) {
@@ -221,14 +222,32 @@
         const healthPercent = clamp(slotData && slotData.healthPercent, 0, 100, 100);
         const healthEnabled = !!(slotData && slotData.healthEnabled);
         const isDone = healthEnabled && healthPercent <= 0;
-        const cacheBuster = mtime ? Math.floor(mtime) : Date.now();
-        const imageCandidates = getSpriteImageCandidates(sprite)
-            .map((src) => `${src}${src.includes('?') ? '&' : '?'}t=${cacheBuster}`);
+
+        // 精灵身份签名（不含血量/阵亡）：精灵或立绘来源变化时才重建卡片并刷新图片，
+        // 阵亡/复活只切换 className（CSS 负责 240ms 渐变），避免重建 <img> 导致渐变被打断
+        const spriteKey = JSON.stringify({
+            id: sprite.id || sprite.path || spiritName,
+            name: spiritName,
+            path: sprite.path || '',
+            iconUrl: sprite.iconUrl || '',
+            source: page3SpriteSource === 'thumbnail' ? 'thumbnail' : 'sprite',
+        });
 
         slotEl.className = `page3-spirit-slot is-active${isDone ? ' is-done' : ''}`;
         if (lineupAnimationMode === 'enter') {
             slotEl.classList.add('is-lineup-entering');
         }
+
+        // 精灵没变：保留卡片 DOM，只留 className 变化交由过渡完成
+        if (slotEl.dataset.spriteKey === spriteKey) {
+            return;
+        }
+        slotEl.dataset.spriteKey = spriteKey;
+
+        const cacheBuster = mtime ? Math.floor(mtime) : Date.now();
+        const imageCandidates = getSpriteImageCandidates(sprite)
+            .map((src) => `${src}${src.includes('?') ? '&' : '?'}t=${cacheBuster}`);
+
         buildSlotCard(slotEl, sprite, spiritName, imageCandidates[0] || '');
         const spriteImage = slotEl.querySelector('.sprite-pet-card-sprite');
         if (page3SpriteSource === 'thumbnail' && slotEl.dataset.side === 'right') {

@@ -93,7 +93,8 @@
 |-------------|-------|------|------|
 | 获取录入存储 | getProfileStore | (paths: AppPaths) => ProfileStoreState | 获取选手/战队录入（cache/profiles.json，附带头像/logo 存在性与 mtime） |
 | 保存选手录入 | savePlayerProfile | (paths: AppPaths, payload: unknown) => ProfileStoreState | 新增/更新选手；未传 id 但同名视为更新（沿用旧 id 保住头像文件）；上限 200 人 |
-| 批量导入选手 | importPlayerProfiles | (paths: AppPaths, payload: unknown) => ProfileStoreState | 批量导入选手（数组或 `{players:[...]}`）；仅识别 name/rank/declaration（其余键忽略防注入），rank 仅纯数字、缺 name 跳过、同名沿用旧 id 更新；非数组抛错 |
+| 批量导入选手 | importPlayerProfiles | (paths: AppPaths, payload: unknown) => { profiles: ProfileStoreState; review: PetSuggestionReview[] } | 批量导入选手（数组或 `{players:[...]}`）；仅识别 name/rank/declaration/pets（其余键忽略防注入），rank 仅纯数字、缺 name 跳过、同名沿用旧 id 更新；pets 字符串或数组（支持 `、/，,` 分隔），仅命中 pets.json 才录入，未命中不入库并在 review 中携带每条最多 5 个兜底候选（PetSuggestionReview: name/input/candidates）供前端人工确认；非数组抛错，返回 `{ profiles, review }` |
+| 匹配单个常用精灵 | matchSpriteToken | (input: string, sprites: SpriteRecord[], limit?: number) => { matched: string \| null; candidates: SpriteRecord[] } | 常用精灵命中判定：按名字/编号/别名精确匹配 pets.json，命中返回 displayName，未命中返回最多 limit（默认 5）个模糊候选；supply「信息录入」JSON 导入的兜底 |
 | 删除选手录入 | deletePlayerProfile | (paths: AppPaths, playerId: string) => ProfileStoreState | 删除选手连同头像文件 |
 | 保存战队录入 | saveTeamProfile | (paths: AppPaths, payload: unknown) => ProfileStoreState | 新增/更新战队；未传 id 但同名视为更新（沿用旧 id 保住 logo 文件）；上限 100 支 |
 | 删除战队录入 | deleteTeamProfile | (paths: AppPaths, teamId: string) => ProfileStoreState | 删除战队连同 logo 文件 |

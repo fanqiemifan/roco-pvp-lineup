@@ -65,6 +65,7 @@ roco-pvp-lineup/
 | electron/services/page8-service.ts | 比赛预告页（page8）状态管理 |
 | electron/services/page9-service.ts | 团队积分榜页（page9）状态管理 |
 | electron/services/stage-service.ts | 直播推流载体配置管理 |
+| electron/services/profile-service.ts | 选手/战队信息录入（增删改、JSON 批量导入 importPlayerProfiles、常用精灵命中判定 matchSpriteToken） |
 | electron/services/stats-service.ts | 精灵精灵登场/胜率排行统计（/api/stats/ranking） |
 
 ### 共享模块
@@ -79,7 +80,7 @@ roco-pvp-lineup/
 
 | 文件路径 | 说明 |
 |---------|------|
-| App.tsx | 主组件：视图分发（roster/live/history/stats/stage/preview/about）、工具栏 |
+| App.tsx | 主组件：十视图分发（roster/stage/live/history/profiles/page11/stats/preview/page4/about）、可收缩 Sider 导航（SVG 图标 via `?raw`）、工具栏 |
 | views/RosterPanelEditor.tsx | 阵容编辑（左右面板、精灵搜索、快速填充） |
 | views/Page4PanelEditor.tsx | 仅显阵容（page4）面板编辑 |
 | views/Page4DeathPanel.tsx | page4 阵亡面板 |
@@ -87,6 +88,7 @@ roco-pvp-lineup/
 | components/ | Page4SlotVisual、SpritePetCard、StageThumb 等小组件 |
 | lib/ | format、history、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
+| env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
 | styles.css | 管理后台样式 |
 
 ### 前端脚本（src/scripts，原生 JS）

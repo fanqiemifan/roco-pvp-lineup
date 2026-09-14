@@ -67,6 +67,7 @@
 | PlayerProfile | 选手录入（id, name, pets 常用精灵, declaration 宣言, rank 排名仅数字, avatarExists, avatarMtime） | shared/types.ts |
 | TeamProfile | 战队录入（id, name, captain 队长, declaration 宣言, logoExists, logoMtime） | shared/types.ts |
 | ProfileStoreState | 录入存储状态（players, teams, mtime），落盘 cache/profiles.json | shared/types.ts |
+| PetSuggestionReview | 常用精灵导入未命中 pets.json 的兜底回执（name 选手名, input 未命中输入, candidates 最多 5 个候选含 name/number） | electron/services/profile-service.ts |
 
 ## 快照和通信
 

@@ -8,10 +8,18 @@
 - components/ — 可复用小组件
 - lib/ — 无状态纯函数（请求、统计、格式化等）
 - constants.ts / types.ts — 本地常量与类型
+- env.d.ts — `*.svg?raw` 模块声明（导航图标按原样字符串引入）
+
+### 导航栏 / 顶部栏（App.tsx + styles.css）
+- Sider 可收缩（`siderCollapsed`，展开 232px / 收起 64px，antd collapsible + trigger={null}，底部「收起导航/⇉」按钮）；收起后 Menu 仅显示图标，品牌区仅居中 logo。
+- 图标：`src/assets/ui/*.svg` 经 `?raw` 引入到 `NAV_ICONS`（NavIconName → raw），`NavIcon` 组件把 `fill="black"` 替换为 `fill="currentColor"` 随文字/选中态配色（正则替换用 useMemo 缓存）；展开态图标与文字间距 8px（styles.css `.nav-icon` margin-right，收起态归零居中）。
+- 品牌区：`logo.svg?raw`（左）+ 两行字（右）：`ROCO PVP LINEUP`（常规字重 #3d3d3d）/ `洛克王国世界阵容同步推流`（淡色 #999）。
+- 顶栏 `admin-header`：单行显示当前导航名（共享 `VIEW_LABEL` 映射，与导航菜单 label 同源），右侧按钮区（阵容悬浮窗/打开当前预览/复制预览链接/刷新全部数据）。
+- 行为注意：`menuItems` 的 `useMemo` 必须位于任何条件 return 之前（React Hooks 顺序约束，否则 loading 切换时抛 #310 白屏）。
 
 ### 视图页面（ViewKey）
-- roster - 阵容编辑（RosterPanelEditor：左右面板编辑、精灵搜索、快速填充；顶部「当前比赛」表单含左右选手名+排位排名（仅数字，PATCH 保存比赛信息时一并提交）；「比赛列表」卡片头部有「快速创建比赛」按钮（多选录入选手+双数校验+赛制+标签，确认后 Fisher–Yates 随机洗牌两两配对逐一 `POST /api/matches` 创建，杜绝固定对阵）与「开一局」；「当前比赛」表单外有「战队修改」按钮（PATCH 补填/修改所属战队，联想录入战队或手动输入）；小结局时编辑器显示源为赛事草稿（getPendingDraftContext + 草稿回填 effect，按 matchId|gameNumber 去重），全局面板仅供推流页、不覆写编辑器（syncPanelFromApi pending 感知），推流页仍不显示未开局阵容）
-- 信息录入 - 选手/战队档案（导航栏单卡片 + Segmented 切换；选手信息页顶部有「导入JSON」与「下载示例」按钮——导入白名单字段 name/rank/declaration，前端 JSON.parse 校验为数组后预览中文列名与确认，后端再白名单校验兜底）
+- roster - 阵容编辑（RosterPanelEditor：左右面板编辑、精灵搜索、快速填充；顶部「当前比赛」表单含左右选手名+排位排名（仅数字，PATCH 保存比赛信息时一并提交）；「比赛列表」卡片头部有「快速创建比赛」按钮（参赛选手在固定高度可滚动列表区逐条点选、顶部搜索框过滤，双数校验奇数红字告警，再选赛制+标签，确认后 Fisher–Yates 随机洗牌两两配对逐一 `POST /api/matches` 创建，杜绝固定对阵）与「开一局」；「当前比赛」表单外有「战队修改」按钮（PATCH 补填/修改所属战队，联想录入战队或手动输入）；小结局时编辑器显示源为赛事草稿（getPendingDraftContext + 草稿回填 effect，按 matchId|gameNumber 去重），全局面板仅供推流页、不覆写编辑器（syncPanelFromApi pending 感知），推流页仍不显示未开局阵容）
+- 信息录入 - 选手/战队档案（导航栏单卡片 + Segmented 切换；选手信息页顶部有「导入JSON」与「下载示例」按钮——导入白名单字段 name/rank/declaration/pets，前端 JSON.parse 校验为数组后预览中文列名与确认，后端再白名单校验兜底；未命中 pets.json 的常用精灵走 review 兜底弹窗：逐条下拉选最多 5 个候选或忽略；选手/战队表格行多选 +「删除所选（N）」一键批量删除（确认列出名称清单）；新增/编辑选手弹窗「常用精灵」为固定两列网格：头像（iconUrl 缺省回退立绘）+ 名字卡片点选、上限 6 个、顶部搜索过滤、Form.useWatch('pets') 双向绑定）
 - live - 实时控制（比赛开始、胜负记录、撤销/恢复）
 - history - 比赛历史（列表、删除、批量删除、撤销删除；「推送」勾选列推送比赛结果到页面6、「预告」勾选列推送比赛预告到页面8、「对局」勾选列配合「推送对局推送」按钮推送对局到页面7，可勾选待开始与进行中的对局）
 - stats - 数据统计（StatsView：使用率/上场率排行、属性分布、标签趋势；1920px 断点布局）

@@ -1,6 +1,4 @@
 node_modules
-dist
-dist-electron
 .git
 .gitignore
 .DS_Store
