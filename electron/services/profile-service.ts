@@ -8,12 +8,24 @@ import type {
 import { ensureRuntimeDirs } from './image-service.js';
 import type { AppPaths } from './path-service.js';
 
+import { listSprites, matchSpriteToken } from './sprite-service.js';
+
 const NAME_MAX_LENGTH = 32;
 const TEXT_MAX_LENGTH = 120;
 const RANK_MAX_LENGTH = 10;
 /** 单类（选手/战队）录入数量上限 */
 const MAX_PLAYERS = 200;
 const MAX_TEAMS = 100;
+
+/** 常用精灵导入未命中 pets.json 时的回执：携带最多 5 个兜底模糊候选（可空） */
+export interface PetSuggestionReview {
+  /** 对应的选手名字 */
+  name: string;
+  /** 未命中传入的常用精灵输入 */
+  input: string;
+  /** 兜底候选（最多 5 个），可为空 */
+  candidates: Array<{ name: string; number: number | null }>;
+}
 
 interface PlayerProfileFileEntry {
   id: string;
@@ -253,16 +265,23 @@ export function saveTeamProfile(paths: AppPaths, payload: unknown): ProfileStore
 
 /**
  * 批量导入选手录入（JSON）。
- * 安全约定：每条记录仅识别 name / rank / declaration 三个白名单字段，其余键名（含 id、pets、头像、
+ * 安全约定：每条记录仅识别 name / rank / declaration / pets 四个白名单英文字段，其余键名（含 id、头像、
  * 脚本或路径等注入字段）一律忽略，防止恶意 JSON 注入。排名仅保留数字。
- * 同名选手视为更新：沿用旧 id 与头像、保留已有常用精灵，仅更新名字 / 排名 / 宣言；达到上限后仍可更新但不再新增。
- * 返回保存后的完整状态。
+ * pets 为常用精灵（英文字段名 pets，字符串或数组）：仅当精灵名在 pets.json 中精确命中时才会录入；
+ * 未命中的精灵不录入、其余信息正常导入，并在返回的 review 中携带最多 5 个兜底模糊候选供前端选择。
+ * 同名选手视为更新：沿用旧 id 与头像，仅更新名字 / 排名 / 宣言 / 常用精灵；达到上限后仍可更新但不再新增。
  */
-export function importPlayerProfiles(paths: AppPaths, payload: unknown): ProfileStoreState {
+export function importPlayerProfiles(
+  paths: AppPaths,
+  payload: unknown,
+): { profiles: ProfileStoreState; review: PetSuggestionReview[] } {
   if (!Array.isArray(payload)) {
     throw new Error('导入数据必须是选手数组');
   }
   const { store } = readStoreFile(paths);
+  const sprites = listSprites(paths);
+  const review: PetSuggestionReview[] = [];
+
   for (const item of payload) {
     const raw = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
     const name = normalizeName(raw.name);
@@ -271,16 +290,50 @@ export function importPlayerProfiles(paths: AppPaths, payload: unknown): Profile
     }
     const declaration = normalizeText(raw.declaration);
     const rank = normalizeRank(raw.rank);
+
+    // 解析常用精灵（支持 `、/，,` 分隔的字符串或数组）
+    const petTokens = Array.isArray(raw.pets)
+      ? raw.pets.map((value) => String(value ?? '').trim()).filter(Boolean)
+      : String(raw.pets ?? '')
+        .split(/[/、,，\s]+/u)
+        .map((token) => token.trim())
+        .filter(Boolean);
+
+    let pets = '';
+    if (petTokens.length > 0) {
+      const matchedDisplays: string[] = [];
+      for (const token of petTokens) {
+        const { matched, candidates } = matchSpriteToken(token, sprites, 5);
+        if (matched) {
+          matchedDisplays.push(matched);
+        } else {
+          review.push({
+            name,
+            input: token,
+            candidates: candidates.map((sprite) => ({ name: sprite.displayName, number: sprite.number ?? null })),
+          });
+        }
+      }
+      pets = matchedDisplays.join('、');
+    }
+
     const byName = store.players.findIndex((entry) => entry.name === name);
     if (byName >= 0) {
-      // 同名更新：沿用旧 id/头像，保留已有常用精灵，仅更新名字 / 排名 / 宣言
-      store.players[byName] = { ...store.players[byName], name, declaration, rank };
+      // 同名更新：沿用旧 id/头像；导入未提供常用精灵或全部未命中时保留已有常用精灵
+      const existingPets = store.players[byName].pets ?? '';
+      store.players[byName] = {
+        ...store.players[byName],
+        name,
+        declaration,
+        rank,
+        pets: petTokens.length > 0 && pets ? pets : existingPets,
+      };
     } else if (store.players.length < MAX_PLAYERS) {
-      store.players.push({ id: createProfileId('p'), name, pets: '', declaration, rank });
+      store.players.push({ id: createProfileId('p'), name, pets, declaration, rank });
     }
   }
   writeStoreFile(paths, store);
-  return getProfileStore(paths);
+  return { profiles: getProfileStore(paths), review };
 }
 
 /** 删除战队录入（连同 logo 文件） */

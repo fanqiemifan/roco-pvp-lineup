@@ -1,7 +1,7 @@
 /*
 This project uses Ant Design (https://ant.design), licensed under the MIT License.
 */
-import React, { startTransition, useDeferredValue, useEffect, useRef, useState } from 'react';
+import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   App,
@@ -139,6 +139,18 @@ import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
 
 import { type StatsMetricKey } from './lib/stats';
+
+import rosterIcon from '../assets/ui/赛事面板.svg?raw';
+import stageIcon from '../assets/ui/直播推流.svg?raw';
+import liveIcon from '../assets/ui/实时控制.svg?raw';
+import historyIcon from '../assets/ui/比赛历史.svg?raw';
+import profilesIcon from '../assets/ui/信息录入.svg?raw';
+import introIcon from '../assets/ui/选手介绍.svg?raw';
+import statsIcon from '../assets/ui/数据统计.svg?raw';
+import previewIcon from '../assets/ui/页面预览.svg?raw';
+import panelsIcon from '../assets/ui/仅显阵容.svg?raw';
+import aboutIcon from '../assets/ui/关于项目.svg?raw';
+import brandLogoRaw from '../assets/ui/logo.svg?raw';
 import type {
   CreateMatchValues,
   LiveField,
@@ -157,6 +169,49 @@ import type {
 const { Header, Sider, Content } = Layout;
 const { Title, Paragraph, Text, Link } = Typography;
 const { TextArea } = Input;
+
+/** 导航栏各视图对应的 SVG 图标（Assets 里提供的自定义图标），使用当前上下文颜色自适应 */
+type NavIconName = 'roster' | 'stage' | 'live' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'page4' | 'about';
+
+/** 各导航视图对应的标题文案（与导航栏标签一致），顶部栏按当前视图显示 */
+const VIEW_LABEL: Record<NavIconName, string> = {
+  roster: '赛事面板',
+  stage: '直播推流',
+  live: '实时控制',
+  history: '比赛历史',
+  profiles: '信息录入',
+  page11: '选手介绍',
+  stats: '数据统计',
+  preview: '页面预览',
+  page4: '仅显阵容',
+  about: '关于项目',
+};
+
+const NAV_ICONS: Record<NavIconName, string> = {
+  roster: rosterIcon,
+  stage: stageIcon,
+  live: liveIcon,
+  history: historyIcon,
+  profiles: profilesIcon,
+  page11: introIcon,
+  stats: statsIcon,
+  preview: previewIcon,
+  page4: panelsIcon,
+  about: aboutIcon,
+};
+
+function NavIcon({ name, size = 20 }: { name: NavIconName; size?: number }) {
+  // 素材为黑色单色图标，替换成 currentColor 以随菜单文字/选中态自适应配色（memo 避免每次渲染重复正则替换）
+  const html = useMemo(() => NAV_ICONS[name].replace(/\sfill="(?:black|#000|#000000)"/g, ' fill="currentColor"'), [name]);
+  return (
+    <span
+      aria-hidden
+      className="nav-icon"
+      style={{ width: size, height: size, display: 'inline-flex', flexShrink: 0 }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
 
 const CHANGELOG: Array<{ version: string; date: string; items: string[] }> = [
   {
@@ -316,6 +371,8 @@ function HistorySortHeader({ text, sortKey, activeOrder, onSort }: {
 function Dashboard() {
   const { message, modal } = App.useApp();
   const [view, setView] = useState<ViewKey>('roster');
+  // 导航栏收起状态：收起后仅显示 SVG 图标
+  const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pageError, setPageError] = useState('');
@@ -363,6 +420,7 @@ function Dashboard() {
   const [quickCreateBestOf, setQuickCreateBestOf] = useState<number>(3);
   const [quickCreateTags, setQuickCreateTags] = useState<string[]>([]);
   const [quickCreateSaving, setQuickCreateSaving] = useState(false);
+  const [quickCreateKeyword, setQuickCreateKeyword] = useState('');
   // 当前比赛战队修改：开一局创建时未选战队可在此补填
   const [teamEditOpen, setTeamEditOpen] = useState(false);
   const [teamEditSaving, setTeamEditSaving] = useState(false);
@@ -443,10 +501,18 @@ function Dashboard() {
   const [teamLogoFile, setTeamLogoFile] = useState<File | null>(null);
   const [teamLogoUrl, setTeamLogoUrl] = useState<string | null>(null);
   const [teamSaving, setTeamSaving] = useState(false);
+  // 信息录入多选删除：记录选手/战队勾选的 id（跨 tab 独立）
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   // 选手批量导入（JSON）：预览确认弹窗与解析结果
   const [playerImportOpen, setPlayerImportOpen] = useState(false);
-  const [playerImportPreview, setPlayerImportPreview] = useState<Array<{ name: string; rank: string; declaration: string }>>([]);
+  const [playerImportPreview, setPlayerImportPreview] = useState<Array<{ name: string; rank: string; declaration: string; pets: string }>>([]);
   const [playerImporting, setPlayerImporting] = useState(false);
+  // 常用精灵未命中 pets.json 的兜底人工确认：review 列表 + 每条选中的候选
+  const [playerImportReview, setPlayerImportReview] = useState<Array<{ name: string; input: string; candidates: Array<{ name: string; number: number | null }> }>>([]);
+  const [playerImportReviewOpen, setPlayerImportReviewOpen] = useState(false);
+  const [petReviewSelection, setPetReviewSelection] = useState<Record<number, string>>({});
   const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
   const [page4Notice, setPage4Notice] = useState<NoticeState>(null);
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
@@ -477,6 +543,22 @@ function Dashboard() {
   const playerPetOptions = Array.from(
     new Set(sprites.map((sprite) => sprite.displayName.trim()).filter(Boolean)),
   ).map((name) => ({ value: name, label: name }));
+  // 选手常用精灵「两列精灵网格」：按 displayName 去重（同一精灵多形态只显示一项）、用于名字+头像点选
+  const playerPetGridItems = useMemo(() => {
+    const seen = new Set<string>();
+    const items: SpriteRecord[] = [];
+    for (const sprite of sprites) {
+      const displayName = sprite.displayName.trim();
+      if (!displayName || seen.has(displayName)) continue;
+      seen.add(displayName);
+      items.push(sprite);
+    }
+    return items;
+  }, [sprites]);
+  // 选手常用精灵网格：当前表单选中集 + 顶栏搜索词
+  const playerPetEditorValue = (Form.useWatch('pets', playerProfileForm) ?? []) as string[];
+  const playerPetEditorSelected = new Set(playerPetEditorValue);
+  const [petEditorKeyword, setPetEditorKeyword] = useState('');
   const activeMatch = getActiveMatch(matchStore);
   const currentGame = getCurrentGame(activeMatch);
   const lineupLocked = activeMatch?.status === 'completed';
@@ -1445,6 +1527,9 @@ function Dashboard() {
   }
 
   /** 快速创建比赛：从「信息录入」选手多选、校验为双数后随机配对生成多场对局（公平起见随机分配，杜绝固定对阵） */
+  function toggleQuickCreatePlayer(name: string) {
+    setQuickCreatePlayerNames((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+  }
   async function quickCreateMatches() {
     const players = (profiles?.players ?? []).filter((player) => quickCreatePlayerNames.includes(player.name));
     if (players.length < 2) {
@@ -1578,6 +1663,7 @@ function Dashboard() {
   function openPlayerEditor(player: PlayerProfile | null) {
     setEditingPlayer(player);
     playerProfileForm.resetFields();
+    setPetEditorKeyword('');
     playerProfileForm.setFieldsValue({
       name: player?.name ?? '',
       // 存储为「、」分隔文本，编辑时拆回多选数组
@@ -1599,6 +1685,15 @@ function Dashboard() {
     });
     clearProfileEditorImages();
     setTeamEditorOpen(true);
+  }
+
+  function togglePetInEditor(name: string) {
+    const next = playerPetEditorValue.includes(name)
+      ? playerPetEditorValue.filter((value) => value !== name)
+      : playerPetEditorValue.length >= 6
+        ? playerPetEditorValue
+        : [...playerPetEditorValue, name];
+    playerProfileForm.setFieldValue('pets', next);
   }
 
   function pickPlayerAvatar(file: File) {
@@ -1658,9 +1753,9 @@ function Dashboard() {
   /** 下载选手导入示例 JSON（英文字段名，中文说明见界面提示） */
   function downloadPlayerImportTemplate() {
     const sample = [
-      { name: '选手A', rank: '100', declaration: '目标冠军！' },
-      { name: '选手B', rank: '88', declaration: '为胜利而战' },
-      { name: '选手C', rank: '', declaration: '宣言（可选）' },
+      { name: '选手A', rank: '100', declaration: '目标冠军！', pets: '迪莫、火神' },
+      { name: '选手B', rank: '88', declaration: '为胜利而战', pets: '水蓝蓝' },
+      { name: '选手C', rank: '', declaration: '宣言（可选）', pets: '' },
     ];
     const blob = new Blob([JSON.stringify(sample, null, 2)], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -1674,8 +1769,9 @@ function Dashboard() {
   }
 
   /**
-   * 解析选手导入 JSON：仅白名单读取名字 name / 排位排名 rank / 宣言 declaration 三个英文字段，
-   * 其余字段一律丢弃（防注入病毒）；排名仅保留数字。解析通过后打开确认弹窗。
+   * 解析选手导入 JSON：仅白名单读取英文字段 名字 name / 排位排名 rank / 宣言 declaration / 常用精灵 pets，
+   * 其余字段一律丢弃（防注入病毒）；排名仅保留数字、pets 保留原始文本交由后端匹配 pets.json。
+   * 解析通过后打开确认弹窗。
    */
   function handlePlayerImportFile(file: File) {
     void file
@@ -1692,7 +1788,7 @@ function Dashboard() {
           message.error('导入文件必须是 JSON 数组，例如：[ { "name": "选手A", "rank": "100" } ]。');
           return;
         }
-        const cleaned: Array<{ name: string; rank: string; declaration: string }> = [];
+        const cleaned: Array<{ name: string; rank: string; declaration: string; pets: string }> = [];
         for (const item of parsed) {
           if (!item || typeof item !== 'object') continue;
           const raw = item as Record<string, unknown>;
@@ -1702,6 +1798,7 @@ function Dashboard() {
             name,
             rank: String(raw.rank ?? '').replace(/\D/g, '').slice(0, 10),
             declaration: String(raw.declaration ?? '').trim().slice(0, 120),
+            pets: String(raw.pets ?? '').trim().slice(0, 300),
           });
         }
         if (cleaned.length === 0) {
@@ -1717,22 +1814,71 @@ function Dashboard() {
     return false;
   }
 
-  /** 确认批量导入选手（排除额外字段后提交后端做二次白名单校验） */
+  /** 确认批量导入选手（排除额外字段后提交后端做二次白名单校验）；若有未命中常用精灵则打开兜底确认 */
   async function confirmPlayerImport() {
     setPlayerImporting(true);
     try {
-      const data = await requestJson<{ success: boolean; profiles: ProfileStoreState }>('/api/profiles/players/import', {
+      const data = await requestJson<{
+        success: boolean;
+        profiles: ProfileStoreState;
+        review: Array<{ name: string; input: string; candidates: Array<{ name: string; number: number | null }> }>;
+      }>('/api/profiles/players/import', {
         method: 'POST',
         json: playerImportPreview,
       });
       setProfiles(data.profiles);
+      const matchedCount = playerImportPreview.length;
       setPlayerImportPreview([]);
       setPlayerImportOpen(false);
-      message.success(`已导入 ${playerImportPreview.length} 名选手（同名记录已更新排名与宣言）`);
+      if (data.review && data.review.length > 0) {
+        setPlayerImportReview(data.review);
+        setPetReviewSelection({});
+        setPlayerImportReviewOpen(true);
+        message.warning(`已导入 ${matchedCount} 名选手，但 ${data.review.length} 个常用精灵未在 pets.json 中找到，请人工确认。`);
+      } else {
+        message.success(`已导入 ${matchedCount} 名选手（同名记录已更新排名与宣言）`);
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setPlayerImporting(false);
+    }
+  }
+
+  /** 兜底确认：把选中的候选精灵写入对应选手的常用精灵 */
+  async function applyPetReviewChoices() {
+    try {
+      const chosen = Object.entries(petReviewSelection).filter(([, value]) => Boolean(value));
+      if (chosen.length === 0) {
+        setPlayerImportReviewOpen(false);
+        setPlayerImportReview([]);
+        message.success('未选择任何候选，未做改动。');
+        return;
+      }
+      let latest = profiles;
+      for (const [indexKey, choice] of chosen) {
+        const index = Number(indexKey);
+        const reviewItem = playerImportReview[index];
+        const player = latest?.players.find((item) => item.name === reviewItem?.name);
+        if (!player) continue;
+        const existing = (player.pets ?? '')
+          .split(/[/、,，\s]+/)
+          .map((token) => token.trim())
+          .filter(Boolean);
+        const pets = [...existing.filter((token) => token !== choice), choice].join('、');
+        const data = await requestJson<{ success: boolean; profiles: ProfileStoreState }>('/api/profiles/players', {
+          method: 'POST',
+          json: { id: player.id, name: player.name, declaration: player.declaration, rank: player.rank, pets },
+        });
+        latest = data.profiles;
+      }
+      setProfiles(latest);
+      setPlayerImportReviewOpen(false);
+      setPlayerImportReview([]);
+      setPetReviewSelection({});
+      message.success(`已为 ${chosen.length} 个常用精灵补录对应选手。`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -1774,6 +1920,50 @@ function Dashboard() {
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  /** 批量删除选手/战队：逐条走单删接口，勾选后弹出确认（含将要删除的名称清单） */
+  function bulkDeleteProfiles(kind: 'players' | 'teams', ids: string[]) {
+    if (!ids.length) {
+      return;
+    }
+    const isPlayers = kind === 'players';
+    const label = isPlayers ? '选手' : '战队';
+    const items = (isPlayers ? profiles?.players : profiles?.teams) ?? [];
+    const names = items.filter((item) => ids.includes(item.id)).map((item) => item.name);
+    modal.confirm({
+      title: `确认删除所选 ${ids.length} 个${label}？`,
+      content: `将删除：${names.join('、')}（同时移除其头像/logo 文件）。该操作不可撤销。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setBulkDeleting(true);
+        try {
+          let latest = profiles;
+          for (const id of ids) {
+            const data = await requestJson<{ success: boolean; profiles: ProfileStoreState }>(
+              `/api/profiles/${kind}/${encodeURIComponent(id)}`,
+              { method: 'DELETE' },
+            );
+            latest = data.profiles;
+          }
+          if (latest) {
+            setProfiles(latest);
+          }
+          if (isPlayers) {
+            setSelectedPlayerIds([]);
+          } else {
+            setSelectedTeamIds([]);
+          }
+          message.success(`已删除 ${ids.length} 个${label}`);
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : String(error));
+        } finally {
+          setBulkDeleting(false);
+        }
+      },
+    });
   }
 
   /** 创建比赛时复用录入选手：自动带上排名与头像 */
@@ -2982,18 +3172,21 @@ function Dashboard() {
     );
   }
 
-  const menuItems: MenuProps['items'] = [
-    { key: 'roster', label: '赛事面板' },
-    { key: 'stage', label: '直播推流' },
-    { key: 'live', label: '实时控制' },
-    { key: 'history', label: '比赛历史' },
-    { key: 'profiles', label: '信息录入' },
-    { key: 'page11', label: '选手介绍' },
-    { key: 'stats', label: '数据统计' },
-    { key: 'preview', label: '页面预览' },
-    { key: 'page4', label: '仅显阵容' },
-    { key: 'about', label: '关于项目' },
-  ];
+  const menuItems: MenuProps['items'] = useMemo(
+    () => [
+      { key: 'roster', icon: <NavIcon name="roster" />, label: VIEW_LABEL.roster },
+      { key: 'stage', icon: <NavIcon name="stage" />, label: VIEW_LABEL.stage },
+      { key: 'live', icon: <NavIcon name="live" />, label: VIEW_LABEL.live },
+      { key: 'history', icon: <NavIcon name="history" />, label: VIEW_LABEL.history },
+      { key: 'profiles', icon: <NavIcon name="profiles" />, label: VIEW_LABEL.profiles },
+      { key: 'page11', icon: <NavIcon name="page11" />, label: VIEW_LABEL.page11 },
+      { key: 'stats', icon: <NavIcon name="stats" />, label: VIEW_LABEL.stats },
+      { key: 'preview', icon: <NavIcon name="preview" />, label: VIEW_LABEL.preview },
+      { key: 'page4', icon: <NavIcon name="page4" />, label: VIEW_LABEL.page4 },
+      { key: 'about', icon: <NavIcon name="about" />, label: VIEW_LABEL.about },
+    ],
+    []
+  );
 
   const historyColumns: ColumnsType<MatchRecord> = [
     {
@@ -3216,15 +3409,25 @@ function Dashboard() {
 
   return (
     <Layout className="admin-shell">
-      <Sider width={292} breakpoint="lg" collapsedWidth={0} className="admin-sider">
+      <Sider
+        width={232}
+        collapsible
+        collapsed={siderCollapsed}
+        collapsedWidth={64}
+        trigger={null}
+        className="admin-sider"
+      >
         <div className="brand-block">
-          <Text className="eyebrow">Control Room</Text>
-          <Title level={3}>洛克王国世界阵容同步推流</Title>
-          <Space wrap>
-            <Tag color="gold">赛事管理</Tag>
-            <Tag color="success">阵容编辑</Tag>
-            <Tag color="processing">页面预览</Tag>
-          </Space>
+          <span
+            className="brand-logo"
+            dangerouslySetInnerHTML={{ __html: brandLogoRaw }}
+          />
+          {!siderCollapsed && (
+            <div className="brand-title">
+              <span className="brand-line-1">ROCO PVP LINEUP</span>
+              <span className="brand-line-2">洛克王国世界阵容同步推流</span>
+            </div>
+          )}
         </div>
         <Menu
           mode="inline"
@@ -3239,16 +3442,24 @@ function Dashboard() {
           }}
           className="admin-menu"
         />
+        <div className="sider-foot">
+          <Button
+            size="small"
+            type="text"
+            block
+            title={siderCollapsed ? '展开导航栏' : '收起导航栏'}
+            onClick={() => setSiderCollapsed((value) => !value)}
+          >
+            {siderCollapsed ? '⇉' : '⇐ 收起导航'}
+          </Button>
+        </div>
       </Sider>
 
       <Layout className="admin-main">
         <Header className="admin-header">
-          <div>
-            <Text className="eyebrow">Admin Workspace</Text>
-            <Title level={2}>
-              {view === 'roster' ? '赛事工作台' : view === 'live' ? '实时控制' : view === 'page4' ? '仅显阵容' : view === 'history' ? '比赛历史' : view === 'profiles' ? '信息录入' : view === 'page11' ? '选手介绍' : view === 'stats' ? '数据统计' : view === 'stage' ? '直播推流' : view === 'preview' ? '页面预览' : '关于项目'}
-            </Title>
-          </div>
+          <Title level={3} style={{ margin: 0 }}>
+            {VIEW_LABEL[view]}
+          </Title>
           <Space wrap>
             <Button
               onClick={() => {
@@ -3283,7 +3494,7 @@ function Dashboard() {
                     title="比赛列表"
                     extra={
                       <Space size={8}>
-                        <Button onClick={() => setQuickCreateOpen(true)}>快速创建比赛</Button>
+                        <Button onClick={() => { setQuickCreateKeyword(''); setQuickCreateOpen(true); }}>快速创建比赛</Button>
                         <Button type="primary" onClick={() => setCreateMatchOpen(true)}>开一局</Button>
                       </Space>
                     }
@@ -3814,7 +4025,11 @@ function Dashboard() {
                       { value: 'players', label: '选手信息' },
                       { value: 'teams', label: '战队信息' },
                     ]}
-                    onChange={(value) => setProfileTab(value as 'players' | 'teams')}
+                    onChange={(value) => {
+                      setProfileTab(value as 'players' | 'teams');
+                      setSelectedPlayerIds([]);
+                      setSelectedTeamIds([]);
+                    }}
                   />
                   {profileTab === 'players' ? (
                     <>
@@ -3826,10 +4041,28 @@ function Dashboard() {
                       >
                         <Button>导入JSON</Button>
                       </Upload>
+                      <Button
+                        danger
+                        disabled={!selectedPlayerIds.length}
+                        loading={bulkDeleting}
+                        onClick={() => bulkDeleteProfiles('players', selectedPlayerIds)}
+                      >
+                        删除所选（{selectedPlayerIds.length}）
+                      </Button>
                       <Button type="primary" onClick={() => openPlayerEditor(null)}>新增选手</Button>
                     </>
                   ) : (
-                    <Button type="primary" onClick={() => openTeamEditor(null)}>新增战队</Button>
+                    <>
+                      <Button
+                        danger
+                        disabled={!selectedTeamIds.length}
+                        loading={bulkDeleting}
+                        onClick={() => bulkDeleteProfiles('teams', selectedTeamIds)}
+                      >
+                        删除所选（{selectedTeamIds.length}）
+                      </Button>
+                      <Button type="primary" onClick={() => openTeamEditor(null)}>新增战队</Button>
+                    </>
                   )}
                 </Space>
               }
@@ -3841,6 +4074,11 @@ function Dashboard() {
                     rowKey="id"
                     dataSource={profiles?.players ?? []}
                     pagination={false}
+                    rowSelection={{
+                      selectedRowKeys: selectedPlayerIds,
+                      onChange: (keys) => setSelectedPlayerIds(keys as string[]),
+                      getCheckboxProps: () => ({ disabled: bulkDeleting }),
+                    }}
                     locale={{ emptyText: '暂无选手录入，点击「新增选手」录入头像、名字、常用精灵、宣言与排名。' }}
                     columns={[
                       {
@@ -3891,6 +4129,11 @@ function Dashboard() {
                     rowKey="id"
                     dataSource={profiles?.teams ?? []}
                     pagination={false}
+                    rowSelection={{
+                      selectedRowKeys: selectedTeamIds,
+                      onChange: (keys) => setSelectedTeamIds(keys as string[]),
+                      getCheckboxProps: () => ({ disabled: bulkDeleting }),
+                    }}
                     locale={{ emptyText: '暂无战队录入，点击「新增战队」录入战队名称、队长、logo 与宣言。' }}
                     columns={[
                       {
@@ -4937,21 +5180,61 @@ function Dashboard() {
               );
             })()}
           >
-            <Select
-              mode="multiple"
+            <Input
               allowClear
-              showSearch
-              style={{ width: '100%' }}
-              placeholder="搜索并选择已录入选手"
-              value={quickCreatePlayerNames}
-              maxTagCount="responsive"
-              filterOption={(input, option) => String(option?.label ?? '').toLowerCase().includes(input.trim().toLowerCase())}
-              options={(profiles?.players ?? []).map((player) => ({
-                value: player.name,
-                label: `${player.name}${player.rank ? `（排名 ${player.rank}）` : ''}`,
-              }))}
-              onChange={(value) => setQuickCreatePlayerNames(value as string[])}
+              prefix={<span style={{ color: '#999' }}>搜索</span>}
+              placeholder="输入选手名字过滤"
+              value={quickCreateKeyword}
+              onChange={(event) => setQuickCreateKeyword(event.target.value)}
+              style={{ marginBottom: 8 }}
             />
+            <div
+              style={{
+                maxHeight: 240,
+                overflowY: 'auto',
+                border: '1px solid #d9d9d9',
+                borderRadius: 6,
+                padding: 4,
+                background: '#fff',
+              }}
+            >
+              {(profiles?.players ?? [])
+                .filter((player) => {
+                  const keyword = quickCreateKeyword.trim().toLowerCase();
+                  return !keyword || player.name.toLowerCase().includes(keyword);
+                })
+                .map((player) => {
+                  const checked = quickCreatePlayerNames.includes(player.name);
+                  return (
+                    <div
+                      key={player.id}
+                      onClick={() => toggleQuickCreatePlayer(player.name)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        background: checked ? '#e6f4ff' : 'transparent',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        userSelect: 'none',
+                      }}
+                    >
+                      <Checkbox checked={checked} />
+                      <span>{player.name}</span>
+                      {player.rank ? <Text type="secondary" style={{ fontSize: 12 }}>（排名 {player.rank}）</Text> : null}
+                    </div>
+                  );
+                })}
+              {(profiles?.players ?? []).filter((player) => {
+                const keyword = quickCreateKeyword.trim().toLowerCase();
+                return !keyword || player.name.toLowerCase().includes(keyword);
+              }).length === 0 ? (
+                <Text type="secondary" style={{ display: 'block', padding: '10px 12px' }}>
+                  无匹配选手
+                </Text>
+              ) : null}
+            </div>
           </Form.Item>
           <Row gutter={[16, 16]}>
             <Col xs={24} md={12}>
@@ -5248,20 +5531,87 @@ function Dashboard() {
           <Form.Item label="排名（可选）" name="rank" getValueFromEvent={(event: React.ChangeEvent<HTMLInputElement>) => event.target.value.replace(/\D/g, '')}>
             <Input maxLength={10} inputMode="numeric" placeholder="仅数字，例如：123" />
           </Form.Item>
-          <Form.Item label="常用精灵（可选，最多 6 个，选手介绍页会复用展示）" name="pets">
-            <Select
-              mode="multiple"
+          <Form.Item label={`常用精灵（点击选择，最多 6 个，可选可不选）当前已选 ${playerPetEditorValue.length}/6`} name="pets">
+            <Input
               allowClear
-              showSearch
-              maxCount={6}
-              popupMatchSelectWidth={false}
-              style={{ width: '100%' }}
-              placeholder="搜索并选择常用精灵"
-              options={playerPetOptions}
-              filterOption={(input, option) =>
-                String(option?.value ?? '').toLowerCase().includes(input.trim().toLowerCase())
-              }
+              prefix={<span style={{ color: '#999' }}>搜索</span>}
+              placeholder="输入精灵名字快速过滤"
+              value={petEditorKeyword}
+              onChange={(event) => setPetEditorKeyword(event.target.value)}
+              style={{ marginBottom: 8 }}
             />
+            <div
+              style={{
+                border: '1px solid #d9d9d9',
+                borderRadius: 6,
+                padding: 6,
+                maxHeight: 320,
+                overflowY: 'auto',
+                background: '#fff',
+              }}
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+                {playerPetGridItems
+                  .filter((sprite) => {
+                    const keyword = petEditorKeyword.trim().toLowerCase();
+                    return !keyword || sprite.displayName.toLowerCase().includes(keyword);
+                  })
+                  .map((sprite) => {
+                    const name = sprite.displayName.trim();
+                    const selected = playerPetEditorSelected.has(name);
+                    return (
+                      <div
+                        key={`${name}-${sprite.id}`}
+                        role="checkbox"
+                        aria-checked={selected}
+                        onClick={() => togglePetInEditor(name)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '5px 8px',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          background: selected ? '#e6f4ff' : 'transparent',
+                          border: selected ? '1px solid #91caff' : '1px solid transparent',
+                          userSelect: 'none',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 40,
+                            height: 40,
+                            flexShrink: 0,
+                            overflow: 'hidden',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: 6,
+                            background: 'rgba(0,0,0,0.03)',
+                          }}
+                        >
+                          <img
+                            src={sprite.iconUrl || sprite.path}
+                            alt={name}
+                            style={{ width: 36, height: 36, objectFit: 'contain' }}
+                            loading="lazy"
+                          />
+                        </span>
+                        <Text style={{ fontSize: 13, lineHeight: 1.2 }} ellipsis={{ tooltip: name }}>
+                          {name}
+                        </Text>
+                        {selected ? <span style={{ marginLeft: 'auto', color: '#1677ff', fontSize: 14 }}>✓</span> : null}
+                      </div>
+                    );
+                  })}
+                {playerPetGridItems.filter((sprite) => {
+                  const keyword = petEditorKeyword.trim().toLowerCase();
+                  return !keyword || sprite.displayName.toLowerCase().includes(keyword);
+                }).length === 0 ? (
+                  <Text type="secondary" style={{ padding: '10px 12px' }}>无匹配精灵</Text>
+                ) : null}
+              </div>
+            </div>
           </Form.Item>
           <Form.Item label="宣言（可选）" name="declaration">
             <TextArea rows={2} maxLength={120} placeholder="例如：目标冠军！" />
@@ -5286,9 +5636,10 @@ function Dashboard() {
           <span><Text code>name</Text> <Text type="secondary">选手名字（必填）</Text></span>
           <span><Text code>rank</Text> <Text type="secondary">排位排名（仅数字）</Text></span>
           <span><Text code>declaration</Text> <Text type="secondary">宣言</Text></span>
+          <span><Text code>pets</Text> <Text type="secondary">常用精灵（需在 pets.json 中命中）</Text></span>
         </Space>
         <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          同名选手将更新其排名与宣言，并保留原头像与常用精灵。
+          同名选手将更新其排名、宣言与常用精灵，并保留原头像。常用精灵仅在 pets.json 精确命中时录入，未命中的会在导入后提示并给出候选。
         </Paragraph>
         <Table
           size="small"
@@ -5299,10 +5650,51 @@ function Dashboard() {
           locale={{ emptyText: '无可导入记录' }}
           columns={[
             { title: '名字', dataIndex: 'name', key: 'name', render: (value: string) => <Text strong>{value}</Text> },
-            { title: '排位排名', dataIndex: 'rank', key: 'rank', width: 100, render: (value: string) => value || '-' },
+            { title: '排位排名', dataIndex: 'rank', key: 'rank', width: 90, render: (value: string) => value || '-' },
+            { title: '常用精灵', dataIndex: 'pets', key: 'pets', ellipsis: true, render: (value: string) => value || '-' },
             { title: '宣言', dataIndex: 'declaration', key: 'declaration', ellipsis: true, render: (value: string) => value || '-' },
           ]}
         />
+      </Modal>
+
+      <Modal
+        title="常用精灵需要人工确认"
+        open={playerImportReviewOpen}
+        onOk={() => void applyPetReviewChoices()}
+        okText="确认（写入选中的精灵）"
+        cancelText="忽略全部"
+        onCancel={() => {
+          setPlayerImportReviewOpen(false);
+          setPlayerImportReview([]);
+          setPetReviewSelection({});
+        }}
+        width={560}
+      >
+        <Paragraph>
+          有 <Text strong>{playerImportReview.length}</Text> 个常用精灵未在 pets.json 中命中，选手的其它信息已正常导入。请在下方选择正确的精灵以录入（每条最多 5 个候选），或忽略。
+        </Paragraph>
+        {playerImportReview.map((item, index) => (
+          <div key={`${item.name}-${index}`} style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 4 }}>
+              <Text strong>{item.name}</Text>
+              <Text type="secondary">：「{item.input}」未匹配到</Text>
+            </div>
+            <Select
+              allowClear
+              showSearch
+              style={{ width: '100%' }}
+              placeholder={item.candidates.length > 0 ? '选择候选精灵（可留空忽略）' : '无匹配候选，已跳过'}
+              value={petReviewSelection[index]}
+              disabled={item.candidates.length === 0}
+              filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.trim().toLowerCase())}
+              onChange={(value) => setPetReviewSelection((prev) => ({ ...prev, [index]: String(value ?? '') }))}
+              options={item.candidates.map((candidate) => ({
+                value: candidate.name,
+                label: `${candidate.name}${candidate.number != null ? `（编号 ${candidate.number}）` : ''}`,
+              }))}
+            />
+          </div>
+        ))}
       </Modal>
 
       <Modal

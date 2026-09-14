@@ -509,3 +509,26 @@ export function buildQuickFillPreview(paths: AppPaths, text: string): QuickFillP
     unmatched: matches.filter((item) => !item.matched).map((item) => item.input),
   };
 }
+
+/**
+ * 单个常用精灵输入 → 判定是否命中 pets.json。
+ * 「命中」指按名字 / 编号 / 别名精确匹配；未命中时返回最多 limit 个兜底候选（模糊匹配，默认 5 个）。
+ * 供「信息录入」JSON 导入：命中的记为常用精灵，未命中的交由前端展示候选供用户选择。
+ */
+export function matchSpriteToken(
+  input: string,
+  sprites: SpriteRecord[],
+  limit = 5,
+): { matched: string | null; candidates: SpriteRecord[] } {
+  const query = normalizeSearchName(input);
+  if (!query) {
+    return { matched: null, candidates: [] };
+  }
+  const matches = collectSpriteMatches(query, sprites);
+  const top = matches[0];
+  const exact = Boolean(top && typeof top.rank[0] === 'number' && top.rank[0] <= 2);
+  return {
+    matched: exact ? top.sprite.displayName : null,
+    candidates: matches.slice(0, limit).map((item) => item.sprite),
+  };
+}

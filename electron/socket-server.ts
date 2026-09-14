@@ -654,9 +654,9 @@ export async function createLocalServer(
         : body && Array.isArray(body.players)
           ? body.players
           : null;
-      const profiles = importPlayerProfiles(paths, list);
-      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
-      response.json({ success: true, profiles });
+      const result = importPlayerProfiles(paths, list);
+      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles });
+      response.json({ success: true, profiles: result.profiles, review: result.review });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
