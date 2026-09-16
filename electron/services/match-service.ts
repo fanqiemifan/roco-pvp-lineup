@@ -1323,16 +1323,16 @@ export function saveDraftPanelSlotStateForActiveMatch(
 }
 
 /**
- * 比赛历史「录入阵容」：为指定赛事的当前小局（且必须尚未开始）写入单侧阵容。
- * 只写赛事记录并广播 matchesUpdate，不触碰面板/比分栏/activeMatchId——
- * 待开始小局的阵容本就不上推流画面，因此天然不影响当前对局的推流。
+ * 比赛历史「录入阵容」：为指定赛事的当前小局（且必须尚未开始）写入双方阵容。
+ * 只写赛事记录并广播一次 matchesUpdate，不触碰面板/比分栏/activeMatchId——
+ * 待开始小局的阵容本就不上推流画面，因此天然不影响当前对局的推流；
+ * 双侧合并为一次写入，避免推流页（page7 等）因两次广播重渲染两遍产生闪烁。
  */
 export function saveGameLineupForMatch(
   paths: AppPaths,
   matchId: string,
   gameNumber: number,
-  position: 'left' | 'right',
-  selected: unknown,
+  selections: { left?: unknown; right?: unknown },
 ): MatchStoreState {
   const { store } = readStoreFile(paths);
   const index = store.matches.findIndex((match) => match.id === matchId);
@@ -1363,19 +1363,27 @@ export function saveGameLineupForMatch(
     throw new Error('该局已结束，不能录入阵容');
   }
 
+  const hasLeft = selections.left !== undefined;
+  const hasRight = selections.right !== undefined;
+  if (!hasLeft && !hasRight) {
+    throw new Error('请至少提供一侧的阵容');
+  }
+
   const gameIndex = current.games.findIndex((game) => game.gameNumber === gameNumber);
   if (gameIndex === -1) {
     throw new Error('小局不存在');
   }
 
-  const nextSlots = parseSelectedSlots(paths, selected);
+  const leftSlots = hasLeft ? parseSelectedSlots(paths, selections.left) : currentGame.leftSlots;
+  const rightSlots = hasRight ? parseSelectedSlots(paths, selections.right) : currentGame.rightSlots;
+
   const nextGames = [...current.games];
   nextGames[gameIndex] = {
     ...currentGame,
-    leftSlots: position === 'left' ? nextSlots : currentGame.leftSlots,
-    rightSlots: position === 'right' ? nextSlots : currentGame.rightSlots,
-    leftLineup: position === 'left' ? lineupFromSlots(nextSlots) : currentGame.leftLineup,
-    rightLineup: position === 'right' ? lineupFromSlots(nextSlots) : currentGame.rightLineup,
+    leftSlots,
+    rightSlots,
+    leftLineup: lineupFromSlots(leftSlots),
+    rightLineup: lineupFromSlots(rightSlots),
   };
 
   store.matches[index] = {

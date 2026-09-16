@@ -156,21 +156,22 @@ export function HistoryLineupEntryModal({
     }
     setSaving(true);
     try {
-      let latestStore: MatchStoreState | null = null;
-      for (const side of ['left', 'right'] as const) {
-        const data = await requestJson<{ success: boolean; store?: MatchStoreState }>(
-          `/api/matches/${encodeURIComponent(match.id)}/games/${game.gameNumber}/lineup`,
-          {
-            method: 'POST',
-            json: { position: side, selected: buildPanelRequest(buffers[side].selected) },
+      // 双侧合并为一次请求：服务端单次写入 + 单次 matchesUpdate 广播，
+      // 推流展示页（page7 等）只会重渲染一遍，避免两次事件各重建一次的闪烁
+      const data = await requestJson<{ success: boolean; store?: MatchStoreState }>(
+        `/api/matches/${encodeURIComponent(match.id)}/games/${game.gameNumber}/lineup`,
+        {
+          method: 'POST',
+          json: {
+            selections: {
+              left: buildPanelRequest(buffers.left.selected),
+              right: buildPanelRequest(buffers.right.selected),
+            },
           },
-        );
-        if (data.store) {
-          latestStore = data.store;
-        }
-      }
-      if (latestStore) {
-        onSaved(latestStore);
+        },
+      );
+      if (data.store) {
+        onSaved(data.store);
       }
       message.success(`已录入第 ${game.gameNumber} 局阵容（仅写入赛事记录，不影响推流）`);
       onClose();
