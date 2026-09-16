@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-import express, { type Request, type Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import { Server as SocketIOServer } from 'socket.io';
 
@@ -25,6 +25,7 @@ import {
   getProfileStore,
   savePlayerProfile,
   importPlayerProfiles,
+  importPlayerAvatarFiles,
   deletePlayerProfile,
   saveTeamProfile,
   deleteTeamProfile,
@@ -712,6 +713,54 @@ export async function createLocalServer(
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
+  });
+
+  // 批量导入选手头像：图片文件名（去扩展名）精确匹配已录入选手名字，命中即压缩落盘，
+  // 未命中/校验失败的文件在回执中列出由前端提醒。
+  // 文件名随表单字段 names（JSON 数组，与文件顺序对齐）显式传递——multer 会把 multipart
+  // 文件名按 latin1 解码导致中文乱码，而字段值始终按 UTF-8 解码；names 缺失时回退到
+  // originalname 的 latin1→utf8 修复值。
+  const PLAYER_AVATAR_BATCH_MAX = 100;
+  app.post('/api/upload/player-avatars/batch', upload.array('files', PLAYER_AVATAR_BATCH_MAX), async (request, response) => {
+    const files = (request.files ?? []) as Express.Multer.File[];
+    if (files.length === 0) {
+      response.status(400).json({ success: false, error: '未收到任何图片文件' });
+      return;
+    }
+
+    let names: string[] | null = null;
+    const rawNames = (request.body as Record<string, unknown> | undefined)?.names;
+    if (typeof rawNames === 'string') {
+      try {
+        const parsed: unknown = JSON.parse(rawNames);
+        if (Array.isArray(parsed)) {
+          names = parsed.map((item) => String(item ?? ''));
+        }
+      } catch {
+        names = null;
+      }
+    }
+
+    try {
+      const result = await importPlayerAvatarFiles(
+        paths,
+        files.map((file, index) => ({
+          name: names && index < names.length
+            ? names[index]
+            : Buffer.from(file.originalname, 'latin1').toString('utf8'),
+          buffer: file.buffer,
+        })),
+      );
+      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles });
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // multer 中间件错误（如单批超出数量上限）统一转 400 提示
+  app.use('/api/upload/player-avatars/batch', (error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+    response.status(400).json({ success: false, error: error instanceof Error ? error.message : '批量头像上传失败' });
   });
 
   app.post('/api/upload/team-logo/:teamId', upload.single('file'), async (request, response) => {

@@ -107,6 +107,7 @@
 | 保存战队录入 | POST | /api/profiles/teams | 新增/更新战队（未传 id 但同名视为更新；name 必填） | electron/socket-server.ts |
 | 删除战队录入 | DELETE | /api/profiles/teams/:teamId | 删除战队（连同 logo 文件） | electron/socket-server.ts |
 | 上传选手头像 | POST | /api/upload/player-avatar/:playerId | 上传选手头像（魔数校验，sharp 裁剪为方形 PNG，存 cache/profiles/players/<id>.png） | electron/socket-server.ts |
+| 批量上传选手头像 | POST | /api/upload/player-avatars/batch | multipart 多文件（字段 files，单批上限 100）：图片文件名（去扩展名）精确匹配已录入选手名字（同名取先录入者），命中走 saveProfilePlayerAvatar 同管线（魔数校验 + sharp 480×480 PNG 落盘），未命中/失败不落盘并在回执 `{ success, profiles, matched, unmatched, failed }` 中列出由前端弹窗提醒；中文文件名经表单字段 names（JSON 数组，与文件顺序对齐）传递（multer 将 multipart 文件名按 latin1 解码会乱码，字段值按 UTF-8），names 缺失时回退 originalname 的 latin1→utf8 修复；成功广播 profiles:update | electron/socket-server.ts |
 | 上传战队 logo | POST | /api/upload/team-logo/:teamId | 上传战队 logo（魔数校验，sharp cover 铺满裁剪 192×192 PNG，存 cache/profiles/teams/<id>.png） | electron/socket-server.ts |
 
 ## 精灵接口

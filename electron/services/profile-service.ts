@@ -5,7 +5,7 @@ import type {
   ProfileStoreState,
   TeamProfile,
 } from '../../shared/types.js';
-import { ensureRuntimeDirs } from './image-service.js';
+import { ensureRuntimeDirs, saveProfilePlayerAvatar } from './image-service.js';
 import type { AppPaths } from './path-service.js';
 
 import { listSprites, matchSpriteToken } from './sprite-service.js';
@@ -334,6 +334,62 @@ export function importPlayerProfiles(
   }
   writeStoreFile(paths, store);
   return { profiles: getProfileStore(paths), review };
+}
+
+/** 批量头像导入回执：matched 成功写入的头像数；unmatched 未命中选手名字的文件名；failed 校验/处理失败明细 */
+export interface PlayerAvatarBatchReport {
+  profiles: ProfileStoreState;
+  matched: number;
+  unmatched: string[];
+  failed: Array<{ name: string; reason: string }>;
+}
+
+/** 取文件基础名（去目录与扩展名）用于匹配选手名字 */
+function avatarMatchName(fileName: string): string {
+  const base = String(fileName ?? '').split(/[\\/]/).pop() ?? '';
+  return base.replace(/\.[^.]+$/, '').trim();
+}
+
+/**
+ * 批量导入选手头像：按图片文件基础名精确匹配已录入选手名字（同名选手取先录入者），
+ * 命中则复用单个头像上传同一条管线（魔数校验 + sharp 压缩为 480×480 PNG 落盘）；
+ * 未命中名字或图片校验失败的文件不落盘，在回执中列出由前端提醒。
+ */
+export async function importPlayerAvatarFiles(
+  paths: AppPaths,
+  files: Array<{ name: string; buffer: Buffer }>,
+): Promise<PlayerAvatarBatchReport> {
+  const { store } = readStoreFile(paths);
+  const idByName = new Map<string, string>();
+  for (const entry of store.players) {
+    if (!idByName.has(entry.name)) {
+      idByName.set(entry.name, entry.id);
+    }
+  }
+
+  let matched = 0;
+  const unmatched: string[] = [];
+  const failed: Array<{ name: string; reason: string }> = [];
+  for (const file of files) {
+    const matchName = avatarMatchName(file.name);
+    if (!matchName) {
+      failed.push({ name: file.name, reason: '文件名缺少可匹配的选手名字' });
+      continue;
+    }
+    const playerId = idByName.get(matchName);
+    if (!playerId) {
+      unmatched.push(matchName);
+      continue;
+    }
+    try {
+      await saveProfilePlayerAvatar(paths, playerId, file.buffer);
+      matched += 1;
+    } catch (error) {
+      failed.push({ name: matchName, reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  return { profiles: getProfileStore(paths), matched, unmatched, failed };
 }
 
 /** 删除战队录入（连同 logo 文件） */

@@ -1,4 +1,4 @@
-import type { QuickFillMatch, Page4SlotState, SlotState } from '../../shared/types';
+import type { ProfileStoreState, QuickFillMatch, Page4SlotState, SlotState } from '../../shared/types';
 
 export type PanelSide = 'left' | 'right';
 export type ViewKey = 'roster' | 'live' | 'page4' | 'history' | 'stats' | 'preview' | 'stage' | 'profiles' | 'page11' | 'about';
@@ -35,6 +35,15 @@ export type TeamProfileFormValues = {
   name: string;
   captain?: string;
   declaration?: string;
+};
+
+/** 批量上传选手头像的接口回执（按文件名匹配：matched 成功数 / unmatched 未命中名字 / failed 处理失败明细） */
+export type PlayerAvatarBatchResponse = {
+  success: boolean;
+  profiles: ProfileStoreState;
+  matched: number;
+  unmatched: string[];
+  failed: Array<{ name: string; reason: string }>;
 };
 
 export type CreateMatchValues = MatchFormValues;

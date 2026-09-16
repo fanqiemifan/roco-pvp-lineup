@@ -35,6 +35,7 @@ import {
   Table,
   Tag,
   Timeline,
+  Tooltip,
   Typography,
   Upload,
 } from 'antd';
@@ -159,6 +160,7 @@ import type {
   Page4PanelEditorState,
   PanelEditorState,
   PanelSide,
+  PlayerAvatarBatchResponse,
   PlayerProfileFormValues,
   PreviewSlotKey,
   SpriteFilterState,
@@ -513,6 +515,15 @@ function Dashboard() {
   const [playerImportReview, setPlayerImportReview] = useState<Array<{ name: string; input: string; candidates: Array<{ name: string; number: number | null }> }>>([]);
   const [playerImportReviewOpen, setPlayerImportReviewOpen] = useState(false);
   const [petReviewSelection, setPetReviewSelection] = useState<Record<number, string>>({});
+  // 选手头像批量上传：先按文件名本地匹配出「原头像 vs 新头像」对比预览弹窗，确认后才覆盖上传
+  const [avatarBatchUploading, setAvatarBatchUploading] = useState(false);
+  const [avatarBatchConfirmOpen, setAvatarBatchConfirmOpen] = useState(false);
+  const [avatarBatchPreview, setAvatarBatchPreview] = useState<Array<{ file: File; url: string; player: PlayerProfile }>>([]);
+  const [avatarBatchSkipped, setAvatarBatchSkipped] = useState<string[]>([]);
+  // 上传后后端回执中未命中/失败明细的结果提醒弹窗
+  const [avatarBatchResult, setAvatarBatchResult] = useState<{ matched: number; unmatched: string[]; failed: Array<{ name: string; reason: string }> } | null>(null);
+  const [avatarBatchResultOpen, setAvatarBatchResultOpen] = useState(false);
+  const avatarBatchInputRef = useRef<HTMLInputElement | null>(null);
   const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
   const [page4Notice, setPage4Notice] = useState<NoticeState>(null);
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
@@ -1842,6 +1853,87 @@ function Dashboard() {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setPlayerImporting(false);
+    }
+  }
+
+  /** 释放批量头像预览中创建的本地对象 URL 并清空预览状态 */
+  function clearAvatarBatchPreview() {
+    for (const item of avatarBatchPreview) {
+      URL.revokeObjectURL(item.url);
+    }
+    setAvatarBatchPreview([]);
+    setAvatarBatchSkipped([]);
+  }
+
+  /**
+   * 选择批量头像文件后先做本地匹配预览：按文件名（去扩展名）精确匹配已录入选手，
+   * 弹出「原头像 vs 新头像」左右对比弹窗，确认后才提交覆盖；未匹配到的文件列出提醒且不上传。
+   */
+  function handleAvatarBatchFiles(files: File[]) {
+    if (files.length === 0) return;
+    if (!profiles) {
+      message.error('选手档案尚未加载，请稍后重试。');
+      return;
+    }
+    // 换一批文件前先释放上一批预览的对象 URL
+    clearAvatarBatchPreview();
+    const nameToPlayer = new Map<string, PlayerProfile>();
+    for (const player of profiles.players) {
+      if (!nameToPlayer.has(player.name)) {
+        nameToPlayer.set(player.name, player);
+      }
+    }
+    const preview: Array<{ file: File; url: string; player: PlayerProfile }> = [];
+    const skipped: string[] = [];
+    for (const file of files) {
+      const matchName = file.name.replace(/\.[^.]+$/, '').trim();
+      const player = matchName ? nameToPlayer.get(matchName) : undefined;
+      if (player) {
+        preview.push({ file, url: URL.createObjectURL(file), player });
+      } else {
+        skipped.push(matchName || file.name);
+      }
+    }
+    setAvatarBatchPreview(preview);
+    setAvatarBatchSkipped(skipped);
+    if (preview.length === 0) {
+      message.error(`所选图片均未匹配到已录入选手（${skipped.length} 个文件已忽略），请检查文件名是否与选手名字一致。`);
+      return;
+    }
+    setAvatarBatchConfirmOpen(true);
+  }
+
+  /**
+   * 确认覆盖：只提交预览中匹配到的图片（文件名列表随表单 names 字段以 JSON 显式传递，
+   * 规避 multer 将 multipart 文件名按 latin1 解码导致的中文乱码），后端二次按名字匹配
+   * 并走与单个头像上传相同的魔数校验 + sharp 压缩管线落盘。
+   */
+  async function confirmPlayerAvatarBatch() {
+    if (avatarBatchPreview.length === 0) return;
+    setAvatarBatchUploading(true);
+    try {
+      const formData = new FormData();
+      for (const item of avatarBatchPreview) {
+        formData.append('files', item.file);
+      }
+      formData.append('names', JSON.stringify(avatarBatchPreview.map((item) => item.file.name)));
+      const data = await requestJson<PlayerAvatarBatchResponse>('/api/upload/player-avatars/batch', {
+        method: 'POST',
+        body: formData,
+      });
+      setProfiles(data.profiles);
+      clearAvatarBatchPreview();
+      setAvatarBatchConfirmOpen(false);
+      if (data.unmatched.length > 0 || data.failed.length > 0) {
+        setAvatarBatchResult({ matched: data.matched, unmatched: data.unmatched, failed: data.failed });
+        setAvatarBatchResultOpen(true);
+      } else {
+        message.success(`已为 ${data.matched} 位选手更新头像`);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAvatarBatchUploading(false);
     }
   }
 
@@ -4042,6 +4134,9 @@ function Dashboard() {
                       >
                         <Button>导入JSON</Button>
                       </Upload>
+                      <Tooltip title="一次多选图片，先按文件名（去掉扩展名）匹配选手并预览原/新头像对比，确认后才覆盖保存；未命中的不上传">
+                        <Button loading={avatarBatchUploading} onClick={() => avatarBatchInputRef.current?.click()}>批量头像</Button>
+                      </Tooltip>
                       <Button
                         danger
                         disabled={!selectedPlayerIds.length}
@@ -4070,6 +4165,18 @@ function Dashboard() {
             >
               {profileTab === 'players' ? (
                 <>
+                  <input
+                    ref={avatarBatchInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    multiple
+                    hidden
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files ?? []);
+                      event.target.value = '';
+                      if (files.length > 0) handleAvatarBatchFiles(files);
+                    }}
+                  />
                   <Table
                     size="small"
                     rowKey="id"
@@ -4121,6 +4228,7 @@ function Dashboard() {
                   />
                   <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
                     创建赛事时输入选手名字会自动联想已录入选手，选中后自动复用其头像与排名。
+                    「批量头像」支持一次多选图片，按文件名（去掉扩展名）匹配选手名字，先弹出原/新头像对比预览，确认后才覆盖保存；未命中的会提醒且不上传。
                   </Paragraph>
                 </>
               ) : (
@@ -5696,6 +5804,109 @@ function Dashboard() {
             />
           </div>
         ))}
+      </Modal>
+
+      <Modal
+        title="批量头像预览"
+        open={avatarBatchConfirmOpen}
+        onCancel={() => {
+          setAvatarBatchConfirmOpen(false);
+          clearAvatarBatchPreview();
+        }}
+        onOk={() => void confirmPlayerAvatarBatch()}
+        okText={`确认覆盖（${avatarBatchPreview.length} 张）`}
+        cancelText="取消"
+        confirmLoading={avatarBatchUploading}
+        width={620}
+      >
+        <Paragraph>
+          已按文件名匹配 <Text strong>{avatarBatchPreview.length}</Text> 位选手，确认后覆盖原头像（统一压缩为 480×480 PNG）；未匹配的文件不会上传。
+        </Paragraph>
+        {avatarBatchSkipped.length > 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`${avatarBatchSkipped.length} 个文件未匹配到已录入选手，将不上传：${avatarBatchSkipped.join('、')}`}
+          />
+        ) : null}
+        <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+          {avatarBatchPreview.map((item, index) => (
+            <div
+              key={`${item.player.id}-${index}`}
+              style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '8px 0', borderBottom: '1px solid #f0f0f0' }}
+            >
+              <div style={{ textAlign: 'center' }}>
+                <Image
+                  preview={false}
+                  width={56}
+                  height={56}
+                  style={{ borderRadius: 8, objectFit: 'cover' }}
+                  src={item.player.avatarExists
+                    ? `/runtime/profiles/players/${encodeURIComponent(item.player.id)}.png?t=${item.player.avatarMtime ?? 0}`
+                    : '/assets/ui/left-avatar.png'}
+                />
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {item.player.avatarExists ? '原头像' : '原头像（未设置）'}
+                  </Text>
+                </div>
+              </div>
+              <Text type="secondary">→</Text>
+              <div style={{ textAlign: 'center' }}>
+                <Image preview={false} width={56} height={56} style={{ borderRadius: 8, objectFit: 'cover' }} src={item.url} />
+                <div><Text type="secondary" style={{ fontSize: 12 }}>新头像</Text></div>
+              </div>
+              <Text strong style={{ marginLeft: 'auto', marginRight: 8 }}>{item.player.name}</Text>
+            </div>
+          ))}
+        </div>
+        <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+          同一选手匹配到多张图片时以后上传的为准；确认后按文件名覆盖对应选手档案。
+        </Paragraph>
+      </Modal>
+
+      <Modal
+        title="批量头像上传结果"
+        open={avatarBatchResultOpen}
+        onCancel={() => setAvatarBatchResultOpen(false)}
+        footer={null}
+        width={520}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          {(avatarBatchResult?.matched ?? 0) > 0 ? (
+            <Alert type="success" showIcon message={`已为 ${avatarBatchResult?.matched} 位选手更新头像（统一压缩为 480×480 PNG）`} />
+          ) : null}
+          {(avatarBatchResult?.unmatched.length ?? 0) > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={`${avatarBatchResult?.unmatched.length} 张图片未匹配到已录入选手名字，已跳过`}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {avatarBatchResult?.unmatched.map((name, index) => (
+                    <li key={`${name}-${index}`}>{name}</li>
+                  ))}
+                </ul>
+              }
+            />
+          ) : null}
+          {(avatarBatchResult?.failed.length ?? 0) > 0 ? (
+            <Alert
+              type="error"
+              showIcon
+              message={`${avatarBatchResult?.failed.length} 张图片处理失败`}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {avatarBatchResult?.failed.map((item, index) => (
+                    <li key={`${item.name}-${index}`}>{item.name}：{item.reason}</li>
+                  ))}
+                </ul>
+              }
+            />
+          ) : null}
+          <Text type="secondary">提示：图片文件名（去掉扩展名）需与已录入选手名字一致，例如「小明.png」匹配选手「小明」。</Text>
+        </Space>
       </Modal>
 
       <Modal
