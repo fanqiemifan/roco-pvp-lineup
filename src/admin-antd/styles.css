@@ -652,143 +652,54 @@ a {
   justify-content: flex-end;
 }
 
-/* 比赛列表卡片高度跟随右侧「当前比赛」卡片：行高只由右列内容驱动，
-   滚动区绝对定位填充卡片体（不参与行高计算）；
-   左卡显式回退 height:auto，让列（flex）的 align-items: stretch 生效 */
-.roster-match-list-card > .ant-card-body {
-  position: relative;
-}
-
-.roster-match-list-card.ant-card {
-  height: auto;
-}
-
 .match-list-scroll {
-  position: absolute;
-  inset: 0;
+  height: calc((72px * 5) + (12px * 4));
+  max-height: calc((72px * 5) + (12px * 4));
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 2px 6px 2px 2px;
+  padding-right: 4px;
 }
 
-.match-card-list {
+.match-list .ant-list-items {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
-.match-card {
-  border: 1px solid rgba(91, 67, 43, 0.16);
-  border-radius: 14px;
-  background: rgba(255, 253, 249, 0.96);
-  padding: 12px 14px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  /* 可见高度 2 等分（JS 测量滚动区后写入 --match-card-height），其余滚动加载 */
-  min-height: var(--match-card-height, 220px);
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.match-card.is-active {
-  border-color: #c7632f;
-  box-shadow: 0 0 0 1.5px rgba(199, 99, 47, 0.28);
-}
-
-.match-card-top {
-  display: flex;
+.match-list-item.ant-list-item {
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 
-.match-card-tag.ant-tag {
-  margin-inline-end: 0;
-  border-radius: 999px;
-  line-height: 20px;
-  padding-inline: 10px;
-  font-size: 12px;
+.match-list-item .ant-list-item-meta {
+  align-items: center;
 }
 
-.match-card-score {
-  font-size: 17px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: #2f2418;
-}
-
-.match-card-players {
+.match-list-item .ant-list-item-meta-content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding: 2px 6px 0;
+  align-content: center;
+  gap: 6px;
+  text-align: left;
 }
 
-.match-card-player {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
+.match-list-item .ant-list-item-meta-title,
+.match-list-item .ant-list-item-meta-description {
+  margin-bottom: 0 !important;
+  text-align: left;
 }
 
-.match-card-player-right {
-  justify-self: end;
+.match-list-item .ant-space {
+  justify-content: flex-start;
 }
 
-.match-card-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  object-fit: cover;
+/* 比赛列表比分胶囊：与赛制/状态胶囊风格统一 */
+.match-list-score-tag.ant-tag {
   background: rgba(91, 67, 43, 0.08);
-  border: 1px solid rgba(91, 67, 43, 0.14);
-  padding: 2px;
-  box-sizing: border-box;
-}
-
-.match-card-player-name {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: #2f2418;
   font-weight: 600;
-  font-size: 14px;
-  text-align: center;
-}
-
-.match-card-player-name.left {
-  color: #1677ff;
-}
-
-.match-card-player-name.right {
-  color: #f5222d;
-}
-
-.match-card-vs {
-  color: #b6a692;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.match-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-top: 1px dashed rgba(91, 67, 43, 0.22);
-  padding-top: 8px;
-}
-
-.match-card-meta {
-  font-size: 12px;
-  color: #8a7a66;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  border-radius: 999px;
 }
 
+/* 懒加载进度提示 */
 .match-list-more {
   text-align: center;
   font-size: 12px;

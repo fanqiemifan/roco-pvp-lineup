@@ -87,7 +87,7 @@ import {
 } from './constants';
 import { StageThumb } from './components/StageThumb';
 import { SettingField } from './components/SettingField';
-import { formatDateTime, formatMatchListTime } from './lib/format';
+import { formatDateTime } from './lib/format';
 import {
   buildHistoryBattleEntries,
   buildHistoryCsv,
@@ -178,10 +178,8 @@ const { TextArea } = Input;
 /** 切换当前赛事确认弹窗的「不再提示」标记：按浏览器本地记忆（localStorage），跨会话保留 */
 const SELECT_MATCH_CONFIRM_SUPPRESSED_KEY = 'roco-pvp-lineup:selectMatchConfirmSuppressed';
 
-/** 比赛列表懒加载：一次渲染 6 张卡片，滚动到底部再加载 6 张，赛事很多时避免全量渲染 */
+/** 比赛列表懒加载：一次渲染 6 条，滚动到底部再加载 6 条，赛事很多时避免全量渲染 */
 const MATCH_LIST_PAGE_SIZE = 6;
-/** 比赛列表卡片间距（与 .match-card-list gap 一致），用于 2 等分可见高度 */
-const MATCH_LIST_CARD_GAP = 10;
 
 function isSelectMatchConfirmSuppressed(): boolean {
   try {
@@ -572,58 +570,8 @@ function Dashboard() {
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
   // 比赛历史「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
-  // 比赛列表懒加载游标：先渲染 6 张卡片，滚动到底部再追加 6 张
+  // 比赛列表懒加载游标：先渲染 6 条，滚动到底部再追加 6 条
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
-  // 列表可见高度 2 等分写入卡片最小高度（--match-card-height），视口内恰好约 2 张完整卡片；
-  // 用 callback ref：页面挂载初期整体是 loading 转圈，普通 ref + mount effect 拿不到元素
-  const [matchListScrollEl, setMatchListScrollEl] = useState<HTMLDivElement | null>(null);
-  const [matchCardHeight, setMatchCardHeight] = useState(220);
-
-  useEffect(() => {
-    const el = matchListScrollEl;
-    if (!el) {
-      return;
-    }
-    const measure = () => {
-      const height = el.clientHeight;
-      if (height > 0) {
-        // -1px 安全余量：取整/字体加载引起的 1~2px 抖动不至于把第二张卡裁掉一条
-        setMatchCardHeight(Math.max(150, Math.floor((height - MATCH_LIST_CARD_GAP) / 2) - 1));
-      }
-    };
-    // 挂载初期字体/头像加载会让容器高度漂移：rAF 逐帧测量直到连续多帧稳定
-    let raf = 0;
-    let last = -1;
-    let stableFrames = 0;
-    let ticks = 0;
-    const settle = () => {
-      const height = el.clientHeight;
-      if (height > 0) {
-        measure();
-        if (height === last) {
-          stableFrames += 1;
-        } else {
-          stableFrames = 0;
-          last = height;
-        }
-      }
-      ticks += 1;
-      if (stableFrames < 5 && ticks < 120) {
-        raf = requestAnimationFrame(settle);
-      }
-    };
-    raf = requestAnimationFrame(settle);
-    // 后续容器尺寸变化（切换赛事后右栏内容增减、窗口缩放）由 ResizeObserver 兜底
-    let observer: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(measure);
-      observer.observe(el);
-    }
-    return () => {
-      cancelAnimationFrame(raf);
-      observer?.disconnect();
-    };
-  }, [matchListScrollEl]);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
   const [liveFilePath, setLiveFilePath] = useState<string | null>(null);
   const [liveFileName, setLiveFileName] = useState('');
@@ -3748,91 +3696,39 @@ function Dashboard() {
                       </Space>
                     }
                   >
-                    <div
-                      ref={setMatchListScrollEl}
-                      className="match-list-scroll"
-                      style={{ '--match-card-height': `${matchCardHeight}px` } as React.CSSProperties}
-                      onScroll={handleMatchListScroll}
-                    >
-                      {matchStore.matches.length === 0 ? (
-                        <Empty description="暂无赛事，先创建一场比赛吧。" />
-                      ) : (
-                        <>
-                          <div className="match-card-list">
-                            {visibleMatches.map((match) => {
-                              const isActive = match.id === activeMatch?.id;
-                              const cardGame = getCurrentGame(match);
-                              return (
-                                <div key={match.id} className={`match-card${isActive ? ' is-active' : ''}`}>
-                                  <div className="match-card-top">
-                                    <Space size={6} wrap>
-                                      <Tag color="gold" className="match-card-tag">BO{match.bestOf}</Tag>
-                                      <Tag color={getMatchStatusColor(match.status)} className="match-card-tag">
-                                        {getMatchStatusLabel(match.status)}
-                                      </Tag>
-                                    </Space>
-                                    <span className="match-card-score">{match.leftScore} : {match.rightScore}</span>
-                                  </div>
-                                  <div className="match-card-players">
-                                    <div className="match-card-player">
-                                      <img
-                                        className="match-card-avatar"
-                                        src={`/api/avatar/${encodeURIComponent(match.id)}/left-avatar.png`}
-                                        alt=""
-                                        loading="lazy"
-                                        onError={(event) => {
-                                          const img = event.currentTarget;
-                                          if (img.dataset.fallback !== '1') {
-                                            img.dataset.fallback = '1';
-                                            img.src = '/assets/ui/left-avatar.png';
-                                          }
-                                        }}
-                                      />
-                                      <span className="match-card-player-name left">{match.leftPlayer || '左侧'}</span>
-                                    </div>
-                                    <span className="match-card-vs">vs</span>
-                                    <div className="match-card-player match-card-player-right">
-                                      <img
-                                        className="match-card-avatar"
-                                        src={`/api/avatar/${encodeURIComponent(match.id)}/right-avatar.png`}
-                                        alt=""
-                                        loading="lazy"
-                                        onError={(event) => {
-                                          const img = event.currentTarget;
-                                          if (img.dataset.fallback !== '1') {
-                                            img.dataset.fallback = '1';
-                                            img.src = '/assets/ui/right-avatar.png';
-                                          }
-                                        }}
-                                      />
-                                      <span className="match-card-player-name right">{match.rightPlayer || '右侧'}</span>
-                                    </div>
-                                  </div>
-                                  <div className="match-card-foot">
-                                    <span className="match-card-meta">
-                                      {match.status === 'completed'
-                                        ? '已完赛'
-                                        : `第 ${cardGame?.gameNumber ?? 1} 局`} · {formatMatchListTime(match.createdAt)}
-                                    </span>
-                                    <Button
-                                      size="small"
-                                      type={isActive ? 'primary' : 'default'}
-                                      onClick={() => selectMatch(match.id)}
-                                    >
-                                      {isActive ? '当前' : '设为当前'}
-                                    </Button>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          {hasMoreMatches ? (
-                            <div className="match-list-more">
-                              下滑加载更多（已显示 {visibleMatches.length}/{matchStore.matches.length}）
-                            </div>
-                          ) : null}
-                        </>
-                      )}
+                    <div className="match-list-scroll" onScroll={handleMatchListScroll}>
+                      <List
+                        dataSource={visibleMatches}
+                        className="match-list"
+                        locale={{ emptyText: '暂无赛事，先创建一场比赛吧。' }}
+                        renderItem={(match) => (
+                          <List.Item
+                            className="match-list-item"
+                            actions={[
+                              <Button key="select" type={match.id === activeMatch?.id ? 'primary' : 'default'} onClick={() => void selectMatch(match.id)}>
+                                {match.id === activeMatch?.id ? '当前' : '选择'}
+                              </Button>,
+                            ]}
+                          >
+                            <List.Item.Meta
+                              avatar={<Badge status={match.status === 'completed' ? 'success' : match.status === 'in_progress' ? 'processing' : 'default'} />}
+                              title={`${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`}
+                              description={(
+                                <Space wrap>
+                                  <Tag color="gold">BO{match.bestOf}</Tag>
+                                  <Tag color={getMatchStatusColor(match.status)}>{getMatchStatusLabel(match.status)}</Tag>
+                                  <Tag bordered={false} className="match-list-score-tag">{match.leftScore} : {match.rightScore}</Tag>
+                                </Space>
+                              )}
+                            />
+                          </List.Item>
+                        )}
+                      />
+                      {hasMoreMatches ? (
+                        <div className="match-list-more">
+                          下滑加载更多（已显示 {visibleMatches.length}/{matchStore.matches.length}）
+                        </div>
+                      ) : null}
                     </div>
                   </Card>
                 </Col>
