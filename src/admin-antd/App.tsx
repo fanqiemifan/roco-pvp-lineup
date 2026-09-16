@@ -491,6 +491,18 @@ function Dashboard() {
   const [page9SettingsNotice, setPage9SettingsNotice] = useState<NoticeState>(null);
   // === 信息录入（选手 / 战队） ===
   const [profiles, setProfiles] = useState<ProfileStoreState | null>(null);
+  // 快速创建弹窗选手列表：按信息录入添加时间排序（档案 id 内嵌 base36 创建时间戳，先录者在前；
+  // 数组顺序可能被手动编辑/导入/删后重录打乱，id 解析失败的按原数组顺序兜底排在末尾）
+  const quickCreatePlayerList = useMemo(() => {
+    const createdMs = (id: string): number => {
+      const parsed = Number.parseInt(id.slice(1, 9), 36);
+      return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+    };
+    return (profiles?.players ?? [])
+      .map((player, index) => ({ player, index }))
+      .sort((a, b) => createdMs(a.player.id) - createdMs(b.player.id) || a.index - b.index)
+      .map((item) => item.player);
+  }, [profiles]);
   // 信息录入卡片内切换视图：players = 选手信息，teams = 战队信息
   const [profileTab, setProfileTab] = useState<'players' | 'teams'>('players');
   const [playerEditorOpen, setPlayerEditorOpen] = useState(false);
@@ -5308,7 +5320,7 @@ function Dashboard() {
                 background: '#fff',
               }}
             >
-              {(profiles?.players ?? [])
+              {quickCreatePlayerList
                 .filter((player) => {
                   const keyword = quickCreateKeyword.trim().toLowerCase();
                   return !keyword || player.name.toLowerCase().includes(keyword);
@@ -5336,7 +5348,7 @@ function Dashboard() {
                     </div>
                   );
                 })}
-              {(profiles?.players ?? []).filter((player) => {
+              {quickCreatePlayerList.filter((player) => {
                 const keyword = quickCreateKeyword.trim().toLowerCase();
                 return !keyword || player.name.toLowerCase().includes(keyword);
               }).length === 0 ? (
