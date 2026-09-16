@@ -1568,3 +1568,304 @@ a {
   margin-bottom: 3px;
   line-height: 1.6;
 }
+
+/* ===== 比赛历史「录入阵容」弹窗：提前录入当前小局阵容（不影响推流） ===== */
+
+.lineup-entry-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lineup-entry-subtitle {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.lineup-entry-alert {
+  margin-bottom: 14px;
+}
+
+.lineup-entry-body {
+  display: grid;
+  grid-template-columns: 138px minmax(0, 1fr) 138px;
+  gap: 16px;
+  align-items: start;
+}
+
+/* JSX 中左右 rail 一起 map 渲染，center 排在其后：用 order 调整为 左 | 中 | 右 */
+.lineup-entry-rail-left {
+  order: 1;
+}
+
+.lineup-entry-center {
+  order: 2;
+}
+
+.lineup-entry-rail-right {
+  order: 3;
+}
+
+.lineup-entry-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lineup-entry-rail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.lineup-entry-rail-head .side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lineup-entry-rail-head .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.lineup-entry-rail.is-active .lineup-entry-rail-head .dot {
+  background: #c7632f;
+}
+
+.lineup-entry-rail-head .cnt {
+  margin-left: auto;
+  font-size: 11px;
+  color: #8a7a66;
+  white-space: nowrap;
+}
+
+.lineup-entry-rail.is-active .lineup-entry-rail-head .cnt {
+  color: #c7632f;
+}
+
+.lineup-entry-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.lineup-entry-slot {
+  position: relative;
+  height: 104px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1.5px solid rgba(91, 67, 43, 0.16);
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+
+.lineup-entry-slot.empty {
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.lineup-entry-slot.active {
+  border-color: #c7632f;
+  background: #fdf2e6;
+  box-shadow: 0 0 0 2.5px rgba(199, 99, 47, 0.18);
+}
+
+.lineup-entry-slot .slot-idx {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  font-size: 10.5px;
+  color: #c2b39e;
+  line-height: 1;
+}
+
+.lineup-entry-slot.active .slot-idx {
+  color: #c7632f;
+  font-weight: 700;
+}
+
+.lineup-entry-slot .slot-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: #c2b39e;
+}
+
+.lineup-entry-slot .slot-placeholder .num {
+  font-size: 15px;
+}
+
+.lineup-entry-slot .slot-placeholder .pick-hint {
+  font-size: 10.5px;
+  color: #cdbfa9;
+}
+
+.lineup-entry-slot .slot-clear {
+  display: none;
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  z-index: 5;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #4a3d2e;
+  color: #fff;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(47, 30, 14, 0.35);
+}
+
+.lineup-entry-slot.filled:hover .slot-clear {
+  display: block;
+}
+
+.lineup-entry-center {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.lineup-entry-quickfill-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lineup-entry-quickfill-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lineup-entry-quickfill-side .ant-btn {
+  align-self: flex-start;
+}
+
+.lineup-entry-candidates {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(91, 67, 43, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lineup-entry-candidates .candidate-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.lineup-entry-candidates .candidate-group > .ant-typography {
+  white-space: nowrap;
+  line-height: 64px;
+}
+
+.lineup-entry-candidates .candidate-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lineup-entry-candidates .candidate-button {
+  padding: 0;
+  border: 1.5px solid rgba(91, 67, 43, 0.13);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.lineup-entry-candidates .candidate-button:hover {
+  border-color: #c7632f;
+  background: #fdf2e6;
+}
+
+.lineup-entry-picker .picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.lineup-entry-picker .filter-label {
+  display: block;
+  font-size: 12px;
+  margin: 4px 0 6px;
+}
+
+.lineup-entry-picker .form-filter-row {
+  margin-bottom: 8px;
+}
+
+.lineup-entry-sprite-scroll {
+  max-height: 296px;
+  margin-top: 8px;
+}
+
+.lineup-entry-sprite-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+}
+
+.lineup-entry-sprite-tile {
+  border: 1.5px solid rgba(91, 67, 43, 0.13);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 5px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+
+.lineup-entry-sprite-tile:hover {
+  border-color: #c7632f;
+  background: #fdf2e6;
+  transform: translateY(-1px);
+}
+
+.lineup-entry-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lineup-entry-foot-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.lineup-entry-modal .ant-modal-body {
+  max-height: min(700px, calc(100vh - 220px));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+@media (max-width: 1100px) {
+  .lineup-entry-body {
+    grid-template-columns: 120px minmax(0, 1fr) 120px;
+  }
+}

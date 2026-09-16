@@ -85,6 +85,7 @@ import {
   redoMatchAction,
   saveDraftPanelStateForActiveMatch,
   saveDraftPanelSlotStateForActiveMatch,
+  saveGameLineupForMatch,
   setActiveMatch,
   startCurrentGame,
   syncActiveMatchLineupsFromPanels,
@@ -1062,6 +1063,28 @@ export async function createLocalServer(
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
       response.json({ success: true, store: matches, scoreboard, panels });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 比赛历史「录入阵容」：只写指定赛事当前小局（待开始）的阵容记录，不触碰面板/比分栏，不影响推流
+  app.post('/api/matches/:matchId/games/:gameNumber/lineup', (request, response) => {
+    const position = request.body?.position;
+    if (position !== 'left' && position !== 'right') {
+      response.status(400).json({ success: false, error: 'position must be left or right' });
+      return;
+    }
+    const gameNumber = Number.parseInt(request.params.gameNumber, 10);
+    if (!Number.isInteger(gameNumber) || gameNumber < 1) {
+      response.status(400).json({ success: false, error: 'invalid game number' });
+      return;
+    }
+
+    try {
+      const matches = saveGameLineupForMatch(paths, request.params.matchId, gameNumber, position, request.body?.selected ?? []);
+      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      response.json({ success: true, store: matches });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

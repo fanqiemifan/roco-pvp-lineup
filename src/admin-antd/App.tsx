@@ -93,7 +93,9 @@ import {
   buildHistoryCsv,
   buildHistoryLineupEntries,
   buildHistoryTags,
+  getLineupEntryBlockReason,
   getVisibleGames,
+  LINEUP_ENTRY_BLOCK_TEXT,
 } from './lib/history';
 import {
   clampNumber,
@@ -136,6 +138,7 @@ import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from
 import { buildSpriteLookup } from './lib/sprite';
 import { Page4DeathPanel } from './views/Page4DeathPanel';
 import { Page4PanelEditor } from './views/Page4PanelEditor';
+import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
 
@@ -539,6 +542,8 @@ function Dashboard() {
   const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
   const [page4Notice, setPage4Notice] = useState<NoticeState>(null);
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
+  // 比赛历史「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
+  const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
   const [liveFilePath, setLiveFilePath] = useState<string | null>(null);
   const [liveFileName, setLiveFileName] = useState('');
@@ -611,6 +616,11 @@ function Dashboard() {
     ].some((value) => value.toLowerCase().includes(normalizedHistorySearch));
   });
   const sortedMatches = [...filteredMatches].sort(compareHistoryMatches);
+  // 「录入阵容」弹窗的当前上下文：从最新 store 里解析比赛与小局（socket 更新后自动跟随）
+  const lineupEntryMatch = lineupEntry ? matchStore.matches.find((match) => match.id === lineupEntry.matchId) ?? null : null;
+  const lineupEntryGame = lineupEntryMatch && lineupEntry
+    ? lineupEntryMatch.games.find((game) => game.gameNumber === lineupEntry.gameNumber) ?? null
+    : null;
 
   const deferredLeftSearch = useDeferredValue(panels.left.search);
   const deferredRightSearch = useDeferredValue(panels.right.search);
@@ -4038,6 +4048,7 @@ function Dashboard() {
                           const battleEntries = buildHistoryBattleEntries(game, spriteMap);
                           const leftLost = game.winner === 'right';
                           const rightLost = game.winner === 'left';
+                          const lineupBlockReason = getLineupEntryBlockReason(record, game);
 
                           return (
                           <Card key={`${record.id}-${game.gameNumber}`} size="small" className="subtle-card">
@@ -4051,6 +4062,21 @@ function Dashboard() {
                                   {getGameResultLabel(game)}
                                 </Tag>
                                 <Text type="secondary">左侧 1-6 · 右侧 7-12</Text>
+                                <Tooltip
+                                  title={lineupBlockReason
+                                    ? LINEUP_ENTRY_BLOCK_TEXT[lineupBlockReason]
+                                    : `提前录入第 ${game.gameNumber} 局双方阵容，开始对局时自动生效`}
+                                >
+                                  <Button
+                                    size="small"
+                                    type={lineupBlockReason ? 'default' : 'primary'}
+                                    ghost={!lineupBlockReason}
+                                    disabled={Boolean(lineupBlockReason)}
+                                    onClick={() => setLineupEntry({ matchId: record.id, gameNumber: game.gameNumber })}
+                                  >
+                                    录入阵容
+                                  </Button>
+                                </Tooltip>
                               </Space>
                               <div className="history-battle-grid">
                                 {battleEntries.map((entry, index) => {
@@ -4117,6 +4143,14 @@ function Dashboard() {
                   />
                 </Space>
               </Modal>
+              <HistoryLineupEntryModal
+                open={Boolean(lineupEntry && lineupEntryMatch && lineupEntryGame)}
+                match={lineupEntryMatch}
+                game={lineupEntryGame}
+                sprites={sprites}
+                onClose={() => setLineupEntry(null)}
+                onSaved={(store) => applyServerState({ store })}
+              />
             </Space>
           ) : null}
 
