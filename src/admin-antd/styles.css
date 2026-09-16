@@ -613,12 +613,62 @@ a {
 }
 
 /* 比赛列表：卡片样式 + 滚动懒加载（一次渲染 6 张，滚动到底部加载 6 张） */
+/* 赛事面板总览行：左右两列等高（左列高度跟随右列「当前比赛」内容高度） */
+.roster-overview-row > .ant-col,
+.roster-overview-col {
+  display: flex;
+}
+
+.roster-overview-card.ant-card {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.roster-overview-card > .ant-card-head {
+  flex-shrink: 0;
+}
+
+.roster-overview-card > .ant-card-head .ant-card-head-wrapper {
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.roster-overview-card > .ant-card-head .ant-card-extra {
+  margin-inline-start: auto;
+  padding: 0;
+}
+
+.roster-overview-card > .ant-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.roster-card-head-extra {
+  justify-content: flex-end;
+}
+
+/* 比赛列表卡片高度跟随右侧「当前比赛」卡片：行高只由右列内容驱动，
+   滚动区绝对定位填充卡片体（不参与行高计算）；
+   左卡显式回退 height:auto，让列（flex）的 align-items: stretch 生效 */
+.roster-match-list-card > .ant-card-body {
+  position: relative;
+}
+
+.roster-match-list-card.ant-card {
+  height: auto;
+}
+
 .match-list-scroll {
-  /* 外层卡片高度是内容驱动的，flex 链条约束不住滚动区，这里用视口高度封顶 */
-  height: clamp(380px, calc(100vh - 300px), 900px);
+  position: absolute;
+  inset: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 4px;
+  padding: 2px 6px 2px 2px;
 }
 
 .match-card-list {
@@ -634,6 +684,8 @@ a {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* 可见高度 2 等分（JS 测量滚动区后写入 --match-card-height），其余滚动加载 */
+  min-height: var(--match-card-height, 220px);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
@@ -1796,9 +1848,17 @@ a {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px dashed rgba(91, 67, 43, 0.18);
+  display: grid;
+  /* 左右两侧候选分开：左侧候选在左列、右侧候选在右列 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lineup-entry-candidates .candidate-side {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 
 .lineup-entry-candidates .candidate-group {

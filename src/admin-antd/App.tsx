@@ -180,6 +180,8 @@ const SELECT_MATCH_CONFIRM_SUPPRESSED_KEY = 'roco-pvp-lineup:selectMatchConfirmS
 
 /** 比赛列表懒加载：一次渲染 6 张卡片，滚动到底部再加载 6 张，赛事很多时避免全量渲染 */
 const MATCH_LIST_PAGE_SIZE = 6;
+/** 比赛列表卡片间距（与 .match-card-list gap 一致），用于 2 等分可见高度 */
+const MATCH_LIST_CARD_GAP = 10;
 
 function isSelectMatchConfirmSuppressed(): boolean {
   try {
@@ -572,6 +574,56 @@ function Dashboard() {
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
   // 比赛列表懒加载游标：先渲染 6 张卡片，滚动到底部再追加 6 张
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
+  // 列表可见高度 2 等分写入卡片最小高度（--match-card-height），视口内恰好约 2 张完整卡片；
+  // 用 callback ref：页面挂载初期整体是 loading 转圈，普通 ref + mount effect 拿不到元素
+  const [matchListScrollEl, setMatchListScrollEl] = useState<HTMLDivElement | null>(null);
+  const [matchCardHeight, setMatchCardHeight] = useState(220);
+
+  useEffect(() => {
+    const el = matchListScrollEl;
+    if (!el) {
+      return;
+    }
+    const measure = () => {
+      const height = el.clientHeight;
+      if (height > 0) {
+        // -1px 安全余量：取整/字体加载引起的 1~2px 抖动不至于把第二张卡裁掉一条
+        setMatchCardHeight(Math.max(150, Math.floor((height - MATCH_LIST_CARD_GAP) / 2) - 1));
+      }
+    };
+    // 挂载初期字体/头像加载会让容器高度漂移：rAF 逐帧测量直到连续多帧稳定
+    let raf = 0;
+    let last = -1;
+    let stableFrames = 0;
+    let ticks = 0;
+    const settle = () => {
+      const height = el.clientHeight;
+      if (height > 0) {
+        measure();
+        if (height === last) {
+          stableFrames += 1;
+        } else {
+          stableFrames = 0;
+          last = height;
+        }
+      }
+      ticks += 1;
+      if (stableFrames < 5 && ticks < 120) {
+        raf = requestAnimationFrame(settle);
+      }
+    };
+    raf = requestAnimationFrame(settle);
+    // 后续容器尺寸变化（切换赛事后右栏内容增减、窗口缩放）由 ResizeObserver 兜底
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(measure);
+      observer.observe(el);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+    };
+  }, [matchListScrollEl]);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
   const [liveFilePath, setLiveFilePath] = useState<string | null>(null);
   const [liveFileName, setLiveFileName] = useState('');
@@ -3696,7 +3748,12 @@ function Dashboard() {
                       </Space>
                     }
                   >
-                    <div className="match-list-scroll" onScroll={handleMatchListScroll}>
+                    <div
+                      ref={setMatchListScrollEl}
+                      className="match-list-scroll"
+                      style={{ '--match-card-height': `${matchCardHeight}px` } as React.CSSProperties}
+                      onScroll={handleMatchListScroll}
+                    >
                       {matchStore.matches.length === 0 ? (
                         <Empty description="暂无赛事，先创建一场比赛吧。" />
                       ) : (

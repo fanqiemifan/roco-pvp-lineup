@@ -57,7 +57,8 @@ export function HistoryLineupEntryModal({
   const [search, setSearch] = useState('');
   const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]);
   const [selectedForms, setSelectedForms] = useState<string[]>([]);
-  const [selectedFinalForm, setSelectedFinalForm] = useState(false);
+  // 与赛事面板一致：默认只看最终形态，未开启前不渲染其他形态的精灵，减少 DOM/内存占用
+  const [selectedFinalForm, setSelectedFinalForm] = useState(true);
   const [saving, setSaving] = useState(false);
   // 已回填过的草稿上下文键（matchId|gameNumber）：取消后重新打开同一局保留编辑中的缓冲区
   const initializedKeyRef = useRef<string | null>(null);
@@ -81,7 +82,7 @@ export function HistoryLineupEntryModal({
     setSearch('');
     setSelectedAttributes([]);
     setSelectedForms([]);
-    setSelectedFinalForm(false);
+    setSelectedFinalForm(true);
   }, [open, match, game, sprites]);
 
   const filteredSprites = sprites.filter((sprite) => {
@@ -311,26 +312,35 @@ export function HistoryLineupEntryModal({
             </div>
             {candidateGroups.length ? (
               <div className="lineup-entry-candidates">
-                <Text strong>候选精灵选择</Text>
-                {candidateGroups.map(({ side, slot, candidates }) => (
-                  <div key={`${side}-${slot}`} className="candidate-group">
-                    <Text type="secondary">{side === 'left' ? '左侧' : '右侧'}槽位 {slot + 1}</Text>
-                    <div className="candidate-grid">
-                      {candidates.map((candidate) => (
-                        <Tooltip key={candidate.id} title={candidate.displayName}>
-                          <button
-                            type="button"
-                            className="candidate-button"
-                            aria-label={`选择 ${candidate.displayName}`}
-                            onClick={() => fillSlot(side, slot, candidate)}
-                          >
-                            <SpritePetCard sprite={candidate} size={64} />
-                          </button>
-                        </Tooltip>
-                      ))}
+                {(['left', 'right'] as const).map((side) => {
+                  const groups = candidateGroups.filter((group) => group.side === side);
+                  return (
+                    <div key={side} className="candidate-side">
+                      <Text strong>{side === 'left' ? '左侧候选' : '右侧候选'}</Text>
+                      {groups.length ? groups.map(({ side: groupSide, slot, candidates }) => (
+                        <div key={`${groupSide}-${slot}`} className="candidate-group">
+                          <Text type="secondary">槽位 {slot + 1}</Text>
+                          <div className="candidate-grid">
+                            {candidates.map((candidate) => (
+                              <Tooltip key={candidate.id} title={candidate.displayName}>
+                                <button
+                                  type="button"
+                                  className="candidate-button"
+                                  aria-label={`选择 ${candidate.displayName}`}
+                                  onClick={() => fillSlot(groupSide, slot, candidate)}
+                                >
+                                  <SpritePetCard sprite={candidate} size={64} />
+                                </button>
+                              </Tooltip>
+                            ))}
+                          </div>
+                        </div>
+                      )) : (
+                        <Text type="secondary">无多候选精灵</Text>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
           </Card>
