@@ -19,6 +19,25 @@ export function formatDateTime(value: string | null): string {
   });
 }
 
+/** 比赛列表卡片时间：当天显示 HH:mm，更早的显示 MM/DD HH:mm */
+export function formatMatchListTime(value: string | null): string {
+  if (!value) {
+    return '-';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const now = new Date();
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (sameDay) {
+    return date.toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' });
+  }
+  return formatDateTime(value);
+}
+
 export function cleanSpriteName(value: string | null | undefined): string {
   return String(value ?? '')
     .trim()
