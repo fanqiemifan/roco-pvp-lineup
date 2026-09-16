@@ -1869,3 +1869,12 @@ a {
     grid-template-columns: 120px minmax(0, 1fr) 120px;
   }
 }
+
+/* 切换当前赛事确认弹窗内容 */
+.select-match-confirm .ant-typography {
+  margin-bottom: 8px;
+}
+
+.select-match-confirm .ant-checkbox-wrapper {
+  margin-top: 2px;
+}

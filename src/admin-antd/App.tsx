@@ -175,6 +175,29 @@ const { Header, Sider, Content } = Layout;
 const { Title, Paragraph, Text, Link } = Typography;
 const { TextArea } = Input;
 
+/** 切换当前赛事确认弹窗的「不再提示」标记：按浏览器本地记忆（localStorage），跨会话保留 */
+const SELECT_MATCH_CONFIRM_SUPPRESSED_KEY = 'roco-pvp-lineup:selectMatchConfirmSuppressed';
+
+function isSelectMatchConfirmSuppressed(): boolean {
+  try {
+    return window.localStorage.getItem(SELECT_MATCH_CONFIRM_SUPPRESSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setSelectMatchConfirmSuppressed(suppressed: boolean): void {
+  try {
+    if (suppressed) {
+      window.localStorage.setItem(SELECT_MATCH_CONFIRM_SUPPRESSED_KEY, '1');
+    } else {
+      window.localStorage.removeItem(SELECT_MATCH_CONFIRM_SUPPRESSED_KEY);
+    }
+  } catch {
+    // localStorage 不可用（隐私模式等）时静默降级：每次都提示
+  }
+}
+
 /** 导航栏各视图对应的 SVG 图标（Assets 里提供的自定义图标），使用当前上下文颜色自适应 */
 type NavIconName = 'roster' | 'stage' | 'live' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'page4' | 'about';
 
@@ -1480,7 +1503,48 @@ function Dashboard() {
     await save();
   }
 
-  async function selectMatch(matchId: string) {
+  /** 切换当前赛事会把目标赛事的选手信息与当前小局阵容同步到推流画面（面板+比分栏被覆写），
+   *  首次切换前弹窗确认，可勾选「不再提示」（按浏览器本地记忆）。 */
+  function selectMatch(matchId: string) {
+    const targetMatch = matchStore.matches.find((match) => match.id === matchId);
+    if (!targetMatch) {
+      return;
+    }
+    // 已是当前赛事：重复点击不会改变推流指向，不弹确认
+    if (matchId === activeMatch?.id || isSelectMatchConfirmSuppressed()) {
+      void doSelectMatch(matchId);
+      return;
+    }
+
+    let suppressNextTime = false;
+    modal.confirm({
+      title: '切换当前赛事？',
+      content: (
+        <div className="select-match-confirm">
+          <Paragraph>
+            切换后，推流页面将立即同步「{targetMatch.leftPlayer || '左侧'} vs {targetMatch.rightPlayer || '右侧'}」的
+            选手信息与当前小局阵容（比分栏、推流页面1-3 会被覆盖）。
+          </Paragraph>
+          <Paragraph type="secondary">
+            如当前正在推流其他对局，请先确认再切换。阵容可在「比赛历史」中提前录入，无需切换当前赛事。
+          </Paragraph>
+          <Checkbox onChange={(event) => { suppressNextTime = event.target.checked; }}>
+            不再提示
+          </Checkbox>
+        </div>
+      ),
+      okText: '确认切换',
+      cancelText: '取消',
+      onOk: () => {
+        if (suppressNextTime) {
+          setSelectMatchConfirmSuppressed(true);
+        }
+        return doSelectMatch(matchId);
+      },
+    });
+  }
+
+  async function doSelectMatch(matchId: string) {
     try {
       const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>(`/api/matches/${encodeURIComponent(matchId)}/select`, {
         method: 'POST',
