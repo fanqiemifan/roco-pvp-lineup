@@ -229,6 +229,11 @@ export const theme = {
     Upload: {
       colorFillAlter: 'rgba(255, 250, 245, 0.9)',
     },
+    Menu: {
+      // 导航选中项：主题棕橙实底 + 近白暖色文字，奶油色侧栏上更醒目（图标走 currentColor 同步变色）
+      itemSelectedBg: '#c7632f',
+      itemSelectedColor: '#fff8ef',
+    },
     Table: {
       borderColor: '#ece2d5',
       headerBg: '#f7f0e8',

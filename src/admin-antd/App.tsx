@@ -3742,7 +3742,7 @@ function Dashboard() {
                           onFinish={(values) => void saveMatchMeta(values)}
                         >
                           <Row gutter={[16, 16]}>
-                            <Col xs={24} md={8}>
+                            <Col xs={24} md={10}>
                               <Row gutter={8} wrap={false} className="current-match-player-inputs">
                                 <Col flex="auto" style={{ minWidth: 0 }}>
                                   <Form.Item label="左侧选手" name="leftPlayer">
@@ -3760,7 +3760,7 @@ function Dashboard() {
                                 </Col>
                               </Row>
                             </Col>
-                            <Col xs={24} md={8}>
+                            <Col xs={24} md={10}>
                               <Row gutter={8} wrap={false} className="current-match-player-inputs">
                                 <Col flex="auto" style={{ minWidth: 0 }}>
                                   <Form.Item label="右侧选手" name="rightPlayer">
@@ -3778,7 +3778,7 @@ function Dashboard() {
                                 </Col>
                               </Row>
                             </Col>
-                            <Col xs={24} md={8}>
+                            <Col xs={24} md={4}>
                               <Form.Item label="比赛赛制" name="bestOf">
                                 <Select
                                   style={{ width: '100%' }}
@@ -3794,14 +3794,15 @@ function Dashboard() {
                           </Row>
                           <div className="current-match-action-row">
                             <Space wrap size={12} className="current-match-action-group">
-                              <Button type="primary" htmlType="submit">保存比赛信息</Button>
-                              <Button type="dashed" onClick={openTeamEdit}>战队修改</Button>
                               <Button
+                                type="primary"
                                 onClick={() => void runMatchAction('start')}
                                 disabled={!currentGame || currentGame.status !== 'pending' || !currentGame.leftLineup.length || !currentGame.rightLineup.length}
                               >
                                 开始本次对局
                               </Button>
+                              <Button type="dashed" onClick={openTeamEdit}>战队修改</Button>
+                              <Button htmlType="submit">保存比赛信息</Button>
                             </Space>
                             <Space wrap size={12} className="current-match-action-group current-match-action-group-right">
                               <Button type="dashed" onClick={() => void runMatchAction('winner', { winner: 'left' })} disabled={currentGame?.status !== 'in_progress'}>
