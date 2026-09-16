@@ -50,6 +50,25 @@ export function getVisibleGames(record: MatchRecord) {
   ));
 }
 
+/**
+ * 比赛历史展开行的小局可见性：在 getVisibleGames 基础上，额外显示
+ * 「未开赛场次的当前小局」（待开始且还没有任何阵容）——否则新比赛在历史里
+ * 连第一局的卡片都不出现，无法通过历史录入阵容（必须先去赛事面板录一只精灵）。
+ * 还没轮到的空小局仍然隐藏。
+ */
+export function getHistoryVisibleGames(record: MatchRecord) {
+  if (record.status === 'completed') {
+    return getVisibleGames(record);
+  }
+  const currentGame = getCurrentGame(record);
+  return record.games.filter((game) => (
+    game.status !== 'pending'
+    || game.leftLineup.length > 0
+    || game.rightLineup.length > 0
+    || (currentGame != null && currentGame.gameNumber === game.gameNumber)
+  ));
+}
+
 /** 比赛历史「录入阵容」被锁定的原因；null = 可录入（当前小局且待开始） */
 export type LineupEntryBlockReason = 'match-completed' | 'game-not-current' | 'game-started' | 'game-completed';
 

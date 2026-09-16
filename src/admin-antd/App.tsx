@@ -93,8 +93,8 @@ import {
   buildHistoryCsv,
   buildHistoryLineupEntries,
   buildHistoryTags,
+  getHistoryVisibleGames,
   getLineupEntryBlockReason,
-  getVisibleGames,
   LINEUP_ENTRY_BLOCK_TEXT,
 } from './lib/history';
 import {
@@ -4235,7 +4235,7 @@ function Dashboard() {
                           {record.id} · BO{record.bestOf} · 已记录 {record.games.filter((game) => game.status === 'completed').length} 局
                           {record.completedAt ? ` · 完成于 ${formatDateTime(record.completedAt)}` : ''}
                         </Text>
-                        {getVisibleGames(record).map((game) => {
+                        {getHistoryVisibleGames(record).map((game) => {
                           const battleEntries = buildHistoryBattleEntries(game, spriteMap);
                           const leftLost = game.winner === 'right';
                           const rightLost = game.winner === 'left';
