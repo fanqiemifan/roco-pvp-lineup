@@ -21,6 +21,7 @@
 | 恢复比赛操作 | redoMatchAction | (paths: AppPaths, matchId: string) => MatchStoreState | 恢复比赛操作 |
 | 保存比赛草稿面板 | saveDraftPanelStateForActiveMatch | (paths: AppPaths, position: 'left' | 'right', selectedSlots: unknown) => MatchStoreState | 保存活动比赛的面板草稿 |
 | 保存比赛草稿格子 | saveDraftPanelSlotStateForActiveMatch | (paths: AppPaths, position: 'left' | 'right', slotIndex: number, slotData: unknown) => MatchStoreState | 保存活动比赛的单个格子草稿 |
+| 录入小局阵容 | saveGameLineupForMatch | (paths: AppPaths, matchId: string, gameNumber: number, selections: { left?: unknown; right?: unknown }) => MatchStoreState | 为指定比赛的「当前小局且待开始」写入双方阵容：双侧合并一次写入，不触碰面板/记分牌/activeMatchId；只传一侧时另一侧保留，空数组 = 清空该侧；已开局/已完赛/未轮到均拒绝（前端锁定文案见 App.tsx + lib/history.ts 的 getLineupEntryBlockReason） |
 
 ## 面板操作 (state-service.ts)
 
@@ -129,3 +130,10 @@
 | 切换悬浮窗显隐 | toggleFloatWindow | (getPort) => void | 显示并聚焦已有悬浮窗 |
 | 打开更换精灵菜单 | openFloatMenuWindow | (payload, parentBoundsOverride?) => void | 在对应精灵上方打开 240×240 菜单窗口 |
 | 关闭更换精灵菜单 | closeFloatMenuWindow | () => void | 关闭菜单窗口 |
+
+## 服务器生命周期 (socket-server.ts)
+
+| 自然语言描述 | 函数名 | 签名 | 说明 |
+|-------------|-------|------|------|
+| 启动 HTTP + Socket.IO 服务器 | createLocalServer | (paths: AppPaths, port, host?, authConfig?) => Promise<LocalServer> | 全部 REST 路由与 socket 推送的宿主；authConfig 缺省 = 关闭鉴权（桌面模式），传入 = 启用账号密码（Node/Docker 模式）。port 传 0 时返回的 LocalServer.port 仍是 0，真实端口要从 server.address() 取 |
+| 关闭服务器 | LocalServer.close | () => Promise<void> | 清理三类定时器（胜负结算切页/nextgame/countdown）→ closeIdleConnections 断 keep-alive → io.close()。注意 io 以 http server 构造，io.close() 会连带关闭它，**不能再调 server.close()**（否则必抛 ERR_SERVER_NOT_RUNNING，2026-09 修复的退出报错根因） |
