@@ -1480,6 +1480,7 @@ export async function createLocalServer(
     server,
     io,
     async close() {
+      clearWinnerStageReturnTimer();
       if (nextgameTimer) {
         clearTimeout(nextgameTimer);
         nextgameTimer = null;
@@ -1488,15 +1489,18 @@ export async function createLocalServer(
         clearTimeout(countdownZeroTimer);
         countdownZeroTimer = null;
       }
+      // io 以 http server 构造，io.close() 会断开所有客户端并关闭它；
+      // 不能再对已由 io 关闭的 server 重复调 server.close()，否则必然抛
+      // ERR_SERVER_NOT_RUNNING。closeIdleConnections 先断 keep-alive 连接，
+      // 避免 server.close 因浏览器/长连接未断而迟迟不回调。
+      server.closeIdleConnections();
       await new Promise<void>((resolve, reject) => {
-        io.close(() => {
-          server.close((error) => {
-            if (error) {
-              reject(error);
-              return;
-            }
-            resolve();
-          });
+        io.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
         });
       });
     },
