@@ -20,7 +20,7 @@
         if (!sprite || typeof sprite !== 'object') {
             return '';
         }
-        return String(sprite.cardName || sprite.displayName || sprite.chineseName || sprite.name || basename(sprite.path) || '').trim();
+        return String(sprite.displayName || sprite.name || basename(sprite.path) || '').trim();
     }
 
     function buildSpriteIconCandidates(sprite) {

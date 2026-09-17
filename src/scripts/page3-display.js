@@ -64,7 +64,7 @@
             return '';
         }
         return normalizeDisplayName(
-            sprite.cardName || sprite.displayName || sprite.chineseName || sprite.name || sprite.filename || ''
+            sprite.displayName || sprite.name || sprite.filename || ''
         );
     }
 

@@ -35,7 +35,7 @@
     }
 
     function getSpriteName(row) {
-        return normalizeDisplayName(row && (row.cardName || row.displayName || row.name) || '');
+        return normalizeDisplayName(row && (row.displayName || row.name) || '');
     }
 
     function getCardNameLeft(nameLength) {

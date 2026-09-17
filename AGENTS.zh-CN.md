@@ -29,6 +29,7 @@
   - Node/Docker 模式：`<项目根目录>/LuokePVPWebui`（可用 `ROCO_DATA_DIR` 覆盖）。
 - 精灵数据索引是 `resources/data/pets.json`（源数据，勿手改字段名）；`resources/sprites-img/`（official_small_icon 精灵立绘）与 `resources/sprites-icon/`（icon_url 精灵头像）由 `scripts/sync-spirits-assets.mjs` 按 `{pet_id}_{name}.png` 命名下载（sprites-img 目录就是 `/img/` 伺服的那个目录；sprites-icon 经 `/resources/sprites-icon/` 伺服，petsdiv 头像统一用它）。精灵数据变化后更新 pets.json 再重新跑脚本；图片已存在时会跳过（幂等），源图缺失自动降级（small→official_icon→image_url / icon_url→official_icon）。
 - **精灵字段映射**（`sprite-service.ts` 的 `normalizePetRecord`）：精灵编号=handbook_no、精灵名称=name、精灵属性=elements（经 `attribute_mapping.json` 转属性码，与 pets.json 的 element_id 已校验一致）、精灵形态=stage（1=一阶 2=二阶 3=三阶 4=首领）。多形态记录：`name` 带形态后缀（如 卡瓦重（草地附近的样子）），`displayName` 保持纯名。
+- **名称字段只保留 `name`/`displayName` 两个**（`shared/types.ts` 的 SpriteRecord）：已删除恒等重复的 `chineseName`（=name 全称）与 `cardName`（=displayName 短名），所有名称消费点（后台搜索/查找表、page1/3/4 短名链、float/float-menu 全称链、lineup-display）改为读这两个字段；磁盘旧 JSON 中残留的旧字段无害，随保存自然消失。统计排行结构 StatsRankingRow（`stats-service.ts`）同步删除 `cardName`，现仅 `name`（全称）+ `displayName`（短名），page5 消费改为 `row.displayName || row.name`。注：布局函数 `getCardNameLeft`/`getSpriteCardNameLeft`（入参为名字长度，返回名字元素 CSS `--pet-name-left` 定位值）与 `.sprite-pet-card*` CSS 类属「卡片」UI 命名，与已删字段无关，保留。
 - **持久化精灵主键字段 = `pet_id`**（精灵 id）：比赛快照/阵容/历史（matches.json）、page4 面板的槽位字段统一叫 `pet_id`，与其余快照字段（name/form）同口径。不做旧数据兼容——pet_id 必须是精灵索引中存在的 id。
 
 ## 架构

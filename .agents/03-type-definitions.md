@@ -4,7 +4,7 @@
 
 | 类型名称 | 说明 | 文件 |
 |---------|------|------|
-| SpriteRecord | 精灵记录（id, name, displayName, chineseName, number, variant, filename, path, iconUrl, attributes, aliases, form）。iconUrl 为精灵头像 URL（/resources/sprites-icon/{pet_id}_{name}.png，空串表示无头像，展示端回退立绘 path） | shared/types.ts |
+| SpriteRecord | 精灵记录（id, name, displayName, number, filename, path, iconUrl, attribute/attributeCodes/attributeIcon1/2, aliases, form, petForm, isFinalForm）。name 为全称（含形态后缀，如 海枝枝（碧蓝珊瑚）），displayName 为短名（海枝枝），无形态时两者相同。iconUrl 为精灵头像 URL（/resources/sprites-icon/{pet_id}_{name}.png，空串表示无头像，展示端回退立绘 path） | shared/types.ts |
 | QuickFillMatch | 快速填充匹配结果（sprite, formLabel, rank） | shared/types.ts |
 | QuickFillPreview | 快速填充预览结果汇总（matches, message） | shared/types.ts |
 

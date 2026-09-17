@@ -88,8 +88,6 @@ function buildSpriteEntry(filename: string, paths: AppPaths): SpriteRecord {
     filename,
     displayName,
     name: displayName,
-    chineseName: displayName,
-    cardName: displayName,
     path: `${SPRITE_RESOURCE_BASE}/${filename}`,
     aliases: [filename, stem],
     number: spriteNumberFromFilename(filename),
@@ -255,8 +253,6 @@ function normalizePetRecord(record: unknown, paths: AppPaths): SpriteRecord | nu
     filename,
     displayName: name,
     name: fullName,
-    chineseName: fullName,
-    cardName: name,
     path: `${SPRITE_RESOURCE_BASE}/${filename}`,
     aliases,
     number,
@@ -353,14 +349,13 @@ function collectSpriteMatches(query: string, sprites: SpriteRecord[]): Array<{
 
   for (const sprite of sprites) {
     const displayName = normalizeSearchName(sprite.displayName);
-    const chineseName = normalizeSearchName(sprite.chineseName);
     const rawName = normalizeSearchName(sprite.name);
     const filename = normalizeSearchName(sprite.filename);
     const pathName = normalizeSearchName(path.basename(sprite.path));
     const stemName = normalizeSearchName(path.parse(sprite.path).name);
     const numberNames = spriteNumberAliases(sprite).map((alias) => normalizeSearchName(alias));
     const aliasNames = sprite.aliases.map((alias) => normalizeSearchName(alias));
-    const exactNames = [displayName, chineseName, rawName, filename, pathName, stemName].filter(Boolean);
+    const exactNames = [displayName, rawName, filename, pathName, stemName].filter(Boolean);
 
     let rank: [number, ...number[], string] | null = null;
     let matchType = '';

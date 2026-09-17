@@ -10,14 +10,14 @@ export type SpritePetCardProps = {
 };
 
 export function SpritePetCard({ sprite, size = 96, className }: SpritePetCardProps) {
-  const cardName = cleanSpriteCardName(sprite.cardName || sprite.displayName || sprite.chineseName || sprite.name);
+  const shortName = cleanSpriteCardName(sprite.displayName || sprite.name);
   const attributeIcons = resolveSpriteAttributeIcons(sprite);
   const attributeIcon1 = attributeIcons[0] ?? '';
   const attributeIcon2 = attributeIcons[1] ?? '';
   const cardSize = typeof size === 'number' ? `${size}px` : size;
   const style = {
     '--pet-card-size': cardSize,
-    '--pet-name-left': String(getSpriteCardNameLeft(cardName.length)),
+    '--pet-name-left': String(getSpriteCardNameLeft(shortName.length)),
   } as React.CSSProperties;
 
   return (
@@ -35,7 +35,7 @@ export function SpritePetCard({ sprite, size = 96, className }: SpritePetCardPro
         <img className="sprite-pet-card-attr sprite-pet-card-attr-2" src={attributeIcon2} alt="" />
       ) : null}
       <div className="sprite-pet-card-name-bg" />
-      <span className="sprite-pet-card-name">{cardName}</span>
+      <span className="sprite-pet-card-name">{shortName}</span>
     </div>
   );
 }

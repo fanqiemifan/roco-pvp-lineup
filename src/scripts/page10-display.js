@@ -52,9 +52,9 @@
             // 阵容槽位存 pet_id，优先按 id 匹配；名字匹配兜底兼容旧数据
             const idKey = String(record.id || '').trim();
             const displayName = String(record.displayName || '').trim();
-            const cardName = stripVariantName(displayName);
+            const shortName = stripVariantName(displayName);
             const nameKey = normalizeText(displayName);
-            const baseKey = normalizeText(cardName);
+            const baseKey = normalizeText(shortName);
             if (idKey && !byId.has(idKey)) {
                 byId.set(idKey, record);
             }

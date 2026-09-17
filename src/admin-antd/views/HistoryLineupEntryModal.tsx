@@ -90,7 +90,6 @@ export function HistoryLineupEntryModal({
     const values = [
       sprite.displayName,
       sprite.name,
-      sprite.chineseName,
       sprite.filename,
       ...(sprite.aliases ?? []),
     ];
