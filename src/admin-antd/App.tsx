@@ -3571,24 +3571,48 @@ function Dashboard() {
     {
       title: '操作',
       key: 'actions',
-      render: (_: unknown, record: MatchRecord) => (
-        <Space wrap>
-          <Button size="small" onClick={() => void selectMatch(record.id)}>进入管理</Button>
-          <Button
-            size="small"
-            danger
-            onClick={() => {
-              modal.confirm({
-                title: '删除这场赛事？',
-                content: `${record.leftPlayer || '左侧'} vs ${record.rightPlayer || '右侧'}`,
-                onOk: () => deleteHistoryMatches([record.id]),
-              });
-            }}
-          >
-            删除
-          </Button>
-        </Space>
-      ),
+      render: (_: unknown, record: MatchRecord) => {
+        // 行内直接录入：自动定位到该场比赛的当前小局，免展开操作
+        const entryGame = getCurrentGame(record);
+        const entryReason = entryGame
+          ? getLineupEntryBlockReason(record, entryGame)
+          : 'match-completed';
+        return (
+          <Space wrap>
+            <Tooltip
+              title={entryReason
+                ? LINEUP_ENTRY_BLOCK_TEXT[entryReason]
+                : `提前录入第 ${entryGame?.gameNumber ?? 1} 局双方阵容，开始对局时自动生效`}
+            >
+              <span>
+                <Button
+                  size="small"
+                  type={entryReason ? 'default' : 'primary'}
+                  ghost={!entryReason}
+                  disabled={Boolean(entryReason)}
+                  onClick={() => setLineupEntry({ matchId: record.id, gameNumber: entryGame?.gameNumber ?? 1 })}
+                >
+                  录入阵容
+                </Button>
+              </span>
+            </Tooltip>
+            <Button size="small" onClick={() => void selectMatch(record.id)}>进入管理</Button>
+            <Button
+              size="small"
+              danger
+              onClick={() => {
+                modal.confirm({
+                  title: '删除这场赛事？',
+                  content: `${record.leftPlayer || '左侧'} vs ${record.rightPlayer || '右侧'}`,
+                  onOk: () => deleteHistoryMatches([record.id]),
+                });
+              }}
+            >
+              删除
+            </Button>
+          </Space>
+        );
+      },
     },
   ];
 
