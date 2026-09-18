@@ -35,7 +35,7 @@
     }
 
     function getSpriteName(row) {
-        return normalizeDisplayName(row && (row.cardName || row.displayName || row.name) || '');
+        return normalizeDisplayName(row && (row.displayName || row.name) || '');
     }
 
     function getCardNameLeft(nameLength) {
@@ -142,8 +142,17 @@
         return el;
     }
 
+    // 渲染签名：排行数据任一变化才重建行，避免 matches:update
+    //（如历史录入待开始局阵容，不影响统计）引发无差异重渲染闪烁
+    let renderSignature = null;
+
     function renderRanking(data) {
         const rows = data && Array.isArray(data.rows) ? data.rows : [];
+        const signature = JSON.stringify(rows);
+        if (renderSignature !== null && renderSignature === signature) {
+            return;
+        }
+        renderSignature = signature;
         leftRowsEl.innerHTML = '';
         rightRowsEl.innerHTML = '';
 

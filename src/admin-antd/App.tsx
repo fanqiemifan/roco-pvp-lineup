@@ -34,7 +34,6 @@ import {
   Switch,
   Table,
   Tag,
-  Timeline,
   Tooltip,
   Typography,
   Upload,
@@ -93,7 +92,9 @@ import {
   buildHistoryCsv,
   buildHistoryLineupEntries,
   buildHistoryTags,
-  getVisibleGames,
+  getHistoryVisibleGames,
+  getLineupEntryBlockReason,
+  LINEUP_ENTRY_BLOCK_TEXT,
 } from './lib/history';
 import {
   clampNumber,
@@ -136,6 +137,7 @@ import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from
 import { buildSpriteLookup } from './lib/sprite';
 import { Page4DeathPanel } from './views/Page4DeathPanel';
 import { Page4PanelEditor } from './views/Page4PanelEditor';
+import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
 
@@ -171,6 +173,32 @@ import type {
 const { Header, Sider, Content } = Layout;
 const { Title, Paragraph, Text, Link } = Typography;
 const { TextArea } = Input;
+
+/** 切换当前赛事确认弹窗的「不再提示」标记：按浏览器本地记忆（localStorage），跨会话保留 */
+const SELECT_MATCH_CONFIRM_SUPPRESSED_KEY = 'roco-pvp-lineup:selectMatchConfirmSuppressed';
+
+/** 比赛列表懒加载：一次渲染 6 条，滚动到底部再加载 6 条，赛事很多时避免全量渲染 */
+const MATCH_LIST_PAGE_SIZE = 6;
+
+function isSelectMatchConfirmSuppressed(): boolean {
+  try {
+    return window.localStorage.getItem(SELECT_MATCH_CONFIRM_SUPPRESSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setSelectMatchConfirmSuppressed(suppressed: boolean): void {
+  try {
+    if (suppressed) {
+      window.localStorage.setItem(SELECT_MATCH_CONFIRM_SUPPRESSED_KEY, '1');
+    } else {
+      window.localStorage.removeItem(SELECT_MATCH_CONFIRM_SUPPRESSED_KEY);
+    }
+  } catch {
+    // localStorage 不可用（隐私模式等）时静默降级：每次都提示
+  }
+}
 
 /** 导航栏各视图对应的 SVG 图标（Assets 里提供的自定义图标），使用当前上下文颜色自适应 */
 type NavIconName = 'roster' | 'stage' | 'live' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'page4' | 'about';
@@ -214,114 +242,6 @@ function NavIcon({ name, size = 20 }: { name: NavIconName; size?: number }) {
     />
   );
 }
-
-const CHANGELOG: Array<{ version: string; date: string; items: string[] }> = [
-  {
-    version: '1.5.7',
-    date: '2026-09',
-    items: [
-      '修复阵容编辑器显示：切回待开始小局的赛事时改用该局草稿槽位回填编辑器（此前显示被清空的全局面板，造成“已登记阵容消失”的错觉，实际草稿一直保存于赛事记录）；推流页与悬浮窗行为不变，未开局阵容仍不上推流页',
-      '待开始状态下编辑器缓冲区随草稿回填且切换赛事时自动取消未完成的防抖保存，避免误点精灵/快速填充把整份草稿覆盖为空或半份阵容',
-    ],
-  },
-  {
-    version: '1.5.6',
-    date: '2026-09',
-    items: [
-      '推流页面切换入场动效：切到推流页面 1/2/3/5/6/7/8/9/10 时，页面内容区自上而下依次上浮淡入（fadeUp，--fx-delay 控制入场顺序）',
-      '推流页面3 每次切入播放一次阵容入场动画（左右阵容卡交错入场，复用现有阵容出入场动画）',
-    ],
-  },
-  {
-    version: '1.5.5',
-    date: '2026-08',
-    items: [
-      '直播推流画面切换卡片移除「黑场」选项（此前已保存的黑场状态仍有效，服务端与推流载体保持兼容）',
-      '直播推流设置归一化：保存语义统一为即时保存（开关/选择/切换即点即存、文本输入失焦即存），移除「保存直播推流设置」「保存页面2设置」「保存对局推送设置」按钮（团队积分榜批量录入仍保留保存按钮）',
-      '直播推流设置卡片重分组：页面3精灵图片/排位图标/战队标识合并为「推流页面3设置」，切换过渡效果与胜者结算停留时长合并为「画面切换行为」，选手介绍排位排名独立为「选手介绍显示」卡片',
-      '直播推流设置卡片标题统一为 Card 标题，字段标签统一为 SettingField 组件（次级标签 + 说明 + 控件）',
-      '新增推流页面7（对局推送）：按小局逐行展示双方选手、头像、排位排名与该局阵容（精灵卡复用页面2 样式，80×80），胜方一侧高亮 FFC65F 并显示胜/负图标',
-      '页面7 布局：主标题（FCC34A 黄底、后台输入）+ 最多 4 行比赛信息（超出滚动显示最新 4 局，未选满以占位行补齐），每行左侧显示 GAME1-5 对局序号，底部温馨提示后台可编辑',
-      '后台新增独立导航「对局推送」：选择单场比赛即时推送，可编辑主标题与温馨提示，并内嵌页面预览',
-    ],
-  },
-  {
-    version: '1.5.4',
-    date: '2026-08',
-    items: [
-      '新增推流页面8（比赛预告）：复用页面6 布局，选手对局信息卡 w860×h88 两列网格（每列最多 6 场、第 7 场开启第二列），展示 vs + 双方选手名 + 排位排名图标（复用页面3 图标样式）',
-      '后台「比赛历史」新增「预告」勾选：最多选择 12 场对局推送（可勾选待开始与进行中的对局，已完成对局不可选；选 0 场推送即清空页面），只取选手信息与排位排名',
-      '「页面预览」新增推流页面8 预览与设置：可输入主标题/副标题、切换壁纸（图片1/图片2/自定义上传，自动缩放为 1920×1080）',
-      '页面8 不加入直播推流设置（stage 可选画面），仅在页面预览中展示',
-    ],
-  },
-  {
-    version: '1.5.3',
-    date: '2026-08',
-    items: [
-      '新增「下场对局」：推流页面3 右下角展示下一场待开始比赛（选手头像 + 名字）；直播推流可控制出现/关闭，并可设置开启后停留时长（默认 1 分钟，单位可切秒/分钟，到期自动隐藏）',
-      '阵容悬浮窗中央新增圆形小按钮：点击弹出待开始比赛选择小窗，支持按选手名称搜索，确认后自动在推流页面3 显示',
-      '修复下场对局头像：按所选比赛分别读取各自头像（按赛事隔离），未设置时回退默认头像',
-      '下场对局停留时长默认单位为分钟，不再支持秒；直播推流页将「下场对局」与「切换过渡效果」设置位置互换',
-      '直播推流设置：推流页面5统计口径、推流页面5/6标题与背景、下场对局 同行三列；切换过渡效果独立一行',
-    ],
-  },
-  {
-    version: '1.5.2',
-    date: '2026-08',
-    items: [
-      '精灵名字字体改为 MiSans-Medium；推流页面3 选手名字使用 MiSans-Regular',
-      'YouSheBiaoTiHei 改用系统已安装字体（@font-face local()），未安装时回退 MiSans',
-      '新增推流页面6（比赛结果）：比赛历史中勾选已结束比赛（最多 8 场）并推送展示，支持赛事标签筛选；展示双方选手、比分与胜者高亮',
-      '关于项目新增字体说明：注明使用 MiSans，并列出使用 YouSheBiaoTiHei 的页面与下载链接，引导用户自行安装',
-      '等待页改名为推流页面7（公开免鉴权），其历史面板改为展示后台「比赛结果」推送选中的比赛',
-    ],
-  },
-  {
-    version: '1.5.1',
-    date: '2026-08',
-    items: [
-      '新增桌面阵容悬浮窗：透明置顶小窗实时展示双方阵容，点击精灵可设置阵亡（HP=0）/复活，悬浮时显示关闭按钮',
-      '右键精灵可按文件名基名匹配同系列多形态（如 岚鸟-1/-2）并一键切换，或打开更换精灵小窗；更换窗自动定位到精灵上方、更换后自动关闭、同时仅保留一个',
-      '选手头像系统：头像按赛事隔离存储；赛事面板点击头像即可更换（64×64 圆形 + 1px 内描边）；创建赛事弹窗可设置选手头像；上传头像服务端等比缩放压缩为 128×128 PNG',
-      '数据统计增强：属性分布胶囊化并显示属性图标；列头悬浮说明口径；前三名金/银/铜徽章；新增「胜场」字段；支持搜索选择选手与赛事标签；排行卡片加宽',
-      '推流页：页面2赛事标题默认为空、未输入时推流页不显示；页面2阵容展示默认「仅头像展示」',
-      '比赛列表比分胶囊化、列表高度显示 5 条；创建赛事弹窗比赛赛制标记为必填',
-      '配置 antd 中文 locale，内置文本（如“点击排序”）本地化；Docker 登录密码改为 123',
-      '修复：缩略图文件名零宽空格导致霹雳迪迪未使用缩略图；多形态列表显示精灵原始名称（如 卡瓦重（草地附近的样子））',
-    ],
-  },
-  {
-    version: '1.5.0',
-    date: '',
-    items: [
-      '新增直播推流（导播台）：实时 iframe 缩略预览、页面切换、百叶窗/缩放冲击过渡动效、黑场/等待页',
-      '推流页面 1 改为 page4 式阵容展示并使用赛事面板数据',
-      '头像上传增加魔数校验，杜绝同源存储型 XSS',
-      '内置 MiSans-Heavy 字体，修复精灵名字依赖系统字体导致变形',
-    ],
-  },
-  {
-    version: '1.4.0',
-    date: '',
-    items: [
-      '管理后台重构：拆分 App.tsx，纯逻辑下沉 lib/、常量类型独立、视图组件化',
-      '新增数据统计页：按赛事历史聚合精灵使用率/上场率/胜率/属性分布/登场趋势',
-      '比赛历史支持 CSV 导出，阵容精灵名统一使用 sprites.json 精灵名称',
-      '新增页面4（仅显阵容）与快速填充阵容功能',
-    ],
-  },
-  {
-    version: '1.3.0',
-    date: '',
-    items: [
-      '赛事管理：创建赛事、BO 赛制、逐小局记录胜负、撤销/重做、历史与删除',
-      '阵容编辑：左右两侧独立配置，调节血量/能量/透明度/饱和度，精灵筛选（属性/形态/最终形态）',
-      '推流页面 2 / 3 与赛事标题、比分栏、头像设置',
-      '新增后台账号密码登录验证与单会话管理',
-    ],
-  },
-];
 
 type HistorySortKey = 'updatedAt' | 'score' | 'bestOf' | 'status';
 
@@ -491,6 +411,18 @@ function Dashboard() {
   const [page9SettingsNotice, setPage9SettingsNotice] = useState<NoticeState>(null);
   // === 信息录入（选手 / 战队） ===
   const [profiles, setProfiles] = useState<ProfileStoreState | null>(null);
+  // 快速创建弹窗选手列表：按信息录入添加时间排序（档案 id 内嵌 base36 创建时间戳，先录者在前；
+  // 数组顺序可能被手动编辑/导入/删后重录打乱，id 解析失败的按原数组顺序兜底排在末尾）
+  const quickCreatePlayerList = useMemo(() => {
+    const createdMs = (id: string): number => {
+      const parsed = Number.parseInt(id.slice(1, 9), 36);
+      return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+    };
+    return (profiles?.players ?? [])
+      .map((player, index) => ({ player, index }))
+      .sort((a, b) => createdMs(a.player.id) - createdMs(b.player.id) || a.index - b.index)
+      .map((item) => item.player);
+  }, [profiles]);
   // 信息录入卡片内切换视图：players = 选手信息，teams = 战队信息
   const [profileTab, setProfileTab] = useState<'players' | 'teams'>('players');
   const [playerEditorOpen, setPlayerEditorOpen] = useState(false);
@@ -527,6 +459,10 @@ function Dashboard() {
   const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
   const [page4Notice, setPage4Notice] = useState<NoticeState>(null);
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
+  // 比赛历史「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
+  const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
+  // 比赛列表懒加载游标：先渲染 6 条，滚动到底部再追加 6 条
+  const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
   const [liveFilePath, setLiveFilePath] = useState<string | null>(null);
   const [liveFileName, setLiveFileName] = useState('');
@@ -599,6 +535,24 @@ function Dashboard() {
     ].some((value) => value.toLowerCase().includes(normalizedHistorySearch));
   });
   const sortedMatches = [...filteredMatches].sort(compareHistoryMatches);
+  // 「录入阵容」弹窗的当前上下文：从最新 store 里解析比赛与小局（socket 更新后自动跟随）
+  const lineupEntryMatch = lineupEntry ? matchStore.matches.find((match) => match.id === lineupEntry.matchId) ?? null : null;
+  const lineupEntryGame = lineupEntryMatch && lineupEntry
+    ? lineupEntryMatch.games.find((game) => game.gameNumber === lineupEntry.gameNumber) ?? null
+    : null;
+  const visibleMatches = matchStore.matches.slice(0, visibleMatchCount);
+  const hasMoreMatches = matchStore.matches.length > visibleMatchCount;
+
+  /** 比赛列表滚动到底部（余量 32px）时追加一页卡片 */
+  function handleMatchListScroll(event: React.UIEvent<HTMLDivElement>) {
+    if (!hasMoreMatches) {
+      return;
+    }
+    const el = event.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
+      setVisibleMatchCount((count) => Math.min(count + MATCH_LIST_PAGE_SIZE, matchStore.matches.length));
+    }
+  }
 
   const deferredLeftSearch = useDeferredValue(panels.left.search);
   const deferredRightSearch = useDeferredValue(panels.right.search);
@@ -1458,7 +1412,48 @@ function Dashboard() {
     await save();
   }
 
-  async function selectMatch(matchId: string) {
+  /** 切换当前赛事会把目标赛事的选手信息与当前小局阵容同步到推流画面（面板+比分栏被覆写），
+   *  首次切换前弹窗确认，可勾选「不再提示」（按浏览器本地记忆）。 */
+  function selectMatch(matchId: string) {
+    const targetMatch = matchStore.matches.find((match) => match.id === matchId);
+    if (!targetMatch) {
+      return;
+    }
+    // 已是当前赛事：重复点击不会改变推流指向，不弹确认
+    if (matchId === activeMatch?.id || isSelectMatchConfirmSuppressed()) {
+      void doSelectMatch(matchId);
+      return;
+    }
+
+    let suppressNextTime = false;
+    modal.confirm({
+      title: '切换当前赛事？',
+      content: (
+        <div className="select-match-confirm">
+          <Paragraph>
+            切换后，推流页面将立即同步「{targetMatch.leftPlayer || '左侧'} vs {targetMatch.rightPlayer || '右侧'}」的
+            选手信息与当前小局阵容（比分栏、推流页面1-3 会被覆盖）。
+          </Paragraph>
+          <Paragraph type="secondary">
+            如当前正在推流其他对局，请先确认再切换。阵容可在「比赛历史」中提前录入，无需切换当前赛事。
+          </Paragraph>
+          <Checkbox onChange={(event) => { suppressNextTime = event.target.checked; }}>
+            不再提示
+          </Checkbox>
+        </div>
+      ),
+      okText: '确认切换',
+      cancelText: '取消',
+      onOk: () => {
+        if (suppressNextTime) {
+          setSelectMatchConfirmSuppressed(true);
+        }
+        return doSelectMatch(matchId);
+      },
+    });
+  }
+
+  async function doSelectMatch(matchId: string) {
     try {
       const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>(`/api/matches/${encodeURIComponent(matchId)}/select`, {
         method: 'POST',
@@ -3467,24 +3462,48 @@ function Dashboard() {
     {
       title: '操作',
       key: 'actions',
-      render: (_: unknown, record: MatchRecord) => (
-        <Space wrap>
-          <Button size="small" onClick={() => void selectMatch(record.id)}>进入管理</Button>
-          <Button
-            size="small"
-            danger
-            onClick={() => {
-              modal.confirm({
-                title: '删除这场赛事？',
-                content: `${record.leftPlayer || '左侧'} vs ${record.rightPlayer || '右侧'}`,
-                onOk: () => deleteHistoryMatches([record.id]),
-              });
-            }}
-          >
-            删除
-          </Button>
-        </Space>
-      ),
+      render: (_: unknown, record: MatchRecord) => {
+        // 行内直接录入：自动定位到该场比赛的当前小局，免展开操作
+        const entryGame = getCurrentGame(record);
+        const entryReason = entryGame
+          ? getLineupEntryBlockReason(record, entryGame)
+          : 'match-completed';
+        return (
+          <Space wrap>
+            <Tooltip
+              title={entryReason
+                ? LINEUP_ENTRY_BLOCK_TEXT[entryReason]
+                : `提前录入第 ${entryGame?.gameNumber ?? 1} 局双方阵容，开始对局时自动生效`}
+            >
+              <span>
+                <Button
+                  size="small"
+                  type={entryReason ? 'default' : 'primary'}
+                  ghost={!entryReason}
+                  disabled={Boolean(entryReason)}
+                  onClick={() => setLineupEntry({ matchId: record.id, gameNumber: entryGame?.gameNumber ?? 1 })}
+                >
+                  录入阵容
+                </Button>
+              </span>
+            </Tooltip>
+            <Button size="small" onClick={() => void selectMatch(record.id)}>进入管理</Button>
+            <Button
+              size="small"
+              danger
+              onClick={() => {
+                modal.confirm({
+                  title: '删除这场赛事？',
+                  content: `${record.leftPlayer || '左侧'} vs ${record.rightPlayer || '右侧'}`,
+                  onOk: () => deleteHistoryMatches([record.id]),
+                });
+              }}
+            >
+              删除
+            </Button>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -3592,9 +3611,9 @@ function Dashboard() {
                       </Space>
                     }
                   >
-                    <div className="match-list-scroll">
+                    <div className="match-list-scroll" onScroll={handleMatchListScroll}>
                       <List
-                        dataSource={matchStore.matches}
+                        dataSource={visibleMatches}
                         className="match-list"
                         locale={{ emptyText: '暂无赛事，先创建一场比赛吧。' }}
                         renderItem={(match) => (
@@ -3620,6 +3639,11 @@ function Dashboard() {
                           </List.Item>
                         )}
                       />
+                      {hasMoreMatches ? (
+                        <div className="match-list-more">
+                          下滑加载更多（已显示 {visibleMatches.length}/{matchStore.matches.length}）
+                        </div>
+                      ) : null}
                     </div>
                   </Card>
                 </Col>
@@ -4022,10 +4046,11 @@ function Dashboard() {
                           {record.id} · BO{record.bestOf} · 已记录 {record.games.filter((game) => game.status === 'completed').length} 局
                           {record.completedAt ? ` · 完成于 ${formatDateTime(record.completedAt)}` : ''}
                         </Text>
-                        {getVisibleGames(record).map((game) => {
+                        {getHistoryVisibleGames(record).map((game) => {
                           const battleEntries = buildHistoryBattleEntries(game, spriteMap);
                           const leftLost = game.winner === 'right';
                           const rightLost = game.winner === 'left';
+                          const lineupBlockReason = getLineupEntryBlockReason(record, game);
 
                           return (
                           <Card key={`${record.id}-${game.gameNumber}`} size="small" className="subtle-card">
@@ -4039,6 +4064,21 @@ function Dashboard() {
                                   {getGameResultLabel(game)}
                                 </Tag>
                                 <Text type="secondary">左侧 1-6 · 右侧 7-12</Text>
+                                <Tooltip
+                                  title={lineupBlockReason
+                                    ? LINEUP_ENTRY_BLOCK_TEXT[lineupBlockReason]
+                                    : `提前录入第 ${game.gameNumber} 局双方阵容，开始对局时自动生效`}
+                                >
+                                  <Button
+                                    size="small"
+                                    type={lineupBlockReason ? 'default' : 'primary'}
+                                    ghost={!lineupBlockReason}
+                                    disabled={Boolean(lineupBlockReason)}
+                                    onClick={() => setLineupEntry({ matchId: record.id, gameNumber: game.gameNumber })}
+                                  >
+                                    录入阵容
+                                  </Button>
+                                </Tooltip>
                               </Space>
                               <div className="history-battle-grid">
                                 {battleEntries.map((entry, index) => {
@@ -4105,6 +4145,14 @@ function Dashboard() {
                   />
                 </Space>
               </Modal>
+              <HistoryLineupEntryModal
+                open={Boolean(lineupEntry && lineupEntryMatch && lineupEntryGame)}
+                match={lineupEntryMatch}
+                game={lineupEntryGame}
+                sprites={sprites}
+                onClose={() => setLineupEntry(null)}
+                onSaved={(store) => applyServerState({ store })}
+              />
             </Space>
           ) : null}
 
@@ -5237,28 +5285,6 @@ function Dashboard() {
                           </Paragraph>
                         </Space>
                       </Card>
-                      <Card size="small" className="subtle-card" title="更新日志">
-                        <Timeline
-                          items={CHANGELOG.map((entry) => ({
-                            color: entry.version === '1.5.1' ? 'gold' : 'gray',
-                            children: (
-                              <Space direction="vertical" size={4}>
-                                <Space wrap>
-                                  <Text strong>v{entry.version}</Text>
-                                  {entry.date ? <Text type="secondary">{entry.date}</Text> : null}
-                                </Space>
-                                <ul className="changelog-list">
-                                  {entry.items.map((item) => (
-                                    <li key={item}>
-                                      <Text type="secondary">{item}</Text>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </Space>
-                            ),
-                          }))}
-                        />
-                      </Card>
                     </Space>
                   </Card>
             </Space>
@@ -5308,7 +5334,7 @@ function Dashboard() {
                 background: '#fff',
               }}
             >
-              {(profiles?.players ?? [])
+              {quickCreatePlayerList
                 .filter((player) => {
                   const keyword = quickCreateKeyword.trim().toLowerCase();
                   return !keyword || player.name.toLowerCase().includes(keyword);
@@ -5336,7 +5362,7 @@ function Dashboard() {
                     </div>
                   );
                 })}
-              {(profiles?.players ?? []).filter((player) => {
+              {quickCreatePlayerList.filter((player) => {
                 const keyword = quickCreateKeyword.trim().toLowerCase();
                 return !keyword || player.name.toLowerCase().includes(keyword);
               }).length === 0 ? (

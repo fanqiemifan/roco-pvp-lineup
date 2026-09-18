@@ -85,6 +85,7 @@ import {
   redoMatchAction,
   saveDraftPanelStateForActiveMatch,
   saveDraftPanelSlotStateForActiveMatch,
+  saveGameLineupForMatch,
   setActiveMatch,
   startCurrentGame,
   syncActiveMatchLineupsFromPanels,
@@ -1067,6 +1068,32 @@ export async function createLocalServer(
     }
   });
 
+  // 比赛历史「录入阵容」：只写指定赛事当前小局（待开始）的双方阵容记录，一次写入
+  // 单次广播 matchesUpdate（避免推流页因两次事件重渲染两遍产生闪烁），不触碰面板/比分栏
+  app.post('/api/matches/:matchId/games/:gameNumber/lineup', (request, response) => {
+    const selections = request.body?.selections;
+    if (!selections || typeof selections !== 'object' || Array.isArray(selections)) {
+      response.status(400).json({ success: false, error: 'selections must be an object with left/right lineups' });
+      return;
+    }
+    const gameNumber = Number.parseInt(request.params.gameNumber, 10);
+    if (!Number.isInteger(gameNumber) || gameNumber < 1) {
+      response.status(400).json({ success: false, error: 'invalid game number' });
+      return;
+    }
+
+    try {
+      const matches = saveGameLineupForMatch(paths, request.params.matchId, gameNumber, {
+        left: selections.left,
+        right: selections.right,
+      });
+      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      response.json({ success: true, store: matches });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.post('/api/matches/:matchId/undo', (_request, response) => {
     try {
       const matches = undoMatchAction(paths, _request.params.matchId);
@@ -1453,6 +1480,7 @@ export async function createLocalServer(
     server,
     io,
     async close() {
+      clearWinnerStageReturnTimer();
       if (nextgameTimer) {
         clearTimeout(nextgameTimer);
         nextgameTimer = null;
@@ -1461,15 +1489,18 @@ export async function createLocalServer(
         clearTimeout(countdownZeroTimer);
         countdownZeroTimer = null;
       }
+      // io 以 http server 构造，io.close() 会断开所有客户端并关闭它；
+      // 不能再对已由 io 关闭的 server 重复调 server.close()，否则必然抛
+      // ERR_SERVER_NOT_RUNNING。closeIdleConnections 先断 keep-alive 连接，
+      // 避免 server.close 因浏览器/长连接未断而迟迟不回调。
+      server.closeIdleConnections();
       await new Promise<void>((resolve, reject) => {
-        io.close(() => {
-          server.close((error) => {
-            if (error) {
-              reject(error);
-              return;
-            }
-            resolve();
-          });
+        io.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
         });
       });
     },

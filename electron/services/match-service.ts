@@ -1322,6 +1322,79 @@ export function saveDraftPanelSlotStateForActiveMatch(
   return writeStoreFile(paths, store);
 }
 
+/**
+ * 比赛历史「录入阵容」：为指定赛事的当前小局（且必须尚未开始）写入双方阵容。
+ * 只写赛事记录并广播一次 matchesUpdate，不触碰面板/比分栏/activeMatchId——
+ * 待开始小局的阵容本就不上推流画面，因此天然不影响当前对局的推流；
+ * 双侧合并为一次写入，避免推流页（page7 等）因两次广播重渲染两遍产生闪烁。
+ */
+export function saveGameLineupForMatch(
+  paths: AppPaths,
+  matchId: string,
+  gameNumber: number,
+  selections: { left?: unknown; right?: unknown },
+): MatchStoreState {
+  const { store } = readStoreFile(paths);
+  const index = store.matches.findIndex((match) => match.id === matchId);
+  if (index === -1) {
+    throw new Error('比赛不存在');
+  }
+
+  const current = store.matches[index];
+  if (current.status === 'completed') {
+    throw new Error('当前赛事已完赛，不能录入阵容');
+  }
+  if (!Number.isInteger(gameNumber) || gameNumber < 1) {
+    throw new Error('无效的小局编号');
+  }
+
+  const currentGame = getCurrentGame(current);
+  if (!currentGame || currentGame.gameNumber !== gameNumber) {
+    throw new Error(
+      currentGame
+        ? `还没轮到第 ${gameNumber} 局，只能录入当前小局（第 ${currentGame.gameNumber} 局）的阵容`
+        : '该比赛没有可录入的小局',
+    );
+  }
+  if (currentGame.status === 'in_progress') {
+    throw new Error('该局已开始，请在赛事面板中修改阵容');
+  }
+  if (currentGame.status === 'completed') {
+    throw new Error('该局已结束，不能录入阵容');
+  }
+
+  const hasLeft = selections.left !== undefined;
+  const hasRight = selections.right !== undefined;
+  if (!hasLeft && !hasRight) {
+    throw new Error('请至少提供一侧的阵容');
+  }
+
+  const gameIndex = current.games.findIndex((game) => game.gameNumber === gameNumber);
+  if (gameIndex === -1) {
+    throw new Error('小局不存在');
+  }
+
+  const leftSlots = hasLeft ? parseSelectedSlots(paths, selections.left) : currentGame.leftSlots;
+  const rightSlots = hasRight ? parseSelectedSlots(paths, selections.right) : currentGame.rightSlots;
+
+  const nextGames = [...current.games];
+  nextGames[gameIndex] = {
+    ...currentGame,
+    leftSlots,
+    rightSlots,
+    leftLineup: lineupFromSlots(leftSlots),
+    rightLineup: lineupFromSlots(rightSlots),
+  };
+
+  store.matches[index] = {
+    ...current,
+    games: nextGames,
+    updatedAt: new Date().toISOString(),
+  };
+
+  return writeStoreFile(paths, store);
+}
+
 export function startCurrentGame(paths: AppPaths, matchId: string): MatchStoreState {
   const { store } = readStoreFile(paths);
   const index = store.matches.findIndex((match) => match.id === matchId);

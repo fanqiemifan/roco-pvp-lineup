@@ -2,7 +2,7 @@ import type { GameRecord, MatchRecord, MatchStoreState, SpriteRecord } from '../
 import { DEFAULT_TAGS } from '../constants';
 import type { PanelSide } from '../types';
 import { formatDateTime } from './format';
-import { getGameResultLabel, getGameStatusLabel } from './match';
+import { getGameResultLabel, getGameStatusLabel, getCurrentGame } from './match';
 import { resolveSpriteStatsName } from './sprite';
 
 export function buildHistoryLineupEntries(
@@ -48,6 +48,56 @@ export function getVisibleGames(record: MatchRecord) {
     || game.leftLineup.length > 0
     || game.rightLineup.length > 0
   ));
+}
+
+/**
+ * 比赛历史展开行的小局可见性：在 getVisibleGames 基础上，额外显示
+ * 「未开赛场次的当前小局」（待开始且还没有任何阵容）——否则新比赛在历史里
+ * 连第一局的卡片都不出现，无法通过历史录入阵容（必须先去赛事面板录一只精灵）。
+ * 还没轮到的空小局仍然隐藏。
+ */
+export function getHistoryVisibleGames(record: MatchRecord) {
+  if (record.status === 'completed') {
+    return getVisibleGames(record);
+  }
+  const currentGame = getCurrentGame(record);
+  return record.games.filter((game) => (
+    game.status !== 'pending'
+    || game.leftLineup.length > 0
+    || game.rightLineup.length > 0
+    || (currentGame != null && currentGame.gameNumber === game.gameNumber)
+  ));
+}
+
+/** 比赛历史「录入阵容」被锁定的原因；null = 可录入（当前小局且待开始） */
+export type LineupEntryBlockReason = 'match-completed' | 'game-not-current' | 'game-started' | 'game-completed';
+
+export const LINEUP_ENTRY_BLOCK_TEXT: Record<LineupEntryBlockReason, string> = {
+  'match-completed': '比赛已完赛，不能录入阵容',
+  'game-not-current': '还没轮到这一局，只能录入当前小局的阵容',
+  'game-started': '该局已开始，请在赛事面板中修改阵容',
+  'game-completed': '该局已结束，不能录入阵容',
+};
+
+/**
+ * 仅「当前小局」且「待开始」可从比赛历史录入阵容（提前录入，不影响推流）：
+ * 进行中的局走赛事面板（改了会推流，是有意为之），已结束的局锁定保护战绩。
+ */
+export function getLineupEntryBlockReason(match: MatchRecord, game: GameRecord): LineupEntryBlockReason | null {
+  if (match.status === 'completed') {
+    return 'match-completed';
+  }
+  const currentGame = getCurrentGame(match);
+  if (!currentGame || currentGame.gameNumber !== game.gameNumber) {
+    return 'game-not-current';
+  }
+  if (game.status === 'in_progress') {
+    return 'game-started';
+  }
+  if (game.status === 'completed') {
+    return 'game-completed';
+  }
+  return null;
 }
 
 export function buildHistoryTags(matches: MatchStoreState['matches']): string[] {

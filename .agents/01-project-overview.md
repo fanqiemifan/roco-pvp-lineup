@@ -27,6 +27,7 @@ roco-pvp-lineup/
 │   ├── scripts/        # 原生 JS 展示脚本
 │   ├── styles/         # 原生 CSS 样式
 │   └── assets/         # UI 资源（图标、字体）
+├── tests/              # Vitest 测试（tests/electron/ 服务与 HTTP 层、tests/admin-antd/ 前端纯函数，镜像源码结构）
 └── resources/          # 游戏资源
     ├── sprites-img/    # 精灵立绘（official_small_icon，/img/）
     ├── sprites-icon/   # 精灵头像（icon_url + 原 Thumbnail 迁移，/resources/sprites-icon/）

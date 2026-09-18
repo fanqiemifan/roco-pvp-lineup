@@ -3,8 +3,6 @@ export interface SpriteRecord {
   filename: string;
   displayName: string;
   name: string;
-  chineseName: string;
-  cardName: string;
   path: string;
   aliases: string[];
   number: number | null;

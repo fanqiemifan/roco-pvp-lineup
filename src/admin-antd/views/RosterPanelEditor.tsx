@@ -67,7 +67,6 @@ export function RosterPanelEditor({
     const values = [
       sprite.displayName,
       sprite.name,
-      sprite.chineseName,
       sprite.filename,
       ...(sprite.aliases ?? []),
     ];

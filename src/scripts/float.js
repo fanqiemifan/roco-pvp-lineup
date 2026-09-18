@@ -38,8 +38,8 @@
         if (!sprite || typeof sprite !== 'object') {
             return '';
         }
-        // 优先使用原始名称（精灵名称），如 卡瓦重（草地附近的样子），而非去掉变体后缀的 cardName
-        return String(sprite.name || sprite.chineseName || sprite.displayName || sprite.cardName || basename(sprite.path) || '').trim();
+        // 优先使用原始名称（精灵名称），如 卡瓦重（草地附近的样子），而非去掉变体后缀的短名 displayName
+        return String(sprite.name || sprite.displayName || basename(sprite.path) || '').trim();
     }
 
     function buildSpriteIconCandidates(sprite) {

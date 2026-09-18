@@ -101,7 +101,6 @@
         return {
             ...record,
             number: normalizeNumber(record.number),
-            cardName: stripVariantName(String(record.displayName || '')),
         };
     }
 
@@ -152,7 +151,7 @@
         if (!sprite || typeof sprite !== 'object') {
             return '';
         }
-        return sprite.displayName || sprite.chineseName || sprite.name || sprite.filename || '';
+        return sprite.displayName || sprite.name || sprite.filename || '';
     }
 
 

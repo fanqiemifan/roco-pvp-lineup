@@ -27,6 +27,9 @@
 | 悬浮窗/菜单窗口 | openFloatMenuWindow / createFloatWindow | electron/float-window.ts |
 | 数据统计聚合 | buildUsageStats | src/admin-antd/lib/stats.ts |
 | 管理后台视图 | RosterPanelEditor / StatsView | src/admin-antd/views/ |
+| 比赛历史录入阵容 | saveGameLineupForMatch | electron/services/match-service.ts |
+| 启动测试用服务器 | createLocalServer | electron/socket-server.ts |
+| 跑测试 | npm test（vitest run） | tests/ + vitest.config.ts |
 
 ## 类型引用
 

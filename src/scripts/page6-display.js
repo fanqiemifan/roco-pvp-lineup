@@ -75,12 +75,36 @@
         subtitleEl.textContent = text;
     }
 
+    // 渲染签名：标题/背景/所选比赛的可见字段任一变化才重建网格，
+    // 避免 matches:update（如历史录入待开始局阵容）引发无差异重渲染闪烁
+    let renderSignature = null;
+
+    function buildSignature(page6Res) {
+        const state = (page6Res && page6Res.state) || {};
+        const matches = (page6Res && page6Res.matches) || [];
+        return JSON.stringify({
+            title: String(state.title || '').trim(),
+            background: state.background || 'image',
+            matches: matches.map((match) => ({
+                id: match.id,
+                leftPlayer: match.leftPlayer,
+                rightPlayer: match.rightPlayer,
+                leftScore: match.leftScore,
+                rightScore: match.rightScore,
+                winner: match.winner,
+            })),
+        });
+    }
+
     async function loadData() {
         try {
-            const [page6Res, scoreboard] = await Promise.all([
-                fetch('/api/page6', { credentials: 'same-origin' }).then((r) => r.json()),
-                fetch('/api/scoreboard', { credentials: 'same-origin' }).then((r) => r.json()),
-            ]);
+            const page6Res = await fetch('/api/page6', { credentials: 'same-origin' }).then((r) => r.json());
+            // 签名一致则跳过，避免无差异重渲染导致画面闪烁
+            const signature = buildSignature(page6Res);
+            if (renderSignature !== null && renderSignature === signature) {
+                return;
+            }
+            renderSignature = signature;
             applySubtitle(page6Res && page6Res.state && page6Res.state.title);
             renderGrid(page6Res && page6Res.matches);
             applyBackground(page6Res && page6Res.state && page6Res.state.background);

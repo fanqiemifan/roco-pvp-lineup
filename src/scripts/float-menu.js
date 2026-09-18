@@ -29,8 +29,8 @@
         if (!sprite || typeof sprite !== 'object') {
             return '';
         }
-        // 优先使用原始名称（精灵名称），如 卡瓦重（草地附近的样子），而非去掉变体后缀的 cardName
-        return String(sprite.name || sprite.chineseName || sprite.displayName || sprite.cardName || basename(sprite.path) || '').trim();
+        // 优先使用原始名称（精灵名称），如 卡瓦重（草地附近的样子），而非去掉变体后缀的短名 displayName
+        return String(sprite.name || sprite.displayName || basename(sprite.path) || '').trim();
     }
 
     function getSpriteForm(sprite) {
@@ -42,13 +42,13 @@
     }
 
     // 多形态匹配：同图鉴编号 + 同名（如 鸭吉吉 的多种样子/多个 pet_id 变体）；
-    // pets.json 命名后文件名基名不再共享，改为按 number（handbook_no）+ cardName 分组
+    // pets.json 命名后文件名基名不再共享，改为按 number（handbook_no）+ displayName 分组
     function variantGroupKey(sprite) {
         if (!sprite || typeof sprite !== 'object') {
             return '';
         }
         const number = sprite.number ? String(sprite.number) : '';
-        const name = String(sprite.cardName || sprite.displayName || sprite.chineseName || sprite.name || '').trim();
+        const name = String(sprite.displayName || sprite.name || '').trim();
         if (number && name) {
             return `${number}|${name}`;
         }
@@ -213,7 +213,6 @@
             ? spriteCache.filter((sprite) => {
                 const haystack = [
                     sprite.displayName,
-                    sprite.chineseName,
                     sprite.name,
                     sprite.filename,
                     sprite.aliases ? sprite.aliases.join(' ') : '',

@@ -13,6 +13,9 @@
     "build:electron": "tsc -p tsconfig.json",
     "build:renderer": "vite build",
     "typecheck:frontend": "tsc -p tsconfig.frontend.json",
+    "typecheck:tests": "tsc -p tsconfig.tests.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dev": "npm run build:renderer && npm run build:electron && electron .",
     "start": "npm run build:renderer && npm run build:electron && electron .",
     "serve:node": "npm run build:renderer && npm run build:electron && node dist-electron/electron/server-entry.js --host 0.0.0.0 --port 9988",
@@ -44,6 +47,7 @@
     "electron-builder": "^26.0.12",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "vitest": "^5.0.1"
   }
 }

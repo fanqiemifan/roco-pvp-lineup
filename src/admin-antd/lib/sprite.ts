@@ -11,7 +11,6 @@ export function buildSpriteLookup(records: SpriteRecord[]): Map<string, SpriteRe
       sprite.filename,
       sprite.displayName,
       sprite.name,
-      sprite.chineseName,
       basename(sprite.id),
       basename(sprite.filename),
       basename(sprite.path),
@@ -58,7 +57,7 @@ export function resolveSpriteAttributeIcons(sprite: SpriteRecord): string[] {
 }
 
 export function resolveSpriteStatsName(sprite: SpriteRecord | null | undefined, fallback: string): string {
-  return sprite?.chineseName || sprite?.name || sprite?.displayName || fallback;
+  return sprite?.name || sprite?.displayName || fallback;
 }
 
 export function getSlotName(slot: SlotState | null | undefined): string {
@@ -66,5 +65,5 @@ export function getSlotName(slot: SlotState | null | undefined): string {
   if (!sprite) {
     return '';
   }
-  return cleanSpriteName(sprite.displayName || sprite.chineseName || sprite.name || sprite.filename || sprite.id);
+  return cleanSpriteName(sprite.displayName || sprite.name || sprite.filename || sprite.id);
 }

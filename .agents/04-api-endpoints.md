@@ -36,6 +36,7 @@
 | 删除比赛 | DELETE | /api/matches/:matchId | 删除单个比赛 | electron/socket-server.ts |
 | 选择活动比赛 | POST | /api/matches/:matchId/select | 选择活动比赛 | electron/socket-server.ts |
 | 开始小局 | POST | /api/matches/:matchId/start | 开始当前小局 | electron/socket-server.ts |
+| 录入小局阵容 | POST | /api/matches/:matchId/games/:gameNumber/lineup | 为当前小局（待开始）录入双方阵容（body: selections.left/right；双侧合并一次写入 + 单次广播 matches:update，不触碰面板/记分牌/activeMatchId；比赛历史「录入阵容」用） | electron/socket-server.ts |
 | 记录胜负 | POST | /api/matches/:matchId/winner | 记录本局胜负 | electron/socket-server.ts |
 | 撤销操作 | POST | /api/matches/:matchId/undo | 撤销操作 | electron/socket-server.ts |
 | 恢复操作 | POST | /api/matches/:matchId/redo | 恢复操作 | electron/socket-server.ts |

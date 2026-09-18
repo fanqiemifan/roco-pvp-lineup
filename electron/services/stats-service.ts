@@ -5,7 +5,6 @@ import type { AppPaths } from './path-service.js';
 export type StatsRankingRow = {
   key: string;
   name: string;
-  cardName: string;
   displayName: string;
   spritePath: string;
   attributeIcon1: string;
@@ -23,10 +22,8 @@ function spriteDisplayName(sprite: unknown): string {
   }
   const record = sprite as Record<string, unknown>;
   return String(
-    record.chineseName
-    ?? record.name
+    record.name
     ?? record.displayName
-    ?? record.cardName
     ?? record.filename
     ?? '',
   ).trim();
@@ -129,7 +126,6 @@ export function getSpriteRanking(
     rows.push({
       key,
       name: sprite ? spriteDisplayName(sprite) : key,
-      cardName: sprite ? spriteField(sprite, 'cardName') : '',
       displayName: sprite ? spriteField(sprite, 'displayName') : '',
       spritePath: sprite ? sprite.path : '',
       attributeIcon1: sprite ? spriteField(sprite, 'attributeIcon1') : '',
