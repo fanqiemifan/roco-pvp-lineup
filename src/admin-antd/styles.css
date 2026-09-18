@@ -1553,16 +1553,6 @@ a {
   min-height: 300px;
 }
 
-.changelog-list {
-  margin: 0;
-  padding-left: 18px;
-}
-
-.changelog-list li {
-  margin-bottom: 3px;
-  line-height: 1.6;
-}
-
 /* ===== 比赛历史「录入阵容」弹窗：提前录入当前小局阵容（不影响推流） ===== */
 
 .lineup-entry-title {
