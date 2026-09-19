@@ -139,12 +139,15 @@ function snapshotPayload(paths: AppPaths): SnapshotPayload {
 }
 
 function sendPage(paths: AppPaths, response: Response, pageFile: string): void {
+  // 页面随版本更新：禁止启发式缓存，避免升级后仍加载旧页面（资源文件名带 hash 不受影响）
+  response.set('Cache-Control', 'no-cache');
   response.sendFile(path.join(paths.pagesDir, pageFile));
 }
 
 function sendAdminAntdPage(paths: AppPaths, response: Response): void {
   const builtPage = path.join(paths.rendererDistDir, 'src', 'pages', 'admin-antd.html');
   if (fs.existsSync(builtPage)) {
+    response.set('Cache-Control', 'no-cache');
     response.sendFile(builtPage);
     return;
   }

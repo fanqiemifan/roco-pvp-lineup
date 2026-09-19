@@ -1699,20 +1699,6 @@ a {
   box-shadow: 0 0 0 2.5px rgba(199, 99, 47, 0.18);
 }
 
-.lineup-entry-slot .slot-idx {
-  position: absolute;
-  top: 4px;
-  left: 8px;
-  font-size: 10.5px;
-  color: #c2b39e;
-  line-height: 1;
-}
-
-.lineup-entry-slot.active .slot-idx {
-  color: #c7632f;
-  font-weight: 700;
-}
-
 .lineup-entry-slot .slot-placeholder {
   display: flex;
   flex-direction: column;
@@ -1779,16 +1765,9 @@ a {
   padding-top: 10px;
   border-top: 1px dashed rgba(91, 67, 43, 0.18);
   display: grid;
-  /* 左右两侧候选分开：左侧候选在左列、右侧候选在右列 */
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 候选区随各自的左右快速填充卡片内联展示，单列排列 */
+  grid-template-columns: 1fr;
   gap: 12px;
-}
-
-.lineup-entry-candidates .candidate-side {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
 }
 
 .lineup-entry-candidates .candidate-group {

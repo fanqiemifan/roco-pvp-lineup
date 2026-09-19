@@ -142,7 +142,6 @@ export function RosterPanelEditor({
                 className={`lineup-entry-slot${slot.sprite ? ' filled' : ' empty'}${active ? ' active' : ''}`}
                 onClick={() => selectSlot(side, index)}
               >
-                <span className="slot-idx">{index + 1}</span>
                 {slot.sprite ? (
                   <SpritePetCard sprite={slot.sprite} size={88} />
                 ) : (
@@ -178,48 +177,50 @@ export function RosterPanelEditor({
     const label = side === 'left' ? '左侧' : '右侧';
     const multiCandidateMatches = panel.quickFillMatches.filter((match) => match.candidates.length > 1);
     return (
-      <div className="lineup-entry-quickfill-side">
-        <Text strong>{label}快速填充</Text>
-        <TextArea
-          rows={2}
-          disabled={locked}
-          value={panel.quickFillInput}
-          placeholder={'一行一个精灵名，例如：\n暮星辰\n怖哭菇\n龙息帕尔'}
-          onChange={(event) => onMutatePanel(side, (prev) => ({ ...prev, quickFillInput: event.target.value }))}
-        />
-        <Space wrap>
-          <Button size="small" type="primary" disabled={locked} onClick={() => onRunQuickFill(side)}>
-            快速填充
-          </Button>
-          <Button size="small" disabled={locked} onClick={() => onClearPanel(side)}>
-            清空{label}
-          </Button>
-        </Space>
-        {multiCandidateMatches.length ? (
-          <div className="candidate-side">
-            {multiCandidateMatches.map((match) => (
-              <div key={`${side}-quick-${match.slot}`} className="candidate-group">
-                <Text type="secondary">槽位 {match.slot + 1}</Text>
-                <div className="candidate-grid">
-                  {match.candidates.map((candidate) => (
-                    <button
-                      key={candidate.id}
-                      type="button"
-                      className="candidate-button"
-                      aria-label={`选择 ${candidate.displayName}`}
-                      title={candidate.displayName}
-                      disabled={locked}
-                      onClick={() => onChooseQuickFillCandidate(side, match.slot, candidate)}
-                    >
-                      <SpritePetCard sprite={candidate} size={64} />
-                    </button>
-                  ))}
+      <Card size="small" className="subtle-card lineup-entry-quickfill-side-card">
+        <div className="lineup-entry-quickfill-side">
+          <Text strong>{label}快速填充</Text>
+          <TextArea
+            rows={2}
+            disabled={locked}
+            value={panel.quickFillInput}
+            placeholder={'一行一个精灵名，例如：\n暮星辰\n怖哭菇\n龙息帕尔'}
+            onChange={(event) => onMutatePanel(side, (prev) => ({ ...prev, quickFillInput: event.target.value }))}
+          />
+          <Space wrap>
+            <Button size="small" type="primary" disabled={locked} onClick={() => onRunQuickFill(side)}>
+              快速填充
+            </Button>
+            <Button size="small" disabled={locked} onClick={() => onClearPanel(side)}>
+              清空{label}
+            </Button>
+          </Space>
+          {multiCandidateMatches.length ? (
+            <div className="lineup-entry-candidates">
+              {multiCandidateMatches.map((match) => (
+                <div key={`${side}-quick-${match.slot}`} className="candidate-group">
+                  <Text type="secondary">槽位 {match.slot + 1}</Text>
+                  <div className="candidate-grid">
+                    {match.candidates.map((candidate) => (
+                      <button
+                        key={candidate.id}
+                        type="button"
+                        className="candidate-button"
+                        aria-label={`选择 ${candidate.displayName}`}
+                        title={candidate.displayName}
+                        disabled={locked}
+                        onClick={() => onChooseQuickFillCandidate(side, match.slot, candidate)}
+                      >
+                        <SpritePetCard sprite={candidate} size={64} />
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </Card>
     );
   }
 
@@ -250,12 +251,10 @@ export function RosterPanelEditor({
         {renderSideRail('left')}
 
         <div className="lineup-entry-center">
-          <Card size="small" className="subtle-card lineup-entry-quickfill">
-            <div className="lineup-entry-quickfill-grid">
-              {renderQuickFillColumn('left')}
-              {renderQuickFillColumn('right')}
-            </div>
-          </Card>
+          <div className="lineup-entry-quickfill-grid">
+            {renderQuickFillColumn('left')}
+            {renderQuickFillColumn('right')}
+          </div>
 
           <Card size="small" className="subtle-card lineup-entry-picker">
             <div className="picker-head">
