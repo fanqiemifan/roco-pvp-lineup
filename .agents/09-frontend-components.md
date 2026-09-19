@@ -34,7 +34,7 @@
 - stage - 直播推流（卡片式设置）
   - 推流页面5-精灵出场胜率-统计口径（page5Player/page5Tag 过滤）；推流页面3设置（精灵图片来源 sprite/thumbnail、排位图标开关、战队标识开关）。
   - 倒计时插件（时长/主题/显隐，走 `/api/countdown`）；下场对局（选择待开始比赛 + 停留时长，page3 的下场对局展示）。
-  - 画面切换行为（过渡效果 none/blinds；page10 胜者结算自动切入与停留时长 page10Duration）。
+  - 画面切换行为（过渡效果 none/blinds/wolf；page10 胜者结算自动切入与停留时长 page10Duration）。
   - 推流页面2设置（赛事标题/阵容展示）、推流页面6标题与背景、推流页面7标题文本（主标题/温馨提示）、选手介绍显示（page11-13 排位 div 开关 page11RankVisible）、团队积分榜设置（page9）、底部「显示设置」（推流页5标题、比分字号）。
 - page11 - 选手介绍（画面切换 left/right/versus；「选手介绍数据」按侧配置来源 manual/match，手动填写字段留空回退「信息录入」按名字匹配值）
 - live - 实时控制（比赛开始、胜负记录、撤销/恢复）

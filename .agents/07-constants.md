@@ -16,7 +16,7 @@
 | DEFAULT_STAGE_PAGE | page3 | 默认推流页面 | shared/constants.ts |
 | SUPPORTED_STAGE_PAGES | {page1-overlay,page2,page3,page5,page6,page7,page8,page9,page10,page11,page12,page13,blank} | 支持的推流页面（page11/12/13 = 选手介绍三画面，共用同一页面文件） | shared/constants.ts |
 | DEFAULT_STAGE_TRANSITION | blinds | 默认切换过渡 | shared/constants.ts |
-| SUPPORTED_STAGE_TRANSITIONS | {none,blinds} | 支持的过渡效果 | shared/constants.ts |
+| SUPPORTED_STAGE_TRANSITIONS | {none,blinds,wolf} | 支持的过渡效果 | shared/constants.ts |
 | DEFAULT_PAGE3_SPRITE_SOURCE | sprite | 页面3精灵图片来源默认值（sprite / thumbnail） | shared/constants.ts |
 | SUPPORTED_PAGE3_SPRITE_SOURCES | {sprite,thumbnail} | 页面3精灵图片来源枚举 | shared/constants.ts |
 | DEFAULT_PAGE3_RANK_VISIBLE | false | 页面3排位排名图标默认隐藏 | shared/constants.ts |

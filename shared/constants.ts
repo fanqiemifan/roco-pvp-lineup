@@ -47,9 +47,10 @@ export const SUPPORTED_STAGE_PAGES = new Set([
  * 直播推流切换过渡效果集合：
  * - none: 无过渡（直接切换）
  * - blinds: 双向百叶窗
+ * - wolf: 狼头揭幕（白狼 Logo 淡入 → 黑幕狼形镂空 → 镜头穿越放大）
  */
 export const DEFAULT_STAGE_TRANSITION = 'blinds';
-export const SUPPORTED_STAGE_TRANSITIONS = new Set(['none', 'blinds']);
+export const SUPPORTED_STAGE_TRANSITIONS = new Set(['none', 'blinds', 'wolf']);
 export const DEFAULT_PAGE3_SPRITE_SOURCE = 'sprite' as const;
 export const SUPPORTED_PAGE3_SPRITE_SOURCES = new Set(['sprite', 'thumbnail']);
 export const DEFAULT_PAGE3_RANK_VISIBLE = false;
