@@ -65,6 +65,9 @@ roco-pvp-lineup/
 | electron/services/page7-service.ts | 对局推送页（page7）状态管理 |
 | electron/services/page8-service.ts | 比赛预告页（page8）状态管理 |
 | electron/services/page9-service.ts | 团队积分榜页（page9）状态管理 |
+| electron/services/page11-service.ts | 选手介绍页（page11-13）左右两侧配置管理 |
+| electron/services/nextgame-service.ts | 下场对局（page3 下场对局展示 + 悬浮窗选择）状态管理 |
+| electron/services/countdown-service.ts | 倒计时插件状态管理（显隐/启停/重置） |
 | electron/services/stage-service.ts | 直播推流载体配置管理 |
 | electron/services/profile-service.ts | 选手/战队信息录入（增删改、JSON 批量导入 importPlayerProfiles、常用精灵命中判定 matchSpriteToken） |
 | electron/services/stats-service.ts | 精灵精灵登场/胜率排行统计（/api/stats/ranking） |
@@ -85,8 +88,9 @@ roco-pvp-lineup/
 | views/RosterPanelEditor.tsx | 阵容编辑（左右面板、精灵搜索、快速填充） |
 | views/Page4PanelEditor.tsx | 仅显阵容（page4）面板编辑 |
 | views/Page4DeathPanel.tsx | page4 阵亡面板 |
+| views/HistoryLineupEntryModal.tsx | 比赛历史「录入阵容」弹窗（为待开始小局录入双方阵容） |
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、标签趋势） |
-| components/ | Page4SlotVisual、SpritePetCard、StageThumb 等小组件 |
+| components/ | Page4SlotVisual、SettingField、SpritePetCard、StageThumb 等小组件 |
 | lib/ | format、history、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
@@ -105,10 +109,14 @@ roco-pvp-lineup/
 | page7-display.js | 对局推送页（page7）脚本（多场比赛逐行滚动展示） |
 | page8-display.js | 比赛预告页（page8）脚本 |
 | page9-display.js | 团队积分榜页（page9）脚本（排名与总积分自动计算） |
-| stage-carrier.js | 推流载体页（index.html）脚本，按 stage 配置加载对应页面；iframe 加载完成后 postMessage 通知页面播放入场动效 |
+| page10-display.js | 推流页面10（胜者结算画面）脚本（解析最近一个已分胜负的小局胜者） |
+| page11-display.js | 选手介绍页脚本（page11-13 共用，`?mode=left/right/versus` 区分画面） |
+| countdown-overlay.js | 倒计时插件脚本（叠加在推流载体页顶部，GET /api/countdown + serverNow 校准） |
+| stage-carrier.js | 推流载体页（index.html）脚本，按 stage 配置加载对应页面（page11-13 映射同一页面文件的不同 mode）；iframe 加载完成后 postMessage 通知页面播放入场动效 |
 | stage-enter.js | 推流页面入场动效控制脚本（配合 styles/stage-enter.css）：收载体 stage-enter 消息（或 onload 兜底）后加 is-stage-entered 并派发 stage-enter 事件，触发 .fx-enter 区块上浮淡入（fadeUp，内联 --fx-delay 控制延迟）；started 标志保证每页只播一次 |
 | float.js | 桌面阵容悬浮窗脚本 |
 | float-menu.js | 更换精灵菜单脚本 |
+| float-nextgame.js | 「下场对局」选择菜单脚本（列出待开始比赛、搜索、选中后 /api/nextgame/show） |
 
 ### 页面模板（src/pages）
 
@@ -124,7 +132,11 @@ roco-pvp-lineup/
 | roco-pvp-page7.html | 对局推送展示页（直播推流可选画面） |
 | roco-pvp-page8.html | 比赛预告展示页（公开免鉴权，不进直播推流可选画面） |
 | roco-pvp-page9.html | 团队积分榜展示页（直播推流可选画面） |
+| roco-pvp-page10.html | 推流页面10（胜者结算画面，直播推流可选画面） |
+| roco-pvp-page11.html | 选手介绍页（page11-13 共用，`?mode=left/right/versus` 区分三种画面） |
 | float.html | 桌面阵容悬浮窗 |
 | float-menu.html | 更换精灵菜单 |
+| float-nextgame.html | 「下场对局」选择菜单（300×320 popup，float.js 打开） |
+| match-result.html | 赛后战绩展示（当前无路由与引用，未接线） |
 | admin-antd.html | 管理后台入口（Vite 构建产物，位于 dist/） |
 | login.html | 登录页入口（Vite 构建产物，位于 dist/） |

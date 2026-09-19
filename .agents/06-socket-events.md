@@ -2,18 +2,21 @@
 
 | 自然语言描述 | 事件名称 | 方向 | 说明 | 负载结构 |
 |-------------|---------|------|------|---------|
-| 完整状态快照 | snapshot | Server → Client | 完整状态快照 | { panels, page4, scoreboard, avatars, matches, stage, page6, page7, page8, page9, nextgame, profiles } |
+| 完整状态快照 | snapshot | Server → Client | 完整状态快照 | { panels, page4, scoreboard, avatars, store: MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown }（注意比赛字段名是 `store` 不是 `matches`） |
 | 面板更新通知 | panel:update | Server → Client | 面板更新 | { panel: PanelState } |
 | 仅显阵容更新通知 | page4:update | Server → Client | page4 面板更新 | { panel: Page4PanelState } |
 | 记分牌更新通知 | scoreboard:update | Server → Client | 记分牌更新 | { scoreboard: ScoreboardState } |
 | 头像更新通知 | avatar:update | Server → Client | 头像更新 | { side, avatar, avatars } |
-| 比赛记录更新通知 | matches:update | Server → Client | 比赛记录更新 | { matches: MatchStoreState } |
+| 比赛记录更新通知 | matches:update | Server → Client | 比赛记录更新。注意：事件名叫 matches:update，但负载键是 `store` | { store: MatchStoreState } |
 | 推流配置更新通知 | stage:update | Server → Client | stage 配置更新 | { stage: StageConfig } |
 | 比赛结果页更新通知 | page6:update | Server → Client | page6 配置更新 | { state: Page6State } |
 | 对局推送页更新通知 | page7:update | Server → Client | page7 配置更新 | { state: Page7State } |
 | 比赛预告页更新通知 | page8:update | Server → Client | page8 配置更新 | { state: Page8State } |
 | 团队积分榜页更新通知 | page9:update | Server → Client | page9 配置更新 | { state: Page9State } |
 | 信息录入更新通知 | profiles:update | Server → Client | 选手/战队录入变更（增删改/头像 logo 上传后广播，page3 战队标识实时刷新） | { profiles: ProfileStoreState } |
+| 选手介绍更新通知 | page11:update | Server → Client | 选手介绍（page11-13）配置更新 | { state: Page11State } |
+| 下场对局更新通知 | nextgame:update | Server → Client | 下场对局状态/显示变更（保存/显示/隐藏/到期自动隐藏） | NextGamePayload（state + match + avatars） |
+| 倒计时更新通知 | countdown:update | Server → Client | 倒计时状态变更（保存/show/hide/start/pause/reset/归零），负载带 serverNow 供校准 | CountdownPayload（state + serverNow） |
 
 # 数据流图
 

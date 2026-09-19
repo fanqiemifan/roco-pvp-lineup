@@ -89,13 +89,43 @@
 | 获取团队积分榜状态 | GET | /api/page9 | 获取 page9 标题与战队积分列表（公开 GET） | electron/socket-server.ts |
 | 保存团队积分榜配置 | POST | /api/page9 | 保存 page9 配置（title 主标题 / teams 最多 4 支战队的名称与 R1/R2/R3 积分，排名与总积分由前端自动计算） | electron/socket-server.ts |
 
+## 胜者结算（page10）接口
+
+| 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
+|-------------|------|------|------|------|
+| 获取胜者结算画面数据 | GET | /api/page10 | 返回当前活跃比赛与双方头像（公开 GET），页面自行解析最近一个已分胜负的小局胜者 | electron/socket-server.ts |
+
+## 选手介绍（page11-13）接口
+
+| 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
+|-------------|------|------|------|------|
+| 获取选手介绍页数据 | GET | /api/page11 | 返回配置 + 信息录入 + 当前赛事（含头像）+ 实时阵容面板 + stage（公开 GET），页面按 mode 自行解析两侧选手 | electron/socket-server.ts |
+| 保存选手介绍配置 | POST | /api/page11 | 保存 page11 左右两侧配置（Page11SideConfig：source manual/match + 手动字段），广播 page11:update | electron/socket-server.ts |
+
+## 下场对局（nextgame）接口
+
+| 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
+|-------------|------|------|------|------|
+| 获取下场对局状态 | GET | /api/nextgame | 返回 NextGamePayload（state + match + avatars，公开 GET） | electron/socket-server.ts |
+| 保存下场对局配置 | POST | /api/nextgame | 保存配置（matchId/duration/durationUnit），广播 nextgame:update，并重排到期自动隐藏定时器 | electron/socket-server.ts |
+| 显示下场对局 | POST | /api/nextgame/show | 开启显示（记录 shownAt，按停留时长自动隐藏），广播 nextgame:update | electron/socket-server.ts |
+| 隐藏下场对局 | POST | /api/nextgame/hide | 关闭显示，广播 nextgame:update | electron/socket-server.ts |
+
+## 倒计时插件（countdown）接口
+
+| 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
+|-------------|------|------|------|------|
+| 获取倒计时状态 | GET | /api/countdown | 返回 CountdownPayload（state + serverNow，公开 GET） | electron/socket-server.ts |
+| 保存倒计时配置 | POST | /api/countdown | 保存 duration/theme/visible，广播 countdown:update（state + serverNow） | electron/socket-server.ts |
+| 倒计时操作 | POST | /api/countdown/:action | action ∈ show / hide / start / pause / reset，广播 countdown:update | electron/socket-server.ts |
+
 ## 统计接口
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
 | 精灵排行 | GET | /api/stats/ranking | 精灵使用率/上场率/胜率排行（支持 tag / player 参数，统计全部历史对局） | electron/socket-server.ts |
 
-> 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page4`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`；同名 POST/DELETE 写操作仍受保护。
+> 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page4`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/page10`、`/api/page11`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`、`/api/countdown`；同名 POST/DELETE 写操作仍受保护。
 
 ## 信息录入（选手/战队档案）接口
 
@@ -103,12 +133,12 @@
 |-------------|------|------|------|------|
 | 获取录入列表 | GET | /api/profiles | 获取选手与战队录入（公开 GET，推流页9 战队联想/页面3 战队标识依赖） | electron/socket-server.ts |
 | 保存选手录入 | POST | /api/profiles/players | 新增/更新选手（未传 id 但同名视为更新；name 必填） | electron/socket-server.ts |
-| 导入选手（JSON 批量） | POST | /api/profiles/players/import | 批量导入选手，接受数组或 `{players:[...]}`；每条仅识别 name/rank/declaration/pets（其余键忽略防注入），rank 仅纯数字、缺 name 跳过、同名沿用旧 id 更新；pets 仅命中 pets.json 才录入，未命中返回 `review`（含最多 5 个候选）由前端兜底人工确认；响应 `{ success, profiles, review }`；成功广播 profiles:update | electron/socket-server.ts |
+| 导入选手（JSON 批量） | POST | /api/profiles/players/import | 接受数组或 `{players:[...]}`；每条仅识别白名单 name/rank/declaration/pets（其余键忽略防注入），rank 仅纯数字、缺 name 跳过、同名沿用旧 id 更新；pets 仅命中 pets.json 才录入，未命中返回 `review`（每条最多 5 个候选）由前端兜底人工确认；响应 `{ success, profiles, review }`，成功广播 profiles:update | electron/socket-server.ts |
 | 删除选手录入 | DELETE | /api/profiles/players/:playerId | 删除选手（连同头像文件） | electron/socket-server.ts |
 | 保存战队录入 | POST | /api/profiles/teams | 新增/更新战队（未传 id 但同名视为更新；name 必填） | electron/socket-server.ts |
 | 删除战队录入 | DELETE | /api/profiles/teams/:teamId | 删除战队（连同 logo 文件） | electron/socket-server.ts |
 | 上传选手头像 | POST | /api/upload/player-avatar/:playerId | 上传选手头像（魔数校验，sharp 裁剪为方形 PNG，存 cache/profiles/players/<id>.png） | electron/socket-server.ts |
-| 批量上传选手头像 | POST | /api/upload/player-avatars/batch | multipart 多文件（字段 files，单批上限 100）：图片文件名（去扩展名）精确匹配已录入选手名字（同名取先录入者），命中走 saveProfilePlayerAvatar 同管线（魔数校验 + sharp 480×480 PNG 落盘），未命中/失败不落盘并在回执 `{ success, profiles, matched, unmatched, failed }` 中列出由前端弹窗提醒；中文文件名经表单字段 names（JSON 数组，与文件顺序对齐）传递（multer 将 multipart 文件名按 latin1 解码会乱码，字段值按 UTF-8），names 缺失时回退 originalname 的 latin1→utf8 修复；成功广播 profiles:update | electron/socket-server.ts |
+| 批量上传选手头像 | POST | /api/upload/player-avatars/batch | multipart 多文件（字段 files，单批上限 100），按图片文件名（去扩展名）精确匹配已录入选手名字（同名取先录入者）；命中走 saveProfilePlayerAvatar 同管线（魔数校验 + sharp 480×480 PNG 落盘），未命中/失败不落盘并在回执 `{ success, profiles, matched, unmatched, failed }` 中列出由前端弹窗提醒；中文文件名经表单字段 names（JSON 数组，与文件顺序对齐）传递（规避 multer 将 multipart 文件名按 latin1 解码的乱码，字段值始终按 UTF-8），names 缺失时回退 originalname 的 latin1→utf8 修复；成功广播 profiles:update | electron/socket-server.ts |
 | 上传战队 logo | POST | /api/upload/team-logo/:teamId | 上传战队 logo（魔数校验，sharp cover 铺满裁剪 192×192 PNG，存 cache/profiles/teams/<id>.png） | electron/socket-server.ts |
 
 ## 精灵接口

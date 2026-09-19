@@ -115,6 +115,32 @@
 | 获取团队积分榜状态 | getPage9State | (paths: AppPaths) => Page9State | 获取 page9 标题与战队积分列表（cache/page9.json） |
 | 保存团队积分榜配置 | savePage9State | (paths: AppPaths, payload: unknown) => Page9State | 保存 page9 配置；标题截断 40 字、战队最多 4 支、积分仅保留数字（0-999），排名与总积分不落盘由前端计算 |
 
+## 选手介绍 (page11-service.ts)
+
+| 自然语言描述 | 函数名 | 签名 | 说明 |
+|-------------|-------|------|------|
+| 获取选手介绍状态 | getPage11State | (paths: AppPaths) => Page11State | 获取 page11-13 左右两侧配置（cache/page11.json） |
+| 保存选手介绍配置 | savePage11State | (paths: AppPaths, payload: unknown) => Page11State | 保存左右两侧 Page11SideConfig（source manual/match + 手动字段） |
+
+## 下场对局 (nextgame-service.ts)
+
+| 自然语言描述 | 函数名 | 签名 | 说明 |
+|-------------|-------|------|------|
+| 获取下场对局状态 | getNextGameState | (paths: AppPaths) => NextGameState | 获取配置（matchId/visible/duration/durationUnit/shownAt） |
+| 获取完整载荷 | getNextGamePayload | (paths: AppPaths) => NextGamePayload | state + 当前所选比赛 + 双方头像（page3/后台/悬浮窗共用） |
+| 保存配置 | saveNextGameState | (paths: AppPaths, payload: unknown) => NextGamePayload | 保存 matchId/duration/durationUnit |
+| 显示下场对局 | showNextGame | (paths: AppPaths, payload: unknown) => NextGamePayload | 开启显示并记录 shownAt（按停留时长自动隐藏） |
+| 隐藏下场对局 | hideNextGame | (paths: AppPaths) => NextGamePayload | 关闭显示 |
+
+## 倒计时插件 (countdown-service.ts)
+
+| 自然语言描述 | 函数名 | 签名 | 说明 |
+|-------------|-------|------|------|
+| 获取倒计时状态 | getCountdownState | (paths: AppPaths) => CountdownState | 获取配置与运行状态（cache/countdown.json） |
+| 保存倒计时配置 | saveCountdownState | (paths: AppPaths, payload: unknown) => CountdownState | 保存 duration（分钟）/theme/visible |
+| 显示/隐藏 | showCountdown / hideCountdown | (paths: AppPaths) => CountdownState | 切换 visible |
+| 启动/暂停/重置 | startCountdown / pauseCountdown / resetCountdown | (paths: AppPaths) => CountdownState | start 写入 endAt（服务端时钟），pause/reset 回写 remainingSeconds 静止 |
+
 ## 数据统计 (stats-service.ts)
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
@@ -136,4 +162,4 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 启动 HTTP + Socket.IO 服务器 | createLocalServer | (paths: AppPaths, port, host?, authConfig?) => Promise<LocalServer> | 全部 REST 路由与 socket 推送的宿主；authConfig 缺省 = 关闭鉴权（桌面模式），传入 = 启用账号密码（Node/Docker 模式）。port 传 0 时返回的 LocalServer.port 仍是 0，真实端口要从 server.address() 取 |
-| 关闭服务器 | LocalServer.close | () => Promise<void> | 清理三类定时器（胜负结算切页/nextgame/countdown）→ closeIdleConnections 断 keep-alive → io.close()。注意 io 以 http server 构造，io.close() 会连带关闭它，**不能再调 server.close()**（否则必抛 ERR_SERVER_NOT_RUNNING，2026-09 修复的退出报错根因） |
+| 关闭服务器 | LocalServer.close | () => Promise<void> | 清理三类定时器（胜负结算切页/nextgame/countdown）→ closeIdleConnections 断 keep-alive → io.close()。注意 io 以 http server 构造，io.close() 会连带关闭它，**不能再调 server.close()**（否则必抛 ERR_SERVER_NOT_RUNNING） |
