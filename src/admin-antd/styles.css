@@ -246,12 +246,21 @@ a {
   width: 100%;
 }
 
+/* 卡体高度必须扣除卡头：height:100% 会让卡体溢出卡片一个卡头的高度，
+   撑高页面滚动区，导致 sticky 侧栏在滚动末段被顶出（导航栏底部露空白+回滚跳动） */
 .panel-editor-card {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-editor-card > .ant-card-head {
+  flex: 0 0 auto;
 }
 
 .panel-editor-card > .ant-card-body {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .panel-editor-layout {
