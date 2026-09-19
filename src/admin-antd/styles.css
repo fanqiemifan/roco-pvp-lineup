@@ -338,6 +338,17 @@ a {
   justify-items: end;
 }
 
+/* 赛事面板·合并阵容编辑器：复用「录入阵容」（lineup-entry）三栏布局的补充样式 */
+.roster-lineup-body .lineup-entry-sprite-scroll {
+  /* 后台页面纵向空间比弹窗充裕，精灵区放宽一档 */
+  max-height: 420px;
+}
+
+.roster-lineup-hint {
+  font-size: 12px;
+  color: #8a7a66;
+}
+
 .slot-meta {
   min-width: 0;
   display: flex;
@@ -1170,6 +1181,24 @@ a {
   .panel-editor-layout {
     grid-template-columns: 1fr;
     min-height: auto;
+  }
+
+  /* 合并阵容编辑器：窄屏时左右槽位栏并排一行，中部区域换行铺满 */
+  .roster-lineup-body {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .roster-lineup-body .lineup-entry-rail-left {
+    order: 1;
+  }
+
+  .roster-lineup-body .lineup-entry-rail-right {
+    order: 2;
+  }
+
+  .roster-lineup-body .lineup-entry-center {
+    order: 3;
+    grid-column: 1 / -1;
   }
 
   .panel-slot-rail {

@@ -51,7 +51,6 @@ export type CreateMatchValues = MatchFormValues;
 export type PanelEditorState = {
   selected: SlotState[];
   activeSlot: number;
-  search: string;
   quickFillInput: string;
   quickFillMatches: QuickFillMatch[];
   autoSaveEnabled: boolean;

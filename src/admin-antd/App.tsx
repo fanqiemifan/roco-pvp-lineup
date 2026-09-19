@@ -326,10 +326,10 @@ function Dashboard() {
     left: createPage4PanelEditorState(),
     right: createPage4PanelEditorState(),
   });
-  const [spriteFilters, setSpriteFilters] = useState<Record<PanelSide, SpriteFilterState>>({
-    left: createDefaultSpriteFilterState(),
-    right: createDefaultSpriteFilterState(),
-  });
+  // 赛事面板阵容编辑器合并后共享一份精灵筛选（page4 仅显阵容仍为左右各一份）
+  const [spriteFilter, setSpriteFilter] = useState<SpriteFilterState>(createDefaultSpriteFilterState);
+  // 赛事面板共享精灵搜索（输入即时回显，过滤用 useDeferredValue 防抖）
+  const [rosterSearch, setRosterSearch] = useState('');
   const [page4SpriteFilters, setPage4SpriteFilters] = useState<Record<PanelSide, SpriteFilterState>>({
     left: createDefaultSpriteFilterState(),
     right: createDefaultSpriteFilterState(),
@@ -554,8 +554,7 @@ function Dashboard() {
     }
   }
 
-  const deferredLeftSearch = useDeferredValue(panels.left.search);
-  const deferredRightSearch = useDeferredValue(panels.right.search);
+  const deferredRosterSearch = useDeferredValue(rosterSearch);
   const deferredPage4LeftSearch = useDeferredValue(page4Panels.left.search);
   const deferredPage4RightSearch = useDeferredValue(page4Panels.right.search);
   const spriteFormOptions = EXCLUSIVE_FORM_FILTERS.filter((form) => (
@@ -571,13 +570,6 @@ function Dashboard() {
 
   function mutatePanel(side: PanelSide, updater: (panel: PanelEditorState) => PanelEditorState) {
     setPanels((prev) => ({
-      ...prev,
-      [side]: updater(prev[side]),
-    }));
-  }
-
-  function mutateSpriteFilter(side: PanelSide, updater: (filter: SpriteFilterState) => SpriteFilterState) {
-    setSpriteFilters((prev) => ({
       ...prev,
       [side]: updater(prev[side]),
     }));
@@ -932,8 +924,8 @@ function Dashboard() {
   }, []);
 
   useEffect(() => {
-    // saving 期间跳过调度，避免保存触发的 saving/dirty 状态变化导致重复 POST
-    if (!panels.left.autoSaveEnabled || !panels.left.dirty || panels.left.saving) {
+    // 赛事面板阵容编辑统一自动保存（600ms 防抖）；saving 期间跳过调度，避免保存触发的 saving/dirty 状态变化导致重复 POST
+    if (panels.left.saving || !panels.left.dirty) {
       return;
     }
     const timer = window.setTimeout(() => {
@@ -943,7 +935,7 @@ function Dashboard() {
   }, [panels.left]);
 
   useEffect(() => {
-    if (!panels.right.autoSaveEnabled || !panels.right.dirty || panels.right.saving) {
+    if (panels.right.saving || !panels.right.dirty) {
       return;
     }
     const timer = window.setTimeout(() => {
@@ -1093,18 +1085,6 @@ function Dashboard() {
     });
   }
 
-  function clearCurrentSlot(side: PanelSide) {
-    mutatePanel(side, (panel) => {
-      const selected = cloneSelected(panel.selected);
-      selected[panel.activeSlot] = createEmptySlot(panel.activeSlot);
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
   function clearPanel(side: PanelSide) {
     mutatePanel(side, (panel) => ({
       ...panel,
@@ -1121,8 +1101,8 @@ function Dashboard() {
     }));
   }
 
-  function toggleAttributeFilter(side: PanelSide, attribute: string) {
-    const current = spriteFilters[side].selectedAttributes;
+  function toggleAttributeFilter(attribute: string) {
+    const current = spriteFilter.selectedAttributes;
     const isActive = current.includes(attribute);
 
     if (!isActive && current.length >= 2) {
@@ -1130,7 +1110,7 @@ function Dashboard() {
       return;
     }
 
-    mutateSpriteFilter(side, (filter) => ({
+    setSpriteFilter((filter) => ({
       ...filter,
       selectedAttributes: isActive
         ? filter.selectedAttributes.filter((item) => item !== attribute)
@@ -1138,8 +1118,8 @@ function Dashboard() {
     }));
   }
 
-  function toggleFormFilter(side: PanelSide, form: string) {
-    mutateSpriteFilter(side, (filter) => {
+  function toggleFormFilter(form: string) {
+    setSpriteFilter((filter) => {
       if (filter.selectedFinalForm) {
         return filter;
       }
@@ -1153,19 +1133,16 @@ function Dashboard() {
     });
   }
 
-  function toggleFinalFormFilter(side: PanelSide) {
-    mutateSpriteFilter(side, (filter) => ({
+  function toggleFinalFormFilter() {
+    setSpriteFilter((filter) => ({
       ...filter,
       selectedFinalForm: !filter.selectedFinalForm,
       selectedForms: filter.selectedFinalForm ? filter.selectedForms : [],
     }));
   }
 
-  function clearSpriteFilters(side: PanelSide) {
-    setSpriteFilters((prev) => ({
-      ...prev,
-      [side]: createSpriteFilterState(),
-    }));
+  function clearSpriteFilters() {
+    setSpriteFilter(createSpriteFilterState());
   }
 
   async function savePage4Panel(side: PanelSide, silent = false) {
@@ -3849,48 +3826,26 @@ function Dashboard() {
               </Row>
 
               <Row gutter={[18, 18]}>
-                <Col xs={24} xl={12}>
+                <Col span={24}>
                   <RosterPanelEditor
-                    side="left"
-                    panel={panels.left}
-                    filter={spriteFilters.left}
+                    panels={panels}
+                    filter={spriteFilter}
                     locked={lineupLocked}
-                    searchValue={deferredLeftSearch}
+                    players={{ left: activeMatch?.leftPlayer, right: activeMatch?.rightPlayer }}
+                    searchValue={rosterSearch}
+                    deferredSearchValue={deferredRosterSearch}
                     sprites={sprites}
                     spriteFormOptions={spriteFormOptions}
+                    onRosterSearchChange={setRosterSearch}
                     onMutatePanel={mutatePanel}
-                    onSavePanel={savePanel}
                     onRunQuickFill={runQuickFill}
-                    onClearCurrentSlot={clearCurrentSlot}
                     onClearPanel={clearPanel}
                     onChooseQuickFillCandidate={chooseQuickFillCandidate}
                     onApplySprite={applySprite}
-                    onClearSpriteFilters={clearSpriteFilters}
                     onToggleAttributeFilter={toggleAttributeFilter}
                     onToggleFinalFormFilter={toggleFinalFormFilter}
                     onToggleFormFilter={toggleFormFilter}
-                  />
-                </Col>
-                <Col xs={24} xl={12}>
-                  <RosterPanelEditor
-                    side="right"
-                    panel={panels.right}
-                    filter={spriteFilters.right}
-                    locked={lineupLocked}
-                    searchValue={deferredRightSearch}
-                    sprites={sprites}
-                    spriteFormOptions={spriteFormOptions}
-                    onMutatePanel={mutatePanel}
-                    onSavePanel={savePanel}
-                    onRunQuickFill={runQuickFill}
-                    onClearCurrentSlot={clearCurrentSlot}
-                    onClearPanel={clearPanel}
-                    onChooseQuickFillCandidate={chooseQuickFillCandidate}
-                    onApplySprite={applySprite}
                     onClearSpriteFilters={clearSpriteFilters}
-                    onToggleAttributeFilter={toggleAttributeFilter}
-                    onToggleFinalFormFilter={toggleFinalFormFilter}
-                    onToggleFormFilter={toggleFormFilter}
                   />
                 </Col>
               </Row>

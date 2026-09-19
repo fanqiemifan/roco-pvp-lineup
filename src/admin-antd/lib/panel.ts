@@ -19,7 +19,6 @@ export function createPanelEditorState(): PanelEditorState {
   return {
     selected: Array.from({ length: 6 }, (_, index) => createEmptySlot(index)),
     activeSlot: 0,
-    search: '',
     quickFillInput: '',
     quickFillMatches: [],
     autoSaveEnabled: true,
