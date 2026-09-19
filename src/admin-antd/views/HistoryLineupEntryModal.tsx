@@ -295,7 +295,7 @@ export function HistoryLineupEntryModal({
                   <div className="lineup-entry-quickfill-side">
                     <Text strong>{side === 'left' ? '左侧快速填充' : '右侧快速填充'}</Text>
                     <Input.TextArea
-                      rows={2}
+                      rows={6}
                       value={buffers[side].quickFillInput}
                       disabled={saving}
                       placeholder={'一行一个精灵名，例如：\n暮星辰\n怖哭菇\n龙息帕尔'}

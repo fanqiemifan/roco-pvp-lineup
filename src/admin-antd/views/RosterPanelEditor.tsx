@@ -181,7 +181,7 @@ export function RosterPanelEditor({
         <div className="lineup-entry-quickfill-side">
           <Text strong>{label}快速填充</Text>
           <TextArea
-            rows={2}
+            rows={6}
             disabled={locked}
             value={panel.quickFillInput}
             placeholder={'一行一个精灵名，例如：\n暮星辰\n怖哭菇\n龙息帕尔'}
