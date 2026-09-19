@@ -51,7 +51,9 @@
     var WOLF_TIMING = { fadeInDelay: 120, fadeIn: 260, hold: 140, fadeOut: 440, pause: 80, zoom: 640, settle: 320 };
     var WOLF_BOX = 1920;    // 狼形 path 坐标系尺寸
     var WOLF_RATIO = 0.6;   // 狼形洞占屏幕短边比例，与 CSS 中白狼 Logo 的 60vmin 对齐
-    var WOLF_ZOOM_MAX = 14; // 穿越放大的最终倍数
+    // 放大倍数需足够大，让狼形 path 的细节线条完全移出画面：
+    // 实测 16:9 下 34 倍仍残留针尖大小的角、40 倍干净，取 44 倍兼顾超宽/5:4 画幅余量
+    var WOLF_ZOOM_MAX = 44;
     var WOLF_PARALLAX = 1.12; // 穿越时新画面的视差缩放
     var WOLF_PATH = (typeof window.STAGE_WOLF_PATH === 'string' && window.STAGE_WOLF_PATH)
         ? window.STAGE_WOLF_PATH : '';
