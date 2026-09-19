@@ -611,14 +611,18 @@ a {
   height: 26px;
   padding: 0;
   border-radius: 10px;
+  /* 以 chip 自身宽度作为查询容器：放不下「图标+文案」时由下方 @container 隐藏文案 */
+  container-type: inline-size;
 }
 
 .attribute-filter-chip-inner {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 3px;
   width: 100%;
   height: 100%;
+  padding: 0 4px;
 }
 
 .attribute-filter-icon {
@@ -628,8 +632,26 @@ a {
   flex-shrink: 0;
 }
 
+.attribute-filter-text {
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* chip 宽度不足（图标 + 两字文案 + 内边距的最低宽度）时只显示图标，悬浮 title 仍提示属性名 */
+@container (max-width: 52px) {
+  .attribute-filter-text {
+    display: none;
+  }
+}
+
+/* 精灵形态 chips：尺寸/圆角/字号对齐精灵属性 chips（.attribute-filter-chip），无图标 */
 .form-filter-chip {
-  border-radius: 999px;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 11px;
 }
 
 /* 比赛列表：卡片样式 + 滚动懒加载（一次渲染 6 张，滚动到底部加载 6 张） */

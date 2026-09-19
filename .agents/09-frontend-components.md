@@ -6,7 +6,7 @@
 
 - App.tsx — 主组件：Layout（Header/Sider/Content）、视图分发、工具栏按钮（阵容悬浮窗/打开预览/复制链接/刷新）、「开一局」创建赛事弹窗（选手名/排位排名/头像/赛制/标签）
 - views/ — 各视图独立页面（RosterPanelEditor、Page4PanelEditor、Page4DeathPanel、StatsView、HistoryLineupEntryModal）
-- components/ — 可复用小组件（Page4SlotVisual、SettingField、SpritePetCard、StageThumb）
+- components/ — 可复用小组件（Page4SlotVisual、SettingField、SpritePetCard、StageThumb、AttributeFilterChips）
 - lib/ — 无状态纯函数（请求、统计、格式化等）
 - constants.ts / types.ts — 本地常量与类型
 - env.d.ts — `*.svg?raw` 模块声明（导航图标按原样字符串引入）
@@ -28,6 +28,7 @@
   - 「比赛列表」卡片头部「快速创建比赛」弹窗：参赛选手在固定高度可滚动列表区逐条点选，列表按录入添加时间升序（档案 id 内嵌 base36 创建时间戳，数组顺序被打乱时仍按真实添加时间排，id 解析失败的按原数组顺序兜底在末尾）；顶部搜索框按名字实时过滤并派生勾选态，所选人数实时显示、奇数红字告警；再选「比赛赛制」与「赛事标签」，确认后 Fisher–Yates 随机洗牌 + 两两配对逐一 `POST /api/matches` 创建（公平起见随机分配，杜绝固定对阵），复用选手名字与排位排名；创建与「开一局」共用前端统一入口 `postCreateMatch`。
   - 「当前比赛」操作面板「开始本次对局」旁有「战队修改」按钮：创建时未选战队后续补填，PATCH `/api/matches/:id` 更新（联想录入战队复用 id 或手动输入）。
   - 小结局时编辑器数据源为赛事草稿（getPendingDraftContext + 草稿回填 effect，按 matchId|gameNumber 去重）；全局面板仅供推流页、不覆写编辑器（syncPanelFromApi pending 感知），推流页不显示未开局阵容。
+  - 「筛选精灵」属性 chips 为共享组件 AttributeFilterChips（components/，赛事面板与本页「录入阵容」弹窗共用，改一处即两处同步）：图标 + 属性文案，chip 上 `container-type: inline-size` + `@container (max-width: 52px)` 在宽度不足时隐藏 `.attribute-filter-text` 退化为纯图标（title/aria-label 保留悬浮提示）。精灵形态 chips 为共享组件 FormFilterChips（同上共用），样式经 `.form-filter-chip` 对齐属性 chips（26px 高 / 10px 圆角 / 11px 字号，无图标；page4 面板编辑器直接用该类，改样式三处同时生效）。
 - profiles - 信息录入（选手/战队档案，单卡片 + Segmented 切换选手/战队视图）
   - 「导入JSON」+「下载示例」：前端 JSON.parse 校验为数组并预览中文列名确认，导入白名单字段 name/rank/declaration/pets（后端再白名单校验兜底）；未命中 pets.json 的常用精灵走 review 兜底弹窗，逐条下拉（可搜索）选最多 5 个候选或忽略。
   - 「批量头像」：隐藏 file input 多选图片后先本地按文件名（去扩展名）匹配已录入选手，弹出「原头像 vs 新头像」左右对比预览（未设置显示默认占位图，未匹配文件警告列出且不上传），点确认才提交 `POST /api/upload/player-avatars/batch`；文件名列表随表单 `names` 字段以 JSON 传递规避 multipart 中文乱码；后端未命中/失败弹结果窗提醒。

@@ -1,12 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, App, Button, Card, Empty, Input, Modal, Space, Tag, Tooltip, Typography } from 'antd';
 import type { GameRecord, MatchRecord, MatchStoreState, QuickFillMatch, SlotState, SpriteRecord } from '../../../shared/types';
-import { ATTRIBUTE_OPTIONS, EXCLUSIVE_FORM_FILTERS, FINAL_FORM_FILTER_LABEL } from '../constants';
+import { EXCLUSIVE_FORM_FILTERS } from '../constants';
 import { requestQuickFillMatches, requestJson } from '../lib/request';
 import { buildPanelRequest, createEmptySlot, draftSlotsToSelected } from '../lib/panel';
 import { buildSpriteLookup, splitSpriteAttributes } from '../lib/sprite';
 import type { PanelSide } from '../types';
 import { SpritePetCard } from '../components/SpritePetCard';
+import { AttributeFilterChips } from '../components/AttributeFilterChips';
+import { FormFilterChips } from '../components/FormFilterChips';
 
 const { Text } = Typography;
 
@@ -125,6 +127,18 @@ export function HistoryLineupEntryModal({
     if (nextEmpty !== -1) {
       setActiveSlot(nextEmpty);
     }
+  }
+
+  function toggleAttribute(label: string) {
+    setSelectedAttributes((prev) => {
+      if (prev.includes(label)) {
+        return prev.filter((item) => item !== label);
+      }
+      if (prev.length >= 2) {
+        return prev;
+      }
+      return [...prev, label];
+    });
   }
 
   async function runQuickFill(side: PanelSide) {
@@ -355,63 +369,25 @@ export function HistoryLineupEntryModal({
               ) : null}
             </div>
             <Text type="secondary" className="filter-label">精灵属性（最多 2 个）</Text>
-            <div className="attribute-filter-grid">
-              {ATTRIBUTE_OPTIONS.map((option) => {
-                const active = selectedAttributes.includes(option.label);
-                return (
-                  <Button
-                    key={option.label}
-                    type={active ? 'primary' : 'default'}
-                    className="attribute-filter-chip"
-                    title={option.label}
-                    aria-label={option.label}
-                    onClick={() => {
-                      setSelectedAttributes((prev) => {
-                        if (prev.includes(option.label)) {
-                          return prev.filter((item) => item !== option.label);
-                        }
-                        if (prev.length >= 2) {
-                          return prev;
-                        }
-                        return [...prev, option.label];
-                      });
-                    }}
-                  >
-                    <span className="attribute-filter-chip-inner">
-                      <img src={option.iconPath} alt="" className="attribute-filter-icon" />
-                    </span>
-                  </Button>
-                );
-              })}
-            </div>
+            <AttributeFilterChips
+              selected={selectedAttributes}
+              onToggle={toggleAttribute}
+            />
             <Text type="secondary" className="filter-label">精灵形态</Text>
-            <Space wrap size={[8, 8]} className="form-filter-row">
-              <Button
-                size="small"
-                type={selectedFinalForm ? 'primary' : 'default'}
-                onClick={() => {
-                  setSelectedFinalForm((prev) => !prev);
-                  setSelectedForms([]);
-                }}
-              >
-                {FINAL_FORM_FILTER_LABEL}
-              </Button>
-              {EXCLUSIVE_FORM_FILTERS.map((form) => (
-                <Button
-                  key={form}
-                  size="small"
-                  type={selectedForms.includes(form) ? 'primary' : 'default'}
-                  disabled={selectedFinalForm}
-                  onClick={() => {
-                    setSelectedForms((prev) => (
-                      prev.includes(form) ? prev.filter((item) => item !== form) : [...prev, form]
-                    ));
-                  }}
-                >
-                  {form}
-                </Button>
-              ))}
-            </Space>
+            <FormFilterChips
+              finalActive={selectedFinalForm}
+              onToggleFinal={() => {
+                setSelectedFinalForm((prev) => !prev);
+                setSelectedForms([]);
+              }}
+              options={EXCLUSIVE_FORM_FILTERS}
+              selected={selectedForms}
+              onToggleForm={(form) => {
+                setSelectedForms((prev) => (
+                  prev.includes(form) ? prev.filter((item) => item !== form) : [...prev, form]
+                ));
+              }}
+            />
             <Input
               value={search}
               placeholder="搜索精灵名称"

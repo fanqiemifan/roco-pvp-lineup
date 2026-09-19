@@ -11,7 +11,8 @@ import {
 } from 'antd';
 import type { SpriteRecord } from '../../../shared/types';
 import { SpritePetCard } from '../components/SpritePetCard';
-import { ATTRIBUTE_OPTIONS, FINAL_FORM_FILTER_LABEL } from '../constants';
+import { AttributeFilterChips } from '../components/AttributeFilterChips';
+import { FormFilterChips } from '../components/FormFilterChips';
 import { splitSpriteAttributes } from '../lib/sprite';
 import type { PanelEditorState, PanelSide, SpriteFilterState } from '../types';
 
@@ -266,46 +267,18 @@ export function RosterPanelEditor({
               ) : null}
             </div>
             <Text type="secondary" className="filter-label">精灵属性（最多 2 个）</Text>
-            <div className="attribute-filter-grid">
-              {ATTRIBUTE_OPTIONS.map((option) => {
-                const active = filter.selectedAttributes.includes(option.label);
-                return (
-                  <Button
-                    key={option.label}
-                    type={active ? 'primary' : 'default'}
-                    className="attribute-filter-chip"
-                    title={option.label}
-                    aria-label={option.label}
-                    onClick={() => onToggleAttributeFilter(option.label)}
-                  >
-                    <span className="attribute-filter-chip-inner">
-                      <img src={option.iconPath} alt="" className="attribute-filter-icon" />
-                    </span>
-                  </Button>
-                );
-              })}
-            </div>
+            <AttributeFilterChips
+              selected={filter.selectedAttributes}
+              onToggle={onToggleAttributeFilter}
+            />
             <Text type="secondary" className="filter-label">精灵形态</Text>
-            <Space wrap size={[8, 8]} className="form-filter-row">
-              <Button
-                size="small"
-                type={filter.selectedFinalForm ? 'primary' : 'default'}
-                onClick={onToggleFinalFormFilter}
-              >
-                {FINAL_FORM_FILTER_LABEL}
-              </Button>
-              {spriteFormOptions.map((form) => (
-                <Button
-                  key={form}
-                  size="small"
-                  type={filter.selectedForms.includes(form) ? 'primary' : 'default'}
-                  disabled={filter.selectedFinalForm}
-                  onClick={() => onToggleFormFilter(form)}
-                >
-                  {form}
-                </Button>
-              ))}
-            </Space>
+            <FormFilterChips
+              finalActive={filter.selectedFinalForm}
+              onToggleFinal={onToggleFinalFormFilter}
+              options={spriteFormOptions}
+              selected={filter.selectedForms}
+              onToggleForm={onToggleFormFilter}
+            />
             <Input
               value={searchValue}
               placeholder="搜索精灵名称"
