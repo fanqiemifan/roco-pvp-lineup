@@ -23,6 +23,6 @@ COPY shared ./shared
 
 RUN mkdir -p /app/LuokePVPWebui/runtime /app/LuokePVPWebui/cache
 
-EXPOSE 9988
+EXPOSE 9989
 
-CMD ["node", "dist-electron/electron/server-entry.js", "--host", "0.0.0.0", "--port", "9988"]
+CMD ["node", "dist-electron/electron/server-entry.js", "--host", "0.0.0.0", "--port", "9989"]

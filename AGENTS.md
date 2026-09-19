@@ -6,7 +6,7 @@
 
 - `npm run build` — 构建 renderer + electron。会触发 `prebuild` → `npm run sync:sprites`，该脚本会**从网络下载精灵图片**（数据源为 `resources/data/pets.json` 的 `official_small_icon` 与 `icon_url`）。只想校验数据、不下载图片：`node scripts/sync-spirits-assets.mjs --skip-download`。
 - `npm run dev` — 构建 renderer + electron，然后启动 Electron 桌面应用。
-- `npm run serve:node` — 构建 + 无头 Node 服务器（默认 `--host 127.0.0.1 --port 9988`），Docker 用的就是这个模式。
+- `npm run serve:node` — 构建 + 无头 Node 服务器（默认 `--host 0.0.0.0 --port 9989`），Docker 用的就是这个模式；无头/容器端口固定 9989，与桌面端默认 9988 错开，二者可同时运行。
 - `npm run package` — 构建 + electron-builder，产出 Windows NSIS 安装包到 `release/`（已被 gitignore）。
 - `npm test` — 全部测试（Vitest，见「测试」）；`npm run test:watch` — watch 模式；`npm run typecheck:tests` — 测试与 vitest 配置的类型检查。
 - **没有 lint、没有格式化工具。** 验证手段 = `npm test` + `npm run typecheck:frontend`（改了 electron 源码再加 `npm run build:electron`）。
