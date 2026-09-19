@@ -45,6 +45,19 @@
     var DEFAULT_TRANSITION = 'blinds';
     var TRANSITION_MS = 420;
 
+    // 「狼头揭幕」过渡（参考 docs/页面切换效果/intro.html）：
+    // 黑幕盖屏 → 白狼淡入 → 停留 → 瞬间镂空 + 白狼淡出（黑幕掩护下换画）
+    // → 镂空窗口放大穿越（由快到慢，新画面轻微视差）→ 窗口回落，露出完整新画面
+    var WOLF_TIMING = { fadeInDelay: 120, fadeIn: 260, hold: 140, fadeOut: 440, pause: 80, zoom: 640, settle: 320 };
+    var WOLF_BOX = 1920;    // 狼形 path 坐标系尺寸
+    var WOLF_RATIO = 0.6;   // 狼形洞占屏幕短边比例，与 CSS 中白狼 Logo 的 60vmin 对齐
+    // 放大倍数需足够大，让狼形 path 的细节线条完全移出画面：
+    // 实测 16:9 下 34 倍仍残留针尖大小的角、40 倍干净，取 44 倍兼顾超宽/5:4 画幅余量
+    var WOLF_ZOOM_MAX = 44;
+    var WOLF_PARALLAX = 1.12; // 穿越时新画面的视差缩放
+    var WOLF_PATH = (typeof window.STAGE_WOLF_PATH === 'string' && window.STAGE_WOLF_PATH)
+        ? window.STAGE_WOLF_PATH : '';
+
     // 选手介绍三画面（page11/12/13）共用同一页面文件，仅 mode 不同：
     // 家族内切换不重载 iframe、不播全屏过渡，直接通知页面内部切换 mode，
     // 由页面内的元素动效完成变换（本身就是同一画面的内容变动）
@@ -60,6 +73,9 @@
     var currentTransition = DEFAULT_TRANSITION;
     var socket = null;
     var transitionTimer = null;
+    var transitionSeq = 0; // 过渡流水号：快速连续切换时使旧序列的定时器失效
+    var wolfHole = null;   // 狼形镂空 <g>（fx-wolf 过渡期间有效）
+    var wolfUnit = 0;      // 狼形坐标 -> 屏幕像素的缩放系数
 
     function resolveStage(page) {
         if (!page || typeof page !== 'string') {
@@ -95,7 +111,7 @@
 
     // ---------- 切换过渡动画层 ----------
 
-    // 清空并构建过渡层 DOM；fx 为 'blinds' | 'zoom'
+    // 清空并构建过渡层 DOM；fx 为 'blinds' | 'wolf'
     function buildTransition(fx) {
         if (!transitionLayer) {
             return;
@@ -112,27 +128,151 @@
                 blind.style.animationDelay = (i % 2 === 0 ? 0 : 70) + 'ms';
                 transitionLayer.appendChild(blind);
             }
-        } else if (fx === 'zoom') {
-            var flash = document.createElement('div');
-            flash.className = 'fx-zoom-flash';
-            var logo = document.createElement('div');
-            logo.className = 'fx-zoom-logo';
-            var inner = document.createElement('div');
-            inner.className = 'fx-zoom-logo-typography';
-            var main = document.createElement('div');
-            main.textContent = '洛克王国PVP';
-            var sub = document.createElement('div');
-            sub.className = 'fx-zoom-logo-sub';
-            sub.textContent = 'ROCO PVP';
-            inner.appendChild(main);
-            inner.appendChild(sub);
-            logo.appendChild(inner);
-            transitionLayer.appendChild(flash);
-            transitionLayer.appendChild(logo);
+        } else if (fx === 'wolf') {
+            // 黑幕：全屏黑底 + 狼形镂空遮罩（白幕上挖狼形黑洞，洞内露出画面）
+            // 白狼 Logo：与镂空窗口对齐展示，淡出后由窗口承担视觉主体
+            transitionLayer.innerHTML =
+                '<svg class="fx-wolf-curtain" xmlns="http://www.w3.org/2000/svg">' +
+                '<defs><mask id="fx-wolf-hole-mask" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">' +
+                '<rect class="fx-wolf-field" x="0" y="0" fill="#fff"/>' +
+                '<g class="fx-wolf-hole"><path fill="#000" d="' + WOLF_PATH + '"/></g>' +
+                '</mask></defs>' +
+                '<rect x="0" y="0" width="100%" height="100%" fill="#000" mask="url(#fx-wolf-hole-mask)"/>' +
+                '</svg>' +
+                '<img class="fx-wolf-logo" src="/assets/wolf/wolf-only.svg" alt="">';
         }
     }
 
-    // 播放过渡动画；onReveal 在动画遮盖住画面后（峰值）触发，用于换画
+    // ---------- 狼头揭幕过渡（fx-wolf） ----------
+
+    // 按当前视口布设狼形镂空遮罩；成功返回 true
+    function layoutWolfCurtain() {
+        var svg = transitionLayer.querySelector('.fx-wolf-curtain');
+        var mask = transitionLayer.querySelector('#fx-wolf-hole-mask');
+        var field = transitionLayer.querySelector('.fx-wolf-field');
+        wolfHole = transitionLayer.querySelector('.fx-wolf-hole');
+        if (!svg || !mask || !field || !wolfHole) {
+            wolfHole = null;
+            return false;
+        }
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        wolfUnit = (Math.min(vw, vh) * WOLF_RATIO) / WOLF_BOX;
+        mask.setAttribute('x', '0');
+        mask.setAttribute('y', '0');
+        mask.setAttribute('width', String(vw));
+        mask.setAttribute('height', String(vh));
+        field.setAttribute('width', String(vw));
+        field.setAttribute('height', String(vh));
+        svg.setAttribute('viewBox', '0 0 ' + vw + ' ' + vh);
+        setWolfHole(0); // 洞为 0：纯黑无洞
+        return true;
+    }
+
+    // 缩放狼形镂空：zoom=0 全黑，1 为与白狼 Logo 对齐的原尺寸
+    function setWolfHole(zoom) {
+        if (!wolfHole) {
+            return;
+        }
+        var s = wolfUnit * zoom;
+        wolfHole.setAttribute('transform',
+            'translate(' + (window.innerWidth / 2) + ' ' + (window.innerHeight / 2) + ') scale(' + s + ')' +
+            ' translate(' + (-WOLF_BOX / 2) + ' ' + (-WOLF_BOX / 2) + ')');
+    }
+
+    // rAF 数值补间（窗洞放大、画面视差共用）
+    function tweenNumber(from, to, dur, ease, onUpdate) {
+        var t0 = performance.now();
+        (function frame(now) {
+            var p = Math.min(1, (now - t0) / dur);
+            onUpdate(from + (to - from) * ease(p));
+            if (p < 1) {
+                requestAnimationFrame(frame);
+            }
+        })(t0);
+    }
+
+    var easeOutQuart = function (p) { return 1 - Math.pow(1 - p, 4); }; // 由快到慢（减速）
+
+    // 狼头揭幕时序；seq 用于快速连续切换时丢弃旧序列的定时器回调
+    function runWolfSequence(seq, onReveal) {
+        var t = WOLF_TIMING;
+        var wolfImg = transitionLayer.querySelector('.fx-wolf-logo');
+        var curtainSvg = transitionLayer.querySelector('.fx-wolf-curtain');
+        // 快捷守卫：过渡层已被重建（新过渡开始）时，旧回调直接作废
+        function live() { return seq === transitionSeq; }
+
+        transitionLayer.classList.add('is-running');
+
+        // ① 白狼淡入 → ② 停留（纯透明度，不缩放不位移）
+        window.setTimeout(function () {
+            if (live() && wolfImg) {
+                wolfImg.animate([{ opacity: 0 }, { opacity: 1 }],
+                    { duration: t.fadeIn, fill: 'forwards', easing: 'ease-out' });
+            }
+        }, t.fadeInDelay);
+
+        // ③ 窗口瞬间满尺寸（藏在仍不透明的白狼后，不穿帮），白狼只做透明度淡出；
+        //    同刻在黑幕掩护下换画，狼形窗口内完成新旧画面交替
+        var tHole = t.fadeInDelay + t.fadeIn + t.hold;
+        window.setTimeout(function () {
+            if (!live()) {
+                return;
+            }
+            setWolfHole(1);
+            if (wolfImg) {
+                wolfImg.animate([{ opacity: 1 }, { opacity: 0 }],
+                    { duration: t.fadeOut, fill: 'forwards', easing: 'ease-in-out' });
+            }
+            if (typeof onReveal === 'function') {
+                onReveal();
+            }
+        }, tHole);
+
+        // ④ 窗口放大穿越（由快到慢），新画面轻微视差
+        var tZoom = tHole + t.fadeOut + t.pause;
+        window.setTimeout(function () {
+            if (!live()) {
+                return;
+            }
+            tweenNumber(1, WOLF_ZOOM_MAX, t.zoom, easeOutQuart, setWolfHole);
+            tweenNumber(1, WOLF_PARALLAX, t.zoom, easeOutQuart, function (s) {
+                if (live()) {
+                    frame.style.transform = 'scale(' + s + ')';
+                }
+            });
+        }, tZoom);
+
+        // 峰值：窗洞盖满屏幕
+        var peakDelay = tZoom + t.zoom;
+
+        // ⑤ 画面缓缓回落（1.12 → 1），与黑幕淡出同步完成，避免清理时跳变
+        window.setTimeout(function () {
+            if (!live()) {
+                return;
+            }
+            tweenNumber(WOLF_PARALLAX, 1, t.settle, easeOutQuart, function (s) {
+                if (live()) {
+                    frame.style.transform = 'scale(' + s + ')';
+                }
+            });
+            if (curtainSvg) {
+                curtainSvg.animate([{ opacity: 1 }, { opacity: 0 }],
+                    { duration: t.settle, fill: 'forwards', easing: 'ease-in' });
+            }
+        }, peakDelay);
+
+        transitionTimer = window.setTimeout(function () {
+            if (!live()) {
+                return;
+            }
+            transitionLayer.classList.remove('is-running');
+            frame.style.transform = '';
+            transitionTimer = null;
+        }, peakDelay + t.settle + 60);
+    }
+
+    // 播放过渡动画；onReveal 在黑幕/遮罩掩护下触发，用于换画
     function playTransition(fx, onReveal) {
         if (!transitionLayer) {
             // 无过渡层节点时直接执行换画
@@ -147,29 +287,48 @@
             }
             return;
         }
+        if (fx === 'wolf' && !WOLF_PATH) {
+            // 狼形 path 资源缺失时降级为百叶窗
+            fx = 'blinds';
+        }
 
         buildTransition(fx);
 
-        // 峰值时长：动画遮满屏幕所需的时长（约 62% 处）
-        var peakDelay = fx === 'blinds' ? 384 : 230;
-        // 总时长需大于单 iframe 淡出 420ms，保证换画发生在遮罩之下
-        var totalMs = fx === 'blinds' ? 980 : 860;
-
+        var seq = ++transitionSeq;
         if (transitionTimer) {
             window.clearTimeout(transitionTimer);
         }
+
+        if (fx === 'wolf') {
+            if (layoutWolfCurtain()) {
+                runWolfSequence(seq, onReveal);
+                return;
+            }
+            // 遮罩构建异常时退回百叶窗
+            fx = 'blinds';
+            buildTransition(fx);
+        }
+
+        // 峰值时长：动画遮满屏幕所需的时长（约 62% 处）
+        var peakDelay = 384;
+        // 总时长需大于单 iframe 淡出 420ms，保证换画发生在遮罩之下
+        var totalMs = 980;
 
         // 强制重排，确保同名动画能重新触发
         void transitionLayer.offsetWidth;
         transitionLayer.classList.add('is-running');
 
         window.setTimeout(function () {
-            if (typeof onReveal === 'function') {
+            // 流水号不符说明已有新过渡接管，放弃本次换画
+            if (seq === transitionSeq && typeof onReveal === 'function') {
                 onReveal();
             }
         }, peakDelay);
 
         transitionTimer = window.setTimeout(function () {
+            if (seq !== transitionSeq) {
+                return;
+            }
             transitionLayer.classList.remove('is-running');
             transitionTimer = null;
         }, totalMs);
@@ -324,6 +483,11 @@
         }
         // 初始占位：保持透明，等待导播画面加载
         setBlank();
+        // 预载狼头揭幕素材，避免首次过渡时白狼图未就绪
+        if (WOLF_PATH) {
+            var wolfPreload = new Image();
+            wolfPreload.src = '/assets/wolf/wolf-only.svg';
+        }
         loadInitialState();
         connectSocket();
     }

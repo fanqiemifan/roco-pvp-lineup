@@ -257,7 +257,6 @@ export function HistoryLineupEntryModal({
                       setActiveSlot(index);
                     }}
                   >
-                    <span className="slot-idx">{index + 1}</span>
                     {slot.sprite ? (
                       <SpritePetCard sprite={slot.sprite} size={88} />
                     ) : (
@@ -288,62 +287,55 @@ export function HistoryLineupEntryModal({
         ))}
 
         <div className="lineup-entry-center">
-          <Card size="small" className="subtle-card lineup-entry-quickfill">
-            <div className="lineup-entry-quickfill-grid">
-              {(['left', 'right'] as const).map((side) => (
-                <div key={side} className="lineup-entry-quickfill-side">
-                  <Text strong>{side === 'left' ? '左侧快速填充' : '右侧快速填充'}</Text>
-                  <Input.TextArea
-                    rows={2}
-                    value={buffers[side].quickFillInput}
-                    disabled={saving}
-                    placeholder={'一行一个精灵名，例如：\n暮星辰\n怖哭菇\n龙息帕尔'}
-                    onChange={(event) => mutateSide(side, (buffer) => ({ ...buffer, quickFillInput: event.target.value }))}
-                  />
-                  <Button
-                    size="small"
-                    disabled={saving}
-                    onClick={() => void runQuickFill(side)}
-                  >
-                    快速填充到{side === 'left' ? '左侧' : '右侧'}
-                  </Button>
-                </div>
-              ))}
-            </div>
-            {candidateGroups.length ? (
-              <div className="lineup-entry-candidates">
-                {(['left', 'right'] as const).map((side) => {
-                  const groups = candidateGroups.filter((group) => group.side === side);
-                  return (
-                    <div key={side} className="candidate-side">
-                      <Text strong>{side === 'left' ? '左侧候选' : '右侧候选'}</Text>
-                      {groups.length ? groups.map(({ side: groupSide, slot, candidates }) => (
-                        <div key={`${groupSide}-${slot}`} className="candidate-group">
-                          <Text type="secondary">槽位 {slot + 1}</Text>
-                          <div className="candidate-grid">
-                            {candidates.map((candidate) => (
-                              <Tooltip key={candidate.id} title={candidate.displayName}>
-                                <button
-                                  type="button"
-                                  className="candidate-button"
-                                  aria-label={`选择 ${candidate.displayName}`}
-                                  onClick={() => fillSlot(groupSide, slot, candidate)}
-                                >
-                                  <SpritePetCard sprite={candidate} size={64} />
-                                </button>
-                              </Tooltip>
-                            ))}
+          <div className="lineup-entry-quickfill-grid">
+            {(['left', 'right'] as const).map((side) => {
+              const groups = candidateGroups.filter((group) => group.side === side);
+              return (
+                <Card key={side} size="small" className="subtle-card lineup-entry-quickfill-side-card">
+                  <div className="lineup-entry-quickfill-side">
+                    <Text strong>{side === 'left' ? '左侧快速填充' : '右侧快速填充'}</Text>
+                    <Input.TextArea
+                      rows={6}
+                      value={buffers[side].quickFillInput}
+                      disabled={saving}
+                      placeholder={'一行一个精灵名，例如：\n暮星辰\n怖哭菇\n龙息帕尔'}
+                      onChange={(event) => mutateSide(side, (buffer) => ({ ...buffer, quickFillInput: event.target.value }))}
+                    />
+                    <Button
+                      size="small"
+                      disabled={saving}
+                      onClick={() => void runQuickFill(side)}
+                    >
+                      快速填充到{side === 'left' ? '左侧' : '右侧'}
+                    </Button>
+                    {groups.length ? (
+                      <div className="lineup-entry-candidates">
+                        {groups.map(({ side: groupSide, slot, candidates }) => (
+                          <div key={`${groupSide}-${slot}`} className="candidate-group">
+                            <Text type="secondary">槽位 {slot + 1}</Text>
+                            <div className="candidate-grid">
+                              {candidates.map((candidate) => (
+                                <Tooltip key={candidate.id} title={candidate.displayName}>
+                                  <button
+                                    type="button"
+                                    className="candidate-button"
+                                    aria-label={`选择 ${candidate.displayName}`}
+                                    onClick={() => fillSlot(groupSide, slot, candidate)}
+                                  >
+                                    <SpritePetCard sprite={candidate} size={64} />
+                                  </button>
+                                </Tooltip>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )) : (
-                        <Text type="secondary">无多候选精灵</Text>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </Card>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
 
           <Card size="small" className="subtle-card lineup-entry-picker">
             <div className="picker-head">

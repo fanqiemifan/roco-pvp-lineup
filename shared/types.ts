@@ -187,7 +187,7 @@ export type StagePageKey =
   | 'page13'
   | 'blank';
 
-export type StageTransitionType = 'none' | 'blinds' | 'zoom';
+export type StageTransitionType = 'none' | 'blinds' | 'wolf';
 export type Page3SpriteSource = 'sprite' | 'thumbnail';
 
 export interface StageConfig {

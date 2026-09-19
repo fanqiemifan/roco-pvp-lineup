@@ -18,7 +18,7 @@
     "test:watch": "vitest",
     "dev": "npm run build:renderer && npm run build:electron && electron .",
     "start": "npm run build:renderer && npm run build:electron && electron .",
-    "serve:node": "npm run build:renderer && npm run build:electron && node dist-electron/electron/server-entry.js --host 0.0.0.0 --port 9988",
+    "serve:node": "npm run build:renderer && npm run build:electron && node dist-electron/electron/server-entry.js --host 0.0.0.0 --port 9989",
     "build": "npm run build:renderer && npm run build:electron",
     "package": "npm run build && electron-builder"
   },

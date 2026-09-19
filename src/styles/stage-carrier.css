@@ -140,97 +140,24 @@ body {
     }
 }
 
-/* 2. 缩放冲击：中心光晕扩散 + 中心 Logo 脉冲 */
-.stage-transition.fx-zoom {
-    overflow: hidden;
-}
 
-.stage-transition.fx-zoom .fx-zoom-flash {
+/* 2. 狼头揭幕：黑幕狼形镂空 + 白狼 Logo 淡入淡出 + 镜头穿越放大 */
+/* 时序由 stage-carrier.js 的 runWolfSequence 驱动，此处仅定义层叠与对齐 */
+.stage-transition.fx-wolf .fx-wolf-curtain {
     position: absolute;
     inset: 0;
-    background: radial-gradient(
-        circle at 50% 50%,
-        var(--fx-warm) 0%,
-        var(--fx-warm-deep) 42%,
-        rgba(231, 220, 198, 0.95) 100%
-    );
-    transform: scale(0.25);
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* 白狼 Logo：与狼形镂空窗口对齐（60vmin 居中，与脚本 WOLF_RATIO 一致） */
+.stage-transition.fx-wolf .fx-wolf-logo {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 60vmin;
+    height: 60vmin;
+    transform: translate(-50%, -50%);
     opacity: 0;
-}
-
-.stage-transition.fx-zoom .fx-zoom-flash::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(
-        circle at 50% 50%,
-        rgba(255, 255, 255, 0.9) 0%,
-        transparent 26%
-    );
-}
-
-.stage-transition.fx-zoom .fx-zoom-logo {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--fx-warm-ink);
-    font-size: 96px;
-    font-weight: 800;
-    letter-spacing: 0.12em;
-    text-shadow: 0 2px 24px rgba(58, 52, 42, 0.25);
-    transform: scale(0.6);
-    opacity: 0;
-}
-
-.stage-transition.fx-zoom .fx-zoom-logo-typography {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-}
-
-.stage-transition.fx-zoom .fx-zoom-logo-sub {
-    font-size: 22px;
-    font-weight: 500;
-    letter-spacing: 0.5em;
-    opacity: 0.72;
-}
-
-.stage-transition.fx-zoom.is-running .fx-zoom-flash {
-    animation: fxzoom-flash 720ms ease-in forwards;
-}
-
-.stage-transition.fx-zoom.is-running .fx-zoom-logo {
-    animation: fxzoom-logo 720ms ease-in forwards;
-}
-
-@keyframes fxzoom-flash {
-    0% {
-        transform: scale(0.2);
-        opacity: 0;
-    }
-    32% {
-        opacity: 1;
-    }
-    100% {
-        transform: scale(1.5);
-        opacity: 0;
-    }
-}
-
-@keyframes fxzoom-logo {
-    0% {
-        transform: scale(0.6);
-        opacity: 0;
-    }
-    40% {
-        transform: scale(1.06);
-        opacity: 1;
-    }
-    100% {
-        transform: scale(1);
-        opacity: 0;
-    }
 }

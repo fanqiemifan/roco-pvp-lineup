@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Alert,
   Button,
@@ -6,7 +6,6 @@ import {
   Empty,
   Input,
   Space,
-  Switch,
   Tag,
   Typography,
 } from 'antd';
@@ -14,56 +13,68 @@ import type { SpriteRecord } from '../../../shared/types';
 import { SpritePetCard } from '../components/SpritePetCard';
 import { ATTRIBUTE_OPTIONS, FINAL_FORM_FILTER_LABEL } from '../constants';
 import { splitSpriteAttributes } from '../lib/sprite';
-import { summarizePanelSlots } from '../lib/panel';
 import type { PanelEditorState, PanelSide, SpriteFilterState } from '../types';
 
 const { TextArea } = Input;
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 type RosterPanelEditorProps = {
-  side: PanelSide;
-  panel: PanelEditorState;
+  panels: Record<PanelSide, PanelEditorState>;
   filter: SpriteFilterState;
   locked: boolean;
+  /** 双侧选手名（用于槽位栏标题展示） */
+  players: { left?: string; right?: string };
+  /** 搜索输入框的即时值 */
   searchValue: string;
+  /** 搜索过滤用的防抖值（useDeferredValue） */
+  deferredSearchValue: string;
   sprites: SpriteRecord[];
   spriteFormOptions: string[];
+  onRosterSearchChange: (value: string) => void;
   onMutatePanel: (side: PanelSide, updater: (panel: PanelEditorState) => PanelEditorState) => void;
-  onSavePanel: (side: PanelSide, silent?: boolean) => void;
   onRunQuickFill: (side: PanelSide) => void;
-  onClearCurrentSlot: (side: PanelSide) => void;
   onClearPanel: (side: PanelSide) => void;
   onChooseQuickFillCandidate: (side: PanelSide, slotIndex: number, sprite: SpriteRecord) => void;
   onApplySprite: (side: PanelSide, sprite: SpriteRecord) => void;
-  onClearSpriteFilters: (side: PanelSide) => void;
-  onToggleAttributeFilter: (side: PanelSide, attribute: string) => void;
-  onToggleFinalFormFilter: (side: PanelSide) => void;
-  onToggleFormFilter: (side: PanelSide, form: string) => void;
+  onToggleAttributeFilter: (attribute: string) => void;
+  onToggleFinalFormFilter: () => void;
+  onToggleFormFilter: (form: string) => void;
+  onClearSpriteFilters: () => void;
 };
 
+/**
+ * 赛事面板·合并阵容编辑器：布局与「录入阵容」弹窗一致——
+ * 左右槽位栏 | 中部（左右双列快速填充 + 共享精灵筛选/搜索/选择） | 右侧槽位栏。
+ * 点槽位或点精灵即自动保存（600ms 防抖），无手动保存按钮。
+ */
 export function RosterPanelEditor({
-  side,
-  panel,
+  panels,
   filter,
   locked,
+  players,
   searchValue,
+  deferredSearchValue,
   sprites,
   spriteFormOptions,
+  onRosterSearchChange,
   onMutatePanel,
-  onSavePanel,
   onRunQuickFill,
-  onClearCurrentSlot,
   onClearPanel,
   onChooseQuickFillCandidate,
   onApplySprite,
-  onClearSpriteFilters,
   onToggleAttributeFilter,
   onToggleFinalFormFilter,
   onToggleFormFilter,
+  onClearSpriteFilters,
 }: RosterPanelEditorProps) {
-  const panelLocked = locked;
+  // 当前编辑侧：点槽位栏切换，共享的精灵选择填入该侧的活动槽位
+  const [editingSide, setEditingSide] = useState<PanelSide>('left');
+  const editingPanel = panels[editingSide];
+  const editingSlot = editingPanel.selected[editingPanel.activeSlot];
+  const anySaving = panels.left.saving || panels.right.saving;
+
   const filteredSprites = sprites.filter((sprite) => {
-    const keyword = searchValue.trim().toLowerCase();
+    const keyword = deferredSearchValue.trim().toLowerCase();
     const values = [
       sprite.displayName,
       sprite.name,
@@ -82,202 +93,254 @@ export function RosterPanelEditor({
   });
   const hasFilter = filter.selectedAttributes.length > 0 || filter.selectedForms.length > 0 || filter.selectedFinalForm;
 
+  function selectSlot(side: PanelSide, index: number) {
+    setEditingSide(side);
+    onMutatePanel(side, (prev) => ({ ...prev, activeSlot: index }));
+  }
+
+  function clearSlotAt(side: PanelSide, index: number) {
+    onMutatePanel(side, (prev) => ({
+      ...prev,
+      selected: prev.selected.map((slot, i) => (i === index ? { ...slot, sprite: null } : slot)),
+      dirty: true,
+    }));
+  }
+
+  // 与「录入阵容」一致：填入后自动前进到同侧下一个空槽位，连续点选更顺手
+  function handleSpritePick(sprite: SpriteRecord) {
+    onApplySprite(editingSide, sprite);
+    const current = panels[editingSide];
+    const nextEmpty = current.selected.findIndex(
+      (slot, index) => index > current.activeSlot && !slot.sprite,
+    );
+    if (nextEmpty !== -1) {
+      onMutatePanel(editingSide, (prev) => ({ ...prev, activeSlot: nextEmpty }));
+    }
+  }
+
+  function renderSideRail(side: PanelSide) {
+    const panel = panels[side];
+    const label = side === 'left' ? '左侧' : '右侧';
+    const playerName = players[side]?.trim();
+    return (
+      <div className={`lineup-entry-rail lineup-entry-rail-${side}${editingSide === side ? ' is-active' : ''}`}>
+        <div className="lineup-entry-rail-head">
+          <span className="side">
+            <span className="dot" />
+            {label} · {playerName || label}
+          </span>
+          <span className="cnt">已选 {panel.selected.filter((slot) => slot.sprite).length}/6</span>
+        </div>
+        <div className="lineup-entry-slots">
+          {panel.selected.map((slot, index) => {
+            const active = editingSide === side && index === panel.activeSlot;
+            return (
+              <button
+                key={`${side}-${index}`}
+                type="button"
+                disabled={locked}
+                className={`lineup-entry-slot${slot.sprite ? ' filled' : ' empty'}${active ? ' active' : ''}`}
+                onClick={() => selectSlot(side, index)}
+              >
+                {slot.sprite ? (
+                  <SpritePetCard sprite={slot.sprite} size={88} />
+                ) : (
+                  <span className="slot-placeholder">
+                    <span className="num">{index + 1}</span>
+                    <span className="pick-hint">点击选中</span>
+                  </span>
+                )}
+                {slot.sprite ? (
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    className="slot-clear"
+                    title="清空该槽位"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      clearSlotAt(side, index);
+                    }}
+                  >
+                    ✕
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  function renderQuickFillColumn(side: PanelSide) {
+    const panel = panels[side];
+    const label = side === 'left' ? '左侧' : '右侧';
+    const multiCandidateMatches = panel.quickFillMatches.filter((match) => match.candidates.length > 1);
+    return (
+      <Card size="small" className="subtle-card lineup-entry-quickfill-side-card">
+        <div className="lineup-entry-quickfill-side">
+          <Text strong>{label}快速填充</Text>
+          <TextArea
+            rows={6}
+            disabled={locked}
+            value={panel.quickFillInput}
+            placeholder={'一行一个精灵名，例如：\n暮星辰\n怖哭菇\n龙息帕尔'}
+            onChange={(event) => onMutatePanel(side, (prev) => ({ ...prev, quickFillInput: event.target.value }))}
+          />
+          <Space wrap>
+            <Button size="small" type="primary" disabled={locked} onClick={() => onRunQuickFill(side)}>
+              快速填充
+            </Button>
+            <Button size="small" disabled={locked} onClick={() => onClearPanel(side)}>
+              清空{label}
+            </Button>
+          </Space>
+          {multiCandidateMatches.length ? (
+            <div className="lineup-entry-candidates">
+              {multiCandidateMatches.map((match) => (
+                <div key={`${side}-quick-${match.slot}`} className="candidate-group">
+                  <Text type="secondary">槽位 {match.slot + 1}</Text>
+                  <div className="candidate-grid">
+                    {match.candidates.map((candidate) => (
+                      <button
+                        key={candidate.id}
+                        type="button"
+                        className="candidate-button"
+                        aria-label={`选择 ${candidate.displayName}`}
+                        title={candidate.displayName}
+                        disabled={locked}
+                        onClick={() => onChooseQuickFillCandidate(side, match.slot, candidate)}
+                      >
+                        <SpritePetCard sprite={candidate} size={64} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card
       className="panel-editor-card"
-      title={`${side === 'left' ? '左侧' : '右侧'}当前阵容`}
+      title="当前阵容"
       extra={(
         <Space wrap>
-          <Text type="secondary">已选 {summarizePanelSlots(panel.selected).selectedCount} / 6</Text>
-          <Switch
-            checked={panel.autoSaveEnabled}
-            checkedChildren="自动保存"
-            unCheckedChildren="手动保存"
-            disabled={panelLocked}
-            onChange={(checked) => onMutatePanel(side, (prev) => ({ ...prev, autoSaveEnabled: checked }))}
-          />
-          {panel.saving ? <Tag color="processing">保存中</Tag> : null}
-          {panelLocked ? <Tag color="warning">已锁定</Tag> : null}
+          <Text type="secondary">
+            左 {panels.left.selected.filter((slot) => slot.sprite).length} / 6 · 右 {panels.right.selected.filter((slot) => slot.sprite).length} / 6
+          </Text>
+          {anySaving ? <Tag color="processing">保存中</Tag> : null}
+          {locked ? <Tag color="warning">已锁定</Tag> : null}
         </Space>
       )}
     >
-      <div className={`panel-editor-layout panel-editor-layout-${side}`}>
-        <div className={`panel-slot-rail panel-slot-rail-${side}`}>
-          <div className={`panel-slot-grid panel-slot-grid-${side}`}>
-            {panel.selected.map((slot, index) => (
+      {locked ? (
+        <Alert
+          showIcon
+          type="warning"
+          message="当前赛事已完成，阵容编辑已锁定"
+          className="lineup-entry-alert"
+        />
+      ) : null}
+
+      <div className="lineup-entry-body roster-lineup-body">
+        {renderSideRail('left')}
+
+        <div className="lineup-entry-center">
+          <div className="lineup-entry-quickfill-grid">
+            {renderQuickFillColumn('left')}
+            {renderQuickFillColumn('right')}
+          </div>
+
+          <Card size="small" className="subtle-card lineup-entry-picker">
+            <div className="picker-head">
+              <Text strong>筛选精灵</Text>
+              {hasFilter ? (
+                <Button size="small" type="link" onClick={onClearSpriteFilters}>
+                  清空筛选
+                </Button>
+              ) : null}
+            </div>
+            <Text type="secondary" className="filter-label">精灵属性（最多 2 个）</Text>
+            <div className="attribute-filter-grid">
+              {ATTRIBUTE_OPTIONS.map((option) => {
+                const active = filter.selectedAttributes.includes(option.label);
+                return (
+                  <Button
+                    key={option.label}
+                    type={active ? 'primary' : 'default'}
+                    className="attribute-filter-chip"
+                    title={option.label}
+                    aria-label={option.label}
+                    onClick={() => onToggleAttributeFilter(option.label)}
+                  >
+                    <span className="attribute-filter-chip-inner">
+                      <img src={option.iconPath} alt="" className="attribute-filter-icon" />
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
+            <Text type="secondary" className="filter-label">精灵形态</Text>
+            <Space wrap size={[8, 8]} className="form-filter-row">
               <Button
-                key={`${side}-${index}`}
-                type={index === panel.activeSlot ? 'primary' : 'default'}
-                className={`slot-button slot-button-${side}`}
-                disabled={panelLocked}
-                onClick={() => onMutatePanel(side, (prev) => ({ ...prev, activeSlot: index }))}
+                size="small"
+                type={filter.selectedFinalForm ? 'primary' : 'default'}
+                onClick={onToggleFinalFormFilter}
               >
-                <div className={`slot-button-inner slot-button-inner-${side}`}>
-                  {slot.sprite?.path ? (
-                    <SpritePetCard sprite={slot.sprite} size={96} />
-                  ) : (
-                    <div className="slot-placeholder">{index + 1}</div>
-                  )}
-                </div>
+                {FINAL_FORM_FILTER_LABEL}
               </Button>
-            ))}
-          </div>
-        </div>
-
-        <div className="panel-editor-main">
-          <div className="panel-editor-tools">
-            <Card size="small" className="subtle-card">
-              <Space direction="vertical" size={12} className="control-stack">
-                {panelLocked ? (
-                  <Alert
-                    showIcon
-                    type="warning"
-                    message="当前赛事已完成，阵容编辑已锁定"
-                  />
-                ) : null}
-                <div>
-                  <Text strong>快速文本填充</Text>
-                  <Paragraph type="secondary">一行一个精灵名，先生成本地草稿，再保存到阵容。</Paragraph>
-                </div>
-                <TextArea
-                  disabled={panelLocked}
-                  rows={4}
-                  value={panel.quickFillInput}
-                  onChange={(event) => onMutatePanel(side, (prev) => ({ ...prev, quickFillInput: event.target.value }))}
-                  placeholder={'暮星辰\n怖哭菇\n龙息帕尔'}
-                />
-                <Space wrap>
-                  <Button disabled={panelLocked} onClick={() => onRunQuickFill(side)}>快速填充</Button>
-                  <Button disabled={panelLocked} type="primary" onClick={() => onSavePanel(side)}>保存到{side === 'left' ? '左侧' : '右侧'}</Button>
-                  <Button disabled={panelLocked} onClick={() => onClearCurrentSlot(side)}>选中清除</Button>
-                  <Button disabled={panelLocked} onClick={() => onClearPanel(side)}>清除全部</Button>
-                </Space>
-              </Space>
-            </Card>
-
-            {panel.quickFillMatches.some((match) => match.candidates.length > 1) ? (
-              <Card size="small" className="subtle-card">
-                <Space direction="vertical" size={12} className="control-stack">
-                  <Text strong>候选精灵选择</Text>
-                  {panel.quickFillMatches
-                    .filter((match) => match.candidates.length > 1)
-                    .map((match) => (
-                      <div key={`${side}-quick-${match.slot}`} className="quick-fill-group">
-                        <Text>槽位 {match.slot + 1}</Text>
-                        <div className="quick-fill-candidate-grid">
-                          {match.candidates.map((candidate) => (
-                            <Button
-                              key={candidate.id}
-                              size="small"
-                              className="quick-fill-candidate-button"
-                              disabled={panelLocked}
-                              title={candidate.displayName}
-                              aria-label={`选择 ${candidate.displayName}`}
-                              onClick={() => onChooseQuickFillCandidate(side, match.slot, candidate)}
-                            >
-                              <SpritePetCard sprite={candidate} size={64} className="quick-fill-candidate-card" />
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                </Space>
-              </Card>
-            ) : null}
-          </div>
-
-          <Card size="small" className="subtle-card sprite-picker-card">
-            <div className="sprite-picker-shell">
-              <div className="sprite-filter-panel">
-                <div className="sprite-filter-header">
-                  <Text strong>筛选精灵</Text>
-                  {hasFilter ? (
-                    <Button size="small" type="link" onClick={() => onClearSpriteFilters(side)}>
-                      清空筛选
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="sprite-filter-group">
-                  <Text type="secondary" className="sprite-filter-label">精灵属性（最多 2 个）</Text>
-                  <div className="attribute-filter-grid">
-                    {ATTRIBUTE_OPTIONS.map((option) => {
-                      const active = filter.selectedAttributes.includes(option.label);
-                      return (
-                        <Button
-                          key={`${side}-attr-${option.code}`}
-                          type={active ? 'primary' : 'default'}
-                          className={`attribute-filter-chip${active ? ' is-active' : ''}`}
-                          title={option.label}
-                          aria-label={option.label}
-                          onClick={() => onToggleAttributeFilter(side, option.label)}
-                        >
-                          <span className="attribute-filter-chip-inner">
-                            <img
-                              src={option.iconPath}
-                              alt=""
-                              className="attribute-filter-icon"
-                            />
-                          </span>
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="sprite-filter-group">
-                  <Text type="secondary" className="sprite-filter-label">精灵形态</Text>
-                  <Space wrap size={[8, 8]}>
-                    <Button
-                      key={`${side}-form-${FINAL_FORM_FILTER_LABEL}`}
-                      size="small"
-                      type={filter.selectedFinalForm ? 'primary' : 'default'}
-                      className="form-filter-chip"
-                      onClick={() => onToggleFinalFormFilter(side)}
+              {spriteFormOptions.map((form) => (
+                <Button
+                  key={form}
+                  size="small"
+                  type={filter.selectedForms.includes(form) ? 'primary' : 'default'}
+                  disabled={filter.selectedFinalForm}
+                  onClick={() => onToggleFormFilter(form)}
+                >
+                  {form}
+                </Button>
+              ))}
+            </Space>
+            <Input
+              value={searchValue}
+              placeholder="搜索精灵名称"
+              allowClear
+              onChange={(event) => onRosterSearchChange(event.target.value)}
+            />
+            <div className="sprite-picker-scroll lineup-entry-sprite-scroll">
+              {filteredSprites.length ? (
+                <div className="lineup-entry-sprite-grid">
+                  {filteredSprites.map((sprite) => (
+                    <button
+                      key={sprite.id}
+                      type="button"
+                      className="lineup-entry-sprite-tile"
+                      title={sprite.displayName}
+                      disabled={locked}
+                      onClick={() => handleSpritePick(sprite)}
                     >
-                      {FINAL_FORM_FILTER_LABEL}
-                    </Button>
-                    {spriteFormOptions.map((form) => (
-                      <Button
-                        key={`${side}-form-${form}`}
-                        size="small"
-                        type={filter.selectedForms.includes(form) ? 'primary' : 'default'}
-                        className="form-filter-chip"
-                        disabled={filter.selectedFinalForm}
-                        onClick={() => onToggleFormFilter(side, form)}
-                      >
-                        {form}
-                      </Button>
-                    ))}
-                  </Space>
+                      <SpritePetCard sprite={sprite} size={92} />
+                    </button>
+                  ))}
                 </div>
-              </div>
-              <Input
-                value={panel.search}
-                onChange={(event) => onMutatePanel(side, (prev) => ({ ...prev, search: event.target.value }))}
-                placeholder={`搜索${side === 'left' ? '左侧' : '右侧'}精灵名称`}
-              />
-              <div className="sprite-picker-scroll">
-                {filteredSprites.length ? (
-                  <div className="sprite-picker-grid">
-                    {filteredSprites.map((sprite) => (
-                      <Button
-                        key={`${side}-${sprite.id}`}
-                        className="sprite-card-button"
-                        disabled={panelLocked}
-                        onClick={() => onApplySprite(side, sprite)}
-                      >
-                        <div className="sprite-card-inner">
-                          <SpritePetCard sprite={sprite} size="var(--sprite-picker-card-size)" />
-                        </div>
-                      </Button>
-                    ))}
-                  </div>
-                ) : (
-                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配到精灵" />
-                )}
-              </div>
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配到精灵" />
+              )}
             </div>
           </Card>
+
+          <div className="roster-lineup-hint">
+            当前选中：{editingSide === 'left' ? '左侧' : '右侧'}槽位 {editingPanel.activeSlot + 1}
+            {editingSlot?.sprite ? `（${editingSlot.sprite.displayName}）` : ''} · 点击精灵填入，自动保存
+          </div>
         </div>
+
+        {renderSideRail('right')}
       </div>
     </Card>
   );

@@ -122,7 +122,7 @@ roco-pvp-lineup/
 
 | 文件路径 | 说明 |
 |---------|------|
-| index.html | 推流载体页（加载 stage 配置对应页面；切换时播全屏过渡 blinds/zoom，新页面加载完成后通知入场动效） |
+| index.html | 推流载体页（加载 stage 配置对应页面；切换时播全屏过渡 blinds/wolf，新页面加载完成后通知入场动效） |
 | roco-pvp-page1.html | 推流页面1（Overlay 比分栏） |
 | roco-pvp-page2.html | 推流页面2（全局阵容展示） |
 | roco-pvp-page3.html | 推流页面3（头像比分阵容） |

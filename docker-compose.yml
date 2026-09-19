@@ -8,7 +8,7 @@ services:
     image: roco-pvp-lineup:latest
     container_name: roco-pvp-lineup
     ports:
-      - "9988:9988"
+      - "9989:9989"
     volumes:
       - ./LuokePVPWebui:/app/LuokePVPWebui
     environment:
