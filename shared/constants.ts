@@ -47,10 +47,9 @@ export const SUPPORTED_STAGE_PAGES = new Set([
  * 直播推流切换过渡效果集合：
  * - none: 无过渡（直接切换）
  * - blinds: 双向百叶窗
- * - zoom: 缩放冲击（中心脉冲）
  */
 export const DEFAULT_STAGE_TRANSITION = 'blinds';
-export const SUPPORTED_STAGE_TRANSITIONS = new Set(['none', 'blinds', 'zoom']);
+export const SUPPORTED_STAGE_TRANSITIONS = new Set(['none', 'blinds']);
 export const DEFAULT_PAGE3_SPRITE_SOURCE = 'sprite' as const;
 export const SUPPORTED_PAGE3_SPRITE_SOURCES = new Set(['sprite', 'thumbnail']);
 export const DEFAULT_PAGE3_RANK_VISIBLE = false;

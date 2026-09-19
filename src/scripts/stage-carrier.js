@@ -95,7 +95,7 @@
 
     // ---------- 切换过渡动画层 ----------
 
-    // 清空并构建过渡层 DOM；fx 为 'blinds' | 'zoom'
+    // 清空并构建过渡层 DOM；fx 为 'blinds'
     function buildTransition(fx) {
         if (!transitionLayer) {
             return;
@@ -112,23 +112,6 @@
                 blind.style.animationDelay = (i % 2 === 0 ? 0 : 70) + 'ms';
                 transitionLayer.appendChild(blind);
             }
-        } else if (fx === 'zoom') {
-            var flash = document.createElement('div');
-            flash.className = 'fx-zoom-flash';
-            var logo = document.createElement('div');
-            logo.className = 'fx-zoom-logo';
-            var inner = document.createElement('div');
-            inner.className = 'fx-zoom-logo-typography';
-            var main = document.createElement('div');
-            main.textContent = '洛克王国PVP';
-            var sub = document.createElement('div');
-            sub.className = 'fx-zoom-logo-sub';
-            sub.textContent = 'ROCO PVP';
-            inner.appendChild(main);
-            inner.appendChild(sub);
-            logo.appendChild(inner);
-            transitionLayer.appendChild(flash);
-            transitionLayer.appendChild(logo);
         }
     }
 
@@ -151,9 +134,9 @@
         buildTransition(fx);
 
         // 峰值时长：动画遮满屏幕所需的时长（约 62% 处）
-        var peakDelay = fx === 'blinds' ? 384 : 230;
+        var peakDelay = 384;
         // 总时长需大于单 iframe 淡出 420ms，保证换画发生在遮罩之下
-        var totalMs = fx === 'blinds' ? 980 : 860;
+        var totalMs = 980;
 
         if (transitionTimer) {
             window.clearTimeout(transitionTimer);

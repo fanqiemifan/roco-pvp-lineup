@@ -157,7 +157,6 @@ export const STAGE_VALUE_SET = new Set<StagePageKey>([...STAGE_OPTIONS.map((opti
 
 export const STAGE_TRANSITION_OPTIONS: Array<{ value: StageTransitionType; label: string }> = [
   { value: 'blinds', label: '百叶窗' },
-  { value: 'zoom', label: '缩放冲击' },
   { value: 'none', label: '无过渡' },
 ];
 
