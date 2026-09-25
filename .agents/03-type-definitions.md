@@ -25,7 +25,7 @@
 
 | 类型名称 | 说明 | 文件 |
 |---------|------|------|
-| StagePageKey | 推流页面 key：page1-overlay / page2 / page3 / page5 / page6 / page7 / page8 / page9 / page10 / page11 / page12 / page13 / blank。page11/12/13 为选手介绍三画面（同一页面文件 ?mode=left/right/versus） | shared/types.ts |
+| StagePageKey | 推流页面 key：page1-overlay / page2 / page3 / page4 / page5 / page6 / page7 / page8 / page9 / page10 / page11 / page12 / page13 / blank。page4 为 MVP 结算画面；page11/12/13 为选手介绍三画面（同一页面文件 ?mode=left/right/versus） | shared/types.ts |
 | StageTransitionType | 过渡效果：none / blinds / wolf | shared/types.ts |
 | StageConfig | 推流载体配置（page, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit, mtime）。page3RankVisible 控制页面3排位排名图标显隐；page3TeamVisible 控制页面3左右两侧战队标识 div 显隐；page11RankVisible 控制选手介绍排位排名 div 显隐；page10Duration/page10DurationUnit 为胜负登记后自动切入 page10 的停留时长 | shared/types.ts |
 | Page6State | 比赛结果页配置（matchIds 最多 8 个已结束比赛, title 副标题, mtime） | shared/types.ts |
@@ -42,6 +42,9 @@
 | CountdownTheme | 倒计时配色：dark / light | shared/types.ts |
 | CountdownState | 倒计时插件状态（visible, running, duration 分钟, remainingSeconds, endAt, theme, mtime） | shared/types.ts |
 | CountdownPayload | 倒计时 API/Socket 载荷（state, serverNow 供客户端校准时钟偏差） | shared/types.ts |
+| MvpSlotEntry | MVP 结算（page4）单个精灵项（petId 精灵主键, tag 标签最多四字可空, isMvp 是否标记 MVP——全页最多一个） | shared/types.ts |
+| MvpState | MVP 结算（page4）状态（slots 最多 6 个精灵项顺序即页面从左到右, returnPage 关闭结算后切回的推流画面, mtime） | shared/types.ts |
+| MvpWinnerInfo | MVP 结算（page4）胜方选手信息条（side left/right/null, playerName, avatarExists/avatarPath/avatarMtime——口径同推流页面10 的胜者判定） | shared/types.ts |
 
 
 ## 比赛记录

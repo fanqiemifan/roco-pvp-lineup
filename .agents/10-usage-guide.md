@@ -20,6 +20,8 @@
 | 下场对局显示/隐藏 | showNextGame / hideNextGame | electron/services/nextgame-service.ts |
 | 倒计时插件操作 | saveCountdownState / startCountdown 等 | electron/services/countdown-service.ts |
 | 胜者结算画面数据 | GET /api/page10（活跃比赛+头像） | electron/socket-server.ts |
+| MVP 结算（page4）标记/切屏 | saveMvpState / saveMvpReturnPage | electron/services/mvp-service.ts |
+| MVP 结算胜者阵容取数 | getRecentWinnerLineup | src/admin-antd/lib/match.ts |
 | 选手/战队信息录入 | savePlayerProfile / saveTeamProfile | electron/services/profile-service.ts |
 | 创建比赛复用录入信息 | reusePlayerProfile | src/admin-antd/App.tsx |
 | page3 战队标识渲染 | renderTeams / buildTeamNameImage | src/scripts/page3-display.js |
@@ -49,6 +51,7 @@
 - Page11State / Page11SideConfig - 选手介绍（page11-13）配置
 - NextGameState / NextGamePayload - 下场对局配置与载荷
 - CountdownState / CountdownPayload - 倒计时插件状态与载荷
+- MvpState / MvpSlotEntry - MVP 结算（page4）配置
 - SpriteUsageRow / StatsMetricKey / StatsRangeKey（管理后台统计，src/admin-antd/lib/stats.ts）
 
 ## 文件索引

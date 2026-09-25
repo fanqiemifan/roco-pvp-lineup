@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>洛克王国PVP - 推流页面4（MVP 结算画面）</title>
+    <!-- 复用 lineup.css 的 petsdiv3（精灵头像卡） -->
+    <link rel="stylesheet" href="/styles/roco-pvp-lineup.css">
+    <link rel="stylesheet" href="/styles/roco-pvp-page4.css">
+    <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
+</head>
+<body>
+    <!--
+        MVP 结算画面（推流页面4）：由后台「结算画面」取当前对局胜者阵容，
+        为最多 6 个精灵项标记标签（tag）与 MVP，标记完成后点击「显示 MVP 结算」切入本页。
+        层级自下而上：背景 → 精灵项（最左 x80、间隔 4px、单个 290x720，未赋值的槽位不展示）
+        → 叠加层 back-mvp-1.png（1920x1080 传送门效果，只压精灵项）→ 胜方选手信息条（最顶层）。
+        切换切入后由脚本在过渡动效播完时按槽位依次淡入（逐个显示）。
+    -->
+    <main class="mvp-screen" aria-label="洛克王国PVP MVP结算画面">
+        <section class="mvp-items" aria-label="MVP 精灵结算">
+            <article class="mvp-item" data-slot="0" hidden></article>
+            <article class="mvp-item" data-slot="1" hidden></article>
+            <article class="mvp-item" data-slot="2" hidden></article>
+            <article class="mvp-item" data-slot="3" hidden></article>
+            <article class="mvp-item" data-slot="4" hidden></article>
+            <article class="mvp-item" data-slot="5" hidden></article>
+        </section>
+
+        <!-- 叠加层：back-mvp-1.png 传送门效果，压在精灵项之上、选手信息之下 -->
+        <div class="mvp-portal" aria-hidden="true"></div>
+
+        <!-- 胜方选手信息条（最顶层）：头像 + 名字，数据取当前对局最近一个已分胜负小局的胜者 -->
+        <section class="mvp-winner" aria-label="本局胜方选手">
+            <div class="mvp-winner-avatar"><img id="mvpWinnerAvatar" alt="胜方选手头像"></div>
+            <div class="mvp-winner-name" id="mvpWinnerName">待定</div>
+        </section>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/page4-display.js"></script>
+    <script src="/scripts/stage-enter.js"></script>
+</body>
+</html>

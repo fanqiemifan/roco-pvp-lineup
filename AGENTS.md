@@ -50,11 +50,12 @@
 - `shared/`：`types.ts`（全部类型）、`events.ts`（socket 事件）、`constants.ts`（默认值：端口 9988、BO7、6 格子、推流页面/过渡枚举）——electron 与 React 共用。
 - `electron/float-window.ts`：桌面阵容悬浮窗（`float.html`，透明置顶 587×56）与更换精灵菜单（`float-menu.html`，240×240），经 `preload.ts` 的 `window.rocoFloat` IPC 驱动；「下场对局」选择菜单（`float-nextgame.html`，300×320）由 float.js 用 `window.open` 打开。
 - 管理后台（React，`src/admin-antd/`）：
-  - 九视图：赛事面板/直播推流/实时控制/比赛历史/信息录入/选手介绍/数据统计/页面预览/关于项目，为 App.tsx 顶部可收缩的 `antd Menu`；顶栏单行显示当前视图名（与菜单共用 `VIEW_LABEL`）。
+  - 十视图：赛事面板/直播推流/实时控制/结算画面/比赛历史/信息录入/选手介绍/数据统计/页面预览/关于项目，为 App.tsx 顶部可收缩的 `antd Menu`；顶栏单行显示当前视图名（与菜单共用 `VIEW_LABEL`）。
   - 导航图标：`src/assets/ui/*.svg` 经 `?raw` 引入，`NavIcon` 把 `fill="black"` 换成 `currentColor` 自适应配色；像素级样式细节见 `.agents/09-frontend-components.md`。
   - 赛事面板要点：「比赛列表」卡片头部「快速创建比赛」——固定高度可滚动选手列表逐条点选（按录入时间升序）、数量须为**双数**、再选赛制与标签，确认后随机洗牌两两配对逐一创建；「当前比赛」旁「战队修改」补填战队（PATCH `/api/matches/:id`）；创建统一走前端 `postCreateMatch`。
-- 推流/展示页面（纯原生 JS）：page1 比分栏、page2 全局阵容、page3 头像比分阵容、page5 出场/胜率排行、page6 比赛结果、page7 对局推送、page8 比赛预告（公开免鉴权）、page9 团队积分榜、page10 胜者结算、page11-13 选手介绍（同一页面 `?mode=left/right/versus`）、`float`/`float-menu`/`float-nextgame` 桌面悬浮窗。页面与脚本对照见 `.agents/01`，路由见 `.agents/08`。
-- 入场动效：`src/styles/stage-enter.css` + `src/scripts/stage-enter.js` 公共实现——推流载体 `stage-carrier.js` 完成 iframe 加载后 postMessage `stage-enter`，页面在根节点加 `is-stage-entered` 触发 `.fx-enter` 区块依次上浮淡入；page1/2/3/5/6/7/8/9/10 已接入，page3 切入还会额外播一次阵容入场，page11-13 自带动效不接入。
+- 推流/展示页面（纯原生 JS）：page1 比分栏、page2 全局阵容、page3 头像比分阵容、page4 MVP 结算（公开免鉴权）、page5 出场/胜率排行、page6 比赛结果、page7 对局推送、page8 比赛预告（公开免鉴权）、page9 团队积分榜、page10 胜者结算、page11-13 选手介绍（同一页面 `?mode=left/right/versus`）、`float`/`float-menu`/`float-nextgame` 桌面悬浮窗。页面与脚本对照见 `.agents/01`，路由见 `.agents/08`。
+- MVP 结算（page4）：后台「结算画面」取当前对局最近一个已分胜负小局的**胜者阵容**（只收最终形态精灵），标记标签（≤4 字）与 MVP 后 `POST /api/mvp/show` 切屏到页面4（记录 returnPage，`/api/mvp/hide` 切回）；状态落盘 `cache/mvp.json`，精灵 webm 取 `resources/sprites-260-630-webm/{pet_id}_{name}.webm`；`GET /api/mvp` 同时下发胜方选手名字与头像（MvpWinnerInfo，口径同 page10）；实现在 `mvp-service.ts` + `page4-display.js`（增量渲染）。
+- 入场动效：`src/styles/stage-enter.css` + `src/scripts/stage-enter.js` 公共实现——推流载体 `stage-carrier.js` 完成 iframe 加载后 postMessage `stage-enter`，页面在根节点加 `is-stage-entered` 触发 `.fx-enter` 区块依次上浮淡入；page1/2/3/5/6/7/8/9/10 直接接入 `.fx-enter` 区块动画，page4 用同一 stage-enter 时机播自定义的逐项入场（过渡播完后再按槽位依次淡入），page3 切入还会额外播一次阵容入场，page11-13 自带动效不接入。
 - page10 自动切回：登记本局胜负时若当前画面是 page1-3，自动切入 page10 停留 `page10Duration` 后切回原画面（socket-server 内定时器驱动）。
 - 信息录入（选手/战队档案）：单卡片 + Segmented 切换，服务 `electron/services/profile-service.ts`，落盘 `cache/profiles.json`；头像/logo 存 `cache/profiles/{players,teams}/<id>.png`，经 `/runtime/profiles/**` 访问；创建赛事输入选手名自动联想已录入选手，「所属战队」可选录入战队或手填；page9 战队名称输入框同样联想。
 - 选手 JSON 批量导入：只识别白名单字段 `name`/`rank`/`declaration`/`pets`（前后端双侧白名单防注入）；**常用精灵仅在命中 pets.json 时录入**，未命中走 `review` 弹窗逐条补录（每条最多 5 个模糊候选）；后端入口 `importPlayerProfiles` + `matchSpriteToken` + `POST /api/profiles/players/import`，成功广播 `profiles:update`。

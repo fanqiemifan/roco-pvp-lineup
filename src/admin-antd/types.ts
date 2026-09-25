@@ -1,9 +1,9 @@
 import type { ProfileStoreState, QuickFillMatch, SlotState } from '../../shared/types';
 
 export type PanelSide = 'left' | 'right';
-export type ViewKey = 'roster' | 'live' | 'history' | 'stats' | 'preview' | 'stage' | 'profiles' | 'page11' | 'about';
+export type ViewKey = 'roster' | 'live' | 'mvp' | 'history' | 'stats' | 'preview' | 'stage' | 'profiles' | 'page11' | 'about';
 
-export type PreviewSlotKey = 'stage' | 'page1' | 'page2' | 'page3' | 'page5' | 'page6' | 'page7' | 'page8' | 'page9' | 'page10' | 'page11' | 'page12' | 'page13';
+export type PreviewSlotKey = 'stage' | 'page1' | 'page2' | 'page3' | 'page4' | 'page5' | 'page6' | 'page7' | 'page8' | 'page9' | 'page10' | 'page11' | 'page12' | 'page13';
 
 export type JsonInit = RequestInit & {
   json?: unknown;

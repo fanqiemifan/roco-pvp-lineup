@@ -13,6 +13,7 @@
      *   - page1-overlay : 推流页面1（Overlay 比分栏布局）  -> /roco-pvp-page1.html
      *   - page2         : 推流页面2（全局阵容展示）       -> /roco-pvp-page2.html
      *   - page3         : 推流页面3（头像比分阵容）       -> /roco-pvp-page3.html
+     *   - page4         : 推流页面4（MVP 结算画面）      -> /roco-pvp-page4.html
      *   - page5         : 推流页面5（使用率/胜率排行）    -> /roco-pvp-page5.html
      *   - page6         : 推流页面6（比赛结果）           -> /roco-pvp-page6.html
      *   - page7         : 推流页面7（对局推送）           -> /roco-pvp-page7.html
@@ -29,6 +30,7 @@
         'page1-overlay': { label: '推流页面1', path: '/roco-pvp-page1.html' },
         'page2': { label: '推流页面2', path: '/roco-pvp-page2.html' },
         'page3': { label: '推流页面3', path: '/roco-pvp-page3.html' },
+        'page4': { label: '推流页面4（MVP 结算画面）', path: '/roco-pvp-page4.html' },
         'page5': { label: '推流页面5', path: '/roco-pvp-page5.html' },
         'page6': { label: '推流页面6', path: '/roco-pvp-page6.html' },
         'page7': { label: '推流页面7（对局推送）', path: '/roco-pvp-page7.html' },

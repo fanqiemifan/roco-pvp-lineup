@@ -1,0 +1,228 @@
+/* 推流页面4：MVP 结算画面（后台「结算画面」标记完成后切入展示） */
+/* YouSheBiaoTiHei 不打包字体文件，改用系统安装字体，未安装时回退 MiSans */
+@font-face {
+    font-family: "YouSheBiaoTiHei";
+    src: local("YouSheBiaoTiHei");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Heavy";
+    src: url("/assets/fonts/MiSans-Heavy.otf") format("opentype");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Regular";
+    src: url("/assets/fonts/MiSans-Regular.otf") format("opentype");
+    font-display: swap;
+}
+
+.mvp-screen {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    /* 背景：mvp-back.png */
+    background: url("/assets/ui/mvp-back.png") no-repeat center / 100% 100%;
+    font-family: "YouSheBiaoTiHei", "MiSans-Heavy", "Microsoft YaHei", sans-serif;
+}
+
+.mvp-items {
+    position: absolute;
+    inset: 0;
+}
+
+/* ========== 精灵 itemdiv：290x720，最左 x80、间隔 4px（间隔与 x 由脚本按槽位设置） ========== */
+.mvp-item {
+    position: absolute;
+    top: 180px;
+    width: 290px;
+    height: 720px;
+    /* 逐个入场：切换过渡动效播完后由脚本加 is-visible 按槽位依次淡入上浮 */
+    opacity: 0;
+}
+
+.mvp-item.is-visible {
+    animation: mvp-item-in 560ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+    animation-delay: calc(var(--mvp-item-order, 0) * 120ms);
+}
+
+@keyframes mvp-item-in {
+    from {
+        opacity: 0;
+        margin-top: 24px;
+    }
+
+    to {
+        opacity: 1;
+        margin-top: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mvp-item {
+        opacity: 1;
+    }
+
+    .mvp-item.is-visible {
+        animation: none;
+    }
+}
+
+/* ---------- tag div：290x110，tag-01.svg 背景，z-index 2 ---------- */
+.mvp-item-tag {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 290px;
+    height: 110px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: url("/assets/ui/tag-01.svg") no-repeat center / 100% 100%;
+    z-index: 2;
+}
+
+/* display:flex 会覆盖 hidden 属性的 display:none，需显式声明（tag 可选，未标记时不显示） */
+.mvp-item-tag[hidden] {
+    display: none;
+}
+
+/* 标签文字：YouSheBiaoTiHei 40px 黑色，旋转 4.62°，在标签内居中后上移 8px、右移 6px */
+.mvp-item-tag-text {
+    font-size: 40px;
+    line-height: 1;
+    color: #000000;
+    white-space: nowrap;
+    transform: translate(28px, -13px) rotate(-4.62deg);
+}
+
+/* ---------- MVP div：mvp.png，y380 居中对齐，仅标记为 MVP 的精灵显示 ---------- */
+.mvp-item-mvp {
+    position: absolute;
+    left: 50%;
+    top: 380px;
+    width: 280px;
+    height: 280px;
+    transform: translateX(-50%);
+    z-index: 3;
+    pointer-events: none;
+}
+
+.mvp-item-mvp[hidden] {
+    display: none;
+}
+
+.mvp-item-mvp img {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* ---------- 精灵 webm：260x630，居中对齐距顶部 50px，z-index 1 ---------- */
+.mvp-item-webm {
+    position: absolute;
+    left: 50%;
+    top: 50px;
+    width: 260px;
+    height: 630px;
+    transform: translateX(-50%);
+    object-fit: contain;
+    z-index: 1;
+}
+
+.mvp-item-webm[hidden] {
+    display: none;
+}
+
+/* ---------- 叠加层：back-mvp-1.png（1920x1080 传送门效果），压在精灵项之上、选手信息之下 ---------- */
+.mvp-portal {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 1080px;
+    background: url("/assets/ui/back-mvp-1.png") no-repeat center / 100% 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+
+/* ---------- 胜方选手信息条（最顶层）：550x150，水平居中距顶部 906px ---------- */
+.mvp-winner {
+    position: absolute;
+    left: 50%;
+    top: 906px;
+    width: 550px;
+    height: 150px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: url("/assets/ui/mvp-payer-winner-back.png") no-repeat center / 100% 100%;
+    z-index: 20;
+    /* 与精灵项一同逐个入场（信息条最后出现），时机见脚本 */
+    opacity: 0;
+}
+
+.mvp-winner.is-visible {
+    animation: mvp-item-in 560ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+    animation-delay: calc(var(--mvp-item-order, 0) * 120ms);
+}
+
+/* 头像与名字整体居中，头像 50x50 在左、与名字间隔 4px */
+.mvp-winner-avatar {
+    width: 50px;
+    height: 50px;
+    flex: none;
+    border-radius: 50%;
+    overflow: hidden;
+}
+
+.mvp-winner-avatar img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* 选手名字：YouSheBiaoTiHei 48 白色，与头像垂直居中对齐 */
+.mvp-winner-name {
+    font-size: 48px;
+    line-height: 1;
+    color: #ffffff;
+    white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mvp-winner {
+        opacity: 1;
+    }
+
+    .mvp-winner.is-visible {
+        animation: none;
+    }
+}
+
+/* ---------- 精灵头像 div：复用 petsdiv3（98x98），居中对齐距顶部 622px，z-index 2 ---------- */
+.mvp-item-avatar {
+    position: absolute;
+    left: 50%;
+    top: 622px;
+    transform: translateX(-50%);
+    z-index: 2;
+}
+
+/* 圆形底托改金色系（仅本页）：填充 E6B856→7A573B、描边 9A6C38→F9F086；
+   渐变描边 = 上层 padding-box 渐变填充 + 下层 border-box 渐变透出边框环 */
+.mvp-item .petsdiv3.is-active::before,
+.mvp-item .petsdiv3.is-empty::before {
+    border: calc(3px * var(--petsdiv3-scale)) solid transparent;
+    background-color: transparent;
+    background-image:
+        linear-gradient(360deg, #E6B856 0%, #7A573B 100%),
+        linear-gradient(180deg, #9A6C38 0%, #F9F086 100%);
+    background-origin: padding-box, border-box;
+    background-clip: padding-box, border-box;
+}

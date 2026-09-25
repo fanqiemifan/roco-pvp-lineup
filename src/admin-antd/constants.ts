@@ -4,6 +4,17 @@ import type { AttributeOption, PreviewConfig, PreviewSlotKey } from './types';
 
 export const DEFAULT_TAGS = ['淘汰赛', '海选赛', '128进64', '64进32', '32进16', '16进8', '8进4', '4进2', '季军赛', '决赛'];
 
+/** MVP 结算（推流页面4）标签预设：可在「结算画面」直接选择，也可手动输入（最多四个字） */
+export const MVP_TAG_PRESETS = [
+  '无人在意',
+  '顶级摔炮',
+  '顶级辅助',
+  '顶级联防',
+  '最自由的',
+  '美美隐身',
+  '顶级终端',
+];
+
 export const PREVIEW_PAGES: Record<PreviewSlotKey, PreviewConfig> = {
   stage: {
     title: '直播推流（全局推流页面）',
@@ -24,6 +35,11 @@ export const PREVIEW_PAGES: Record<PreviewSlotKey, PreviewConfig> = {
     title: '推流页面3',
     fileName: 'roco-pvp-page3.html',
     path: '/roco-pvp-page3.html',
+  },
+  page4: {
+    title: '推流页面4（MVP 结算画面）',
+    fileName: 'roco-pvp-page4.html',
+    path: '/roco-pvp-page4.html',
   },
   page5: {
     title: '推流页面5',
@@ -90,6 +106,12 @@ export const STAGE_OPTIONS: Array<{ value: StagePageKey; label: string; descript
     label: '推流页面3',
     description: '头像比分阵容展示（带头像 VS 比分栏）',
     previewPath: '/roco-pvp-page3.html',
+  },
+  {
+    value: 'page4',
+    label: '推流页面4',
+    description: 'MVP 结算画面（后台「结算画面」标记标签与 MVP 后切入展示）',
+    previewPath: '/roco-pvp-page4.html',
   },
   {
     value: 'page5',

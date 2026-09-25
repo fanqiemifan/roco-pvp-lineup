@@ -110,13 +110,22 @@
 | 保存倒计时配置 | POST | /api/countdown | 保存 duration/theme/visible，广播 countdown:update（state + serverNow） | electron/socket-server.ts |
 | 倒计时操作 | POST | /api/countdown/:action | action ∈ show / hide / start / pause / reset，广播 countdown:update | electron/socket-server.ts |
 
+## MVP 结算（page4）接口
+
+| 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
+|-------------|------|------|------|------|
+| 获取 MVP 结算状态 | GET | /api/mvp | 返回 `{ state: MvpState, winner: MvpWinnerInfo }`（公开 GET，推流页面4 首拉；winner 为最近一个已分胜负小局的胜者名字与头像） | electron/socket-server.ts |
+| 保存 MVP 结算配置 | POST | /api/mvp | 保存 slots（最多 6 个精灵项：petId/tag≤4 字/isMvp）与 returnPage，广播 mvp:update | electron/socket-server.ts |
+| 显示 MVP 结算 | POST | /api/mvp/show | 记录当前推流画面到 returnPage，并把 stage.page 切到 page4，广播 mvp:update + stage:update | electron/socket-server.ts |
+| 关闭 MVP 结算 | POST | /api/mvp/hide | 把 stage.page 切回 returnPage，广播 stage:update | electron/socket-server.ts |
+
 ## 统计接口
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
 | 精灵排行 | GET | /api/stats/ranking | 精灵使用率/上场率/胜率排行（支持 tag / player 参数，统计全部历史对局） | electron/socket-server.ts |
 
-> 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/page10`、`/api/page11`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`、`/api/countdown`；同名 POST/DELETE 写操作仍受保护。
+> 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/page10`、`/api/page11`、`/api/mvp`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`、`/api/countdown`；同名 POST/DELETE 写操作仍受保护。
 
 ## 信息录入（选手/战队档案）接口
 

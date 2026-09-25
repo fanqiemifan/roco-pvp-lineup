@@ -927,6 +927,61 @@ a {
   margin-block: 0;
 }
 
+/* ===== 结算画面（MVP 结算 / 推流页面4）：胜者阵容点选 ===== */
+.mvp-lineup-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.mvp-lineup-item {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  width: 86px;
+  padding: 8px 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(91, 67, 43, 0.14);
+  background: rgba(255, 253, 249, 0.98);
+  color: #2f2418;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 160ms ease-out, background 160ms ease-out;
+}
+
+.mvp-lineup-item:hover {
+  border-color: #c7632f;
+}
+
+.mvp-lineup-item.is-active {
+  border-color: #c7632f;
+  background: rgba(199, 99, 47, 0.12);
+}
+
+.mvp-lineup-item img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: rgba(215, 210, 202, 0.6);
+}
+
+.mvp-lineup-item span {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mvp-slot-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: rgba(215, 210, 202, 0.6);
+}
+
 .quick-fill-group {
   display: grid;
   gap: 8px;

@@ -15,6 +15,7 @@ export const SUPPORTED_BEST_OF = new Set([1, 3, 5, 7]);
  * - page1-overlay: 推流页面1（Overlay 比分栏布局）
  * - page2: 推流页面2（全局阵容展示）
  * - page3: 推流页面3（头像比分阵容）
+ * - page4: 推流页面4（MVP 结算画面）
  * - page5: 推流页面5（使用率/胜率排行）
  * - page6: 推流页面6（比赛结果）
  * - page7: 推流页面7（对局推送）
@@ -31,6 +32,7 @@ export const SUPPORTED_STAGE_PAGES = new Set([
   'page1-overlay',
   'page2',
   'page3',
+  'page4',
   'page5',
   'page6',
   'page7',
@@ -83,3 +85,13 @@ export const DEFAULT_COUNTDOWN_DURATION = 5;
 export const SUPPORTED_COUNTDOWN_THEMES = new Set(['dark', 'light']);
 /** 倒计时时长上限（分钟） */
 export const COUNTDOWN_DURATION_MAX = 60;
+
+/**
+ * MVP 结算（推流页面4）：
+ * 后台「结算画面」最多可标记的精灵项数量（页面从左到右依次排列）。
+ */
+export const MVP_MAX_ITEMS = 6;
+/** MVP 结算标签内容最大字数（最多四个字） */
+export const MVP_TAG_MAX_LENGTH = 4;
+/** 关闭 MVP 结算时切回的默认推流画面 */
+export const DEFAULT_MVP_RETURN_PAGE = 'page3';

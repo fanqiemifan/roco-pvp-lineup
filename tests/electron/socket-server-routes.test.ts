@@ -105,6 +105,58 @@ describe('POST /api/matches/:matchId/games/:gameNumber/lineup', () => {
   });
 });
 
+describe('MVP 结算（page4）路由', () => {
+  it('保存精灵项：200 + state，且广播一次 mvp:update', async () => {
+    const client: Socket = ioClient(base, { transports: ['websocket'] });
+    await new Promise<void>((resolve, reject) => {
+      client.once('connect', resolve);
+      client.once('connect_error', reject);
+    });
+
+    try {
+      const updates: Array<{ state?: { slots?: Array<{ petId: string; tag: string }> } }> = [];
+      client.on('mvp:update', (payload) => updates.push(payload));
+
+      const { status, data } = await post('/api/mvp', {
+        slots: [{ petId: '3004', tag: '顶级辅助', isMvp: true }],
+      });
+
+      expect(status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(data.state.slots).toEqual([{ petId: '3004', tag: '顶级辅助', isMvp: true }]);
+
+      await vi.waitFor(() => expect(updates).toHaveLength(1), { timeout: 2000 });
+      expect(updates[0].state?.slots?.[0]?.petId).toBe('3004');
+    } finally {
+      client.close();
+    }
+  });
+
+  it('显示后关闭：记录开启前画面，关闭时切回', async () => {
+    await post('/api/stage', { page: 'page3' });
+
+    const shown = await post('/api/mvp/show');
+    expect(shown.status).toBe(200);
+    expect(shown.data.stage.page).toBe('page4');
+    expect(shown.data.state.returnPage).toBe('page3');
+
+    const hidden = await post('/api/mvp/hide');
+    expect(hidden.status).toBe(200);
+    expect(hidden.data.stage.page).toBe('page3');
+  });
+
+  it('GET /api/mvp 返回当前状态与胜方选手（推流页面4 首拉）', async () => {
+    const response = await fetch(`${base}/api/mvp`);
+    expect(response.status).toBe(200);
+    const data = await response.json() as {
+      state: { slots: unknown[] };
+      winner: { side: string | null; playerName: string; avatarExists: boolean };
+    };
+    expect(Array.isArray(data.state.slots)).toBe(true);
+    expect(data.winner).toMatchObject({ side: null, playerName: '', avatarExists: false });
+  });
+});
+
 describe('LocalServer.close', () => {
   it('存在 keep-alive 连接时也能干净关闭，不再抛 ERR_SERVER_NOT_RUNNING', async () => {
     const root = mkdtempSync(join(tmpdir(), 'roco-close-'));

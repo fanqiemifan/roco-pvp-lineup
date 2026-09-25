@@ -146,6 +146,7 @@ export interface AvatarCollectionState {
  * - page1-overlay: 推流页面1（Overlay 比分栏布局）
  * - page2: 推流页面2（全局阵容展示）
  * - page3: 推流页面3（头像比分阵容）
+ * - page4: 推流页面4（MVP 结算画面）
  * - page5: 推流页面5（使用率/胜率排行）
  * - page6: 推流页面6（比赛结果）
  * - page7: 推流页面7（对局推送）
@@ -158,6 +159,7 @@ export type StagePageKey =
   | 'page1-overlay'
   | 'page2'
   | 'page3'
+  | 'page4'
   | 'page5'
   | 'page6'
   | 'page7'
@@ -344,6 +346,43 @@ export interface CountdownPayload {
   serverNow: number;
 }
 
+/**
+ * MVP 结算（推流页面4）单个精灵项：
+ * - petId：精灵主键（pet_id，空字符串 = 空槽，不落盘也不展示）
+ * - tag：标签内容（最多四个字，可选，空字符串 = 不显示标签）
+ * - isMvp：是否标记为 MVP（页面在该精灵项上叠加 MVP.png；全页最多一个）
+ */
+export interface MvpSlotEntry {
+  petId: string;
+  tag: string;
+  isMvp: boolean;
+}
+
+/**
+ * MVP 结算（推流页面4）状态：
+ * - slots：最多 MVP_MAX_ITEMS 个精灵项，顺序即页面从左到右的展示顺序
+ * - returnPage：开启结算前所在推流画面，关闭结算时切回
+ */
+export interface MvpState {
+  slots: MvpSlotEntry[];
+  returnPage: StagePageKey;
+  mtime: number | null;
+}
+
+/**
+ * MVP 结算（page4）胜方选手信息（页面顶部选手信息条）：
+ * 取当前对局「最近一个已分胜负的小局」的胜者，口径与推流页面10 一致。
+ * - side 为 null：当前对局还没有已分胜负的小局（页面显示「待定」与默认占位头像）
+ * - avatarExists 为 false：该选手未上传头像，页面回退默认占位图
+ */
+export interface MvpWinnerInfo {
+  side: 'left' | 'right' | null;
+  playerName: string;
+  avatarExists: boolean;
+  avatarPath: string;
+  avatarMtime: number | null;
+}
+
 export interface SnapshotPayload {
   panels: [PanelState, PanelState];
   scoreboard: ScoreboardState;
@@ -358,6 +397,7 @@ export interface SnapshotPayload {
   nextgame: NextGamePayload;
   profiles: ProfileStoreState;
   countdown: CountdownState;
+  mvp: MvpState;
 }
 
 /**

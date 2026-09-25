@@ -13,4 +13,5 @@ export const SOCKET_EVENTS = {
   nextgameUpdate: 'nextgame:update',
   profilesUpdate: 'profiles:update',
   countdownUpdate: 'countdown:update',
+  mvpUpdate: 'mvp:update',
 } as const;

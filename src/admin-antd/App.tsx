@@ -44,12 +44,15 @@ import type { ColumnsType } from 'antd/es/table';
 import { io } from 'socket.io-client';
 
 import { SOCKET_EVENTS } from '../../shared/events';
+import { MVP_MAX_ITEMS, MVP_TAG_MAX_LENGTH } from '../../shared/constants';
 import type {
   AvatarCollectionState,
   CountdownPayload,
   CountdownState,
   MatchRecord,
   MatchStoreState,
+  MvpSlotEntry,
+  MvpState,
   NextGamePayload,
   NextGameState,
   Page6State,
@@ -75,6 +78,7 @@ import type {
 import {
   DEFAULT_TAGS,
   EXCLUSIVE_FORM_FILTERS,
+  MVP_TAG_PRESETS,
   STAGE_OPTIONS,
   STAGE_TRANSITION_OPTIONS,
   normalizeStagePage,
@@ -112,6 +116,7 @@ import {
   getMatchStatusLabel,
   getNoticeTagColor,
   getPendingDraftContext,
+  getRecentWinnerLineup,
   summarizeSeriesForBestOf,
 } from './lib/match';
 import {
@@ -136,6 +141,7 @@ import { type StatsMetricKey } from './lib/stats';
 import rosterIcon from '../assets/ui/赛事面板.svg?raw';
 import stageIcon from '../assets/ui/直播推流.svg?raw';
 import liveIcon from '../assets/ui/实时控制.svg?raw';
+import mvpIcon from '../assets/ui/结算页面.svg?raw';
 import historyIcon from '../assets/ui/比赛历史.svg?raw';
 import profilesIcon from '../assets/ui/信息录入.svg?raw';
 import introIcon from '../assets/ui/选手介绍.svg?raw';
@@ -189,13 +195,14 @@ function setSelectMatchConfirmSuppressed(suppressed: boolean): void {
 }
 
 /** 导航栏各视图对应的 SVG 图标（Assets 里提供的自定义图标），使用当前上下文颜色自适应 */
-type NavIconName = 'roster' | 'stage' | 'live' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'about';
+type NavIconName = 'roster' | 'stage' | 'live' | 'mvp' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'about';
 
 /** 各导航视图对应的标题文案（与导航栏标签一致），顶部栏按当前视图显示 */
 const VIEW_LABEL: Record<NavIconName, string> = {
   roster: '赛事面板',
   stage: '直播推流',
   live: '实时控制',
+  mvp: '结算画面',
   history: '比赛历史',
   profiles: '信息录入',
   page11: '选手介绍',
@@ -208,6 +215,7 @@ const NAV_ICONS: Record<NavIconName, string> = {
   roster: rosterIcon,
   stage: stageIcon,
   live: liveIcon,
+  mvp: mvpIcon,
   history: historyIcon,
   profiles: profilesIcon,
   page11: introIcon,
@@ -248,6 +256,11 @@ const PAGE6_MAX_MATCHES = 8;
 const PAGE8_MAX_MATCHES = 4;
 /** 团队积分榜（page9）后台可录入的战队行数 */
 const PAGE9_TEAM_COUNT = 4;
+
+/** MVP 结算（推流页面4）空槽位：后台固定展示 MVP_MAX_ITEMS 行 */
+function createEmptyMvpSlots(): MvpSlotEntry[] {
+  return Array.from({ length: MVP_MAX_ITEMS }, () => ({ petId: '', tag: '', isMvp: false }));
+}
 
 function HistorySortHeader({ text, sortKey, activeOrder, onSort }: {
   text: string;
@@ -354,6 +367,10 @@ function Dashboard() {
   const countdownClockRef = useRef({ offset: 0 });
   // running 时每秒强制刷新以更新剩余时间显示
   const [, setCountdownTick] = useState(0);
+  // MVP 结算（推流页面4）：精灵项（最多 6 个，顺序即页面从左到右）、标签与 MVP 标记
+  const [mvp, setMvp] = useState<MvpState | null>(null);
+  const [mvpSaving, setMvpSaving] = useState(false);
+  const [mvpSlotsDraft, setMvpSlotsDraft] = useState<MvpSlotEntry[]>(createEmptyMvpSlots);
   const [page6, setPage6] = useState<Page6State | null>(null);
   const [page5TitleDraft, setPage5TitleDraft] = useState('');
   const [page6TitleDraft, setPage6TitleDraft] = useState('');
@@ -493,6 +510,13 @@ function Dashboard() {
     match.leftPlayer,
     match.rightPlayer,
   ]).filter(Boolean)));
+  // MVP 结算（推流页面4）：胜者阵容（口径同推流页面10）+ 标记完成度
+  const mvpWinnerLineup = useMemo(() => getRecentWinnerLineup(activeMatch), [activeMatch]);
+  // 结算画面只收最终形态精灵：可点选与「一键载入」同一口径（非最终形态不进结算页）
+  const mvpWinnerPetIds = mvpWinnerLineup.petIds.filter((petId) => spriteMap.get(petId)?.isFinalForm === true);
+  const mvpAssignedCount = mvpSlotsDraft.filter((slot) => slot.petId).length;
+  const mvpTagsComplete = mvpAssignedCount > 0 && mvpSlotsDraft.every((slot) => !slot.petId || slot.tag.trim().length > 0);
+  const mvpVisible = stage?.page === 'page4';
   const normalizedHistorySearch = historySearch.trim().toLowerCase();
   const filteredMatches = matchStore.matches.filter((match) => {
     if (historyTagFilter === UNCATEGORIZED_HISTORY_TAG) {
@@ -579,6 +603,7 @@ function Dashboard() {
     nextgame?: NextGamePayload;
     profiles?: ProfileStoreState;
     countdown?: CountdownPayload;
+    mvp?: MvpState;
   }) {
     startTransition(() => {
       if (payload.scoreboard) {
@@ -632,6 +657,9 @@ function Dashboard() {
       if (payload.profiles) {
         setProfiles(payload.profiles);
       }
+      if (payload.mvp) {
+        setMvp(payload.mvp);
+      }
     });
   }
 
@@ -640,7 +668,7 @@ function Dashboard() {
     setPageError('');
 
     try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown] = await Promise.all([
+      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp] = await Promise.all([
         requestJson<{ authenticated: boolean }>('/api/auth/check'),
         requestJson<ScoreboardState>('/api/scoreboard'),
         requestJson<MatchStoreState>('/api/matches'),
@@ -656,6 +684,7 @@ function Dashboard() {
         requestJson<NextGamePayload>('/api/nextgame'),
         requestJson<ProfileStoreState>('/api/profiles'),
         requestJson<CountdownPayload>('/api/countdown'),
+        requestJson<{ state: MvpState }>('/api/mvp'),
       ]);
 
       if (!auth.authenticated) {
@@ -680,6 +709,7 @@ function Dashboard() {
         setProfiles(nextProfiles);
         setNextgame(nextNextgame.state);
         setNextgameMatch(nextNextgame.match ?? null);
+        setMvp(nextMvp.state);
         // 与 applyServerState 一致：先维护草稿上下文再同步面板，避免 pending 时全局面板覆写编辑器
         pendingDraftRef.current = getPendingDraftContext(nextMatches);
         syncPanelFromApi('left', nextPanels.panels[0]);
@@ -843,6 +873,12 @@ function Dashboard() {
     socket.on(SOCKET_EVENTS.profilesUpdate, (payload) => {
       if (payload?.profiles) {
         applyServerState({ profiles: payload.profiles });
+      }
+    });
+
+    socket.on(SOCKET_EVENTS.mvpUpdate, (payload) => {
+      if (payload?.state) {
+        applyServerState({ mvp: payload.state });
       }
     });
 
@@ -2122,6 +2158,23 @@ function Dashboard() {
     });
   }, [page11?.left, page11?.right]);
 
+  // MVP 结算草稿：服务端状态变化时回填（内容一致时保持原引用，避免编辑中的标签被覆盖）
+  useEffect(() => {
+    setMvpSlotsDraft((prev) => {
+      const serverSlots = mvp?.slots ?? [];
+      const next = Array.from({ length: MVP_MAX_ITEMS }, (_, index) => {
+        const slot = serverSlots[index];
+        return { petId: slot?.petId ?? '', tag: slot?.tag ?? '', isMvp: slot?.isMvp === true };
+      });
+      const same = next.every((slot, index) => (
+        slot.petId === prev[index]?.petId
+        && slot.tag === prev[index]?.tag
+        && slot.isMvp === prev[index]?.isMvp
+      ));
+      return same ? prev : next;
+    });
+  }, [mvp?.slots]);
+
   // 保存选手介绍配置（左右两侧数据来源与手动填写内容）
   async function savePage11Settings(payload?: { left?: typeof page11LeftDraft; right?: typeof page11RightDraft }) {
     setPage11Saving(true);
@@ -2397,6 +2450,117 @@ function Dashboard() {
     } finally {
       setNextgameSaving(false);
     }
+  }
+
+  /** MVP 结算（推流页面4）：保存精灵项（顺序即页面从左到右，未赋值槽位由服务端忽略） */
+  async function saveMvpSlots(slots: MvpSlotEntry[]) {
+    setMvpSaving(true);
+    try {
+      const data = await requestJson<{ success: boolean; state: MvpState }>('/api/mvp', {
+        method: 'POST',
+        json: { slots },
+      });
+      applyServerState({ mvp: data.state });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMvpSaving(false);
+    }
+  }
+
+  /** MVP 结算：显示（记录当前推流画面后切到页面4） */
+  async function showMvpSettlement() {
+    setMvpSaving(true);
+    try {
+      const data = await requestJson<{ success: boolean; state: MvpState; stage: StageConfig }>('/api/mvp/show', {
+        method: 'POST',
+        json: {},
+      });
+      applyServerState({ mvp: data.state, stage: data.stage });
+      message.success('推流画面已切换到：推流页面4（MVP 结算）');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMvpSaving(false);
+    }
+  }
+
+  /** MVP 结算：关闭（切回开启前所在推流画面） */
+  async function hideMvpSettlement() {
+    setMvpSaving(true);
+    try {
+      const data = await requestJson<{ success: boolean; state: MvpState; stage: StageConfig }>('/api/mvp/hide', {
+        method: 'POST',
+        json: {},
+      });
+      applyServerState({ mvp: data.state, stage: data.stage });
+      const label = STAGE_OPTIONS.find((option) => option.value === data.stage.page)?.label ?? data.stage.page;
+      message.success(`推流画面已切回：${label}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMvpSaving(false);
+    }
+  }
+
+  /** MVP 结算草稿：本地即时回显后保存（标签手动输入在失焦/回车时保存） */
+  function applyMvpDraft(next: MvpSlotEntry[]) {
+    setMvpSlotsDraft(next);
+    void saveMvpSlots(next);
+  }
+
+  function updateMvpSlotDraft(index: number, patch: Partial<MvpSlotEntry>) {
+    setMvpSlotsDraft((prev) => prev.map((slot, i) => (i === index ? { ...slot, ...patch } : slot)));
+  }
+
+  /** 点选胜者阵容精灵：已填入则移除，否则填入第一个空槽位 */
+  function toggleMvpWinnerSprite(petId: string) {
+    const existingIndex = mvpSlotsDraft.findIndex((slot) => slot.petId === petId);
+    if (existingIndex >= 0) {
+      applyMvpDraft(mvpSlotsDraft.map((slot, index) => (
+        index === existingIndex ? { petId: '', tag: '', isMvp: false } : slot
+      )));
+      return;
+    }
+    const emptyIndex = mvpSlotsDraft.findIndex((slot) => !slot.petId);
+    if (emptyIndex < 0) {
+      message.warning(`最多只能标记 ${MVP_MAX_ITEMS} 个精灵`);
+      return;
+    }
+    applyMvpDraft(mvpSlotsDraft.map((slot, index) => (index === emptyIndex ? { ...slot, petId } : slot)));
+  }
+
+  /** 一键按胜者阵容顺序填入（最多 MVP_MAX_ITEMS 个，仅最终形态精灵；保留已填写精灵的标签与 MVP 标记） */
+  function fillMvpWinnerLineup() {
+    const petIds = mvpWinnerPetIds.slice(0, MVP_MAX_ITEMS);
+    if (!petIds.length) {
+      message.warning('胜者阵容中没有可用的最终形态精灵');
+      return;
+    }
+    applyMvpDraft(petIds.map((petId) => {
+      const existed = mvpSlotsDraft.find((slot) => slot.petId === petId);
+      return { petId, tag: existed?.tag ?? '', isMvp: existed?.isMvp === true };
+    }));
+  }
+
+  /** MVP 标记：全页最多一个，标记新精灵时取消原标记 */
+  function toggleMvpSlotMvp(index: number) {
+    const target = mvpSlotsDraft[index];
+    if (!target || !target.petId) {
+      return;
+    }
+    applyMvpDraft(mvpSlotsDraft.map((slot, i) => ({ ...slot, isMvp: i === index ? !target.isMvp : false })));
+  }
+
+  function clearMvpSlot(index: number) {
+    applyMvpDraft(mvpSlotsDraft.map((slot, i) => (
+      i === index ? { petId: '', tag: '', isMvp: false } : slot
+    )));
+  }
+
+  /** 标签手动输入失焦/回车：保存当前草稿（选择预设标签时即时保存） */
+  function saveMvpTagDraft() {
+    void saveMvpSlots(mvpSlotsDraft);
   }
 
   /** 倒计时插件：保存配置（时长 / 配色），不改变显示与进行状态 */
@@ -2959,6 +3123,7 @@ function Dashboard() {
       { key: 'roster', icon: <NavIcon name="roster" />, label: VIEW_LABEL.roster },
       { key: 'stage', icon: <NavIcon name="stage" />, label: VIEW_LABEL.stage },
       { key: 'live', icon: <NavIcon name="live" />, label: VIEW_LABEL.live },
+      { key: 'mvp', icon: <NavIcon name="mvp" />, label: VIEW_LABEL.mvp },
       { key: 'history', icon: <NavIcon name="history" />, label: VIEW_LABEL.history },
       { key: 'profiles', icon: <NavIcon name="profiles" />, label: VIEW_LABEL.profiles },
       { key: 'page11', icon: <NavIcon name="page11" />, label: VIEW_LABEL.page11 },
@@ -4220,6 +4385,161 @@ function Dashboard() {
                       </Card>
                     </Col>
                   </Row>
+                </Space>
+              </Card>
+            </Space>
+          ) : null}
+
+          {view === 'mvp' ? (
+            <Space direction="vertical" size={18} className="page-stack">
+              <Card
+                className="stage-control-card"
+                title="MVP 结算画面（推流页面4）"
+                extra={(
+                  <Space wrap>
+                    <Button href="/roco-pvp-page4.html" target="_blank">打开结算画面</Button>
+                  </Space>
+                )}
+              >
+                <Space direction="vertical" size={16} className="page-stack">
+                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                    取当前对局「最近一个已分胜负小局」的胜者阵容，点选精灵填入结算画面（最多 {MVP_MAX_ITEMS} 个），为每个精灵项填写标签（最多四个字，可选）并标记 MVP；
+                    标记完整后点击「显示 MVP 结算」把推流画面切到本页，关闭时切回开启前的画面。
+                  </Paragraph>
+                  <Row gutter={[16, 16]} className="stage-config-cards">
+                    <Col xs={24} xl={10}>
+                      <Card size="small" className="subtle-card" title="显示控制">
+                        <Space direction="vertical" size={12} className="control-stack">
+                          <Space wrap>
+                            <Button type="primary" loading={mvpSaving} disabled={!mvpTagsComplete} onClick={() => void showMvpSettlement()}>
+                              显示 MVP 结算
+                            </Button>
+                            <Button danger loading={mvpSaving} disabled={!mvpVisible} onClick={() => void hideMvpSettlement()}>
+                              关闭
+                            </Button>
+                            {mvpVisible ? <Tag color="green">正在显示</Tag> : <Tag>未显示</Tag>}
+                          </Space>
+                          <Space size={8} wrap>
+                            <Tag color={mvpAssignedCount ? 'gold' : 'default'}>
+                              已标记精灵 {mvpAssignedCount}/{MVP_MAX_ITEMS}
+                            </Tag>
+                            {mvpTagsComplete ? <Tag color="green">标签已完整</Tag> : <Tag color="orange">标签未完整</Tag>}
+                            {mvpSlotsDraft.some((slot) => slot.petId && slot.isMvp)
+                              ? <Tag color="red">已标记 MVP</Tag>
+                              : <Tag>未标记 MVP</Tag>}
+                          </Space>
+                          <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
+                            尚未标记精灵或标签未填写完整时不能显示结算画面。
+                          </Paragraph>
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col xs={24} xl={14}>
+                      <Card
+                        size="small"
+                        className="subtle-card"
+                        title={mvpWinnerLineup.side
+                          ? `胜者阵容（${mvpWinnerLineup.playerName || '胜者'} · 第 ${mvpWinnerLineup.gameNumber} 局）`
+                          : '胜者阵容'}
+                        extra={(
+                          <Button size="small" disabled={!mvpWinnerPetIds.length || mvpSaving} onClick={fillMvpWinnerLineup}>
+                            一键载入
+                          </Button>
+                        )}
+                      >
+                        {mvpWinnerPetIds.length ? (
+                          <>
+                            <div className="mvp-lineup-grid">
+                              {mvpWinnerPetIds.map((petId) => {
+                                const sprite = spriteMap.get(petId);
+                                const active = mvpSlotsDraft.some((slot) => slot.petId === petId);
+                                return (
+                                  <button
+                                    key={petId}
+                                    type="button"
+                                    className={`mvp-lineup-item${active ? ' is-active' : ''}`}
+                                    onClick={() => toggleMvpWinnerSprite(petId)}
+                                  >
+                                    <img src={sprite?.iconUrl || sprite?.path || '/assets/ui/back.png'} alt={sprite?.displayName || petId} />
+                                    <span>{sprite?.displayName || petId}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <Paragraph type="secondary" style={{ margin: '10px 0 0', fontSize: 12 }}>
+                              仅最终形态精灵可进结算画面（已过滤 {mvpWinnerLineup.petIds.length - mvpWinnerPetIds.length} 个非最终形态）；
+                              点击精灵加入（再次点击移除），最多 {MVP_MAX_ITEMS} 个，顺序即页面上从左到右的展示顺序。
+                            </Paragraph>
+                          </>
+                        ) : (
+                          <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description="当前对局还没有已分胜负的小局（或胜者阵容中没有最终形态精灵）"
+                          />
+                        )}
+                      </Card>
+                    </Col>
+                  </Row>
+                  <Card size="small" className="subtle-card" title="精灵项标签与 MVP 标记">
+                    <Space direction="vertical" size={10} className="page-stack" style={{ width: '100%' }}>
+                      {mvpSlotsDraft.map((slot, index) => {
+                        const sprite = slot.petId ? spriteMap.get(slot.petId) : null;
+                        return (
+                          <Row key={index} gutter={[12, 8]} align="middle">
+                            <Col flex="32px">
+                              <Text strong>{index + 1}</Text>
+                            </Col>
+                            <Col flex="220px">
+                              {sprite ? (
+                                <Space size={8} align="center">
+                                  <img
+                                    className="mvp-slot-avatar"
+                                    src={sprite.iconUrl || sprite.path || '/assets/ui/back.png'}
+                                    alt={sprite.displayName}
+                                  />
+                                  <Text ellipsis style={{ maxWidth: 150 }}>{sprite.displayName}</Text>
+                                </Space>
+                              ) : (
+                                <Text type="secondary">未选择精灵</Text>
+                              )}
+                            </Col>
+                            <Col flex="280px">
+                              <AutoComplete
+                                value={slot.tag}
+                                disabled={!slot.petId}
+                                style={{ width: '100%' }}
+                                options={MVP_TAG_PRESETS.map((tag) => ({ value: tag }))}
+                                filterOption={(input, option) => String(option?.value ?? '').includes(input.trim())}
+                                onChange={(value) => updateMvpSlotDraft(index, { tag: String(value ?? '').slice(0, MVP_TAG_MAX_LENGTH) })}
+                              >
+                                <Input
+                                  maxLength={MVP_TAG_MAX_LENGTH}
+                                  placeholder="标签，最多四个字（可留空）"
+                                  onBlur={saveMvpTagDraft}
+                                  onPressEnter={saveMvpTagDraft}
+                                />
+                              </AutoComplete>
+                            </Col>
+                            <Col flex="auto">
+                              <Space wrap size={8}>
+                                <Button
+                                  size="small"
+                                  type={slot.isMvp ? 'primary' : 'default'}
+                                  disabled={!slot.petId}
+                                  onClick={() => toggleMvpSlotMvp(index)}
+                                >
+                                  {slot.isMvp ? 'MVP 已标记' : '标记 MVP'}
+                                </Button>
+                                <Button size="small" type="text" danger disabled={!slot.petId} onClick={() => clearMvpSlot(index)}>
+                                  清空
+                                </Button>
+                              </Space>
+                            </Col>
+                          </Row>
+                        );
+                      })}
+                    </Space>
+                  </Card>
                 </Space>
               </Card>
             </Space>

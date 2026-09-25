@@ -56,6 +56,12 @@ import {
   savePage11State,
 } from './services/page11-service.js';
 import {
+  getMvpState,
+  getMvpWinnerInfo,
+  saveMvpReturnPage,
+  saveMvpState,
+} from './services/mvp-service.js';
+import {
   getNextGamePayload,
   hideNextGame,
   saveNextGameState,
@@ -128,6 +134,7 @@ function snapshotPayload(paths: AppPaths): SnapshotPayload {
     nextgame: getNextGamePayload(paths),
     profiles: getProfileStore(paths),
     countdown: getCountdownState(paths),
+    mvp: getMvpState(paths),
   };
 }
 
@@ -354,6 +361,7 @@ export async function createLocalServer(
   app.get('/login.html', (_request, response) => sendLoginPage(paths, response));
   app.get('/roco-pvp-page2.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page2.html'));
   app.get('/roco-pvp-page3.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page3.html'));
+  app.get('/roco-pvp-page4.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page4.html'));
   app.get('/roco-pvp-page5.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page5.html'));
   app.get('/roco-pvp-page6.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page6.html'));
   app.get('/roco-pvp-page7.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page7.html'));
@@ -417,9 +425,9 @@ export async function createLocalServer(
       const isPublicStatic = publicStaticPrefixes.some(p =>
         req.path === p || req.path.startsWith(p + '/')
       );
-      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
+      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
       // 推流页面仅用于展示，所需的数据 GET 接口公开（含选手头像/录入信息），写操作仍受保护
-      const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
+      const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/mvp', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
       // 头像图片公开访问（含按赛事隔离的 /api/avatar/{matchId}/{side}-avatar.png），推流页无需登录
       const isPublicAvatarImage = req.method === 'GET' && req.path.startsWith('/api/avatar/');
       const isAuthApi = req.path.startsWith('/api/auth/');
@@ -770,6 +778,51 @@ export async function createLocalServer(
       const profiles = getProfileStore(paths);
       io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
       response.json({ success: true, profiles });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // === MVP 结算（page4） ===
+  // GET 公开：推流页面4 首拉（含胜方选手名字与头像）；POST / 显示 / 关闭 需登录（后台「结算画面」控制）
+  app.get('/api/mvp', (_request, response) => {
+    response.json({ state: getMvpState(paths), winner: getMvpWinnerInfo(paths) });
+  });
+
+  app.post('/api/mvp', (request, response) => {
+    try {
+      const state = saveMvpState(paths, request.body ?? {});
+      io.emit(SOCKET_EVENTS.mvpUpdate, { state });
+      response.json({ success: true, state });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 显示 MVP 结算：记录当前画面用于关闭时切回，并把推流画面切到页面4
+  app.post('/api/mvp/show', (_request, response) => {
+    try {
+      const stageBefore = getStageState(paths);
+      const mvp = stageBefore.page === 'page4'
+        ? getMvpState(paths)
+        : saveMvpReturnPage(paths, stageBefore.page);
+      const stage = saveStageState(paths, { ...stageBefore, page: 'page4' });
+      io.emit(SOCKET_EVENTS.mvpUpdate, { state: mvp });
+      io.emit(SOCKET_EVENTS.stageUpdate, { stage });
+      response.json({ success: true, state: mvp, stage });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 关闭 MVP 结算：切回开启前所在画面
+  app.post('/api/mvp/hide', (_request, response) => {
+    try {
+      const current = getStageState(paths);
+      const mvp = getMvpState(paths);
+      const stage = saveStageState(paths, { ...current, page: mvp.returnPage });
+      io.emit(SOCKET_EVENTS.stageUpdate, { stage });
+      response.json({ success: true, state: mvp, stage });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
