@@ -47,16 +47,17 @@
     var DEFAULT_TRANSITION = 'blinds';
     var TRANSITION_MS = 420;
 
-    // 「狼头揭幕」过渡（参考 docs/页面切换效果/intro.html）：
+    // 「狼头揭幕」过渡：
     // 黑幕盖屏 → 白狼淡入 → 停留 → 瞬间镂空 + 白狼淡出（黑幕掩护下换画）
-    // → 镂空窗口放大穿越（由快到慢，新画面轻微视差）→ 窗口回落，露出完整新画面
+    // → 镂空窗口放大穿越（由快到慢，窗洞铺满屏幕）→ 黑幕淡出
+    // 注意：全程不缩放 iframe——新画面一出现就是原尺寸，
+    //       避免「先放大再由视差回落」造成切换后画面比例跳变
     var WOLF_TIMING = { fadeInDelay: 120, fadeIn: 260, hold: 140, fadeOut: 440, pause: 80, zoom: 640, settle: 320 };
     var WOLF_BOX = 1920;    // 狼形 path 坐标系尺寸
     var WOLF_RATIO = 0.6;   // 狼形洞占屏幕短边比例，与 CSS 中白狼 Logo 的 60vmin 对齐
     // 放大倍数需足够大，让狼形 path 的细节线条完全移出画面：
     // 实测 16:9 下 34 倍仍残留针尖大小的角、40 倍干净，取 44 倍兼顾超宽/5:4 画幅余量
     var WOLF_ZOOM_MAX = 44;
-    var WOLF_PARALLAX = 1.12; // 穿越时新画面的视差缩放
     var WOLF_PATH = (typeof window.STAGE_WOLF_PATH === 'string' && window.STAGE_WOLF_PATH)
         ? window.STAGE_WOLF_PATH : '';
 
@@ -182,7 +183,7 @@
             ' translate(' + (-WOLF_BOX / 2) + ' ' + (-WOLF_BOX / 2) + ')');
     }
 
-    // rAF 数值补间（窗洞放大、画面视差共用）
+    // rAF 数值补间（狼形窗洞放大用）
     function tweenNumber(from, to, dur, ease, onUpdate) {
         var t0 = performance.now();
         (function frame(now) {
@@ -231,33 +232,23 @@
             }
         }, tHole);
 
-        // ④ 窗口放大穿越（由快到慢），新画面轻微视差
+        // ④ 窗口放大穿越（由快到慢），狼形窗洞铺满屏幕
         var tZoom = tHole + t.fadeOut + t.pause;
         window.setTimeout(function () {
             if (!live()) {
                 return;
             }
             tweenNumber(1, WOLF_ZOOM_MAX, t.zoom, easeOutQuart, setWolfHole);
-            tweenNumber(1, WOLF_PARALLAX, t.zoom, easeOutQuart, function (s) {
-                if (live()) {
-                    frame.style.transform = 'scale(' + s + ')';
-                }
-            });
         }, tZoom);
 
         // 峰值：窗洞盖满屏幕
         var peakDelay = tZoom + t.zoom;
 
-        // ⑤ 画面缓缓回落（1.12 → 1），与黑幕淡出同步完成，避免清理时跳变
+        // ⑤ 峰值后淡出黑幕（正常画幅下窗洞已铺满屏幕，肉眼不可见；用于兜底清掉残黑）
         window.setTimeout(function () {
             if (!live()) {
                 return;
             }
-            tweenNumber(WOLF_PARALLAX, 1, t.settle, easeOutQuart, function (s) {
-                if (live()) {
-                    frame.style.transform = 'scale(' + s + ')';
-                }
-            });
             if (curtainSvg) {
                 curtainSvg.animate([{ opacity: 1 }, { opacity: 0 }],
                     { duration: t.settle, fill: 'forwards', easing: 'ease-in' });
@@ -269,7 +260,6 @@
                 return;
             }
             transitionLayer.classList.remove('is-running');
-            frame.style.transform = '';
             transitionTimer = null;
         }, peakDelay + t.settle + 60);
     }
