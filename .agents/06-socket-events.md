@@ -2,9 +2,8 @@
 
 | 自然语言描述 | 事件名称 | 方向 | 说明 | 负载结构 |
 |-------------|---------|------|------|---------|
-| 完整状态快照 | snapshot | Server → Client | 完整状态快照 | { panels, page4, scoreboard, avatars, store: MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown }（注意比赛字段名是 `store` 不是 `matches`） |
+| 完整状态快照 | snapshot | Server → Client | 完整状态快照 | { panels, scoreboard, avatars, store: MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown }（注意比赛字段名是 `store` 不是 `matches`） |
 | 面板更新通知 | panel:update | Server → Client | 面板更新 | { panel: PanelState } |
-| 仅显阵容更新通知 | page4:update | Server → Client | page4 面板更新 | { panel: Page4PanelState } |
 | 记分牌更新通知 | scoreboard:update | Server → Client | 记分牌更新 | { scoreboard: ScoreboardState } |
 | 头像更新通知 | avatar:update | Server → Client | 头像更新 | { side, avatar, avatars } |
 | 比赛记录更新通知 | matches:update | Server → Client | 比赛记录更新。注意：事件名叫 matches:update，但负载键是 `store` | { store: MatchStoreState } |

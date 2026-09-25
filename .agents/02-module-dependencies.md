@@ -8,7 +8,6 @@ main.ts
 │   ├── sprite-service.ts     → shared/types, shared/constants, path-service
 │   ├── image-service.ts      → shared/types, path-service
 │   ├── config-service.ts     → shared/constants, path-service
-│   ├── page4-service.ts      → shared/types, path-service
 │   ├── stage-service.ts      → shared/types, shared/constants, path-service
 │   ├── page6-service.ts      → shared/types, match-service, path-service
 │   ├── page7-service.ts      → shared/types, match-service, image-service, path-service
@@ -37,8 +36,8 @@ admin-antd/App.tsx
 ├── shared/constants.ts
 ├── admin-antd/constants.ts / types.ts
 ├── admin-antd/lib/*（request、sprite、match、panel、live、history、stats、format、preview）
-├── admin-antd/views/*（RosterPanelEditor、Page4PanelEditor、Page4DeathPanel、StatsView）
-└── admin-antd/components/*（Page4SlotVisual、SpritePetCard、StageThumb）
+├── admin-antd/views/*（RosterPanelEditor、HistoryLineupEntryModal、StatsView）
+└── admin-antd/components/*（SpritePetCard、StageThumb）
 
 login-antd/App.tsx
 └── shared/types.ts

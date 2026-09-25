@@ -21,14 +21,6 @@
 |---------|------|------|
 | ScoreboardState | 记分牌状态（leftName, leftScore, leftRank, rightName, rightScore, rightRank, bestOf, scoreboardEnabled, eventTitle, eventTitleEnabled, page2LineupDisplayMode, page5Title, page6Title, nameFontSize, scoreFontSize, mtime）。leftRank/rightRank 为选手排位排名（仅数字字符串，空 = 未输入，由赛事同步）；page5Title/page6Title 为推流页5/6 的标题（后台「直播推流」显示设置） | shared/types.ts |
 
-## 仅显阵容（page4）
-
-| 类型名称 | 说明 | 文件 |
-|---------|------|------|
-| Page4SlotState | page4 单个格子（slotIndex, sprite, opacityEnabled, opacity, saturation, healthEnabled, healthPercent, energyValue） | shared/types.ts |
-| Page4PanelState | page4 面板（position, count, selected, mtime） | shared/types.ts |
-| Page4State | page4 整体状态（left, right） | shared/types.ts |
-
 ## 直播推流（stage）
 
 | 类型名称 | 说明 | 文件 |
@@ -81,7 +73,7 @@
 
 | 类型名称 | 说明 | 文件 |
 |---------|------|------|
-| SnapshotPayload | Socket 快照负载（panels, page4, scoreboard, avatars, store 即 MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown）。注意字段名是 `store` 不是 `matches` | shared/types.ts |
+| SnapshotPayload | Socket 快照负载（panels, scoreboard, avatars, store 即 MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown）。注意字段名是 `store` 不是 `matches` | shared/types.ts |
 | SOCKET_EVENTS | Socket 事件名称常量对象 | shared/events.ts |
 
 ## 数据统计（管理后台本地）

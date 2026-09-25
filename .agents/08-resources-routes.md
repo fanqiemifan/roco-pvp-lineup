@@ -25,7 +25,6 @@
 | /roco-pvp-page1.html | roco-pvp-page1.html | 推流页面1（Overlay 比分栏） |
 | /roco-pvp-page2.html | roco-pvp-page2.html | 推流页面2（全局阵容展示） |
 | /roco-pvp-page3.html | roco-pvp-page3.html | 推流页面3（头像比分阵容） |
-| /page4.html、/roco-pvp-page4.html | roco-pvp-page4.html | 仅显阵容页 |
 | /roco-pvp-page5.html | roco-pvp-page5.html | 登场/胜率排行页 |
 | /roco-pvp-page6.html | roco-pvp-page6.html | 比赛结果展示页 |
 | /roco-pvp-page7.html | roco-pvp-page7.html | 对局推送展示页（直播推流可选画面） |

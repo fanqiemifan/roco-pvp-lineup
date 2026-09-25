@@ -15,7 +15,6 @@ export interface AppPaths {
   runtimeDir: string;
   cacheDir: string;
   scoreboardFile: string;
-  page4File: string;
   matchesFile: string;
   stageFile: string;
   page6File: string;
@@ -58,7 +57,6 @@ export function createAppPaths(projectRoot: string, userDataDir: string): AppPat
     runtimeDir,
     cacheDir,
     scoreboardFile: path.join(cacheDir, 'scoreboard.json'),
-    page4File: path.join(cacheDir, 'page4.json'),
     matchesFile: path.join(cacheDir, 'matches.json'),
     stageFile: path.join(cacheDir, 'stage.json'),
     page6File: path.join(cacheDir, 'page6.json'),

@@ -1,9 +1,9 @@
-import type { ProfileStoreState, QuickFillMatch, Page4SlotState, SlotState } from '../../shared/types';
+import type { ProfileStoreState, QuickFillMatch, SlotState } from '../../shared/types';
 
 export type PanelSide = 'left' | 'right';
-export type ViewKey = 'roster' | 'live' | 'page4' | 'history' | 'stats' | 'preview' | 'stage' | 'profiles' | 'page11' | 'about';
+export type ViewKey = 'roster' | 'live' | 'history' | 'stats' | 'preview' | 'stage' | 'profiles' | 'page11' | 'about';
 
-export type PreviewSlotKey = 'stage' | 'page1' | 'page2' | 'page3' | 'page4' | 'page5' | 'page6' | 'page7' | 'page8' | 'page9' | 'page10' | 'page11' | 'page12' | 'page13';
+export type PreviewSlotKey = 'stage' | 'page1' | 'page2' | 'page3' | 'page5' | 'page6' | 'page7' | 'page8' | 'page9' | 'page10' | 'page11' | 'page12' | 'page13';
 
 export type JsonInit = RequestInit & {
   json?: unknown;
@@ -51,17 +51,6 @@ export type CreateMatchValues = MatchFormValues;
 export type PanelEditorState = {
   selected: SlotState[];
   activeSlot: number;
-  quickFillInput: string;
-  quickFillMatches: QuickFillMatch[];
-  autoSaveEnabled: boolean;
-  dirty: boolean;
-  saving: boolean;
-};
-
-export type Page4PanelEditorState = {
-  selected: Page4SlotState[];
-  activeSlot: number;
-  search: string;
   quickFillInput: string;
   quickFillMatches: QuickFillMatch[];
   autoSaveEnabled: boolean;

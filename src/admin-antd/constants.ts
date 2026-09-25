@@ -25,11 +25,6 @@ export const PREVIEW_PAGES: Record<PreviewSlotKey, PreviewConfig> = {
     fileName: 'roco-pvp-page3.html',
     path: '/roco-pvp-page3.html',
   },
-  page4: {
-    title: '仅显阵容',
-    fileName: 'roco-pvp-page4.html',
-    path: '/roco-pvp-page4.html',
-  },
   page5: {
     title: '推流页面5',
     fileName: 'roco-pvp-page5.html',

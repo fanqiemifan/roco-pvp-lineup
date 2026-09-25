@@ -71,12 +71,6 @@ import {
   startCountdown,
 } from './services/countdown-service.js';
 import {
-  clearPage4State,
-  getPage4State,
-  savePage4SlotState,
-  savePage4State,
-} from './services/page4-service.js';
-import {
   createMatch,
   deleteMatch,
   deleteMatches,
@@ -122,7 +116,6 @@ function snapshotPayload(paths: AppPaths): SnapshotPayload {
   const activeMatchId = getMatchStore(paths).activeMatchId;
   return {
     panels: [getPanelState(paths, 'left'), getPanelState(paths, 'right')],
-    page4: getPage4State(paths),
     scoreboard: getScoreboardState(paths),
     avatars: getAvatarStates(paths, activeMatchId),
     store: getMatchStore(paths),
@@ -361,8 +354,6 @@ export async function createLocalServer(
   app.get('/login.html', (_request, response) => sendLoginPage(paths, response));
   app.get('/roco-pvp-page2.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page2.html'));
   app.get('/roco-pvp-page3.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page3.html'));
-  app.get('/page4.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page4.html'));
-  app.get('/roco-pvp-page4.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page4.html'));
   app.get('/roco-pvp-page5.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page5.html'));
   app.get('/roco-pvp-page6.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page6.html'));
   app.get('/roco-pvp-page7.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page7.html'));
@@ -426,9 +417,9 @@ export async function createLocalServer(
       const isPublicStatic = publicStaticPrefixes.some(p =>
         req.path === p || req.path.startsWith(p + '/')
       );
-      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/page4.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
-      // 推流页面仅用于展示，所需的数据 GET 接口公开（含选手头像/录入信息/仅显阵容），写操作仍受保护
-      const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page4', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
+      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
+      // 推流页面仅用于展示，所需的数据 GET 接口公开（含选手头像/录入信息），写操作仍受保护
+      const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
       // 头像图片公开访问（含按赛事隔离的 /api/avatar/{matchId}/{side}-avatar.png），推流页无需登录
       const isPublicAvatarImage = req.method === 'GET' && req.path.startsWith('/api/avatar/');
       const isAuthApi = req.path.startsWith('/api/auth/');
@@ -460,10 +451,6 @@ export async function createLocalServer(
 
   app.get('/api/scoreboard', (_request, response) => {
     response.json(getScoreboardState(paths));
-  });
-
-  app.get('/api/page4', (_request, response) => {
-    response.json(getPage4State(paths));
   });
 
   app.get('/api/stage', (_request, response) => {
@@ -1142,64 +1129,6 @@ export async function createLocalServer(
       const scoreboard = saveScoreboardBestOf(paths, request.body ?? {});
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       response.json({ success: true, scoreboard });
-    } catch (error) {
-      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  app.post('/api/page4/:position', (request, response) => {
-    const position = request.params.position;
-    if (position !== 'left' && position !== 'right') {
-      response.status(404).json({ success: false, error: 'Invalid position' });
-      return;
-    }
-
-    try {
-      savePage4State(paths, position, request.body?.selected ?? []);
-      const page4 = getPage4State(paths);
-      io.emit(SOCKET_EVENTS.page4Update, { page4 });
-      response.json({ success: true, page4 });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      response.status(message.startsWith('Sprite not found') ? 404 : 400).json({ success: false, error: message });
-    }
-  });
-
-  app.patch('/api/page4/:position/slots/:slot', (request, response) => {
-    const position = request.params.position;
-    const slotIndex = Number.parseInt(request.params.slot, 10);
-    if (position !== 'left' && position !== 'right') {
-      response.status(404).json({ success: false, error: 'Invalid position' });
-      return;
-    }
-    if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= 6) {
-      response.status(400).json({ success: false, error: 'Invalid slot index' });
-      return;
-    }
-
-    try {
-      savePage4SlotState(paths, position, slotIndex, request.body?.slot ?? null);
-      const page4 = getPage4State(paths);
-      io.emit(SOCKET_EVENTS.page4Update, { page4 });
-      response.json({ success: true, page4 });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      response.status(message.startsWith('Sprite not found') ? 404 : 400).json({ success: false, error: message });
-    }
-  });
-
-  app.delete('/api/page4/:position', (request, response) => {
-    const position = request.params.position;
-    if (position !== 'left' && position !== 'right') {
-      response.status(404).json({ success: false, error: 'Invalid position' });
-      return;
-    }
-
-    try {
-      clearPage4State(paths, position);
-      const page4 = getPage4State(paths);
-      io.emit(SOCKET_EVENTS.page4Update, { page4 });
-      response.json({ success: true, page4 });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

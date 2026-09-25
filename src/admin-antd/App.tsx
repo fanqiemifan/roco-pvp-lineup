@@ -52,9 +52,6 @@ import type {
   MatchStoreState,
   NextGamePayload,
   NextGameState,
-  Page4PanelState,
-  Page4SlotState,
-  Page4State,
   Page6State,
   Page7State,
   Page8Background,
@@ -118,25 +115,18 @@ import {
   summarizeSeriesForBestOf,
 } from './lib/match';
 import {
-  buildPage4Request,
   buildPanelRequest,
-  clonePage4Selected,
   cloneSelected,
   createDefaultSpriteFilterState,
   createEmptySlot,
-  createPage4EmptySlot,
-  createPage4PanelEditorState,
   createPanelEditorState,
   createSpriteFilterState,
   draftSlotsToSelected,
-  page4PanelStateToSelected,
   panelStateToSelected,
 } from './lib/panel';
 import { buildPreviewUrl, getLocalAddressText, getPreviewPage } from './lib/preview';
 import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from './lib/request';
 import { buildSpriteLookup } from './lib/sprite';
-import { Page4DeathPanel } from './views/Page4DeathPanel';
-import { Page4PanelEditor } from './views/Page4PanelEditor';
 import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
@@ -151,7 +141,6 @@ import profilesIcon from '../assets/ui/信息录入.svg?raw';
 import introIcon from '../assets/ui/选手介绍.svg?raw';
 import statsIcon from '../assets/ui/数据统计.svg?raw';
 import previewIcon from '../assets/ui/页面预览.svg?raw';
-import panelsIcon from '../assets/ui/仅显阵容.svg?raw';
 import aboutIcon from '../assets/ui/关于项目.svg?raw';
 import brandLogoRaw from '../assets/ui/logo.svg?raw';
 import type {
@@ -159,7 +148,6 @@ import type {
   LiveField,
   MatchFormValues,
   NoticeState,
-  Page4PanelEditorState,
   PanelEditorState,
   PanelSide,
   PlayerAvatarBatchResponse,
@@ -201,7 +189,7 @@ function setSelectMatchConfirmSuppressed(suppressed: boolean): void {
 }
 
 /** 导航栏各视图对应的 SVG 图标（Assets 里提供的自定义图标），使用当前上下文颜色自适应 */
-type NavIconName = 'roster' | 'stage' | 'live' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'page4' | 'about';
+type NavIconName = 'roster' | 'stage' | 'live' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'about';
 
 /** 各导航视图对应的标题文案（与导航栏标签一致），顶部栏按当前视图显示 */
 const VIEW_LABEL: Record<NavIconName, string> = {
@@ -213,7 +201,6 @@ const VIEW_LABEL: Record<NavIconName, string> = {
   page11: '选手介绍',
   stats: '数据统计',
   preview: '页面预览',
-  page4: '仅显阵容',
   about: '关于项目',
 };
 
@@ -226,7 +213,6 @@ const NAV_ICONS: Record<NavIconName, string> = {
   page11: introIcon,
   stats: statsIcon,
   preview: previewIcon,
-  page4: panelsIcon,
   about: aboutIcon,
 };
 
@@ -322,18 +308,10 @@ function Dashboard() {
     left: createPanelEditorState(),
     right: createPanelEditorState(),
   });
-  const [page4Panels, setPage4Panels] = useState<Record<PanelSide, Page4PanelEditorState>>({
-    left: createPage4PanelEditorState(),
-    right: createPage4PanelEditorState(),
-  });
-  // 赛事面板阵容编辑器合并后共享一份精灵筛选（page4 仅显阵容仍为左右各一份）
+  // 赛事面板阵容编辑器共享一份精灵筛选
   const [spriteFilter, setSpriteFilter] = useState<SpriteFilterState>(createDefaultSpriteFilterState);
   // 赛事面板共享精灵搜索（输入即时回显，过滤用 useDeferredValue 防抖）
   const [rosterSearch, setRosterSearch] = useState('');
-  const [page4SpriteFilters, setPage4SpriteFilters] = useState<Record<PanelSide, SpriteFilterState>>({
-    left: createDefaultSpriteFilterState(),
-    right: createDefaultSpriteFilterState(),
-  });
   const [sprites, setSprites] = useState<SpriteRecord[]>([]);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
   // 快速创建比赛：从「信息录入」选手多选后随机配对生成对局
@@ -457,7 +435,6 @@ function Dashboard() {
   const [avatarBatchResultOpen, setAvatarBatchResultOpen] = useState(false);
   const avatarBatchInputRef = useRef<HTMLInputElement | null>(null);
   const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
-  const [page4Notice, setPage4Notice] = useState<NoticeState>(null);
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
   // 比赛历史「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
@@ -555,8 +532,6 @@ function Dashboard() {
   }
 
   const deferredRosterSearch = useDeferredValue(rosterSearch);
-  const deferredPage4LeftSearch = useDeferredValue(page4Panels.left.search);
-  const deferredPage4RightSearch = useDeferredValue(page4Panels.right.search);
   const spriteFormOptions = EXCLUSIVE_FORM_FILTERS.filter((form) => (
     sprites.some((sprite) => sprite.form.trim() === form)
   ));
@@ -570,20 +545,6 @@ function Dashboard() {
 
   function mutatePanel(side: PanelSide, updater: (panel: PanelEditorState) => PanelEditorState) {
     setPanels((prev) => ({
-      ...prev,
-      [side]: updater(prev[side]),
-    }));
-  }
-
-  function mutatePage4Panel(side: PanelSide, updater: (panel: Page4PanelEditorState) => Page4PanelEditorState) {
-    setPage4Panels((prev) => ({
-      ...prev,
-      [side]: updater(prev[side]),
-    }));
-  }
-
-  function mutatePage4SpriteFilter(side: PanelSide, updater: (filter: SpriteFilterState) => SpriteFilterState) {
-    setPage4SpriteFilters((prev) => ({
       ...prev,
       [side]: updater(prev[side]),
     }));
@@ -603,26 +564,12 @@ function Dashboard() {
     }));
   }
 
-  function syncPage4PanelFromApi(side: PanelSide, panel: Page4PanelState | null | undefined) {
-    setPage4Panels((prev) => ({
-      ...prev,
-      [side]: {
-        ...prev[side],
-        selected: page4PanelStateToSelected(panel),
-        dirty: false,
-        saving: false,
-      },
-    }));
-  }
-
   function applyServerState(payload: {
     scoreboard?: ScoreboardState;
     store?: MatchStoreState;
     avatars?: AvatarCollectionState;
     panels?: PanelState[];
     panel?: PanelState;
-    page4?: Page4State;
-    page4Panel?: Page4PanelState;
     stage?: StageConfig;
     page6?: Page6State;
     page7?: Page7State;
@@ -664,16 +611,6 @@ function Dashboard() {
       if (payload.panel && (payload.panel.position === 'left' || payload.panel.position === 'right')) {
         syncPanelFromApi(payload.panel.position, payload.panel);
       }
-      if (payload.page4) {
-        payload.page4.panels.forEach((panel) => {
-          if (panel.position === 'left' || panel.position === 'right') {
-            syncPage4PanelFromApi(panel.position, panel);
-          }
-        });
-      }
-      if (payload.page4Panel && (payload.page4Panel.position === 'left' || payload.page4Panel.position === 'right')) {
-        syncPage4PanelFromApi(payload.page4Panel.position, payload.page4Panel);
-      }
       if (payload.stage) {
         setStage(payload.stage);
       }
@@ -703,13 +640,12 @@ function Dashboard() {
     setPageError('');
 
     try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextPage4, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown] = await Promise.all([
+      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown] = await Promise.all([
         requestJson<{ authenticated: boolean }>('/api/auth/check'),
         requestJson<ScoreboardState>('/api/scoreboard'),
         requestJson<MatchStoreState>('/api/matches'),
         requestJson<AvatarCollectionState>('/api/avatars'),
         requestJson<{ panels: [PanelState, PanelState] }>('/api/panels'),
-        requestJson<Page4State>('/api/page4'),
         requestJson<{ sprites: SpriteRecord[] }>('/api/sprites'),
         requestJson<StageConfig>('/api/stage'),
         requestJson<{ state: Page6State }>('/api/page6'),
@@ -748,8 +684,6 @@ function Dashboard() {
         pendingDraftRef.current = getPendingDraftContext(nextMatches);
         syncPanelFromApi('left', nextPanels.panels[0]);
         syncPanelFromApi('right', nextPanels.panels[1]);
-        syncPage4PanelFromApi('left', nextPage4.panels[0]);
-        syncPage4PanelFromApi('right', nextPage4.panels[1]);
       });
 
       if (showToast) {
@@ -837,12 +771,6 @@ function Dashboard() {
     socket.on(SOCKET_EVENTS.panelUpdate, (payload) => {
       if (payload?.panel) {
         applyServerState({ panel: payload.panel });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.page4Update, (payload) => {
-      if (payload?.page4) {
-        applyServerState({ page4: payload.page4 });
       }
     });
 
@@ -943,26 +871,6 @@ function Dashboard() {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [panels.right]);
-
-  useEffect(() => {
-    if (!page4Panels.left.autoSaveEnabled || !page4Panels.left.dirty || page4Panels.left.saving) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void savePage4Panel('left', true);
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [page4Panels.left]);
-
-  useEffect(() => {
-    if (!page4Panels.right.autoSaveEnabled || !page4Panels.right.dirty || page4Panels.right.saving) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void savePage4Panel('right', true);
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [page4Panels.right]);
 
   async function savePanel(side: PanelSide, silent = false) {
     if (lineupLocked) {
@@ -1143,188 +1051,6 @@ function Dashboard() {
 
   function clearSpriteFilters() {
     setSpriteFilter(createSpriteFilterState());
-  }
-
-  async function savePage4Panel(side: PanelSide, silent = false) {
-    const current = page4Panels[side];
-    mutatePage4Panel(side, (panel) => ({ ...panel, saving: true }));
-
-    try {
-      const data = await requestJson<{ success: boolean; page4?: Page4State }>(`/api/page4/${side}`, {
-        method: 'POST',
-        json: {
-          selected: buildPage4Request(current.selected),
-        },
-      });
-
-      applyServerState({
-        page4: data.page4,
-      });
-      mutatePage4Panel(side, (panel) => ({ ...panel, dirty: false, saving: false }));
-
-      if (!silent) {
-        const nextText = `${side === 'left' ? '左侧' : '右侧'} 仅显阵容已保存`;
-        setPage4Notice({ tone: 'success', text: nextText });
-        message.success(nextText);
-      }
-    } catch (error) {
-      mutatePage4Panel(side, (panel) => ({ ...panel, saving: false }));
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  function updatePage4Slot(side: PanelSide, updater: (slot: Page4SlotState) => Page4SlotState) {
-    mutatePage4Panel(side, (panel) => {
-      const selected = clonePage4Selected(panel.selected);
-      const current = selected[panel.activeSlot] ?? createPage4EmptySlot(panel.activeSlot);
-      selected[panel.activeSlot] = updater(current);
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function clearPage4CurrentSlot(side: PanelSide) {
-    mutatePage4Panel(side, (panel) => {
-      const selected = clonePage4Selected(panel.selected);
-      selected[panel.activeSlot] = createPage4EmptySlot(panel.activeSlot);
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function clearPage4Panel(side: PanelSide) {
-    mutatePage4Panel(side, (panel) => ({
-      ...panel,
-      selected: Array.from({ length: 6 }, (_, index) => createPage4EmptySlot(index)),
-      quickFillMatches: [],
-      dirty: true,
-    }));
-  }
-
-  async function runPage4QuickFill(side: PanelSide) {
-    const text = page4Panels[side].quickFillInput.trim();
-    if (!text) {
-      message.warning('请先输入要匹配的精灵名称');
-      return;
-    }
-
-    try {
-      const matches = await requestQuickFillMatches(text);
-      const nextSelected = Array.from({ length: 6 }, (_, index) => createPage4EmptySlot(index));
-      matches.forEach((match) => {
-        if (match.slot >= 0 && match.slot < 6 && match.sprite) {
-          nextSelected[match.slot] = {
-            ...nextSelected[match.slot],
-            sprite: match.sprite,
-          };
-        }
-      });
-
-      mutatePage4Panel(side, (panel) => ({
-        ...panel,
-        selected: nextSelected,
-        quickFillMatches: matches,
-        dirty: true,
-      }));
-      message.success(`${side === 'left' ? '左侧' : '右侧'} 仅显阵容快速填充已应用到本地草稿`);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  function choosePage4QuickFillCandidate(side: PanelSide, slotIndex: number, sprite: SpriteRecord) {
-    mutatePage4Panel(side, (panel) => {
-      const selected = clonePage4Selected(panel.selected);
-      selected[slotIndex] = {
-        ...selected[slotIndex],
-        sprite,
-      };
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function updatePage4SlotAt(side: PanelSide, slotIndex: number, updater: (slot: Page4SlotState) => Page4SlotState) {
-    mutatePage4Panel(side, (panel) => {
-      const selected = clonePage4Selected(panel.selected);
-      const current = selected[slotIndex] ?? createPage4EmptySlot(slotIndex);
-      selected[slotIndex] = updater(current);
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function applyPage4Sprite(side: PanelSide, sprite: SpriteRecord) {
-    updatePage4Slot(side, (slot) => ({
-      ...slot,
-      sprite,
-    }));
-  }
-
-  function togglePage4DeadAt(side: PanelSide, slotIndex: number) {
-    updatePage4SlotAt(side, slotIndex, (slot) => (slot.sprite ? {
-      ...slot,
-      isDead: !slot.isDead,
-    } : slot));
-  }
-
-  function togglePage4AttributeFilter(side: PanelSide, attribute: string) {
-    const current = page4SpriteFilters[side].selectedAttributes;
-    const isActive = current.includes(attribute);
-
-    if (!isActive && current.length >= 2) {
-      message.warning('精灵属性最多只能选择两个');
-      return;
-    }
-
-    mutatePage4SpriteFilter(side, (filter) => ({
-      ...filter,
-      selectedAttributes: isActive
-        ? filter.selectedAttributes.filter((item) => item !== attribute)
-        : [...filter.selectedAttributes, attribute],
-    }));
-  }
-
-  function togglePage4FormFilter(side: PanelSide, form: string) {
-    mutatePage4SpriteFilter(side, (filter) => {
-      if (filter.selectedFinalForm) {
-        return filter;
-      }
-
-      return {
-        ...filter,
-        selectedForms: filter.selectedForms.includes(form)
-          ? filter.selectedForms.filter((item) => item !== form)
-          : [...filter.selectedForms, form],
-      };
-    });
-  }
-
-  function togglePage4FinalFormFilter(side: PanelSide) {
-    mutatePage4SpriteFilter(side, (filter) => ({
-      ...filter,
-      selectedFinalForm: !filter.selectedFinalForm,
-      selectedForms: filter.selectedFinalForm ? filter.selectedForms : [],
-    }));
-  }
-
-  function clearPage4SpriteFilters(side: PanelSide) {
-    setPage4SpriteFilters((prev) => ({
-      ...prev,
-      [side]: createSpriteFilterState(),
-    }));
   }
 
   async function saveMatchMeta(values: MatchFormValues) {
@@ -3238,7 +2964,6 @@ function Dashboard() {
       { key: 'page11', icon: <NavIcon name="page11" />, label: VIEW_LABEL.page11 },
       { key: 'stats', icon: <NavIcon name="stats" />, label: VIEW_LABEL.stats },
       { key: 'preview', icon: <NavIcon name="preview" />, label: VIEW_LABEL.preview },
-      { key: 'page4', icon: <NavIcon name="page4" />, label: VIEW_LABEL.page4 },
       { key: 'about', icon: <NavIcon name="about" />, label: VIEW_LABEL.about },
     ],
     []
@@ -3846,63 +3571,6 @@ function Dashboard() {
                     onToggleFinalFormFilter={toggleFinalFormFilter}
                     onToggleFormFilter={toggleFormFilter}
                     onClearSpriteFilters={clearSpriteFilters}
-                  />
-                </Col>
-              </Row>
-            </Space>
-          ) : null}
-
-          {view === 'page4' ? (
-            <Space direction="vertical" size={18} className="page-stack">
-              <Page4DeathPanel
-                page4Panels={page4Panels}
-                onTogglePage4DeadAt={togglePage4DeadAt}
-              />
-              <Row gutter={[18, 18]}>
-                <Col xs={24} xl={12}>
-                  <Page4PanelEditor
-                    side="left"
-                    panel={page4Panels.left}
-                    filter={page4SpriteFilters.left}
-                    notice={page4Notice}
-                    searchValue={deferredPage4LeftSearch}
-                    sprites={sprites}
-                    spriteFormOptions={spriteFormOptions}
-                    onMutatePanel={mutatePage4Panel}
-                    onDismissNotice={() => setPage4Notice(null)}
-                    onSavePanel={savePage4Panel}
-                    onRunQuickFill={runPage4QuickFill}
-                    onClearCurrentSlot={clearPage4CurrentSlot}
-                    onClearPanel={clearPage4Panel}
-                    onChooseQuickFillCandidate={choosePage4QuickFillCandidate}
-                    onApplySprite={applyPage4Sprite}
-                    onClearSpriteFilters={clearPage4SpriteFilters}
-                    onToggleAttributeFilter={togglePage4AttributeFilter}
-                    onToggleFinalFormFilter={togglePage4FinalFormFilter}
-                    onToggleFormFilter={togglePage4FormFilter}
-                  />
-                </Col>
-                <Col xs={24} xl={12}>
-                  <Page4PanelEditor
-                    side="right"
-                    panel={page4Panels.right}
-                    filter={page4SpriteFilters.right}
-                    notice={page4Notice}
-                    searchValue={deferredPage4RightSearch}
-                    sprites={sprites}
-                    spriteFormOptions={spriteFormOptions}
-                    onMutatePanel={mutatePage4Panel}
-                    onDismissNotice={() => setPage4Notice(null)}
-                    onSavePanel={savePage4Panel}
-                    onRunQuickFill={runPage4QuickFill}
-                    onClearCurrentSlot={clearPage4CurrentSlot}
-                    onClearPanel={clearPage4Panel}
-                    onChooseQuickFillCandidate={choosePage4QuickFillCandidate}
-                    onApplySprite={applyPage4Sprite}
-                    onClearSpriteFilters={clearPage4SpriteFilters}
-                    onToggleAttributeFilter={togglePage4AttributeFilter}
-                    onToggleFinalFormFilter={togglePage4FinalFormFilter}
-                    onToggleFormFilter={togglePage4FormFilter}
                   />
                 </Col>
               </Row>
@@ -5048,7 +4716,6 @@ function Dashboard() {
                       { value: 'page1', label: '推流页面1' },
                       { value: 'page2', label: '推流页面2' },
                       { value: 'page3', label: '推流页面3' },
-                      { value: 'page4', label: '仅显阵容' },
                       { value: 'page5', label: '推流页面5' },
                       { value: 'page6', label: '推流页面6' },
                       { value: 'page7', label: '推流页面7' },

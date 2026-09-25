@@ -465,64 +465,6 @@ a {
   color: #7d624e;
 }
 
-.page4-slot-visual {
-  --page4-death-size: 96px;
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  width: var(--page4-death-size);
-  height: var(--page4-death-size);
-}
-
-.page4-slot-visual.is-dead .sprite-pet-card {
-  filter: grayscale(1) brightness(0.72);
-}
-
-.page4-slot-visual.is-dead::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: calc(var(--page4-death-size) * 0.64);
-  height: max(3px, calc(var(--page4-death-size) * 0.036));
-  transform: translate(-50%, -50%) rotate(-28deg);
-  border-radius: 999px;
-  background: rgba(214, 73, 60, 0.92);
-  box-shadow: 0 0 0 1px rgba(120, 18, 18, 0.16);
-  pointer-events: none;
-}
-
-.page4-death-slot-grid {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.page4-death-slot-button.ant-btn {
-  position: relative;
-  width: 100%;
-  height: auto;
-  min-height: 112px;
-  padding: 8px 6px;
-  border-radius: 18px;
-}
-
-.page4-death-slot-button.is-dead.ant-btn {
-  border-color: rgba(214, 73, 60, 0.5);
-  background: rgba(214, 73, 60, 0.08);
-}
-
-.page4-death-slot-button.is-empty.ant-btn {
-  border-style: dashed;
-}
-
-.page4-death-slot-placeholder {
-  width: 76px;
-  height: 76px;
-  border-radius: 15px;
-  font-size: 16px;
-}
-
 .slot-index {
   font-size: 13px;
   color: #6b5645;
@@ -1193,10 +1135,6 @@ a {
   }
 
   .history-battle-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .page4-death-slot-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 

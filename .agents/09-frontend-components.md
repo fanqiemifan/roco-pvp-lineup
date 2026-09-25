@@ -5,8 +5,8 @@
 ### 目录结构
 
 - App.tsx — 主组件：Layout（Header/Sider/Content）、视图分发、工具栏按钮（阵容悬浮窗/打开预览/复制链接/刷新）、「开一局」创建赛事弹窗（选手名/排位排名/头像/赛制/标签）
-- views/ — 各视图独立页面（RosterPanelEditor、Page4PanelEditor、Page4DeathPanel、StatsView、HistoryLineupEntryModal）
-- components/ — 可复用小组件（Page4SlotVisual、SettingField、SpritePetCard、StageThumb、AttributeFilterChips）
+- views/ — 各视图独立页面（RosterPanelEditor、StatsView、HistoryLineupEntryModal）
+- components/ — 可复用小组件（SettingField、SpritePetCard、StageThumb、AttributeFilterChips）
 - lib/ — 无状态纯函数（请求、统计、格式化等）
 - constants.ts / types.ts — 本地常量与类型
 - env.d.ts — `*.svg?raw` 模块声明（导航图标按原样字符串引入）
@@ -23,12 +23,12 @@
 
 - roster - 阵容编辑（RosterPanelEditor，单卡片合并编辑器）
   - 左右槽位并排（2×3 镜像布局）+ 左右双列快速填充（各带高亮「快速填充」/「选中清除」/「清除全部」与候选精灵）+ 共享精灵选择（一份属性/形态筛选与搜索，Segmented「点击精灵填入 左侧/右侧」决定目标侧，点槽位同样会切换目标侧）。
-  - 保存全部自动：600ms 防抖静默 POST /api/panels/:side（无手动保存按钮，头部仅显「保存中」标签）；精灵筛选为全局面板单份状态（spriteFilter），搜索为共享 rosterSearch（useDeferredValue 防抖）；page4 仅显阵容视图仍是左右独立面板与筛选。
+  - 保存全部自动：600ms 防抖静默 POST /api/panels/:side（无手动保存按钮，头部仅显「保存中」标签）；精灵筛选为全局面板单份状态（spriteFilter），搜索为共享 rosterSearch（useDeferredValue 防抖）。
   - 顶部「当前比赛」表单含左右选手名 + 排位排名（仅数字，PATCH 保存比赛信息时一并提交）。
   - 「比赛列表」卡片头部「快速创建比赛」弹窗：参赛选手在固定高度可滚动列表区逐条点选，列表按录入添加时间升序（档案 id 内嵌 base36 创建时间戳，数组顺序被打乱时仍按真实添加时间排，id 解析失败的按原数组顺序兜底在末尾）；顶部搜索框按名字实时过滤并派生勾选态，所选人数实时显示、奇数红字告警；再选「比赛赛制」与「赛事标签」，确认后 Fisher–Yates 随机洗牌 + 两两配对逐一 `POST /api/matches` 创建（公平起见随机分配，杜绝固定对阵），复用选手名字与排位排名；创建与「开一局」共用前端统一入口 `postCreateMatch`。
   - 「当前比赛」操作面板「开始本次对局」旁有「战队修改」按钮：创建时未选战队后续补填，PATCH `/api/matches/:id` 更新（联想录入战队复用 id 或手动输入）。
   - 小结局时编辑器数据源为赛事草稿（getPendingDraftContext + 草稿回填 effect，按 matchId|gameNumber 去重）；全局面板仅供推流页、不覆写编辑器（syncPanelFromApi pending 感知），推流页不显示未开局阵容。
-  - 「筛选精灵」属性 chips 为共享组件 AttributeFilterChips（components/，赛事面板与本页「录入阵容」弹窗共用，改一处即两处同步）：图标 + 属性文案，chip 上 `container-type: inline-size` + `@container (max-width: 52px)` 在宽度不足时隐藏 `.attribute-filter-text` 退化为纯图标（title/aria-label 保留悬浮提示）。精灵形态 chips 为共享组件 FormFilterChips（同上共用），样式经 `.form-filter-chip` 对齐属性 chips（26px 高 / 10px 圆角 / 11px 字号，无图标；page4 面板编辑器直接用该类，改样式三处同时生效）。
+  - 「筛选精灵」属性 chips 为共享组件 AttributeFilterChips（components/，赛事面板与本页「录入阵容」弹窗共用，改一处即两处同步）：图标 + 属性文案，chip 上 `container-type: inline-size` + `@container (max-width: 52px)` 在宽度不足时隐藏 `.attribute-filter-text` 退化为纯图标（title/aria-label 保留悬浮提示）。精灵形态 chips 为共享组件 FormFilterChips（同上共用），样式经 `.form-filter-chip` 对齐属性 chips（26px 高 / 10px 圆角 / 11px 字号，无图标），改样式即两处同时生效）。
 - profiles - 信息录入（选手/战队档案，单卡片 + Segmented 切换选手/战队视图）
   - 「导入JSON」+「下载示例」：前端 JSON.parse 校验为数组并预览中文列名确认，导入白名单字段 name/rank/declaration/pets（后端再白名单校验兜底）；未命中 pets.json 的常用精灵走 review 兜底弹窗，逐条下拉（可搜索）选最多 5 个候选或忽略。
   - 「批量头像」：隐藏 file input 多选图片后先本地按文件名（去扩展名）匹配已录入选手，弹出「原头像 vs 新头像」左右对比预览（未设置显示默认占位图，未匹配文件警告列出且不上传），点确认才提交 `POST /api/upload/player-avatars/batch`；文件名列表随表单 `names` 字段以 JSON 传递规避 multipart 中文乱码；后端未命中/失败弹结果窗提醒。
@@ -44,12 +44,11 @@
 - history - 比赛历史（列表、删除、批量删除、撤销删除；「推送」勾选列→页面6、「预告」勾选列→页面8、「对局」勾选列配合「推送对局推送」按钮→页面7，可勾选待开始与进行中的对局；「录入阵容」弹窗 HistoryLineupEntryModal 为待开始小局录入双方阵容）
 - stats - 数据统计（StatsView：使用率/上场率排行、属性分布、标签趋势；1920px 断点布局）
 - preview - 页面预览（推流页面1-13 切换，`PREVIEW_PAGES` 定义于 constants.ts；页面8 附带「比赛预告设置」：主标题/副标题、壁纸图片1/图片2/自定义上传）
-- page4 - 仅显阵容（Page4PanelEditor + Page4DeathPanel）
 - about - 关于项目（项目链接、作者与许可、字体说明、数据来源）
 
 ### 核心状态（App.tsx）
 
-- leftPanel / rightPanel、page4、scoreboard、matches、avatars、stage、page7 / page9 / page11（配置状态与对应草稿/保存中标记）
+- leftPanel / rightPanel、scoreboard、matches、avatars、stage、page7 / page9 / page11（配置状态与对应草稿/保存中标记）
 - stats 相关：statsRange / statsMetric / statsPlayer / statsTag / statsSearch
 - socket - Socket.IO 连接实例
 
@@ -67,7 +66,6 @@
 
 ### 小组件（components/）
 
-- Page4SlotVisual.tsx - page4 格子视觉
 - SettingField.tsx - 设置项字段封装
 - SpritePetCard.tsx - 精灵卡片
 - StageThumb.tsx - 推流页面缩略图
@@ -90,7 +88,6 @@
 - roco-pvp-page3.html + page3-display.js — 头像比分阵容
   - 比分栏中央两侧排位排名图标（stage.page3RankVisible 控制显隐，开启但未输入排名时仅显示图标；排名超过 10000 显示 10000+，txt 位置按位数查表）
   - 战队标识 div（stage.page3TeamVisible 控制显隐）：左右各一（左 x257 y958 / 右 x1569 y958），94×94 圆角 18，外描边 2px C9C9C9（box-shadow），底部 24px 高 F2ECDF 色块叠加战队名称（MiSans-Semibold 15px #585858，`buildTeamNameImage` 用 canvas 渲染 PNG 缓存规避字体兼容问题）；logo 优先按 teamId 匹配录入战队，未录入仅显示名称色块
-- roco-pvp-page4.html + page4-display.js — 仅显阵容
 - roco-pvp-page5.html + page5-display.js — 登场/胜率排行
 - roco-pvp-page6.html + page6-display.js — 比赛结果页（已结束比赛的结果展示）
 - roco-pvp-page7.html + page7-display.js — 对局推送页（比赛历史勾选已结束比赛推送；多场比赛逐行滚动展示选手对局信息；主标题/温馨提示在「直播推流」设置，留空用默认值）

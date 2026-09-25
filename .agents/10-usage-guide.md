@@ -13,7 +13,6 @@
 |------|-----------|---------|
 | 创建比赛 | createMatch | electron/services/match-service.ts |
 | 更新面板 | savePanelState | electron/services/state-service.ts |
-| 更新仅显阵容 | savePage4State | electron/services/page4-service.ts |
 | 更新推流配置 | saveStageState | electron/services/stage-service.ts |
 | 更新对局推送配置 | savePage7State | electron/services/page7-service.ts |
 | 更新团队积分榜配置 | savePage9State | electron/services/page9-service.ts |
@@ -39,7 +38,6 @@
 
 所有类型定义集中在 shared/types.ts，使用时直接引用。核心类型：
 - PanelState - 面板状态
-- Page4State / Page4PanelState / Page4SlotState - 仅显阵容状态
 - ScoreboardState - 记分牌状态
 - MatchRecord - 比赛记录
 - SlotState - 格子状态

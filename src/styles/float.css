@@ -23,7 +23,7 @@ body {
     height: 56px;
 }
 
-/* 覆盖 roco-pvp-page4.css 中针对 1920×1080 舞台的定位：
+/* 覆盖 roco-pvp-lineup.css 中针对 1920×1080 舞台的定位：
    阵容条按原尺寸 782×74 布局后用 zoom 缩放到 0.75（=587×56），铺满窗口 */
 .float-stage .lineup-all-div {
     position: absolute;

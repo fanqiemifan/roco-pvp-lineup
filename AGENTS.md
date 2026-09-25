@@ -32,7 +32,7 @@
 
 ## 运行时数据（生成物，已被 gitignore — 切勿提交）
 
-- 面板/记分牌/比赛/page4/导播台/头像/倒计时等状态，都以 JSON/PNG 形式存放在 userData 目录下的 `runtime/cache/`，路径解析在 `electron/services/path-service.ts`：
+- 面板/记分牌/比赛/导播台/头像/倒计时等状态，都以 JSON/PNG 形式存放在 userData 目录下的 `runtime/cache/`，路径解析在 `electron/services/path-service.ts`：
   - 桌面模式：Electron `app.getPath('userData')`。
   - Node/Docker 模式：`<项目根目录>/LuokePVPWebui`（可用 `ROCO_DATA_DIR` 覆盖）。
 - 精灵索引与图片：
@@ -42,7 +42,7 @@
   - 编号=handbook_no、名称=name、属性=elements（经 `attribute_mapping.json` 转属性码）、形态=stage（1=一阶 2=二阶 3=三阶 4=首领）。
   - 多形态记录 `name` 带形态后缀（如 卡瓦重（草地附近的样子）），`displayName` 保持纯名。
 - **名称字段只保留 `name`（全称）/ `displayName`（短名）两个**（`shared/types.ts` 的 SpriteRecord），所有消费点统一读这两个字段；统计行 StatsRankingRow 同口径（page5 用 `row.displayName || row.name`）。
-- **持久化精灵主键 = `pet_id`**：比赛快照/阵容/历史（matches.json）与 page4 面板槽位统一用 `pet_id`；**不做旧数据兼容**，pet_id 必须是精灵索引中存在的 id。
+- **持久化精灵主键 = `pet_id`**：比赛快照/阵容/历史（matches.json）统一用 `pet_id`；**不做旧数据兼容**，pet_id 必须是精灵索引中存在的 id。
 
 ## 架构
 
@@ -50,10 +50,10 @@
 - `shared/`：`types.ts`（全部类型）、`events.ts`（socket 事件）、`constants.ts`（默认值：端口 9988、BO7、6 格子、推流页面/过渡枚举）——electron 与 React 共用。
 - `electron/float-window.ts`：桌面阵容悬浮窗（`float.html`，透明置顶 587×56）与更换精灵菜单（`float-menu.html`，240×240），经 `preload.ts` 的 `window.rocoFloat` IPC 驱动；「下场对局」选择菜单（`float-nextgame.html`，300×320）由 float.js 用 `window.open` 打开。
 - 管理后台（React，`src/admin-antd/`）：
-  - 十视图：赛事面板/直播推流/实时控制/比赛历史/信息录入/选手介绍/数据统计/页面预览/仅显阵容/关于项目，为 App.tsx 顶部可收缩的 `antd Menu`；顶栏单行显示当前视图名（与菜单共用 `VIEW_LABEL`）。
+  - 九视图：赛事面板/直播推流/实时控制/比赛历史/信息录入/选手介绍/数据统计/页面预览/关于项目，为 App.tsx 顶部可收缩的 `antd Menu`；顶栏单行显示当前视图名（与菜单共用 `VIEW_LABEL`）。
   - 导航图标：`src/assets/ui/*.svg` 经 `?raw` 引入，`NavIcon` 把 `fill="black"` 换成 `currentColor` 自适应配色；像素级样式细节见 `.agents/09-frontend-components.md`。
   - 赛事面板要点：「比赛列表」卡片头部「快速创建比赛」——固定高度可滚动选手列表逐条点选（按录入时间升序）、数量须为**双数**、再选赛制与标签，确认后随机洗牌两两配对逐一创建；「当前比赛」旁「战队修改」补填战队（PATCH `/api/matches/:id`）；创建统一走前端 `postCreateMatch`。
-- 推流/展示页面（纯原生 JS）：page1 比分栏、page2 全局阵容、page3 头像比分阵容、page4 仅显阵容、page5 出场/胜率排行、page6 比赛结果、page7 对局推送、page8 比赛预告（公开免鉴权）、page9 团队积分榜、page10 胜者结算、page11-13 选手介绍（同一页面 `?mode=left/right/versus`）、`float`/`float-menu`/`float-nextgame` 桌面悬浮窗。页面与脚本对照见 `.agents/01`，路由见 `.agents/08`。
+- 推流/展示页面（纯原生 JS）：page1 比分栏、page2 全局阵容、page3 头像比分阵容、page5 出场/胜率排行、page6 比赛结果、page7 对局推送、page8 比赛预告（公开免鉴权）、page9 团队积分榜、page10 胜者结算、page11-13 选手介绍（同一页面 `?mode=left/right/versus`）、`float`/`float-menu`/`float-nextgame` 桌面悬浮窗。页面与脚本对照见 `.agents/01`，路由见 `.agents/08`。
 - 入场动效：`src/styles/stage-enter.css` + `src/scripts/stage-enter.js` 公共实现——推流载体 `stage-carrier.js` 完成 iframe 加载后 postMessage `stage-enter`，页面在根节点加 `is-stage-entered` 触发 `.fx-enter` 区块依次上浮淡入；page1/2/3/5/6/7/8/9/10 已接入，page3 切入还会额外播一次阵容入场，page11-13 自带动效不接入。
 - page10 自动切回：登记本局胜负时若当前画面是 page1-3，自动切入 page10 停留 `page10Duration` 后切回原画面（socket-server 内定时器驱动）。
 - 信息录入（选手/战队档案）：单卡片 + Segmented 切换，服务 `electron/services/profile-service.ts`，落盘 `cache/profiles.json`；头像/logo 存 `cache/profiles/{players,teams}/<id>.png`，经 `/runtime/profiles/**` 访问；创建赛事输入选手名自动联想已录入选手，「所属战队」可选录入战队或手填；page9 战队名称输入框同样联想。

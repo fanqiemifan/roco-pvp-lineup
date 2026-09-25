@@ -60,7 +60,6 @@ roco-pvp-lineup/
 | electron/services/image-service.ts | 头像上传/删除/读取（含魔数校验） |
 | electron/services/config-service.ts | 运行时配置（端口）管理 |
 | electron/services/path-service.ts | 文件路径管理和路径工厂 |
-| electron/services/page4-service.ts | 仅显阵容页（page4）状态管理 |
 | electron/services/page6-service.ts | 比赛结果页（page6）状态管理 |
 | electron/services/page7-service.ts | 对局推送页（page7）状态管理 |
 | electron/services/page8-service.ts | 比赛预告页（page8）状态管理 |
@@ -84,13 +83,11 @@ roco-pvp-lineup/
 
 | 文件路径 | 说明 |
 |---------|------|
-| App.tsx | 主组件：十视图分发（roster/stage/live/history/profiles/page11/stats/preview/page4/about）、可收缩 Sider 导航（SVG 图标 via `?raw`）、工具栏 |
+| App.tsx | 主组件：九视图分发（roster/stage/live/history/profiles/page11/stats/preview/about）、可收缩 Sider 导航（SVG 图标 via `?raw`）、工具栏 |
 | views/RosterPanelEditor.tsx | 阵容编辑（左右面板、精灵搜索、快速填充） |
-| views/Page4PanelEditor.tsx | 仅显阵容（page4）面板编辑 |
-| views/Page4DeathPanel.tsx | page4 阵亡面板 |
 | views/HistoryLineupEntryModal.tsx | 比赛历史「录入阵容」弹窗（为待开始小局录入双方阵容） |
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、标签趋势） |
-| components/ | Page4SlotVisual、SettingField、SpritePetCard、StageThumb 等小组件 |
+| components/ | SettingField、SpritePetCard、StageThumb 等小组件 |
 | lib/ | format、history、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
@@ -103,7 +100,6 @@ roco-pvp-lineup/
 | overlay.js | 推流页面1（Overlay 比分栏）脚本 |
 | lineup-display.js | 推流页面2（全局阵容展示）脚本 |
 | page3-display.js | 推流页面3（头像比分阵容）脚本 |
-| page4-display.js | 仅显阵容页（page4）脚本 |
 | page5-display.js | 登场/胜率排行页（page5）脚本 |
 | page6-display.js | 比赛结果页（page6）脚本 |
 | page7-display.js | 对局推送页（page7）脚本（多场比赛逐行滚动展示） |
@@ -126,7 +122,6 @@ roco-pvp-lineup/
 | roco-pvp-page1.html | 推流页面1（Overlay 比分栏） |
 | roco-pvp-page2.html | 推流页面2（全局阵容展示） |
 | roco-pvp-page3.html | 推流页面3（头像比分阵容） |
-| roco-pvp-page4.html | 仅显阵容页 |
 | roco-pvp-page5.html | 登场/胜率排行页 |
 | roco-pvp-page6.html | 比赛结果展示页 |
 | roco-pvp-page7.html | 对局推送展示页（直播推流可选画面） |

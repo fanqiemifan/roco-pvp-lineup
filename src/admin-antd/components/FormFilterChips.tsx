@@ -14,8 +14,7 @@ type FormFilterChipsProps = {
 
 /**
  * 精灵形态筛选 chips：样式对齐精灵属性 chips（.attribute-filter-chip，26px 高 / 10px 圆角 / 11px 字号），无图标。
- * 赛事面板阵容编辑器与比赛历史「录入阵容」弹窗共用本组件；page4 面板编辑器直接复用 .form-filter-chip 样式，
- * 改样式需同时兼顾三处。
+ * 赛事面板阵容编辑器与比赛历史「录入阵容」弹窗共用本组件，改样式需同时兼顾两处。
  */
 export function FormFilterChips({ finalActive, onToggleFinal, options, selected, onToggleForm }: FormFilterChipsProps) {
   return (
