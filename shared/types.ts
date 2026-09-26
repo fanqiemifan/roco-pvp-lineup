@@ -173,8 +173,8 @@ export type StagePageKey =
 
 export type StageTransitionType = 'none' | 'blinds' | 'wolf';
 export type Page3SpriteSource = 'sprite' | 'thumbnail';
-/** 推流页面3红光特效模式：关闭 / 手动开启（显示至下一对局）/ 自动开启（按阵亡阈值触发） */
-export type Page3RedLightMode = 'off' | 'manual' | 'auto';
+/** 推流页面3红光特效策略：关闭 / 自动开启（按阵亡阈值触发） */
+export type Page3RedLightMode = 'off' | 'auto';
 
 export interface StageConfig {
   page: StagePageKey;
@@ -185,8 +185,10 @@ export interface StageConfig {
   page3RankVisible: boolean;
   /** 推流页面3：是否显示比分栏两侧的战队 div（左右各一个：战队头像/logo + 底部名称色块） */
   page3TeamVisible: boolean;
-  /** 推流页面3：红光特效模式（关闭 / 手动开启 / 自动开启） */
+  /** 推流页面3：红光特效策略（关闭 / 自动开启） */
   page3RedLightMode: Page3RedLightMode;
+  /** 推流页面3：红光特效「立即显示」一次性触发（进入下一局自动清除，不影响策略） */
+  page3RedLightInstant: boolean;
   /** 选手介绍（page11-13）：是否显示选手排位排名 div */
   page11RankVisible: boolean;
   /** 推流页面5：选手过滤（空字符串 = 全部选手） */

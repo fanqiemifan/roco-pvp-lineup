@@ -2375,7 +2375,7 @@ function Dashboard() {
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page11RankVisible?: boolean; page5Player?: string; page5Tag?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5Tag?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
@@ -2384,18 +2384,19 @@ function Dashboard() {
     const page3RankVisible = options?.page3RankVisible ?? stage?.page3RankVisible ?? false;
     const page3TeamVisible = options?.page3TeamVisible ?? stage?.page3TeamVisible ?? false;
     const page3RedLightMode = options?.page3RedLightMode ?? stage?.page3RedLightMode ?? 'off';
+    const page3RedLightInstant = options?.page3RedLightInstant ?? stage?.page3RedLightInstant ?? false;
     const page11RankVisible = options?.page11RankVisible ?? stage?.page11RankVisible ?? true;
     const page5Player = options?.page5Player ?? stage?.page5Player ?? '';
     const page5Tag = options?.page5Tag ?? stage?.page5Tag ?? '';
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -4645,19 +4646,29 @@ function Dashboard() {
                           </SettingField>
                           <SettingField
                             label="红光特效："
-                            hint="手动开启：选中后特效持续显示，进入下一对局自动失效；自动开启：任一选手一侧精灵阵亡 3 只时显示，若阵亡的精灵中含卡瓦重、卡卡虫、丢丢则需 4 只。"
+                            hint="自动开启：任一选手一侧精灵阵亡 3 只时显示，若阵亡的精灵中含卡瓦重、卡卡虫、丢丢则需 4 只；立即显示：一次性提前触发，进入下一局自动失效，不影响关闭/自动开启。"
                           >
-                            <Segmented
-                              block
-                              value={stage?.page3RedLightMode ?? 'off'}
-                              disabled={stageSaving}
-                              options={[
-                                { value: 'off', label: '关闭' },
-                                { value: 'manual', label: '手动开启' },
-                                { value: 'auto', label: '自动开启' },
-                              ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightMode: value as Page3RedLightMode }); }}
-                            />
+                            <Space wrap>
+                              <Segmented
+                                value={stage?.page3RedLightMode ?? 'off'}
+                                disabled={stageSaving}
+                                options={[
+                                  { value: 'off', label: '关闭' },
+                                  { value: 'auto', label: '自动开启' },
+                                ]}
+                                onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightMode: value as Page3RedLightMode }); }}
+                              />
+                              <Button
+                                type={stage?.page3RedLightInstant ? 'default' : 'primary'}
+                                danger={Boolean(stage?.page3RedLightInstant)}
+                                disabled={stageSaving}
+                                loading={stageSaving}
+                                onClick={() => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightInstant: !(stage?.page3RedLightInstant ?? false) }); }}
+                              >
+                                {stage?.page3RedLightInstant ? '取消显示' : '立即显示'}
+                              </Button>
+                              {stage?.page3RedLightInstant ? <Tag color="red">显示中</Tag> : null}
+                            </Space>
                           </SettingField>
                           <Row gutter={[16, 12]}>
                             <Col xs={24} md={12}>

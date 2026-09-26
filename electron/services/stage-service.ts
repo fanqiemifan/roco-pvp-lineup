@@ -7,6 +7,7 @@ import {
   DEFAULT_STAGE_PAGE,
   DEFAULT_STAGE_TRANSITION,
   DEFAULT_PAGE3_RANK_VISIBLE,
+  DEFAULT_PAGE3_RED_LIGHT_INSTANT,
   DEFAULT_PAGE3_RED_LIGHT_MODE,
   DEFAULT_PAGE3_SPRITE_SOURCE,
   DEFAULT_PAGE3_TEAM_VISIBLE,
@@ -61,6 +62,10 @@ function normalizePage3RedLightMode(value: unknown): Page3RedLightMode {
     : DEFAULT_PAGE3_RED_LIGHT_MODE;
 }
 
+function normalizePage3RedLightInstant(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : DEFAULT_PAGE3_RED_LIGHT_INSTANT;
+}
+
 function normalizePage11RankVisible(value: unknown): boolean {
   return typeof value === 'boolean' ? value : DEFAULT_PAGE11_RANK_VISIBLE;
 }
@@ -88,6 +93,7 @@ function defaultStageState(): StageConfig {
     page3RankVisible: DEFAULT_PAGE3_RANK_VISIBLE,
     page3TeamVisible: DEFAULT_PAGE3_TEAM_VISIBLE,
     page3RedLightMode: DEFAULT_PAGE3_RED_LIGHT_MODE,
+    page3RedLightInstant: DEFAULT_PAGE3_RED_LIGHT_INSTANT,
     page11RankVisible: DEFAULT_PAGE11_RANK_VISIBLE,
     page5Player: '',
     page5Tag: '',
@@ -113,6 +119,7 @@ export function getStageState(paths: AppPaths): StageConfig {
       page3RankVisible: normalizePage3RankVisible(metadata.page3RankVisible),
       page3TeamVisible: normalizePage3TeamVisible(metadata.page3TeamVisible),
       page3RedLightMode: normalizePage3RedLightMode(metadata.page3RedLightMode),
+      page3RedLightInstant: normalizePage3RedLightInstant(metadata.page3RedLightInstant),
       page11RankVisible: normalizePage11RankVisible(metadata.page11RankVisible),
       page5Player: normalizePage5Player(metadata.page5Player),
       page5Tag: normalizePage5Tag(metadata.page5Tag),
@@ -145,6 +152,7 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
     page3RankVisible: normalizePage3RankVisible(raw.page3RankVisible ?? current.page3RankVisible),
     page3TeamVisible: normalizePage3TeamVisible(raw.page3TeamVisible ?? current.page3TeamVisible),
     page3RedLightMode: normalizePage3RedLightMode(raw.page3RedLightMode ?? current.page3RedLightMode),
+    page3RedLightInstant: normalizePage3RedLightInstant(raw.page3RedLightInstant ?? current.page3RedLightInstant),
     page11RankVisible: normalizePage11RankVisible(raw.page11RankVisible ?? current.page11RankVisible),
     page5Player: normalizePage5Player(raw.page5Player),
     page5Tag: normalizePage5Tag(raw.page5Tag),

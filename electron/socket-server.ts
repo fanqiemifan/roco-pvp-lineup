@@ -8,7 +8,7 @@ import multer from 'multer';
 import { Server as SocketIOServer } from 'socket.io';
 
 import { SOCKET_EVENTS } from '../shared/events.js';
-import type { AvatarCollectionState, CountdownState, SnapshotPayload, StagePageKey } from '../shared/types.js';
+import type { AvatarCollectionState, CountdownState, MatchStoreState, SnapshotPayload, StagePageKey } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
 import { getSpriteRanking } from './services/stats-service.js';
 import {
@@ -320,6 +320,52 @@ export async function createLocalServer(
     const matchId = getMatchStore(paths).activeMatchId;
     io.emit(SOCKET_EVENTS.avatarUpdate, { matchId, avatars: getAvatarStates(paths, matchId) });
   };
+
+  // 红光特效「立即显示」为一次性触发：进入下一局（换比赛 / 新小局开始）时自动清除并广播，
+  // 不影响「关闭 / 自动开启」策略；边界以对局签名（活跃比赛 + 当前小局状态）变化判断。
+  let redLightBoundaryBase: { matchId: string; phase: string } | null = null;
+
+  const redLightBoundarySnapshot = (store: MatchStoreState): { matchId: string; phase: string } => {
+    const activeMatch = store.activeMatchId
+      ? store.matches.find((match) => match.id === store.activeMatchId) ?? null
+      : null;
+    const currentGame = activeMatch && Array.isArray(activeMatch.games)
+      ? activeMatch.games.find((game) => game.status !== 'completed') ?? null
+      : null;
+    return {
+      matchId: store.activeMatchId ?? '',
+      phase: currentGame && currentGame.status === 'in_progress' ? 'in_progress' : 'waiting',
+    };
+  };
+
+  const clearRedLightInstantOnBoundary = (store: MatchStoreState): void => {
+    const next = redLightBoundarySnapshot(store);
+    const previous = redLightBoundaryBase;
+    redLightBoundaryBase = next;
+    if (!previous) {
+      return;
+    }
+    const matchChanged = previous.matchId !== next.matchId;
+    const gameStarted = previous.phase !== 'in_progress' && next.phase === 'in_progress';
+    if (!matchChanged && !gameStarted) {
+      return;
+    }
+    const stage = getStageState(paths);
+    if (!stage.page3RedLightInstant) {
+      return;
+    }
+    const saved = saveStageState(paths, { ...stage, page3RedLightInstant: false });
+    io.emit(SOCKET_EVENTS.stageUpdate, { stage: saved });
+  };
+
+  // 比赛数据统一广播出口：广播后检查红光特效「立即显示」是否已进入下一局需清除
+  const emitMatchesUpdate = (store: MatchStoreState): void => {
+    io.emit(SOCKET_EVENTS.matchesUpdate, { store });
+    clearRedLightInstantOnBoundary(store);
+  };
+
+  // 记录启动基线，保证服务启动后首次进入下一局也能被识别
+  redLightBoundaryBase = redLightBoundarySnapshot(getMatchStore(paths));
 
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
@@ -975,7 +1021,7 @@ export async function createLocalServer(
       const matches = createMatch(paths, request.body ?? {});
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       emitAvatarUpdate();
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
@@ -989,7 +1035,7 @@ export async function createLocalServer(
     try {
       const matches = updateMatch(paths, request.params.matchId, request.body ?? {});
       const scoreboard = getScoreboardState(paths);
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       response.json({ success: true, store: matches, scoreboard });
     } catch (error) {
@@ -1000,7 +1046,7 @@ export async function createLocalServer(
   app.patch('/api/matches/:matchId/tags', (request, response) => {
     try {
       const matches = updateMatchTags(paths, request.params.matchId, request.body ?? {});
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       response.json({ success: true, store: matches });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1011,7 +1057,7 @@ export async function createLocalServer(
     try {
       const body = (request.body ?? {}) as { matchIds?: unknown; tags?: unknown };
       const matches = updateMatchesTags(paths, body.matchIds, { tags: body.tags });
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       response.json({ success: true, store: matches });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1023,7 +1069,7 @@ export async function createLocalServer(
       const matches = deleteMatch(paths, _request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       emitAvatarUpdate();
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
@@ -1038,7 +1084,7 @@ export async function createLocalServer(
       const matches = deleteMatches(paths, request.body?.matchIds ?? []);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       emitAvatarUpdate();
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
@@ -1053,7 +1099,7 @@ export async function createLocalServer(
       const matches = undoDeletedMatches(paths);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       emitAvatarUpdate();
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
@@ -1068,7 +1114,7 @@ export async function createLocalServer(
       const matches = setActiveMatch(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       emitAvatarUpdate();
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
@@ -1087,7 +1133,7 @@ export async function createLocalServer(
       const matches = recordMatchWinner(paths, request.params.matchId, winner);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
       // 登记本局胜负：当前画面是推流页面1-3 时自动切入胜者结算画面（page10）
@@ -1103,7 +1149,7 @@ export async function createLocalServer(
       const matches = startCurrentGame(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
       response.json({ success: true, store: matches, scoreboard, panels });
@@ -1131,7 +1177,7 @@ export async function createLocalServer(
         left: selections.left,
         right: selections.right,
       });
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       response.json({ success: true, store: matches });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1143,7 +1189,7 @@ export async function createLocalServer(
       const matches = undoMatchAction(paths, _request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       emitAvatarUpdate();
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
@@ -1158,7 +1204,7 @@ export async function createLocalServer(
       const matches = redoMatchAction(paths, _request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       emitAvatarUpdate();
       io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
       panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
@@ -1221,7 +1267,7 @@ export async function createLocalServer(
 
       if (activeMatch && activeGame?.status === 'pending') {
         const matches = saveDraftPanelStateForActiveMatch(paths, position, request.body?.selected ?? []);
-        io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+        emitMatchesUpdate(matches);
         response.json({ success: true, store: matches });
         return;
       }
@@ -1230,7 +1276,7 @@ export async function createLocalServer(
         const panel = savePanelState(paths, position, request.body?.selected ?? []);
         const matches = saveDraftPanelStateForActiveMatch(paths, position, request.body?.selected ?? []);
         io.emit(SOCKET_EVENTS.panelUpdate, { panel });
-        io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+        emitMatchesUpdate(matches);
         response.json({ success: true, panel, matches });
         return;
       }
@@ -1238,7 +1284,7 @@ export async function createLocalServer(
       const panel = savePanelState(paths, position, request.body?.selected ?? []);
       const matches = syncActiveMatchLineupsFromPanels(paths);
       io.emit(SOCKET_EVENTS.panelUpdate, { panel });
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       response.json({ success: true, panel, matches });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1272,7 +1318,7 @@ export async function createLocalServer(
 
       if (activeMatch && activeGame?.status === 'pending') {
         const matches = saveDraftPanelSlotStateForActiveMatch(paths, position, slotIndex, request.body?.slot ?? null);
-        io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+        emitMatchesUpdate(matches);
         response.json({ success: true, store: matches });
         return;
       }
@@ -1281,7 +1327,7 @@ export async function createLocalServer(
         const panel = savePanelSlotState(paths, position, slotIndex, request.body?.slot ?? null);
         const matches = saveDraftPanelSlotStateForActiveMatch(paths, position, slotIndex, request.body?.slot ?? null);
         io.emit(SOCKET_EVENTS.panelUpdate, { panel });
-        io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+        emitMatchesUpdate(matches);
         response.json({ success: true, panel, matches });
         return;
       }
@@ -1289,7 +1335,7 @@ export async function createLocalServer(
       const panel = savePanelSlotState(paths, position, slotIndex, request.body?.slot ?? null);
       const matches = syncActiveMatchLineupsFromPanels(paths);
       io.emit(SOCKET_EVENTS.panelUpdate, { panel });
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       response.json({ success: true, panel, matches });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1318,7 +1364,7 @@ export async function createLocalServer(
 
       if (activeMatch && activeGame?.status === 'pending') {
         const matches = saveDraftPanelStateForActiveMatch(paths, position, []);
-        io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+        emitMatchesUpdate(matches);
         response.json({ success: true, position, matches });
         return;
       }
@@ -1328,7 +1374,7 @@ export async function createLocalServer(
         const panel = getPanelState(paths, position);
         const matches = saveDraftPanelStateForActiveMatch(paths, position, []);
         io.emit(SOCKET_EVENTS.panelUpdate, { panel });
-        io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+        emitMatchesUpdate(matches);
         response.json({ success: true, position, panel, matches });
         return;
       }
@@ -1337,7 +1383,7 @@ export async function createLocalServer(
       const panel = getPanelState(paths, position);
       const matches = syncActiveMatchLineupsFromPanels(paths);
       io.emit(SOCKET_EVENTS.panelUpdate, { panel });
-      io.emit(SOCKET_EVENTS.matchesUpdate, { store: matches });
+      emitMatchesUpdate(matches);
       response.json({ success: true, position, panel, matches });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });

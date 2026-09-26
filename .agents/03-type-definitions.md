@@ -27,7 +27,7 @@
 |---------|------|------|
 | StagePageKey | 推流页面 key：page1-overlay / page2 / page3 / page4 / page5 / page6 / page7 / page8 / page9 / page10 / page11 / page12 / page13 / blank。page4 为 MVP 结算画面；page11/12/13 为选手介绍三画面（同一页面文件 ?mode=left/right/versus） | shared/types.ts |
 | StageTransitionType | 过渡效果：none / blinds / wolf | shared/types.ts |
-| StageConfig | 推流载体配置（page, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit, mtime）。page3RankVisible 控制页面3排位排名图标显隐；page3TeamVisible 控制页面3左右两侧战队标识 div 显隐；page3RedLightMode 为页面3红光特效档位（off/manual/auto，manual = 显示至下一对局自动失效，auto = 按阵亡阈值实时跟随）；page11RankVisible 控制选手介绍排位排名 div 显隐；page10Duration/page10DurationUnit 为胜负登记后自动切入 page10 的停留时长 | shared/types.ts |
+| StageConfig | 推流载体配置（page, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit, mtime）。page3RankVisible 控制页面3排位排名图标显隐；page3TeamVisible 控制页面3左右两侧战队标识 div 显隐；page3RedLightMode 为页面3红光特效持久策略（off/auto）；page3RedLightInstant 为一次性「立即显示」（进入下一局自动清除，不影响策略）；page11RankVisible 控制选手介绍排位排名 div 显隐；page10Duration/page10DurationUnit 为胜负登记后自动切入 page10 的停留时长 | shared/types.ts |
 | Page6State | 比赛结果页配置（matchIds 最多 8 个已结束比赛, title 副标题, mtime） | shared/types.ts |
 | Page7State | 对局推送页配置（matchIds 已结束比赛, title 主标题留空用默认「对局推送」, notice 温馨提示留空用默认, mtime） | shared/types.ts |
 | Page8State | 比赛预告页配置（matchIds 最多 4 个待开始/进行中比赛, title, background image/image-2/custom, wallpaperUrl, mtime） | shared/types.ts |

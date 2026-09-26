@@ -58,13 +58,13 @@ export const SUPPORTED_PAGE3_SPRITE_SOURCES = new Set(['sprite', 'thumbnail']);
 export const DEFAULT_PAGE3_RANK_VISIBLE = false;
 export const DEFAULT_PAGE3_TEAM_VISIBLE = false;
 /**
- * 推流页面3红光特效模式：
- * - off: 关闭
- * - manual: 手动开启（选中即显示，显示至下一对局时自动失效）
- * - auto: 自动开启（任一侧阵亡数达到阈值即显示，实时跟随阵亡状态）
+ * 推流页面3红光特效：
+ * - page3RedLightMode: 持久策略，off = 关闭（不自动触发）/ auto = 自动开启（按阵亡阈值触发）
+ * - page3RedLightInstant: 一次性「立即显示」（提前触发），进入下一局自动清除，不影响策略
  */
 export const DEFAULT_PAGE3_RED_LIGHT_MODE = 'off' as const;
-export const SUPPORTED_PAGE3_RED_LIGHT_MODES = new Set(['off', 'manual', 'auto']);
+export const SUPPORTED_PAGE3_RED_LIGHT_MODES = new Set(['off', 'auto']);
+export const DEFAULT_PAGE3_RED_LIGHT_INSTANT = false;
 /** 选手介绍（page11-13）：默认显示选手排位排名 div（无排名时自动隐藏） */
 export const DEFAULT_PAGE11_RANK_VISIBLE = true;
 export const RANK_TEXT_MAX_LENGTH = 10;

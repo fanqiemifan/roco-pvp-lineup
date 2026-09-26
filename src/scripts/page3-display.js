@@ -29,13 +29,12 @@
     let avatarSignature = null;
     let nextGameSignature = null;
     let matchPhaseSignature = null;
-    let activeMatchIdSignature;
     let page3SpriteSource = 'sprite';
     let page3RankVisible = false;
     let page3TeamVisible = false;
     let page3RedLightMode = 'off';
-    // 手动档是否已手动开启（显示至下一对局，切档可重新触发）
-    let redLightManualActive = false;
+    // 「立即显示」一次性触发（进入下一局由服务端自动清除，不影响关闭/自动开启策略）
+    let page3RedLightInstant = false;
     let redLightVisible = false;
     let scoreboardDataCache = null;
     let storeDataCache = null;
@@ -349,11 +348,11 @@
     }
 
     function computeRedLightVisible() {
+        if (page3RedLightInstant) {
+            return true;
+        }
         if (page3RedLightMode === 'auto') {
             return isRedLightAutoTriggered();
-        }
-        if (page3RedLightMode === 'manual') {
-            return redLightManualActive;
         }
         return false;
     }
@@ -370,13 +369,20 @@
     }
 
     function setPage3RedLightMode(mode) {
-        const nextMode = mode === 'manual' || mode === 'auto' ? mode : 'off';
+        const nextMode = mode === 'auto' ? 'auto' : 'off';
         if (nextMode === page3RedLightMode) {
             return;
         }
-        // 手动档：切换到手动即视为一次手动开启，显示至下一对局（observeMatchPhase 观察对局边界后失效）
-        redLightManualActive = nextMode === 'manual';
         page3RedLightMode = nextMode;
+        applyRedLightVisible();
+    }
+
+    function setPage3RedLightInstant(value) {
+        const nextInstant = value === true;
+        if (nextInstant === page3RedLightInstant) {
+            return;
+        }
+        page3RedLightInstant = nextInstant;
         applyRedLightVisible();
     }
 
@@ -534,23 +540,8 @@
         }
     }
 
-    function getActiveMatchId(payload) {
-        const store = payload && payload.store;
-        return store && store.activeMatchId ? String(store.activeMatchId) : '';
-    }
-
     function observeMatchPhase(payload) {
         const nextPhase = getMatchPhase(payload);
-        const nextMatchId = getActiveMatchId(payload);
-        // 进入下一对局（换比赛或新小局开始）时，手动档红光特效自动失效（需重新切档再次触发）
-        const matchChanged = activeMatchIdSignature !== undefined && activeMatchIdSignature !== nextMatchId;
-        const gameStarted = matchPhaseSignature !== null && matchPhaseSignature !== 'in_progress' && nextPhase === 'in_progress';
-        activeMatchIdSignature = nextMatchId;
-        if (matchChanged || gameStarted) {
-            redLightManualActive = false;
-            applyRedLightVisible();
-        }
-
         if (matchPhaseSignature === null) {
             matchPhaseSignature = nextPhase;
             return;
@@ -806,6 +797,7 @@
         setPage3RankVisible(payload && payload.stage ? payload.stage.page3RankVisible === true : false);
         setPage3TeamVisible(payload && payload.stage ? payload.stage.page3TeamVisible === true : false);
         setPage3RedLightMode(payload && payload.stage ? payload.stage.page3RedLightMode : 'off');
+        setPage3RedLightInstant(payload && payload.stage ? payload.stage.page3RedLightInstant === true : false);
         storeDataCache = payload ? payload.store || null : null;
         profilesDataCache = payload ? payload.profiles || null : null;
         renderTeams();
@@ -1033,6 +1025,7 @@
             setPage3RankVisible(stage && stage.page3RankVisible === true);
             setPage3TeamVisible(stage && stage.page3TeamVisible === true);
             setPage3RedLightMode(stage && stage.page3RedLightMode);
+            setPage3RedLightInstant(stage && stage.page3RedLightInstant === true);
         });
 
         socket.on('profiles:update', payload => {
