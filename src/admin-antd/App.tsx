@@ -69,6 +69,7 @@ import type {
   ScoreboardState,
   Page6Background,
   Page3SpriteSource,
+  Page3RedLightMode,
   SlotState,
   SpriteRecord,
   StageConfig,
@@ -2374,7 +2375,7 @@ function Dashboard() {
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page11RankVisible?: boolean; page5Player?: string; page5Tag?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page11RankVisible?: boolean; page5Player?: string; page5Tag?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
@@ -2382,18 +2383,19 @@ function Dashboard() {
     const page3SpriteSource = options?.page3SpriteSource ?? stage?.page3SpriteSource ?? 'sprite';
     const page3RankVisible = options?.page3RankVisible ?? stage?.page3RankVisible ?? false;
     const page3TeamVisible = options?.page3TeamVisible ?? stage?.page3TeamVisible ?? false;
+    const page3RedLightMode = options?.page3RedLightMode ?? stage?.page3RedLightMode ?? 'off';
     const page11RankVisible = options?.page11RankVisible ?? stage?.page11RankVisible ?? true;
     const page5Player = options?.page5Player ?? stage?.page5Player ?? '';
     const page5Tag = options?.page5Tag ?? stage?.page5Tag ?? '';
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -4627,42 +4629,64 @@ function Dashboard() {
                   </Paragraph>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} md={12} xl={8}>
-                      <Card size="small" className="subtle-card" title="推流页面5-精灵出场胜率-统计口径">
+                      <Card size="small" className="subtle-card" title="推流页面3设置">
                         <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="页面5标题：">
-                            <Input
-                              maxLength={40}
-                              placeholder="例如：洛克比赛（自动拼上赛事标签与精灵出场胜率）"
-                              value={page5TitleDraft}
-                              onChange={(event) => setPage5TitleDraft(event.target.value)}
-                              onBlur={() => { void savePage5TitleNow(); }}
-                            />
-                          </SettingField>
-                          <SettingField label="赛事标签：">
-                            <Select
-                              className="stage-page5-tag-select"
-                              value={stage?.page5Tag || undefined}
+                          <SettingField label="精灵图片：">
+                            <Segmented
+                              block
+                              value={stage?.page3SpriteSource ?? 'sprite'}
                               disabled={stageSaving}
                               options={[
-                                { value: '', label: '全部' },
-                                ...allHistoryTags.map((tag) => ({ value: tag, label: tag })),
+                                { value: 'sprite', label: '精灵原图' },
+                                { value: 'thumbnail', label: '精灵头像' },
                               ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Tag: value ?? '' }); }}
+                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3SpriteSource: value as Page3SpriteSource }); }}
                             />
                           </SettingField>
-                          <SettingField label="选手：">
-                            <Select
-                              showSearch
-                              className="stage-page5-tag-select"
-                              value={stage?.page5Player || undefined}
+                          <SettingField
+                            label="红光特效："
+                            hint="手动开启：选中后特效持续显示，进入下一对局自动失效；自动开启：任一选手一侧精灵阵亡 3 只时显示，若阵亡的精灵中含卡瓦重、卡卡虫、丢丢则需 4 只。"
+                          >
+                            <Segmented
+                              block
+                              value={stage?.page3RedLightMode ?? 'off'}
                               disabled={stageSaving}
                               options={[
-                                { value: '', label: '全部' },
-                                ...allPlayers.map((playerName) => ({ value: playerName, label: playerName })),
+                                { value: 'off', label: '关闭' },
+                                { value: 'manual', label: '手动开启' },
+                                { value: 'auto', label: '自动开启' },
                               ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Player: value ?? '' }); }}
+                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightMode: value as Page3RedLightMode }); }}
                             />
                           </SettingField>
+                          <Row gutter={[16, 12]}>
+                            <Col xs={24} md={12}>
+                              <SettingField label="排位图标：">
+                                <Space wrap>
+                                  <Switch
+                                    checked={stage?.page3RankVisible ?? false}
+                                    disabled={stageSaving}
+                                    loading={stageSaving}
+                                    onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RankVisible: checked }); }}
+                                  />
+                                  {stage?.page3RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
+                                </Space>
+                              </SettingField>
+                            </Col>
+                            <Col xs={24} md={12}>
+                              <SettingField label="战队标识：">
+                                <Space wrap>
+                                  <Switch
+                                    checked={stage?.page3TeamVisible ?? false}
+                                    disabled={stageSaving}
+                                    loading={stageSaving}
+                                    onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3TeamVisible: checked }); }}
+                                  />
+                                  {stage?.page3TeamVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
+                                </Space>
+                              </SettingField>
+                            </Col>
+                          </Row>
                         </Space>
                       </Card>
                     </Col>
@@ -4799,41 +4823,41 @@ function Dashboard() {
                   </Row>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} md={8}>
-                      <Card size="small" className="subtle-card" title="推流页面3设置">
+                      <Card size="small" className="subtle-card" title="推流页面5-精灵出场胜率-统计口径">
                         <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="精灵图片：" hint="切换显示精灵完整立绘或者头像缩略图。">
-                            <Segmented
-                              block
-                              value={stage?.page3SpriteSource ?? 'sprite'}
-                              disabled={stageSaving}
-                              options={[
-                                { value: 'sprite', label: '精灵原图' },
-                                { value: 'thumbnail', label: '精灵头像' },
-                              ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3SpriteSource: value as Page3SpriteSource }); }}
+                          <SettingField label="页面5标题：">
+                            <Input
+                              maxLength={40}
+                              placeholder="例如：洛克比赛（自动拼上赛事标签与精灵出场胜率）"
+                              value={page5TitleDraft}
+                              onChange={(event) => setPage5TitleDraft(event.target.value)}
+                              onBlur={() => { void savePage5TitleNow(); }}
                             />
                           </SettingField>
-                          <SettingField label="排位图标：" hint="比分栏中显示选手的排名">
-                            <Space wrap>
-                              <Switch
-                                checked={stage?.page3RankVisible ?? false}
-                                disabled={stageSaving}
-                                loading={stageSaving}
-                                onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RankVisible: checked }); }}
-                              />
-                              {stage?.page3RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                            </Space>
+                          <SettingField label="赛事标签：">
+                            <Select
+                              className="stage-page5-tag-select"
+                              value={stage?.page5Tag || undefined}
+                              disabled={stageSaving}
+                              options={[
+                                { value: '', label: '全部' },
+                                ...allHistoryTags.map((tag) => ({ value: tag, label: tag })),
+                              ]}
+                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Tag: value ?? '' }); }}
+                            />
                           </SettingField>
-                          <SettingField label="战队标识：" hint="显示选手所在战队">
-                            <Space wrap>
-                              <Switch
-                                checked={stage?.page3TeamVisible ?? false}
-                                disabled={stageSaving}
-                                loading={stageSaving}
-                                onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3TeamVisible: checked }); }}
-                              />
-                              {stage?.page3TeamVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                            </Space>
+                          <SettingField label="选手：">
+                            <Select
+                              showSearch
+                              className="stage-page5-tag-select"
+                              value={stage?.page5Player || undefined}
+                              disabled={stageSaving}
+                              options={[
+                                { value: '', label: '全部' },
+                                ...allPlayers.map((playerName) => ({ value: playerName, label: playerName })),
+                              ]}
+                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Player: value ?? '' }); }}
+                            />
                           </SettingField>
                         </Space>
                       </Card>

@@ -62,6 +62,7 @@
 - 批量操作：选手/战队表格可勾选多行一键删除（确认弹窗列出名称清单）；「批量头像」先按文件名本地匹配出「原头像 vs 新头像」预览弹窗，确认才提交覆盖保存；文件名经表单 `names` 字段以 JSON 传递，规避 multer 将 multipart 文件名按 latin1 解码的乱码问题。
 - 战队标识（page3）：赛事携带 `leftTeamId/leftTeamName/rightTeamId/rightTeamName`，「直播推流」的 `page3TeamVisible` 控制显隐；logo 优先按 teamId 匹配录入战队，未录入仅显示名称色块；渲染细节见 `.agents/09`。
 - 排位排名图标（page3 比分栏 / 选手介绍页）：创建弹窗或「当前比赛」表单输入（仅数字、可选），随对局存入 matches.json 并由 `syncScoreboardFromMatch` 同步到记分牌；`page3RankVisible` / `page11RankVisible` 控制推流页显隐（开启但未输入排名只显示图标，超 10000 显示 `10000+`）。
+- 红光特效（page3）：「直播推流-推流页面3设置」的 `page3RedLightMode` 三档（关闭/手动开启/自动开启），素材 `src/assets/Effect/red-light.jpg` 由页面运行时去黑转 alpha 后以 `mix-blend-mode: screen` 叠加并呼吸显示；手动档显示至下一对局自动失效，自动档任一侧阵亡 ≥3 只触发（阵亡中含卡瓦重/卡卡虫/丢丢时需 4 只），细节见 `.agents/09`。
 - 详细索引（类型、API 路由、函数、socket 事件、常量、文件地图）在 `.agents/01..10-*.md` —— 遇到问题先查它们；行为有变化时要同步更新这些文档。
 
 ## 注意事项

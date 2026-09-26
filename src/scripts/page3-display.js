@@ -7,6 +7,12 @@
         left: '/assets/ui/left-avatar.png',
         right: '/assets/ui/right-avatar.png'
     };
+    // 红光特效：自动档任一侧阵亡精灵数达到阈值即显示；
+    // 阵亡精灵中含下列可复活精灵（卡瓦重/卡卡虫/丢丢，任意形态）时阈值提升为 4
+    const RED_LIGHT_IMAGE_URL = '/assets/Effect/red-light.jpg';
+    const RED_LIGHT_SPECIAL_NAMES = new Set(['卡瓦重', '卡卡虫', '丢丢']);
+    const RED_LIGHT_DEAD_THRESHOLD = 3;
+    const RED_LIGHT_SPECIAL_DEAD_THRESHOLD = 4;
 
     const panelStates = {
         left: { signatures: new Array(MAX_SLOTS).fill(null) },
@@ -17,14 +23,20 @@
         right: new Array(MAX_SLOTS).fill(null)
     };
     const exitLayer = document.getElementById('page3LineupExitLayer');
+    const redLightLayer = document.getElementById('page3RedLight');
 
     let scoreboardSignature = null;
     let avatarSignature = null;
     let nextGameSignature = null;
     let matchPhaseSignature = null;
+    let activeMatchIdSignature;
     let page3SpriteSource = 'sprite';
     let page3RankVisible = false;
     let page3TeamVisible = false;
+    let page3RedLightMode = 'off';
+    // 手动档是否已手动开启（显示至下一对局，切档可重新触发）
+    let redLightManualActive = false;
+    let redLightVisible = false;
     let scoreboardDataCache = null;
     let storeDataCache = null;
     let profilesDataCache = null;
@@ -299,6 +311,109 @@
                 lastRenderedSlots[position][index] = null;
             }
         });
+
+        applyRedLightVisible();
+    }
+
+    function isSlotDead(slotData) {
+        return Boolean(slotData && slotData.healthEnabled && Number(slotData.healthPercent) <= 0);
+    }
+
+    // 精灵基础名：displayName 为纯名称；兜底去掉 name 的形态后缀（如 卡瓦重（草地附近的样子））
+    function getRedLightSpriteName(sprite) {
+        if (!sprite) {
+            return '';
+        }
+        const displayName = String(sprite.displayName || '').trim();
+        if (displayName) {
+            return displayName;
+        }
+        return String(sprite.name || '').replace(/[（(][^）)]*[）)]\s*$/, '').trim();
+    }
+
+    // 自动开启条件：任一选手一侧阵亡精灵数达到阈值；
+    // 该侧阵亡精灵中含卡瓦重/卡卡虫/丢丢时阈值提升为 4
+    function isRedLightAutoTriggered() {
+        return ['left', 'right'].some(side => {
+            const panel = panelDataCache[side];
+            const selected = panel && Array.isArray(panel.selected) ? panel.selected : [];
+            const deadSprites = selected
+                .filter(slotData => isSlotDead(slotData) && slotData.sprite)
+                .map(slotData => slotData.sprite);
+            if (deadSprites.length < RED_LIGHT_DEAD_THRESHOLD) {
+                return false;
+            }
+            const hasSpecial = deadSprites.some(sprite => RED_LIGHT_SPECIAL_NAMES.has(getRedLightSpriteName(sprite)));
+            return deadSprites.length >= (hasSpecial ? RED_LIGHT_SPECIAL_DEAD_THRESHOLD : RED_LIGHT_DEAD_THRESHOLD);
+        });
+    }
+
+    function computeRedLightVisible() {
+        if (page3RedLightMode === 'auto') {
+            return isRedLightAutoTriggered();
+        }
+        if (page3RedLightMode === 'manual') {
+            return redLightManualActive;
+        }
+        return false;
+    }
+
+    function applyRedLightVisible() {
+        const nextVisible = computeRedLightVisible();
+        if (nextVisible === redLightVisible) {
+            return;
+        }
+        redLightVisible = nextVisible;
+        if (redLightLayer) {
+            redLightLayer.classList.toggle('is-visible', nextVisible);
+        }
+    }
+
+    function setPage3RedLightMode(mode) {
+        const nextMode = mode === 'manual' || mode === 'auto' ? mode : 'off';
+        if (nextMode === page3RedLightMode) {
+            return;
+        }
+        // 手动档：切换到手动即视为一次手动开启，显示至下一对局（observeMatchPhase 观察对局边界后失效）
+        redLightManualActive = nextMode === 'manual';
+        page3RedLightMode = nextMode;
+        applyRedLightVisible();
+    }
+
+    // 红光特效图运行时处理：黑底按亮度转 alpha（近似反预乘，叠加结果接近滤色），
+    // 避免黑底遮挡透明叠层下的推流画面
+    function prepareRedLightLayer() {
+        const canvas = document.getElementById('page3RedLightCanvas');
+        const image = new Image();
+        image.onload = () => {
+            const context = canvas ? canvas.getContext('2d') : null;
+            if (!context) {
+                return;
+            }
+            try {
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const pixels = imageData.data;
+                for (let index = 0; index < pixels.length; index += 4) {
+                    const maxChannel = Math.max(pixels[index], pixels[index + 1], pixels[index + 2]);
+                    if (maxChannel <= 12) {
+                        pixels[index + 3] = 0;
+                        continue;
+                    }
+                    pixels[index] = Math.round(pixels[index] * 255 / maxChannel);
+                    pixels[index + 1] = Math.round(pixels[index + 1] * 255 / maxChannel);
+                    pixels[index + 2] = Math.round(pixels[index + 2] * 255 / maxChannel);
+                    pixels[index + 3] = maxChannel;
+                }
+                context.putImageData(imageData, 0, 0);
+            } catch (error) {
+                console.error('红光特效图片处理失败:', error);
+            }
+        };
+        image.onerror = () => {
+            console.error('红光特效图片加载失败:', RED_LIGHT_IMAGE_URL);
+        };
+        image.src = RED_LIGHT_IMAGE_URL;
     }
 
 
@@ -419,8 +534,23 @@
         }
     }
 
+    function getActiveMatchId(payload) {
+        const store = payload && payload.store;
+        return store && store.activeMatchId ? String(store.activeMatchId) : '';
+    }
+
     function observeMatchPhase(payload) {
         const nextPhase = getMatchPhase(payload);
+        const nextMatchId = getActiveMatchId(payload);
+        // 进入下一对局（换比赛或新小局开始）时，手动档红光特效自动失效（需重新切档再次触发）
+        const matchChanged = activeMatchIdSignature !== undefined && activeMatchIdSignature !== nextMatchId;
+        const gameStarted = matchPhaseSignature !== null && matchPhaseSignature !== 'in_progress' && nextPhase === 'in_progress';
+        activeMatchIdSignature = nextMatchId;
+        if (matchChanged || gameStarted) {
+            redLightManualActive = false;
+            applyRedLightVisible();
+        }
+
         if (matchPhaseSignature === null) {
             matchPhaseSignature = nextPhase;
             return;
@@ -675,6 +805,7 @@
         setPage3SpriteSource(payload && payload.stage ? payload.stage.page3SpriteSource : 'sprite');
         setPage3RankVisible(payload && payload.stage ? payload.stage.page3RankVisible === true : false);
         setPage3TeamVisible(payload && payload.stage ? payload.stage.page3TeamVisible === true : false);
+        setPage3RedLightMode(payload && payload.stage ? payload.stage.page3RedLightMode : 'off');
         storeDataCache = payload ? payload.store || null : null;
         profilesDataCache = payload ? payload.profiles || null : null;
         renderTeams();
@@ -901,6 +1032,7 @@
             setPage3SpriteSource(stage && stage.page3SpriteSource);
             setPage3RankVisible(stage && stage.page3RankVisible === true);
             setPage3TeamVisible(stage && stage.page3TeamVisible === true);
+            setPage3RedLightMode(stage && stage.page3RedLightMode);
         });
 
         socket.on('profiles:update', payload => {
@@ -929,6 +1061,7 @@
     });
 
     document.addEventListener('DOMContentLoaded', async () => {
+        prepareRedLightLayer();
         try {
             await loadInitialState();
             connectSocket();

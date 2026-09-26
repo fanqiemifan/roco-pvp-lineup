@@ -21,6 +21,7 @@
 | SUPPORTED_PAGE3_SPRITE_SOURCES | {sprite,thumbnail} | 页面3精灵图片来源枚举 | shared/constants.ts |
 | DEFAULT_PAGE3_RANK_VISIBLE | false | 页面3排位排名图标默认隐藏 | shared/constants.ts |
 | DEFAULT_PAGE3_TEAM_VISIBLE | false | 页面3战队标识 div 默认隐藏 | shared/constants.ts |
+| DEFAULT_PAGE3_RED_LIGHT_MODE | off | 页面3红光特效默认档位（SUPPORTED_PAGE3_RED_LIGHT_MODES = off/manual/auto：manual 显示至下一对局失效，auto 按阵亡阈值触发） | shared/constants.ts |
 | DEFAULT_PAGE11_RANK_VISIBLE | true | 选手介绍（page11-13）排位排名 div 默认显示 | shared/constants.ts |
 | DEFAULT_PAGE10_DURATION / DEFAULT_PAGE10_DURATION_UNIT | 10 / seconds | 胜负登记后自动切入 page10 的默认停留时长与单位 | shared/constants.ts |
 | DEFAULT_NEXTGAME_DURATION / DEFAULT_NEXTGAME_DURATION_UNIT | 1 / minutes | 下场对局默认停留时长与单位（SUPPORTED_NEXTGAME_DURATION_UNITS = seconds/minutes） | shared/constants.ts |

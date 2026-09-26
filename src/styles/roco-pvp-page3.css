@@ -623,3 +623,38 @@ body {
     pointer-events: none;
     z-index: 2;
 }
+
+/* ---------- 红光特效层（red-light.jpg） ----------
+   图片为黑底红光，页面本身是透明叠层：黑色区域若直接叠加会遮挡底层推流画面，
+   因此脚本运行时按亮度把黑底转成透明度（近似滤色的叠加结果），
+   canvas 自身再挂 mix-blend-mode: screen 与页面内元素做真滤色叠加。 */
+.page3-red-light {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.page3-red-light-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    mix-blend-mode: screen;
+    opacity: 0;
+    transition: opacity 600ms ease;
+}
+
+/* 显示：先 600ms 淡入，随后进入 2.4s 一轮的呼吸循环 */
+.page3-red-light.is-visible .page3-red-light-canvas {
+    opacity: 1;
+    animation: page3-red-light-breath 2.4s ease-in-out 600ms infinite alternate;
+}
+
+@keyframes page3-red-light-breath {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0.55;
+    }
+}

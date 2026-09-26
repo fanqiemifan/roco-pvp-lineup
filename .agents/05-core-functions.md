@@ -77,7 +77,7 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 获取推流配置 | getStageState | (paths: AppPaths) => StageConfig | 获取 stage 配置 |
-| 保存推流配置 | saveStageState | (paths: AppPaths, payload) => StageConfig | 保存 stage 配置；page3RankVisible / page3TeamVisible 未携带时保留现值 |
+| 保存推流配置 | saveStageState | (paths: AppPaths, payload) => StageConfig | 保存 stage 配置；page3RankVisible / page3TeamVisible / page3RedLightMode 未携带时保留现值 |
 
 ## 信息录入 (profile-service.ts)
 

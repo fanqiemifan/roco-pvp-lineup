@@ -35,7 +35,7 @@
   - 批量删除：选手/战队表格均带 `rowSelection` 复选框，「删除所选（N）」一键删除（确认弹窗列出名称清单，删除时按钮 loading 并禁用复选框）。
   - 新增/编辑选手弹窗「常用精灵」：固定两列网格——按 displayName 去重显示精灵头像（iconUrl 缺省回退立绘）+ 名字卡片点选，上限 6 个，顶部搜索框实时过滤，`Form.useWatch('pets')` 双向绑定、打开弹窗时按原 pets 拆分回显。
 - stage - 直播推流（卡片式设置）
-  - 推流页面5-精灵出场胜率-统计口径（page5Player/page5Tag 过滤）；推流页面3设置（精灵图片来源 sprite/thumbnail、排位图标开关、战队标识开关）。
+  - 推流页面5-精灵出场胜率-统计口径（page5Player/page5Tag 过滤）；推流页面3设置（精灵图片来源 sprite/thumbnail、排位图标开关、战队标识开关、红光特效三档关闭/手动开启/自动开启 page3RedLightMode）。
   - 倒计时插件（时长/主题/显隐，走 `/api/countdown`）；下场对局（选择待开始比赛 + 停留时长，page3 的下场对局展示）。
   - 画面切换行为（过渡效果 none/blinds/wolf；page10 胜者结算自动切入与停留时长 page10Duration）。
   - 推流页面2设置（赛事标题/阵容展示）、推流页面6标题与背景、推流页面7标题文本（主标题/温馨提示）、选手介绍显示（page11-13 排位 div 开关 page11RankVisible）、团队积分榜设置（page9）、底部「显示设置」（推流页5标题、比分字号）。
@@ -93,6 +93,7 @@
 - roco-pvp-page3.html + page3-display.js — 头像比分阵容
   - 比分栏中央两侧排位排名图标（stage.page3RankVisible 控制显隐，开启但未输入排名时仅显示图标；排名超过 10000 显示 10000+，txt 位置按位数查表）
   - 战队标识 div（stage.page3TeamVisible 控制显隐）：左右各一（左 x257 y958 / 右 x1569 y958），94×94 圆角 18，外描边 2px C9C9C9（box-shadow），底部 24px 高 F2ECDF 色块叠加战队名称（MiSans-Semibold 15px #585858，`buildTeamNameImage` 用 canvas 渲染 PNG 缓存规避字体兼容问题）；logo 优先按 teamId 匹配录入战队，未录入仅显示名称色块
+  - 红光特效层（stage.page3RedLightMode：off/manual/auto）：`.page3-red-light`（z-index 10，pointer-events none）内 canvas 承载 `src/assets/Effect/red-light.jpg`；图片为黑底红光，页面本身是透明叠层，因此 `prepareRedLightLayer` 在运行时按亮度把黑底转成 alpha（反预乘，叠加结果近似滤色），canvas 自身 `mix-blend-mode: screen` 与页面内元素做真滤色；显示 = 600ms 淡入后进入 2.4s 一轮 opacity 1↔0.55 的呼吸动画（`.is-visible`）。manual 档切入选即手动开启、持续显示至下一对局（`observeMatchPhase` 检测 activeMatchId 变化或新小局开始后失效，需重新切档触发）；auto 档实时跟随阵亡数：任一侧阵亡 ≥3 只显示，若该侧阵亡精灵中含卡瓦重/卡卡虫/丢丢（按 displayName 比对，任意形态）则阈值提升为 4
 - roco-pvp-page4.html + page4-display.js — MVP 结算画面（推流页面4，公开免鉴权；数据 `GET /api/mvp` + `/api/sprites`；背景 mvp-back.png，最多 6 个精灵项：最左 x80、单个 290×720、间隔 4px，自上而下 = tag div 290×110（tag-01.svg，文字 YouSheBiaoTiHei 40px 黑色、旋转 4.62°，空标签整块隐藏）→ webm 260×630（居中距顶 50px，按 pet_id 取 resources/sprites-260-630-webm/`{pet_id}_{name}.webm`）→ petsdiv3 头像 98×98（居中距顶 622px，圆形底托改金色渐变 E6B856→7A573B + 描边渐变 9A6C38→F9F086）；标记为 MVP 的精灵项额外叠加 MVP.png 280×280（y380 居中，z-index 3）；再往上层为叠加层 `back-mvp-1.png`（1920×1080 传送门效果，z-index 10，只压精灵项）+ 最顶层胜方选手信息条 550×150（水平居中距顶 906px，背景 mvp-payer-winner-back.png，头像 100×100 圆形 + 名字 YouSheBiaoTiHei 48 白色、彼此间隔 0px，数据取 `GET /api/mvp` 的 winner——由已保存的胜方快照下发，mvp:update/avatar:update 时重拉；切换对局不改变）。**不使用 fx-enter**：收 stage-enter 后再等 `ENTER_DELAY_MS`（900ms，等载体过渡播完）按槽位 `--mvp-item-order × 120ms` 依次淡入上浮（选手信息条排在最后一个精灵项之后），过渡期间新出现的槽位单独入场）
 - roco-pvp-page5.html + page5-display.js — 登场/胜率排行
 - roco-pvp-page6.html + page6-display.js — 比赛结果页（已结束比赛的结果展示）
