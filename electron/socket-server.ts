@@ -792,7 +792,8 @@ export async function createLocalServer(
   app.post('/api/mvp', (request, response) => {
     try {
       const state = saveMvpState(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.mvpUpdate, { state });
+      // 广播带 winner（胜方快照解析出的名字与头像）：后台「结算画面」直接据此展示，无需再拉一次
+      io.emit(SOCKET_EVENTS.mvpUpdate, { state, winner: getMvpWinnerInfo(paths) });
       response.json({ success: true, state });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -807,7 +808,7 @@ export async function createLocalServer(
         ? getMvpState(paths)
         : saveMvpReturnPage(paths, stageBefore.page);
       const stage = saveStageState(paths, { ...stageBefore, page: 'page4' });
-      io.emit(SOCKET_EVENTS.mvpUpdate, { state: mvp });
+      io.emit(SOCKET_EVENTS.mvpUpdate, { state: mvp, winner: getMvpWinnerInfo(paths) });
       io.emit(SOCKET_EVENTS.stageUpdate, { stage });
       response.json({ success: true, state: mvp, stage });
     } catch (error) {

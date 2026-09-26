@@ -114,8 +114,8 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取 MVP 结算状态 | GET | /api/mvp | 返回 `{ state: MvpState, winner: MvpWinnerInfo }`（公开 GET，推流页面4 首拉；winner 为最近一个已分胜负小局的胜者名字与头像） | electron/socket-server.ts |
-| 保存 MVP 结算配置 | POST | /api/mvp | 保存 slots（最多 6 个精灵项：petId/tag≤4 字/isMvp）与 returnPage，广播 mvp:update | electron/socket-server.ts |
+| 获取 MVP 结算状态 | GET | /api/mvp | 返回 `{ state: MvpState, winner: MvpWinnerInfo }`（公开 GET，推流页面4 首拉；winner 由已保存的胜方快照下发，切换对局不改变） | electron/socket-server.ts |
+| 保存 MVP 结算配置 | POST | /api/mvp | 保存 slots（最多 6 个精灵项：petId/tag≤4 字/isMvp）、returnPage 与 winner 胜方快照（matchId+side+playerName，传 null 清除；未传字段保留当前值），广播 mvp:update | electron/socket-server.ts |
 | 显示 MVP 结算 | POST | /api/mvp/show | 记录当前推流画面到 returnPage，并把 stage.page 切到 page4，广播 mvp:update + stage:update | electron/socket-server.ts |
 | 关闭 MVP 结算 | POST | /api/mvp/hide | 把 stage.page 切回 returnPage，广播 stage:update | electron/socket-server.ts |
 

@@ -42,9 +42,9 @@
 - page11 - 选手介绍（画面切换 left/right/versus；「选手介绍数据」按侧配置来源 manual/match，手动填写字段留空回退「信息录入」按名字匹配值）
 - live - 实时控制（比赛开始、胜负记录、撤销/恢复）
 - mvp - 结算画面（MVP 结算 / 推流页面4；导航图标 结算页面.svg）
-  - 取数口径同推流页面10：当前对局「最近一个已分胜负小局」的胜者一侧（lib/match.ts `getRecentWinnerLineup`，优先槽位快照 pet_id、回退小局阵容）；**只收最终形态精灵**（`sprite.isFinalForm`），非最终形态在选择与「一键载入」时均被过滤。
-  - 显示控制：`显示 MVP 结算`（POST /api/mvp/show：记录当前画面到 returnPage 并切 stage 到 page4）/ `关闭`（POST /api/mvp/hide：切回 returnPage）；状态标签显示已标记精灵 n/6、标签是否完整、是否已标记 MVP；标签未完整时禁用「显示」。
-  - 精灵项（最多 6 行）：点选胜者阵容精灵填入第一个空槽（再次点击移除），每行可填标签（预设 MVP_TAG_PRESETS + 手动输入 ≤4 字，选择即时保存、手动输入失焦/回车保存）、标记 MVP（全页互斥，最多一个）、清空；空槽位不可编辑。
+  - 载入胜方：`载入当前对局胜方` 把当前对局「最近一个已分胜负小局」胜者一侧（lib/match.ts `getRecentWinnerLineup`，优先槽位快照 pet_id、回退小局阵容）的**选手名字+阵容快照**一并保存进 mvp.json（winner: matchId/side/playerName）；**只收最终形态精灵**（`sprite.isFinalForm`），胜者阵容无可用精灵时仅载入名字；保存后切换对局不会改变推流画面，需重新载入保存才更新，当前对局胜方与已载入不一致时给出提示。
+  - 显示控制：`显示 MVP 结算`（POST /api/mvp/show：记录当前画面到 returnPage 并切 stage 到 page4）/ `关闭`（POST /api/mvp/hide：切回 returnPage）；状态标签显示已标记精灵 n/6、标签是否完整、是否已标记 MVP；另展示**已载入胜方头像（56 圆形，`.mvp-winner-avatar`）+ 名字 + 侧/比赛 id**（头像按快照 matchId+side 解析、带 mtime 缓存参数，未上传回退 left/right-avatar.png 占位图，数据取 GET /api/mvp 的 winner，mvp:update 用 payload、avatar:update 时重拉）；标签未完整时禁用「显示」。
+  - 精灵项（最多 6 行）：点选当前对局胜者阵容精灵填入第一个空槽（再次点击移除），每行可填标签（预设 MVP_TAG_PRESETS + 手动输入 ≤4 字，选择即时保存、手动输入失焦/回车保存）、标记 MVP（全页互斥，最多一个）、清空；空槽位不可编辑。
   - 草稿同步：服务端 mvp.slots 变化时按内容比较回填（一致则保持原引用，避免编辑中标签被覆盖）。
 - history - 比赛历史（列表、删除、批量删除、撤销删除；「推送」勾选列→页面6、「预告」勾选列→页面8、「对局」勾选列配合「推送对局推送」按钮→页面7，可勾选待开始与进行中的对局；「录入阵容」弹窗 HistoryLineupEntryModal 为待开始小局录入双方阵容）
 - stats - 数据统计（StatsView：使用率/上场率排行、属性分布、标签趋势；1920px 断点布局）
@@ -93,7 +93,7 @@
 - roco-pvp-page3.html + page3-display.js — 头像比分阵容
   - 比分栏中央两侧排位排名图标（stage.page3RankVisible 控制显隐，开启但未输入排名时仅显示图标；排名超过 10000 显示 10000+，txt 位置按位数查表）
   - 战队标识 div（stage.page3TeamVisible 控制显隐）：左右各一（左 x257 y958 / 右 x1569 y958），94×94 圆角 18，外描边 2px C9C9C9（box-shadow），底部 24px 高 F2ECDF 色块叠加战队名称（MiSans-Semibold 15px #585858，`buildTeamNameImage` 用 canvas 渲染 PNG 缓存规避字体兼容问题）；logo 优先按 teamId 匹配录入战队，未录入仅显示名称色块
-- roco-pvp-page4.html + page4-display.js — MVP 结算画面（推流页面4，公开免鉴权；数据 `GET /api/mvp` + `/api/sprites`；背景 mvp-back.png，最多 6 个精灵项：最左 x80、单个 290×720、间隔 4px，自上而下 = tag div 290×110（tag-01.svg，文字 YouSheBiaoTiHei 40px 黑色、旋转 4.62°，空标签整块隐藏）→ webm 260×630（居中距顶 50px，按 pet_id 取 resources/sprites-260-630-webm/`{pet_id}_{name}.webm`）→ petsdiv3 头像 98×98（居中距顶 622px，圆形底托改金色渐变 E6B856→7A573B + 描边渐变 9A6C38→F9F086）；标记为 MVP 的精灵项额外叠加 MVP.png 280×280（y380 居中，z-index 3）；再往上层为叠加层 `back-mvp-1.png`（1920×1080 传送门效果，z-index 10，只压精灵项）+ 最顶层胜方选手信息条 550×150（水平居中距顶 906px，背景 mvp-payer-winner-back.png，头像 100×100 圆形 + 名字 YouSheBiaoTiHei 48 白色、彼此间隔 0px，数据取 `GET /api/mvp` 的 winner，matches:update/avatar:update 时重拉）。**不使用 fx-enter**：收 stage-enter 后再等 `ENTER_DELAY_MS`（900ms，等载体过渡播完）按槽位 `--mvp-item-order × 120ms` 依次淡入上浮（选手信息条排在最后一个精灵项之后），过渡期间新出现的槽位单独入场）
+- roco-pvp-page4.html + page4-display.js — MVP 结算画面（推流页面4，公开免鉴权；数据 `GET /api/mvp` + `/api/sprites`；背景 mvp-back.png，最多 6 个精灵项：最左 x80、单个 290×720、间隔 4px，自上而下 = tag div 290×110（tag-01.svg，文字 YouSheBiaoTiHei 40px 黑色、旋转 4.62°，空标签整块隐藏）→ webm 260×630（居中距顶 50px，按 pet_id 取 resources/sprites-260-630-webm/`{pet_id}_{name}.webm`）→ petsdiv3 头像 98×98（居中距顶 622px，圆形底托改金色渐变 E6B856→7A573B + 描边渐变 9A6C38→F9F086）；标记为 MVP 的精灵项额外叠加 MVP.png 280×280（y380 居中，z-index 3）；再往上层为叠加层 `back-mvp-1.png`（1920×1080 传送门效果，z-index 10，只压精灵项）+ 最顶层胜方选手信息条 550×150（水平居中距顶 906px，背景 mvp-payer-winner-back.png，头像 100×100 圆形 + 名字 YouSheBiaoTiHei 48 白色、彼此间隔 0px，数据取 `GET /api/mvp` 的 winner——由已保存的胜方快照下发，mvp:update/avatar:update 时重拉；切换对局不改变）。**不使用 fx-enter**：收 stage-enter 后再等 `ENTER_DELAY_MS`（900ms，等载体过渡播完）按槽位 `--mvp-item-order × 120ms` 依次淡入上浮（选手信息条排在最后一个精灵项之后），过渡期间新出现的槽位单独入场）
 - roco-pvp-page5.html + page5-display.js — 登场/胜率排行
 - roco-pvp-page6.html + page6-display.js — 比赛结果页（已结束比赛的结果展示）
 - roco-pvp-page7.html + page7-display.js — 对局推送页（比赛历史勾选已结束比赛推送；多场比赛逐行滚动展示选手对局信息；主标题/温馨提示在「直播推流」设置，留空用默认值）

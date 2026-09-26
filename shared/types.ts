@@ -359,20 +359,36 @@ export interface MvpSlotEntry {
 }
 
 /**
+ * MVP 结算（page4）胜方快照（页面顶部选手信息条取数口径）：
+ * 后台「结算画面」点「载入当前对局胜方」时把当前对局胜方写入 mvp.json，
+ * 之后切换对局不会改变推流画面，需重新载入保存才会更新。
+ * - matchId：胜方所属比赛 id（渲染时按它解析该场比赛头像；比赛被删/未上传时回退占位图）
+ * - side：胜方所在侧
+ * - playerName：保存时的胜方选手名字快照（不随赛事数据变化）
+ */
+export interface MvpWinnerSnapshot {
+  matchId: string;
+  side: 'left' | 'right';
+  playerName: string;
+}
+
+/**
  * MVP 结算（推流页面4）状态：
  * - slots：最多 MVP_MAX_ITEMS 个精灵项，顺序即页面从左到右的展示顺序
  * - returnPage：开启结算前所在推流画面，关闭结算时切回
+ * - winner：已载入的胜方快照（null = 未载入，页面显示「待定」与默认占位头像）
  */
 export interface MvpState {
   slots: MvpSlotEntry[];
   returnPage: StagePageKey;
+  winner: MvpWinnerSnapshot | null;
   mtime: number | null;
 }
 
 /**
  * MVP 结算（page4）胜方选手信息（页面顶部选手信息条）：
- * 取当前对局「最近一个已分胜负的小局」的胜者，口径与推流页面10 一致。
- * - side 为 null：当前对局还没有已分胜负的小局（页面显示「待定」与默认占位头像）
+ * 由已保存的胜方快照下发（MvpWinnerSnapshot），切换对局不会改变。
+ * - side 为 null：还没有已载入的胜方（页面显示「待定」与默认占位头像）
  * - avatarExists 为 false：该选手未上传头像，页面回退默认占位图
  */
 export interface MvpWinnerInfo {

@@ -5,7 +5,8 @@
      * 推流页面4（MVP 结算画面）渲染脚本。
      *
      * 数据来源：
-     * - GET /api/mvp -> { state: { slots: [{ petId, tag, isMvp }] } }（后台「结算画面」标记）
+     * - GET /api/mvp -> { state: { slots: [{ petId, tag, isMvp }], winner }, winner: MvpWinnerInfo }
+     *   （后台「结算画面」保存的精灵项/标签/MVP 标记与胜方快照；切换对局不会改变，需后台重新载入保存）
      * - GET /api/sprites -> 精灵索引（petId 解析出头像 iconUrl / 立绘 path / webm 文件名）
      *
      * 精灵项固定 6 个槽位：最左 x80，单个 290 宽 + 4 间隔；未赋值的槽位不展示。
@@ -158,7 +159,7 @@
         if (!winnerAvatarEl) {
             return;
         }
-        // 头像优先当前对局胜者头像，未上传时回退对应侧的默认占位图
+        // 头像按已载入胜方快照的 matchId+side 解析，未上传时回退对应侧的默认占位图
         winnerAvatarEl.src = avatarPath
             ? `${avatarPath}${avatarMtime ? `?t=${avatarMtime}` : ''}`
             : DEFAULT_AVATARS[side || 'left'];
@@ -311,15 +312,12 @@
             applyState(payload ? payload.mvp : null);
         });
 
-        socket.on('mvp:update', (payload) => {
-            applyState(payload ? payload.state : null);
-        });
-
-        // 登记/撤回小局胜负、切换当前赛事、上传头像都会影响胜方选手信息条
-        socket.on('matches:update', () => {
+        socket.on('mvp:update', () => {
+            // 保存精灵项/标签/MVP 标记或载入胜方快照都会广播本事件，统一重拉（state + winner）
             void loadMvpData();
         });
 
+        // 上传头像会影响胜方选手信息条（按已载入快照的 matchId+side 解析头像）
         socket.on('avatar:update', () => {
             void loadMvpData();
         });

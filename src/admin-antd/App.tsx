@@ -53,6 +53,8 @@ import type {
   MatchStoreState,
   MvpSlotEntry,
   MvpState,
+  MvpWinnerInfo,
+  MvpWinnerSnapshot,
   NextGamePayload,
   NextGameState,
   Page6State,
@@ -369,6 +371,8 @@ function Dashboard() {
   const [, setCountdownTick] = useState(0);
   // MVP 结算（推流页面4）：精灵项（最多 6 个，顺序即页面从左到右）、标签与 MVP 标记
   const [mvp, setMvp] = useState<MvpState | null>(null);
+  // 已载入胜方的选手信息（名字 + 头像，由快照 matchId+side 解析，展示在「结算画面」面板）
+  const [mvpWinner, setMvpWinner] = useState<MvpWinnerInfo | null>(null);
   const [mvpSaving, setMvpSaving] = useState(false);
   const [mvpSlotsDraft, setMvpSlotsDraft] = useState<MvpSlotEntry[]>(createEmptyMvpSlots);
   const [page6, setPage6] = useState<Page6State | null>(null);
@@ -512,11 +516,15 @@ function Dashboard() {
   ]).filter(Boolean)));
   // MVP 结算（推流页面4）：胜者阵容（口径同推流页面10）+ 标记完成度
   const mvpWinnerLineup = useMemo(() => getRecentWinnerLineup(activeMatch), [activeMatch]);
-  // 结算画面只收最终形态精灵：可点选与「一键载入」同一口径（非最终形态不进结算页）
+  // 结算画面只收最终形态精灵：可点选与「载入当前对局胜方」同一口径（非最终形态不进结算页）
   const mvpWinnerPetIds = mvpWinnerLineup.petIds.filter((petId) => spriteMap.get(petId)?.isFinalForm === true);
   const mvpAssignedCount = mvpSlotsDraft.filter((slot) => slot.petId).length;
   const mvpTagsComplete = mvpAssignedCount > 0 && mvpSlotsDraft.every((slot) => !slot.petId || slot.tag.trim().length > 0);
   const mvpVisible = stage?.page === 'page4';
+  // 当前对局胜方与已载入快照不一致：推流画面不会自动更新，需重新「载入当前对局胜方」
+  const mvpWinnerOutdated = Boolean(mvpWinnerLineup.side) && (
+    mvp?.winner?.matchId !== activeMatch?.id || mvp?.winner?.playerName !== mvpWinnerLineup.playerName
+  );
   const normalizedHistorySearch = historySearch.trim().toLowerCase();
   const filteredMatches = matchStore.matches.filter((match) => {
     if (historyTagFilter === UNCATEGORIZED_HISTORY_TAG) {
@@ -684,7 +692,7 @@ function Dashboard() {
         requestJson<NextGamePayload>('/api/nextgame'),
         requestJson<ProfileStoreState>('/api/profiles'),
         requestJson<CountdownPayload>('/api/countdown'),
-        requestJson<{ state: MvpState }>('/api/mvp'),
+        requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp'),
       ]);
 
       if (!auth.authenticated) {
@@ -710,6 +718,7 @@ function Dashboard() {
         setNextgame(nextNextgame.state);
         setNextgameMatch(nextNextgame.match ?? null);
         setMvp(nextMvp.state);
+        setMvpWinner(nextMvp.winner ?? null);
         // 与 applyServerState 一致：先维护草稿上下文再同步面板，避免 pending 时全局面板覆写编辑器
         pendingDraftRef.current = getPendingDraftContext(nextMatches);
         syncPanelFromApi('left', nextPanels.panels[0]);
@@ -820,6 +829,8 @@ function Dashboard() {
       if (payload?.avatars) {
         applyServerState({ avatars: payload.avatars });
       }
+      // 已载入胜方的头像按快照 matchId+side 解析：头像上传/删除后同步刷新面板展示
+      void refreshMvpWinner();
     });
 
     socket.on(SOCKET_EVENTS.stageUpdate, (payload) => {
@@ -879,6 +890,9 @@ function Dashboard() {
     socket.on(SOCKET_EVENTS.mvpUpdate, (payload) => {
       if (payload?.state) {
         applyServerState({ mvp: payload.state });
+      }
+      if (payload?.winner !== undefined) {
+        setMvpWinner(payload.winner ?? null);
       }
     });
 
@@ -2452,13 +2466,33 @@ function Dashboard() {
     }
   }
 
-  /** MVP 结算（推流页面4）：保存精灵项（顺序即页面从左到右，未赋值槽位由服务端忽略） */
-  async function saveMvpSlots(slots: MvpSlotEntry[]) {
+  /** 刷新 MVP 结算状态与已载入胜方信息（avatar:update 等无法从广播直接得到 winner 的场景） */
+  async function refreshMvpWinner() {
+    try {
+      const data = await requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp');
+      applyServerState({ mvp: data.state });
+      setMvpWinner(data.winner ?? null);
+    } catch {
+      // 刷新失败静默处理，不打断后台操作
+    }
+  }
+
+  /** 已载入胜方的头像地址：按快照 matchId+side 解析（与推流页面4 同口径），未上传时回退默认占位图 */
+  function getMvpWinnerAvatarSrc(): string {
+    const side = mvpWinner?.side === 'right' ? 'right' : 'left';
+    if (mvpWinner?.avatarExists && mvpWinner.avatarPath) {
+      return `${mvpWinner.avatarPath}${mvpWinner.avatarMtime ? `?t=${Math.floor(mvpWinner.avatarMtime)}` : ''}`;
+    }
+    return side === 'right' ? '/assets/ui/right-avatar.png' : '/assets/ui/left-avatar.png';
+  }
+
+  /** MVP 结算（推流页面4）：保存精灵项（顺序即页面从左到右，未赋值槽位由服务端忽略；winner 不传时保留已载入的胜方快照） */
+  async function saveMvpSlots(slots: MvpSlotEntry[], winner?: MvpWinnerSnapshot | null) {
     setMvpSaving(true);
     try {
       const data = await requestJson<{ success: boolean; state: MvpState }>('/api/mvp', {
         method: 'POST',
-        json: { slots },
+        json: winner === undefined ? { slots } : { slots, winner },
       });
       applyServerState({ mvp: data.state });
     } catch (error) {
@@ -2504,9 +2538,9 @@ function Dashboard() {
   }
 
   /** MVP 结算草稿：本地即时回显后保存（标签手动输入在失焦/回车时保存） */
-  function applyMvpDraft(next: MvpSlotEntry[]) {
+  function applyMvpDraft(next: MvpSlotEntry[], winner?: MvpWinnerSnapshot | null) {
     setMvpSlotsDraft(next);
-    void saveMvpSlots(next);
+    void saveMvpSlots(next, winner);
   }
 
   function updateMvpSlotDraft(index: number, patch: Partial<MvpSlotEntry>) {
@@ -2530,17 +2564,25 @@ function Dashboard() {
     applyMvpDraft(mvpSlotsDraft.map((slot, index) => (index === emptyIndex ? { ...slot, petId } : slot)));
   }
 
-  /** 一键按胜者阵容顺序填入（最多 MVP_MAX_ITEMS 个，仅最终形态精灵；保留已填写精灵的标签与 MVP 标记） */
+  /** 载入当前对局胜方：把当前对局胜者名字与阵容快照（仅最终形态精灵）一并保存进结算配置，之后切换对局不会自动更新 */
   function fillMvpWinnerLineup() {
+    const { side, playerName } = mvpWinnerLineup;
+    const matchId = activeMatch?.id ?? '';
+    if (!side || !matchId) {
+      message.warning('当前对局还没有已分胜负的小局');
+      return;
+    }
     const petIds = mvpWinnerPetIds.slice(0, MVP_MAX_ITEMS);
     if (!petIds.length) {
-      message.warning('胜者阵容中没有可用的最终形态精灵');
+      // 没有可用的最终形态精灵时不覆盖已标记的精灵项，仅更新胜方名字
+      message.warning('胜者阵容中没有可用的最终形态精灵，仅载入胜方选手名字');
+      applyMvpDraft(mvpSlotsDraft, { matchId, side, playerName });
       return;
     }
     applyMvpDraft(petIds.map((petId) => {
       const existed = mvpSlotsDraft.find((slot) => slot.petId === petId);
       return { petId, tag: existed?.tag ?? '', isMvp: existed?.isMvp === true };
-    }));
+    }), { matchId, side, playerName });
   }
 
   /** MVP 标记：全页最多一个，标记新精灵时取消原标记 */
@@ -4403,8 +4445,9 @@ function Dashboard() {
               >
                 <Space direction="vertical" size={16} className="page-stack">
                   <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    取当前对局「最近一个已分胜负小局」的胜者阵容，点选精灵填入结算画面（最多 {MVP_MAX_ITEMS} 个），为每个精灵项填写标签（最多四个字，可选）并标记 MVP；
-                    标记完整后点击「显示 MVP 结算」把推流画面切到本页，关闭时切回开启前的画面。
+                    点「载入当前对局胜方」把当前对局胜者的选手名字与阵容（仅最终形态精灵，最多 {MVP_MAX_ITEMS} 个）快照保存进结算画面；
+                    保存后推流画面即时更新，之后切换对局不会改变，需重新载入保存才会更新；
+                    为每个精灵项填写标签（最多四个字，可选）并标记 MVP，标记完整后点击「显示 MVP 结算」把推流画面切到本页，关闭时切回开启前的画面。
                   </Paragraph>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} xl={10}>
@@ -4428,6 +4471,22 @@ function Dashboard() {
                               ? <Tag color="red">已标记 MVP</Tag>
                               : <Tag>未标记 MVP</Tag>}
                           </Space>
+                          {/* 已载入胜方：名字 + 头像（头像按快照 matchId+side 解析，未上传回退默认占位图） */}
+                          <Space size={10} align="center" wrap>
+                            <img
+                              className="mvp-winner-avatar"
+                              src={getMvpWinnerAvatarSrc()}
+                              alt={mvp?.winner?.playerName || '胜方选手'}
+                            />
+                            <Space direction="vertical" size={0}>
+                              <Text strong>{mvp?.winner?.playerName || '未载入胜方'}</Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                {mvp?.winner
+                                  ? `已载入胜方 · ${mvp.winner.side === 'left' ? '左侧' : '右侧'} · ${mvp.winner.matchId}`
+                                  : '点「载入当前对局胜方」后在这里显示选手头像'}
+                              </Text>
+                            </Space>
+                          </Space>
                           <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
                             尚未标记精灵或标签未填写完整时不能显示结算画面。
                           </Paragraph>
@@ -4439,11 +4498,11 @@ function Dashboard() {
                         size="small"
                         className="subtle-card"
                         title={mvpWinnerLineup.side
-                          ? `胜者阵容（${mvpWinnerLineup.playerName || '胜者'} · 第 ${mvpWinnerLineup.gameNumber} 局）`
-                          : '胜者阵容'}
+                          ? `当前对局胜者阵容（${mvpWinnerLineup.playerName || '胜者'} · 第 ${mvpWinnerLineup.gameNumber} 局）`
+                          : '当前对局胜者阵容'}
                         extra={(
-                          <Button size="small" disabled={!mvpWinnerPetIds.length || mvpSaving} onClick={fillMvpWinnerLineup}>
-                            一键载入
+                          <Button size="small" disabled={!mvpWinnerLineup.side || mvpSaving} onClick={fillMvpWinnerLineup}>
+                            载入当前对局胜方
                           </Button>
                         )}
                       >
@@ -4477,6 +4536,11 @@ function Dashboard() {
                             description="当前对局还没有已分胜负的小局（或胜者阵容中没有最终形态精灵）"
                           />
                         )}
+                        {mvpWinnerOutdated ? (
+                          <Paragraph type="warning" style={{ margin: '10px 0 0', fontSize: 12 }}>
+                            当前对局胜方与已载入的不一致，推流画面仍显示已载入的胜方；如需更新请点「载入当前对局胜方」。
+                          </Paragraph>
+                        ) : null}
                       </Card>
                     </Col>
                   </Row>

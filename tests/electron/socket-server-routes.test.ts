@@ -106,7 +106,7 @@ describe('POST /api/matches/:matchId/games/:gameNumber/lineup', () => {
 });
 
 describe('MVP 结算（page4）路由', () => {
-  it('保存精灵项：200 + state，且广播一次 mvp:update', async () => {
+  it('保存精灵项与胜方快照：200 + state，且广播一次 mvp:update（带 winner 供后台展示头像）', async () => {
     const client: Socket = ioClient(base, { transports: ['websocket'] });
     await new Promise<void>((resolve, reject) => {
       client.once('connect', resolve);
@@ -114,19 +114,26 @@ describe('MVP 结算（page4）路由', () => {
     });
 
     try {
-      const updates: Array<{ state?: { slots?: Array<{ petId: string; tag: string }> } }> = [];
+      const updates: Array<{
+        state?: { slots?: Array<{ petId: string; tag: string }> };
+        winner?: { side: string | null; playerName: string; avatarExists: boolean };
+      }> = [];
       client.on('mvp:update', (payload) => updates.push(payload));
 
       const { status, data } = await post('/api/mvp', {
         slots: [{ petId: '3004', tag: '顶级辅助', isMvp: true }],
+        winner: { matchId: '20260926_001', side: 'right', playerName: '乙' },
       });
 
       expect(status).toBe(200);
       expect(data.success).toBe(true);
       expect(data.state.slots).toEqual([{ petId: '3004', tag: '顶级辅助', isMvp: true }]);
+      expect(data.state.winner).toEqual({ matchId: '20260926_001', side: 'right', playerName: '乙' });
 
       await vi.waitFor(() => expect(updates).toHaveLength(1), { timeout: 2000 });
       expect(updates[0].state?.slots?.[0]?.petId).toBe('3004');
+      // 广播带 winner：后台「结算画面」据此直接展示已载入胜方的名字与头像（快照比赛未上传头像 → avatarExists=false）
+      expect(updates[0].winner).toMatchObject({ side: 'right', playerName: '乙', avatarExists: false });
     } finally {
       client.close();
     }
@@ -145,7 +152,7 @@ describe('MVP 结算（page4）路由', () => {
     expect(hidden.data.stage.page).toBe('page3');
   });
 
-  it('GET /api/mvp 返回当前状态与胜方选手（推流页面4 首拉）', async () => {
+  it('GET /api/mvp 返回当前状态与胜方选手（推流页面4 首拉，winner 取已保存的胜方快照）', async () => {
     const response = await fetch(`${base}/api/mvp`);
     expect(response.status).toBe(200);
     const data = await response.json() as {
@@ -153,7 +160,7 @@ describe('MVP 结算（page4）路由', () => {
       winner: { side: string | null; playerName: string; avatarExists: boolean };
     };
     expect(Array.isArray(data.state.slots)).toBe(true);
-    expect(data.winner).toMatchObject({ side: null, playerName: '', avatarExists: false });
+    expect(data.winner).toMatchObject({ side: 'right', playerName: '乙', avatarExists: false });
   });
 });
 

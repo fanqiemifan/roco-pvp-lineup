@@ -43,8 +43,9 @@
 | CountdownState | 倒计时插件状态（visible, running, duration 分钟, remainingSeconds, endAt, theme, mtime） | shared/types.ts |
 | CountdownPayload | 倒计时 API/Socket 载荷（state, serverNow 供客户端校准时钟偏差） | shared/types.ts |
 | MvpSlotEntry | MVP 结算（page4）单个精灵项（petId 精灵主键, tag 标签最多四字可空, isMvp 是否标记 MVP——全页最多一个） | shared/types.ts |
-| MvpState | MVP 结算（page4）状态（slots 最多 6 个精灵项顺序即页面从左到右, returnPage 关闭结算后切回的推流画面, mtime） | shared/types.ts |
-| MvpWinnerInfo | MVP 结算（page4）胜方选手信息条（side left/right/null, playerName, avatarExists/avatarPath/avatarMtime——口径同推流页面10 的胜者判定） | shared/types.ts |
+| MvpState | MVP 结算（page4）状态（slots 最多 6 个精灵项顺序即页面从左到右, returnPage 关闭结算后切回的推流画面, winner 已载入的胜方快照或 null, mtime） | shared/types.ts |
+| MvpWinnerSnapshot | MVP 结算（page4）胜方快照（matchId 胜方所属比赛 id 用于解析头像, side left/right, playerName 保存时的胜方选手名字）——后台「载入当前对局胜方」写入 mvp.json，切换对局不改变 | shared/types.ts |
+| MvpWinnerInfo | MVP 结算（page4）胜方选手信息条（side left/right/null, playerName, avatarExists/avatarPath/avatarMtime——由已保存的胜方快照下发） | shared/types.ts |
 
 
 ## 比赛记录

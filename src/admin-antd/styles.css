@@ -982,6 +982,16 @@ a {
   background: rgba(215, 210, 202, 0.6);
 }
 
+/* 结算画面：已载入胜方头像（选手照，圆形裁剪，与推流页展示口径一致） */
+.mvp-winner-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  background: rgba(215, 210, 202, 0.6);
+}
+
 .quick-fill-group {
   display: grid;
   gap: 8px;

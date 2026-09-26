@@ -6,15 +6,15 @@ import {
   MVP_TAG_MAX_LENGTH,
   SUPPORTED_STAGE_PAGES,
 } from '../../shared/constants.js';
-import type { MvpSlotEntry, MvpState, MvpWinnerInfo, StagePageKey } from '../../shared/types.js';
+import type { MvpSlotEntry, MvpState, MvpWinnerInfo, MvpWinnerSnapshot, StagePageKey } from '../../shared/types.js';
 import { ensureRuntimeDirs, getAvatarStates } from './image-service.js';
-import { getMatchStore } from './match-service.js';
 import type { AppPaths } from './path-service.js';
 
 function defaultMvpState(): MvpState {
   return {
     slots: [],
     returnPage: DEFAULT_MVP_RETURN_PAGE as StagePageKey,
+    winner: null,
     mtime: null,
   };
 }
@@ -27,6 +27,23 @@ function normalizePetId(value: unknown): string {
 /** 标签内容：去除首尾空白，最多四个字（空字符串 = 未标记） */
 function normalizeTag(value: unknown): string {
   return String(value ?? '').trim().slice(0, MVP_TAG_MAX_LENGTH);
+}
+
+/**
+ * 胜方快照：matchId/side 缺一不可，否则视为未载入（null = 清除快照）。
+ * matchId 仅保留比赛 id 允许的字符（形如 20260926_001），避免拼进头像目录时越权。
+ */
+function normalizeWinner(value: unknown): MvpWinnerSnapshot | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  const matchId = String(raw.matchId ?? '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  const side = raw.side === 'left' || raw.side === 'right' ? raw.side : null;
+  if (!matchId || !side) {
+    return null;
+  }
+  return { matchId, side, playerName: String(raw.playerName ?? '').trim() };
 }
 
 /**
@@ -80,6 +97,7 @@ export function getMvpState(paths: AppPaths): MvpState {
     return {
       slots: normalizeSlots(metadata.slots),
       returnPage: normalizeReturnPage(metadata.returnPage),
+      winner: normalizeWinner(metadata.winner),
       mtime: stat.mtimeMs,
     };
   } catch {
@@ -87,7 +105,7 @@ export function getMvpState(paths: AppPaths): MvpState {
   }
 }
 
-/** 保存 MVP 结算配置：精灵项（最多 6 个）与关闭后切回的推流画面 */
+/** 保存 MVP 结算配置：精灵项（最多 6 个）、胜方快照与关闭后切回的推流画面 */
 export function saveMvpState(paths: AppPaths, payload: unknown): MvpState {
   if (!payload || typeof payload !== 'object') {
     throw new Error('mvp payload must be an object');
@@ -101,6 +119,7 @@ export function saveMvpState(paths: AppPaths, payload: unknown): MvpState {
   const metadata = {
     slots: raw.slots === undefined ? current.slots : normalizeSlots(raw.slots),
     returnPage: raw.returnPage === undefined ? current.returnPage : normalizeReturnPage(raw.returnPage),
+    winner: raw.winner === undefined ? current.winner : normalizeWinner(raw.winner),
   };
   fs.writeFileSync(paths.mvpFile, JSON.stringify(metadata, null, 2), 'utf-8');
   return getMvpState(paths);
@@ -113,28 +132,19 @@ export function saveMvpReturnPage(paths: AppPaths, page: StagePageKey): MvpState
 
 /**
  * 胜方选手信息（页面4 顶部选手信息条）：
- * 取当前对局「最近一个已分胜负的小局」的胜者选手与其头像（与推流页面10 的胜者判定同口径）。
+ * 读已保存的胜方快照（后台「结算画面」载入当前对局胜方时写入），
+ * 切换对局不会改变；头像按快照的 matchId+side 解析，比赛被删或未上传时回退占位图。
  */
 export function getMvpWinnerInfo(paths: AppPaths): MvpWinnerInfo {
-  const store = getMatchStore(paths);
-  const match = store.activeMatchId
-    ? store.matches.find((item) => item.id === store.activeMatchId) ?? null
-    : null;
-
-  const decided = match && Array.isArray(match.games)
-    ? match.games.filter((game) => game && game.status === 'completed' && (game.winner === 'left' || game.winner === 'right'))
-    : [];
-  const game = decided.length ? decided[decided.length - 1] : null;
-  const side = game ? game.winner : null;
-
-  if (!match || !side) {
+  const snapshot = getMvpState(paths).winner;
+  if (!snapshot) {
     return { side: null, playerName: '', avatarExists: false, avatarPath: '', avatarMtime: null };
   }
 
-  const avatar = getAvatarStates(paths, match.id)[side];
+  const avatar = getAvatarStates(paths, snapshot.matchId)[snapshot.side];
   return {
-    side,
-    playerName: (side === 'left' ? match.leftPlayer : match.rightPlayer) || '',
+    side: snapshot.side,
+    playerName: snapshot.playerName,
     avatarExists: Boolean(avatar?.exists && avatar.path),
     avatarPath: avatar?.exists && avatar.path ? avatar.path : '',
     avatarMtime: typeof avatar?.mtime === 'number' ? avatar.mtime : null,
