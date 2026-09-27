@@ -13,7 +13,6 @@
 |------|-----------|---------|
 | 创建比赛 | createMatch | electron/services/match-service.ts |
 | 更新面板 | savePanelState | electron/services/state-service.ts |
-| 更新仅显阵容 | savePage4State | electron/services/page4-service.ts |
 | 更新推流配置 | saveStageState | electron/services/stage-service.ts |
 | 更新对局推送配置 | savePage7State | electron/services/page7-service.ts |
 | 更新团队积分榜配置 | savePage9State | electron/services/page9-service.ts |
@@ -21,6 +20,9 @@
 | 下场对局显示/隐藏 | showNextGame / hideNextGame | electron/services/nextgame-service.ts |
 | 倒计时插件操作 | saveCountdownState / startCountdown 等 | electron/services/countdown-service.ts |
 | 胜者结算画面数据 | GET /api/page10（活跃比赛+头像） | electron/socket-server.ts |
+| MVP 结算（page4）标记/切屏/载入胜方快照 | saveMvpState / saveMvpReturnPage | electron/services/mvp-service.ts |
+| MVP 结算胜方选手信息条（读已保存的胜方快照） | getMvpWinnerInfo | electron/services/mvp-service.ts |
+| 当前对局胜者阵容取数（「载入当前对局胜方」数据来源） | getRecentWinnerLineup | src/admin-antd/lib/match.ts |
 | 选手/战队信息录入 | savePlayerProfile / saveTeamProfile | electron/services/profile-service.ts |
 | 创建比赛复用录入信息 | reusePlayerProfile | src/admin-antd/App.tsx |
 | page3 战队标识渲染 | renderTeams / buildTeamNameImage | src/scripts/page3-display.js |
@@ -39,7 +41,6 @@
 
 所有类型定义集中在 shared/types.ts，使用时直接引用。核心类型：
 - PanelState - 面板状态
-- Page4State / Page4PanelState / Page4SlotState - 仅显阵容状态
 - ScoreboardState - 记分牌状态
 - MatchRecord - 比赛记录
 - SlotState - 格子状态
@@ -51,6 +52,7 @@
 - Page11State / Page11SideConfig - 选手介绍（page11-13）配置
 - NextGameState / NextGamePayload - 下场对局配置与载荷
 - CountdownState / CountdownPayload - 倒计时插件状态与载荷
+- MvpState / MvpSlotEntry / MvpWinnerSnapshot / MvpWinnerInfo - MVP 结算（page4）配置与胜方快照
 - SpriteUsageRow / StatsMetricKey / StatsRangeKey（管理后台统计，src/admin-antd/lib/stats.ts）
 
 ## 文件索引

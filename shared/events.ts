@@ -1,7 +1,6 @@
 export const SOCKET_EVENTS = {
   snapshot: 'snapshot',
   panelUpdate: 'panel:update',
-  page4Update: 'page4:update',
   scoreboardUpdate: 'scoreboard:update',
   avatarUpdate: 'avatar:update',
   matchesUpdate: 'matches:update',
@@ -14,4 +13,5 @@ export const SOCKET_EVENTS = {
   nextgameUpdate: 'nextgame:update',
   profilesUpdate: 'profiles:update',
   countdownUpdate: 'countdown:update',
+  mvpUpdate: 'mvp:update',
 } as const;

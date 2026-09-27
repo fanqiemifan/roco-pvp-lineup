@@ -15,7 +15,6 @@ export interface AppPaths {
   runtimeDir: string;
   cacheDir: string;
   scoreboardFile: string;
-  page4File: string;
   matchesFile: string;
   stageFile: string;
   page6File: string;
@@ -24,6 +23,8 @@ export interface AppPaths {
   page9File: string;
   /** 选手介绍（page11-13）配置文件（cache/page11.json） */
   page11File: string;
+  /** MVP 结算（page4）配置文件（cache/mvp.json） */
+  mvpFile: string;
   /** 倒计时插件状态文件（cache/countdown.json） */
   countdownFile: string;
   page8WallpaperFile: string;
@@ -58,7 +59,6 @@ export function createAppPaths(projectRoot: string, userDataDir: string): AppPat
     runtimeDir,
     cacheDir,
     scoreboardFile: path.join(cacheDir, 'scoreboard.json'),
-    page4File: path.join(cacheDir, 'page4.json'),
     matchesFile: path.join(cacheDir, 'matches.json'),
     stageFile: path.join(cacheDir, 'stage.json'),
     page6File: path.join(cacheDir, 'page6.json'),
@@ -66,6 +66,7 @@ export function createAppPaths(projectRoot: string, userDataDir: string): AppPat
     page8File: path.join(cacheDir, 'page8.json'),
     page9File: path.join(cacheDir, 'page9.json'),
     page11File: path.join(cacheDir, 'page11.json'),
+    mvpFile: path.join(cacheDir, 'mvp.json'),
     countdownFile: path.join(cacheDir, 'countdown.json'),
     page8WallpaperFile: path.join(cacheDir, 'page8-wallpaper.jpg'),
     nextgameFile: path.join(cacheDir, 'nextgame.json'),

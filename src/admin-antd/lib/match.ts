@@ -72,6 +72,45 @@ export function getPendingDraftContext(matchStore: MatchStoreState) {
   };
 }
 
+/**
+ * 当前对局胜者阵容（MVP 结算取数口径与推流页面10 一致）：
+ * 取「最近一个已分胜负的小局」的胜者一侧，精灵列表优先用该局槽位快照的 pet_id，回退小局阵容数组。
+ * 尚未分出胜负时 side 为 null、petIds 为空。
+ */
+export function getRecentWinnerLineup(match: MatchRecord | null): {
+  side: 'left' | 'right' | null;
+  playerName: string;
+  gameNumber: number | null;
+  petIds: string[];
+} {
+  const decided = match && Array.isArray(match.games)
+    ? match.games.filter((game) => game && game.status === 'completed' && (game.winner === 'left' || game.winner === 'right'))
+    : [];
+  const game = decided.length ? decided[decided.length - 1] : null;
+  const side = game ? game.winner : null;
+  if (!match || !game || !side) {
+    return { side: null, playerName: '', gameNumber: null, petIds: [] };
+  }
+
+  const slots = (side === 'left' ? game.leftSlots : game.rightSlots) || [];
+  const fromSlots = slots.map((slot) => String(slot?.pet_id ?? '').trim()).filter(Boolean);
+  const fromLineup = (side === 'left' ? game.leftLineup : game.rightLineup) || [];
+  const petIds: string[] = [];
+  for (const petId of (fromSlots.length ? fromSlots : fromLineup)) {
+    const id = String(petId ?? '').trim();
+    if (id && !petIds.includes(id)) {
+      petIds.push(id);
+    }
+  }
+
+  return {
+    side,
+    playerName: (side === 'left' ? match.leftPlayer : match.rightPlayer) || '',
+    gameNumber: game.gameNumber,
+    petIds,
+  };
+}
+
 export function formatLineupSummary(lineup: string[], spriteMap: Map<string, SpriteRecord>): string {
   if (!lineup.length) {
     return '待设置';

@@ -1,5 +1,5 @@
-import type { MatchSlotSnapshot, Page4PanelState, Page4SlotState, PanelState, SlotState, SpriteRecord } from '../../../shared/types';
-import type { Page4PanelEditorState, PanelEditorState, SpriteFilterState } from '../types';
+import type { MatchSlotSnapshot, PanelState, SlotState, SpriteRecord } from '../../../shared/types';
+import type { PanelEditorState, SpriteFilterState } from '../types';
 
 export function createEmptySlot(index: number): SlotState {
   return {
@@ -19,27 +19,6 @@ export function createPanelEditorState(): PanelEditorState {
   return {
     selected: Array.from({ length: 6 }, (_, index) => createEmptySlot(index)),
     activeSlot: 0,
-    quickFillInput: '',
-    quickFillMatches: [],
-    autoSaveEnabled: true,
-    dirty: false,
-    saving: false,
-  };
-}
-
-export function createPage4EmptySlot(index: number): Page4SlotState {
-  return {
-    slot: index,
-    sprite: null,
-    isDead: false,
-  };
-}
-
-export function createPage4PanelEditorState(): Page4PanelEditorState {
-  return {
-    selected: Array.from({ length: 6 }, (_, index) => createPage4EmptySlot(index)),
-    activeSlot: 0,
-    search: '',
     quickFillInput: '',
     quickFillMatches: [],
     autoSaveEnabled: true,
@@ -82,18 +61,6 @@ export function cloneSelected(selected: SlotState[] | undefined): SlotState[] {
   return next;
 }
 
-export function clonePage4Slot(slot: Partial<Page4SlotState> | null | undefined, index: number): Page4SlotState {
-  return {
-    slot: index,
-    sprite: slot?.sprite ?? null,
-    isDead: Boolean(slot?.isDead),
-  };
-}
-
-export function clonePage4Selected(selected: Page4SlotState[] | undefined): Page4SlotState[] {
-  return Array.from({ length: 6 }, (_, index) => clonePage4Slot(selected?.[index], index));
-}
-
 export function panelStateToSelected(panel: PanelState | null | undefined): SlotState[] {
   return cloneSelected(panel?.selected);
 }
@@ -128,10 +95,6 @@ export function draftSlotsToSelected(
   });
 }
 
-export function page4PanelStateToSelected(panel: Page4PanelState | null | undefined): Page4SlotState[] {
-  return clonePage4Selected(panel?.selected);
-}
-
 export function buildPanelRequest(selected: SlotState[]) {
   return selected.map((slot, index) => ({
     slot: index,
@@ -143,20 +106,6 @@ export function buildPanelRequest(selected: SlotState[]) {
     healthPercent: slot.healthPercent,
     energyValue: slot.energyValue,
   }));
-}
-
-export function buildPage4Request(selected: Page4SlotState[]) {
-  return selected.map((slot, index) => ({
-    slot: index,
-    sprite: slot.sprite?.id ?? null,
-    isDead: slot.isDead,
-  }));
-}
-
-export function summarizePage4Slots(selected: Page4SlotState[]) {
-  const selectedCount = selected.filter((slot) => slot.sprite).length;
-  const deadCount = selected.filter((slot) => slot.sprite && slot.isDead).length;
-  return { selectedCount, deadCount };
 }
 
 export function summarizePanelSlots(selected: SlotState[]) {

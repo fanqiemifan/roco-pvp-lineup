@@ -72,21 +72,12 @@
 | 加载运行时配置 | loadRuntimeConfig | (paths: AppPaths) => RuntimeConfig | 加载运行时配置（port） |
 | 保存运行时配置 | saveRuntimeConfig | (paths: AppPaths, config: RuntimeConfig) => RuntimeConfig | 保存运行时配置 |
 
-## 仅显阵容 (page4-service.ts)
-
-| 自然语言描述 | 函数名 | 签名 | 说明 |
-|-------------|-------|------|------|
-| 获取 page4 状态 | getPage4State | (paths: AppPaths) => Page4State | 获取 page4 双面板状态 |
-| 保存 page4 面板 | savePage4State | (paths: AppPaths, position, selectedSlots) => Page4PanelState | 保存 page4 面板 |
-| 更新 page4 格子 | savePage4SlotState | (paths: AppPaths, position, slotIndex, slotData) => Page4PanelState | 保存 page4 单个格子 |
-| 清空 page4 面板 | clearPage4State | (paths: AppPaths, position) => Page4PanelState | 清空 page4 面板 |
-
 ## 直播推流 (stage-service.ts)
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 获取推流配置 | getStageState | (paths: AppPaths) => StageConfig | 获取 stage 配置 |
-| 保存推流配置 | saveStageState | (paths: AppPaths, payload) => StageConfig | 保存 stage 配置；page3RankVisible / page3TeamVisible 未携带时保留现值 |
+| 保存推流配置 | saveStageState | (paths: AppPaths, payload) => StageConfig | 保存 stage 配置；page3RankVisible / page3TeamVisible / page3RedLightMode / page3RedLightInstant 未携带时保留现值 |
 
 ## 信息录入 (profile-service.ts)
 

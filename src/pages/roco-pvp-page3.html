@@ -107,6 +107,11 @@
             </div>
             <img class="page3-nextgame-deco" src="/assets/ui/icon-for-next-game.svg" alt="">
         </section>
+
+        <!-- 红光特效层：red-light.jpg 由脚本运行时去黑转 alpha，以滤色(screen)叠加并呼吸显示 -->
+        <div class="page3-red-light" id="page3RedLight" aria-hidden="true">
+            <canvas class="page3-red-light-canvas" id="page3RedLightCanvas" width="1920" height="1080"></canvas>
+        </div>
     </main>
 
     <script src="/socket.io/socket.io.js"></script>

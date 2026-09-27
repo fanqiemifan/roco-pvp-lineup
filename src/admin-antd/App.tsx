@@ -44,17 +44,19 @@ import type { ColumnsType } from 'antd/es/table';
 import { io } from 'socket.io-client';
 
 import { SOCKET_EVENTS } from '../../shared/events';
+import { MVP_MAX_ITEMS, MVP_TAG_MAX_LENGTH } from '../../shared/constants';
 import type {
   AvatarCollectionState,
   CountdownPayload,
   CountdownState,
   MatchRecord,
   MatchStoreState,
+  MvpSlotEntry,
+  MvpState,
+  MvpWinnerInfo,
+  MvpWinnerSnapshot,
   NextGamePayload,
   NextGameState,
-  Page4PanelState,
-  Page4SlotState,
-  Page4State,
   Page6State,
   Page7State,
   Page8Background,
@@ -67,6 +69,7 @@ import type {
   ScoreboardState,
   Page6Background,
   Page3SpriteSource,
+  Page3RedLightMode,
   SlotState,
   SpriteRecord,
   StageConfig,
@@ -78,6 +81,7 @@ import type {
 import {
   DEFAULT_TAGS,
   EXCLUSIVE_FORM_FILTERS,
+  MVP_TAG_PRESETS,
   STAGE_OPTIONS,
   STAGE_TRANSITION_OPTIONS,
   normalizeStagePage,
@@ -115,28 +119,22 @@ import {
   getMatchStatusLabel,
   getNoticeTagColor,
   getPendingDraftContext,
+  getRecentWinnerLineup,
   summarizeSeriesForBestOf,
 } from './lib/match';
 import {
-  buildPage4Request,
   buildPanelRequest,
-  clonePage4Selected,
   cloneSelected,
   createDefaultSpriteFilterState,
   createEmptySlot,
-  createPage4EmptySlot,
-  createPage4PanelEditorState,
   createPanelEditorState,
   createSpriteFilterState,
   draftSlotsToSelected,
-  page4PanelStateToSelected,
   panelStateToSelected,
 } from './lib/panel';
 import { buildPreviewUrl, getLocalAddressText, getPreviewPage } from './lib/preview';
 import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from './lib/request';
 import { buildSpriteLookup } from './lib/sprite';
-import { Page4DeathPanel } from './views/Page4DeathPanel';
-import { Page4PanelEditor } from './views/Page4PanelEditor';
 import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
@@ -146,12 +144,12 @@ import { type StatsMetricKey } from './lib/stats';
 import rosterIcon from '../assets/ui/赛事面板.svg?raw';
 import stageIcon from '../assets/ui/直播推流.svg?raw';
 import liveIcon from '../assets/ui/实时控制.svg?raw';
+import mvpIcon from '../assets/ui/结算页面.svg?raw';
 import historyIcon from '../assets/ui/比赛历史.svg?raw';
 import profilesIcon from '../assets/ui/信息录入.svg?raw';
 import introIcon from '../assets/ui/选手介绍.svg?raw';
 import statsIcon from '../assets/ui/数据统计.svg?raw';
 import previewIcon from '../assets/ui/页面预览.svg?raw';
-import panelsIcon from '../assets/ui/仅显阵容.svg?raw';
 import aboutIcon from '../assets/ui/关于项目.svg?raw';
 import brandLogoRaw from '../assets/ui/logo.svg?raw';
 import type {
@@ -159,7 +157,6 @@ import type {
   LiveField,
   MatchFormValues,
   NoticeState,
-  Page4PanelEditorState,
   PanelEditorState,
   PanelSide,
   PlayerAvatarBatchResponse,
@@ -201,19 +198,19 @@ function setSelectMatchConfirmSuppressed(suppressed: boolean): void {
 }
 
 /** 导航栏各视图对应的 SVG 图标（Assets 里提供的自定义图标），使用当前上下文颜色自适应 */
-type NavIconName = 'roster' | 'stage' | 'live' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'page4' | 'about';
+type NavIconName = 'roster' | 'stage' | 'live' | 'mvp' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'about';
 
 /** 各导航视图对应的标题文案（与导航栏标签一致），顶部栏按当前视图显示 */
 const VIEW_LABEL: Record<NavIconName, string> = {
   roster: '赛事面板',
   stage: '直播推流',
   live: '实时控制',
+  mvp: '结算画面',
   history: '比赛历史',
   profiles: '信息录入',
   page11: '选手介绍',
   stats: '数据统计',
   preview: '页面预览',
-  page4: '仅显阵容',
   about: '关于项目',
 };
 
@@ -221,12 +218,12 @@ const NAV_ICONS: Record<NavIconName, string> = {
   roster: rosterIcon,
   stage: stageIcon,
   live: liveIcon,
+  mvp: mvpIcon,
   history: historyIcon,
   profiles: profilesIcon,
   page11: introIcon,
   stats: statsIcon,
   preview: previewIcon,
-  page4: panelsIcon,
   about: aboutIcon,
 };
 
@@ -262,6 +259,11 @@ const PAGE6_MAX_MATCHES = 8;
 const PAGE8_MAX_MATCHES = 4;
 /** 团队积分榜（page9）后台可录入的战队行数 */
 const PAGE9_TEAM_COUNT = 4;
+
+/** MVP 结算（推流页面4）空槽位：后台固定展示 MVP_MAX_ITEMS 行 */
+function createEmptyMvpSlots(): MvpSlotEntry[] {
+  return Array.from({ length: MVP_MAX_ITEMS }, () => ({ petId: '', tag: '', isMvp: false }));
+}
 
 function HistorySortHeader({ text, sortKey, activeOrder, onSort }: {
   text: string;
@@ -322,18 +324,10 @@ function Dashboard() {
     left: createPanelEditorState(),
     right: createPanelEditorState(),
   });
-  const [page4Panels, setPage4Panels] = useState<Record<PanelSide, Page4PanelEditorState>>({
-    left: createPage4PanelEditorState(),
-    right: createPage4PanelEditorState(),
-  });
-  // 赛事面板阵容编辑器合并后共享一份精灵筛选（page4 仅显阵容仍为左右各一份）
+  // 赛事面板阵容编辑器共享一份精灵筛选
   const [spriteFilter, setSpriteFilter] = useState<SpriteFilterState>(createDefaultSpriteFilterState);
   // 赛事面板共享精灵搜索（输入即时回显，过滤用 useDeferredValue 防抖）
   const [rosterSearch, setRosterSearch] = useState('');
-  const [page4SpriteFilters, setPage4SpriteFilters] = useState<Record<PanelSide, SpriteFilterState>>({
-    left: createDefaultSpriteFilterState(),
-    right: createDefaultSpriteFilterState(),
-  });
   const [sprites, setSprites] = useState<SpriteRecord[]>([]);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
   // 快速创建比赛：从「信息录入」选手多选后随机配对生成对局
@@ -376,6 +370,12 @@ function Dashboard() {
   const countdownClockRef = useRef({ offset: 0 });
   // running 时每秒强制刷新以更新剩余时间显示
   const [, setCountdownTick] = useState(0);
+  // MVP 结算（推流页面4）：精灵项（最多 6 个，顺序即页面从左到右）、标签与 MVP 标记
+  const [mvp, setMvp] = useState<MvpState | null>(null);
+  // 已载入胜方的选手信息（名字 + 头像，由快照 matchId+side 解析，展示在「结算画面」面板）
+  const [mvpWinner, setMvpWinner] = useState<MvpWinnerInfo | null>(null);
+  const [mvpSaving, setMvpSaving] = useState(false);
+  const [mvpSlotsDraft, setMvpSlotsDraft] = useState<MvpSlotEntry[]>(createEmptyMvpSlots);
   const [page6, setPage6] = useState<Page6State | null>(null);
   const [page5TitleDraft, setPage5TitleDraft] = useState('');
   const [page6TitleDraft, setPage6TitleDraft] = useState('');
@@ -457,7 +457,6 @@ function Dashboard() {
   const [avatarBatchResultOpen, setAvatarBatchResultOpen] = useState(false);
   const avatarBatchInputRef = useRef<HTMLInputElement | null>(null);
   const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
-  const [page4Notice, setPage4Notice] = useState<NoticeState>(null);
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
   // 比赛历史「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
@@ -516,6 +515,17 @@ function Dashboard() {
     match.leftPlayer,
     match.rightPlayer,
   ]).filter(Boolean)));
+  // MVP 结算（推流页面4）：胜者阵容（口径同推流页面10）+ 标记完成度
+  const mvpWinnerLineup = useMemo(() => getRecentWinnerLineup(activeMatch), [activeMatch]);
+  // 结算画面只收最终形态精灵：可点选与「载入当前对局胜方」同一口径（非最终形态不进结算页）
+  const mvpWinnerPetIds = mvpWinnerLineup.petIds.filter((petId) => spriteMap.get(petId)?.isFinalForm === true);
+  const mvpAssignedCount = mvpSlotsDraft.filter((slot) => slot.petId).length;
+  const mvpTagsComplete = mvpAssignedCount > 0 && mvpSlotsDraft.every((slot) => !slot.petId || slot.tag.trim().length > 0);
+  const mvpVisible = stage?.page === 'page4';
+  // 当前对局胜方与已载入快照不一致：推流画面不会自动更新，需重新「载入当前对局胜方」
+  const mvpWinnerOutdated = Boolean(mvpWinnerLineup.side) && (
+    mvp?.winner?.matchId !== activeMatch?.id || mvp?.winner?.playerName !== mvpWinnerLineup.playerName
+  );
   const normalizedHistorySearch = historySearch.trim().toLowerCase();
   const filteredMatches = matchStore.matches.filter((match) => {
     if (historyTagFilter === UNCATEGORIZED_HISTORY_TAG) {
@@ -555,8 +565,6 @@ function Dashboard() {
   }
 
   const deferredRosterSearch = useDeferredValue(rosterSearch);
-  const deferredPage4LeftSearch = useDeferredValue(page4Panels.left.search);
-  const deferredPage4RightSearch = useDeferredValue(page4Panels.right.search);
   const spriteFormOptions = EXCLUSIVE_FORM_FILTERS.filter((form) => (
     sprites.some((sprite) => sprite.form.trim() === form)
   ));
@@ -570,20 +578,6 @@ function Dashboard() {
 
   function mutatePanel(side: PanelSide, updater: (panel: PanelEditorState) => PanelEditorState) {
     setPanels((prev) => ({
-      ...prev,
-      [side]: updater(prev[side]),
-    }));
-  }
-
-  function mutatePage4Panel(side: PanelSide, updater: (panel: Page4PanelEditorState) => Page4PanelEditorState) {
-    setPage4Panels((prev) => ({
-      ...prev,
-      [side]: updater(prev[side]),
-    }));
-  }
-
-  function mutatePage4SpriteFilter(side: PanelSide, updater: (filter: SpriteFilterState) => SpriteFilterState) {
-    setPage4SpriteFilters((prev) => ({
       ...prev,
       [side]: updater(prev[side]),
     }));
@@ -603,26 +597,12 @@ function Dashboard() {
     }));
   }
 
-  function syncPage4PanelFromApi(side: PanelSide, panel: Page4PanelState | null | undefined) {
-    setPage4Panels((prev) => ({
-      ...prev,
-      [side]: {
-        ...prev[side],
-        selected: page4PanelStateToSelected(panel),
-        dirty: false,
-        saving: false,
-      },
-    }));
-  }
-
   function applyServerState(payload: {
     scoreboard?: ScoreboardState;
     store?: MatchStoreState;
     avatars?: AvatarCollectionState;
     panels?: PanelState[];
     panel?: PanelState;
-    page4?: Page4State;
-    page4Panel?: Page4PanelState;
     stage?: StageConfig;
     page6?: Page6State;
     page7?: Page7State;
@@ -632,6 +612,7 @@ function Dashboard() {
     nextgame?: NextGamePayload;
     profiles?: ProfileStoreState;
     countdown?: CountdownPayload;
+    mvp?: MvpState;
   }) {
     startTransition(() => {
       if (payload.scoreboard) {
@@ -664,16 +645,6 @@ function Dashboard() {
       if (payload.panel && (payload.panel.position === 'left' || payload.panel.position === 'right')) {
         syncPanelFromApi(payload.panel.position, payload.panel);
       }
-      if (payload.page4) {
-        payload.page4.panels.forEach((panel) => {
-          if (panel.position === 'left' || panel.position === 'right') {
-            syncPage4PanelFromApi(panel.position, panel);
-          }
-        });
-      }
-      if (payload.page4Panel && (payload.page4Panel.position === 'left' || payload.page4Panel.position === 'right')) {
-        syncPage4PanelFromApi(payload.page4Panel.position, payload.page4Panel);
-      }
       if (payload.stage) {
         setStage(payload.stage);
       }
@@ -695,6 +666,9 @@ function Dashboard() {
       if (payload.profiles) {
         setProfiles(payload.profiles);
       }
+      if (payload.mvp) {
+        setMvp(payload.mvp);
+      }
     });
   }
 
@@ -703,13 +677,12 @@ function Dashboard() {
     setPageError('');
 
     try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextPage4, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown] = await Promise.all([
+      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp] = await Promise.all([
         requestJson<{ authenticated: boolean }>('/api/auth/check'),
         requestJson<ScoreboardState>('/api/scoreboard'),
         requestJson<MatchStoreState>('/api/matches'),
         requestJson<AvatarCollectionState>('/api/avatars'),
         requestJson<{ panels: [PanelState, PanelState] }>('/api/panels'),
-        requestJson<Page4State>('/api/page4'),
         requestJson<{ sprites: SpriteRecord[] }>('/api/sprites'),
         requestJson<StageConfig>('/api/stage'),
         requestJson<{ state: Page6State }>('/api/page6'),
@@ -720,6 +693,7 @@ function Dashboard() {
         requestJson<NextGamePayload>('/api/nextgame'),
         requestJson<ProfileStoreState>('/api/profiles'),
         requestJson<CountdownPayload>('/api/countdown'),
+        requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp'),
       ]);
 
       if (!auth.authenticated) {
@@ -744,12 +718,12 @@ function Dashboard() {
         setProfiles(nextProfiles);
         setNextgame(nextNextgame.state);
         setNextgameMatch(nextNextgame.match ?? null);
+        setMvp(nextMvp.state);
+        setMvpWinner(nextMvp.winner ?? null);
         // 与 applyServerState 一致：先维护草稿上下文再同步面板，避免 pending 时全局面板覆写编辑器
         pendingDraftRef.current = getPendingDraftContext(nextMatches);
         syncPanelFromApi('left', nextPanels.panels[0]);
         syncPanelFromApi('right', nextPanels.panels[1]);
-        syncPage4PanelFromApi('left', nextPage4.panels[0]);
-        syncPage4PanelFromApi('right', nextPage4.panels[1]);
       });
 
       if (showToast) {
@@ -840,12 +814,6 @@ function Dashboard() {
       }
     });
 
-    socket.on(SOCKET_EVENTS.page4Update, (payload) => {
-      if (payload?.page4) {
-        applyServerState({ page4: payload.page4 });
-      }
-    });
-
     socket.on(SOCKET_EVENTS.scoreboardUpdate, (payload) => {
       if (payload?.scoreboard) {
         applyServerState({ scoreboard: payload.scoreboard });
@@ -862,6 +830,8 @@ function Dashboard() {
       if (payload?.avatars) {
         applyServerState({ avatars: payload.avatars });
       }
+      // 已载入胜方的头像按快照 matchId+side 解析：头像上传/删除后同步刷新面板展示
+      void refreshMvpWinner();
     });
 
     socket.on(SOCKET_EVENTS.stageUpdate, (payload) => {
@@ -918,6 +888,15 @@ function Dashboard() {
       }
     });
 
+    socket.on(SOCKET_EVENTS.mvpUpdate, (payload) => {
+      if (payload?.state) {
+        applyServerState({ mvp: payload.state });
+      }
+      if (payload?.winner !== undefined) {
+        setMvpWinner(payload.winner ?? null);
+      }
+    });
+
     return () => {
       socket.close();
     };
@@ -943,26 +922,6 @@ function Dashboard() {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [panels.right]);
-
-  useEffect(() => {
-    if (!page4Panels.left.autoSaveEnabled || !page4Panels.left.dirty || page4Panels.left.saving) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void savePage4Panel('left', true);
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [page4Panels.left]);
-
-  useEffect(() => {
-    if (!page4Panels.right.autoSaveEnabled || !page4Panels.right.dirty || page4Panels.right.saving) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void savePage4Panel('right', true);
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [page4Panels.right]);
 
   async function savePanel(side: PanelSide, silent = false) {
     if (lineupLocked) {
@@ -1143,188 +1102,6 @@ function Dashboard() {
 
   function clearSpriteFilters() {
     setSpriteFilter(createSpriteFilterState());
-  }
-
-  async function savePage4Panel(side: PanelSide, silent = false) {
-    const current = page4Panels[side];
-    mutatePage4Panel(side, (panel) => ({ ...panel, saving: true }));
-
-    try {
-      const data = await requestJson<{ success: boolean; page4?: Page4State }>(`/api/page4/${side}`, {
-        method: 'POST',
-        json: {
-          selected: buildPage4Request(current.selected),
-        },
-      });
-
-      applyServerState({
-        page4: data.page4,
-      });
-      mutatePage4Panel(side, (panel) => ({ ...panel, dirty: false, saving: false }));
-
-      if (!silent) {
-        const nextText = `${side === 'left' ? '左侧' : '右侧'} 仅显阵容已保存`;
-        setPage4Notice({ tone: 'success', text: nextText });
-        message.success(nextText);
-      }
-    } catch (error) {
-      mutatePage4Panel(side, (panel) => ({ ...panel, saving: false }));
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  function updatePage4Slot(side: PanelSide, updater: (slot: Page4SlotState) => Page4SlotState) {
-    mutatePage4Panel(side, (panel) => {
-      const selected = clonePage4Selected(panel.selected);
-      const current = selected[panel.activeSlot] ?? createPage4EmptySlot(panel.activeSlot);
-      selected[panel.activeSlot] = updater(current);
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function clearPage4CurrentSlot(side: PanelSide) {
-    mutatePage4Panel(side, (panel) => {
-      const selected = clonePage4Selected(panel.selected);
-      selected[panel.activeSlot] = createPage4EmptySlot(panel.activeSlot);
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function clearPage4Panel(side: PanelSide) {
-    mutatePage4Panel(side, (panel) => ({
-      ...panel,
-      selected: Array.from({ length: 6 }, (_, index) => createPage4EmptySlot(index)),
-      quickFillMatches: [],
-      dirty: true,
-    }));
-  }
-
-  async function runPage4QuickFill(side: PanelSide) {
-    const text = page4Panels[side].quickFillInput.trim();
-    if (!text) {
-      message.warning('请先输入要匹配的精灵名称');
-      return;
-    }
-
-    try {
-      const matches = await requestQuickFillMatches(text);
-      const nextSelected = Array.from({ length: 6 }, (_, index) => createPage4EmptySlot(index));
-      matches.forEach((match) => {
-        if (match.slot >= 0 && match.slot < 6 && match.sprite) {
-          nextSelected[match.slot] = {
-            ...nextSelected[match.slot],
-            sprite: match.sprite,
-          };
-        }
-      });
-
-      mutatePage4Panel(side, (panel) => ({
-        ...panel,
-        selected: nextSelected,
-        quickFillMatches: matches,
-        dirty: true,
-      }));
-      message.success(`${side === 'left' ? '左侧' : '右侧'} 仅显阵容快速填充已应用到本地草稿`);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  function choosePage4QuickFillCandidate(side: PanelSide, slotIndex: number, sprite: SpriteRecord) {
-    mutatePage4Panel(side, (panel) => {
-      const selected = clonePage4Selected(panel.selected);
-      selected[slotIndex] = {
-        ...selected[slotIndex],
-        sprite,
-      };
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function updatePage4SlotAt(side: PanelSide, slotIndex: number, updater: (slot: Page4SlotState) => Page4SlotState) {
-    mutatePage4Panel(side, (panel) => {
-      const selected = clonePage4Selected(panel.selected);
-      const current = selected[slotIndex] ?? createPage4EmptySlot(slotIndex);
-      selected[slotIndex] = updater(current);
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function applyPage4Sprite(side: PanelSide, sprite: SpriteRecord) {
-    updatePage4Slot(side, (slot) => ({
-      ...slot,
-      sprite,
-    }));
-  }
-
-  function togglePage4DeadAt(side: PanelSide, slotIndex: number) {
-    updatePage4SlotAt(side, slotIndex, (slot) => (slot.sprite ? {
-      ...slot,
-      isDead: !slot.isDead,
-    } : slot));
-  }
-
-  function togglePage4AttributeFilter(side: PanelSide, attribute: string) {
-    const current = page4SpriteFilters[side].selectedAttributes;
-    const isActive = current.includes(attribute);
-
-    if (!isActive && current.length >= 2) {
-      message.warning('精灵属性最多只能选择两个');
-      return;
-    }
-
-    mutatePage4SpriteFilter(side, (filter) => ({
-      ...filter,
-      selectedAttributes: isActive
-        ? filter.selectedAttributes.filter((item) => item !== attribute)
-        : [...filter.selectedAttributes, attribute],
-    }));
-  }
-
-  function togglePage4FormFilter(side: PanelSide, form: string) {
-    mutatePage4SpriteFilter(side, (filter) => {
-      if (filter.selectedFinalForm) {
-        return filter;
-      }
-
-      return {
-        ...filter,
-        selectedForms: filter.selectedForms.includes(form)
-          ? filter.selectedForms.filter((item) => item !== form)
-          : [...filter.selectedForms, form],
-      };
-    });
-  }
-
-  function togglePage4FinalFormFilter(side: PanelSide) {
-    mutatePage4SpriteFilter(side, (filter) => ({
-      ...filter,
-      selectedFinalForm: !filter.selectedFinalForm,
-      selectedForms: filter.selectedFinalForm ? filter.selectedForms : [],
-    }));
-  }
-
-  function clearPage4SpriteFilters(side: PanelSide) {
-    setPage4SpriteFilters((prev) => ({
-      ...prev,
-      [side]: createSpriteFilterState(),
-    }));
   }
 
   async function saveMatchMeta(values: MatchFormValues) {
@@ -2396,6 +2173,23 @@ function Dashboard() {
     });
   }, [page11?.left, page11?.right]);
 
+  // MVP 结算草稿：服务端状态变化时回填（内容一致时保持原引用，避免编辑中的标签被覆盖）
+  useEffect(() => {
+    setMvpSlotsDraft((prev) => {
+      const serverSlots = mvp?.slots ?? [];
+      const next = Array.from({ length: MVP_MAX_ITEMS }, (_, index) => {
+        const slot = serverSlots[index];
+        return { petId: slot?.petId ?? '', tag: slot?.tag ?? '', isMvp: slot?.isMvp === true };
+      });
+      const same = next.every((slot, index) => (
+        slot.petId === prev[index]?.petId
+        && slot.tag === prev[index]?.tag
+        && slot.isMvp === prev[index]?.isMvp
+      ));
+      return same ? prev : next;
+    });
+  }, [mvp?.slots]);
+
   // 保存选手介绍配置（左右两侧数据来源与手动填写内容）
   async function savePage11Settings(payload?: { left?: typeof page11LeftDraft; right?: typeof page11RightDraft }) {
     setPage11Saving(true);
@@ -2581,7 +2375,7 @@ function Dashboard() {
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page11RankVisible?: boolean; page5Player?: string; page5Tag?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5Tag?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
@@ -2589,18 +2383,20 @@ function Dashboard() {
     const page3SpriteSource = options?.page3SpriteSource ?? stage?.page3SpriteSource ?? 'sprite';
     const page3RankVisible = options?.page3RankVisible ?? stage?.page3RankVisible ?? false;
     const page3TeamVisible = options?.page3TeamVisible ?? stage?.page3TeamVisible ?? false;
+    const page3RedLightMode = options?.page3RedLightMode ?? stage?.page3RedLightMode ?? 'off';
+    const page3RedLightInstant = options?.page3RedLightInstant ?? stage?.page3RedLightInstant ?? false;
     const page11RankVisible = options?.page11RankVisible ?? stage?.page11RankVisible ?? true;
     const page5Player = options?.page5Player ?? stage?.page5Player ?? '';
     const page5Tag = options?.page5Tag ?? stage?.page5Tag ?? '';
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -2671,6 +2467,145 @@ function Dashboard() {
     } finally {
       setNextgameSaving(false);
     }
+  }
+
+  /** 刷新 MVP 结算状态与已载入胜方信息（avatar:update 等无法从广播直接得到 winner 的场景） */
+  async function refreshMvpWinner() {
+    try {
+      const data = await requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp');
+      applyServerState({ mvp: data.state });
+      setMvpWinner(data.winner ?? null);
+    } catch {
+      // 刷新失败静默处理，不打断后台操作
+    }
+  }
+
+  /** 已载入胜方的头像地址：按快照 matchId+side 解析（与推流页面4 同口径），未上传时回退默认占位图 */
+  function getMvpWinnerAvatarSrc(): string {
+    const side = mvpWinner?.side === 'right' ? 'right' : 'left';
+    if (mvpWinner?.avatarExists && mvpWinner.avatarPath) {
+      return `${mvpWinner.avatarPath}${mvpWinner.avatarMtime ? `?t=${Math.floor(mvpWinner.avatarMtime)}` : ''}`;
+    }
+    return side === 'right' ? '/assets/ui/right-avatar.png' : '/assets/ui/left-avatar.png';
+  }
+
+  /** MVP 结算（推流页面4）：保存精灵项（顺序即页面从左到右，未赋值槽位由服务端忽略；winner 不传时保留已载入的胜方快照） */
+  async function saveMvpSlots(slots: MvpSlotEntry[], winner?: MvpWinnerSnapshot | null) {
+    setMvpSaving(true);
+    try {
+      const data = await requestJson<{ success: boolean; state: MvpState }>('/api/mvp', {
+        method: 'POST',
+        json: winner === undefined ? { slots } : { slots, winner },
+      });
+      applyServerState({ mvp: data.state });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMvpSaving(false);
+    }
+  }
+
+  /** MVP 结算：显示（记录当前推流画面后切到页面4） */
+  async function showMvpSettlement() {
+    setMvpSaving(true);
+    try {
+      const data = await requestJson<{ success: boolean; state: MvpState; stage: StageConfig }>('/api/mvp/show', {
+        method: 'POST',
+        json: {},
+      });
+      applyServerState({ mvp: data.state, stage: data.stage });
+      message.success('推流画面已切换到：推流页面4（MVP 结算）');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMvpSaving(false);
+    }
+  }
+
+  /** MVP 结算：关闭（切回开启前所在推流画面） */
+  async function hideMvpSettlement() {
+    setMvpSaving(true);
+    try {
+      const data = await requestJson<{ success: boolean; state: MvpState; stage: StageConfig }>('/api/mvp/hide', {
+        method: 'POST',
+        json: {},
+      });
+      applyServerState({ mvp: data.state, stage: data.stage });
+      const label = STAGE_OPTIONS.find((option) => option.value === data.stage.page)?.label ?? data.stage.page;
+      message.success(`推流画面已切回：${label}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMvpSaving(false);
+    }
+  }
+
+  /** MVP 结算草稿：本地即时回显后保存（标签手动输入在失焦/回车时保存） */
+  function applyMvpDraft(next: MvpSlotEntry[], winner?: MvpWinnerSnapshot | null) {
+    setMvpSlotsDraft(next);
+    void saveMvpSlots(next, winner);
+  }
+
+  function updateMvpSlotDraft(index: number, patch: Partial<MvpSlotEntry>) {
+    setMvpSlotsDraft((prev) => prev.map((slot, i) => (i === index ? { ...slot, ...patch } : slot)));
+  }
+
+  /** 点选胜者阵容精灵：已填入则移除，否则填入第一个空槽位 */
+  function toggleMvpWinnerSprite(petId: string) {
+    const existingIndex = mvpSlotsDraft.findIndex((slot) => slot.petId === petId);
+    if (existingIndex >= 0) {
+      applyMvpDraft(mvpSlotsDraft.map((slot, index) => (
+        index === existingIndex ? { petId: '', tag: '', isMvp: false } : slot
+      )));
+      return;
+    }
+    const emptyIndex = mvpSlotsDraft.findIndex((slot) => !slot.petId);
+    if (emptyIndex < 0) {
+      message.warning(`最多只能标记 ${MVP_MAX_ITEMS} 个精灵`);
+      return;
+    }
+    applyMvpDraft(mvpSlotsDraft.map((slot, index) => (index === emptyIndex ? { ...slot, petId } : slot)));
+  }
+
+  /** 载入当前对局胜方：把当前对局胜者名字与阵容快照（仅最终形态精灵）一并保存进结算配置，之后切换对局不会自动更新 */
+  function fillMvpWinnerLineup() {
+    const { side, playerName } = mvpWinnerLineup;
+    const matchId = activeMatch?.id ?? '';
+    if (!side || !matchId) {
+      message.warning('当前对局还没有已分胜负的小局');
+      return;
+    }
+    const petIds = mvpWinnerPetIds.slice(0, MVP_MAX_ITEMS);
+    if (!petIds.length) {
+      // 没有可用的最终形态精灵时不覆盖已标记的精灵项，仅更新胜方名字
+      message.warning('胜者阵容中没有可用的最终形态精灵，仅载入胜方选手名字');
+      applyMvpDraft(mvpSlotsDraft, { matchId, side, playerName });
+      return;
+    }
+    applyMvpDraft(petIds.map((petId) => {
+      const existed = mvpSlotsDraft.find((slot) => slot.petId === petId);
+      return { petId, tag: existed?.tag ?? '', isMvp: existed?.isMvp === true };
+    }), { matchId, side, playerName });
+  }
+
+  /** MVP 标记：全页最多一个，标记新精灵时取消原标记 */
+  function toggleMvpSlotMvp(index: number) {
+    const target = mvpSlotsDraft[index];
+    if (!target || !target.petId) {
+      return;
+    }
+    applyMvpDraft(mvpSlotsDraft.map((slot, i) => ({ ...slot, isMvp: i === index ? !target.isMvp : false })));
+  }
+
+  function clearMvpSlot(index: number) {
+    applyMvpDraft(mvpSlotsDraft.map((slot, i) => (
+      i === index ? { petId: '', tag: '', isMvp: false } : slot
+    )));
+  }
+
+  /** 标签手动输入失焦/回车：保存当前草稿（选择预设标签时即时保存） */
+  function saveMvpTagDraft() {
+    void saveMvpSlots(mvpSlotsDraft);
   }
 
   /** 倒计时插件：保存配置（时长 / 配色），不改变显示与进行状态 */
@@ -3233,12 +3168,12 @@ function Dashboard() {
       { key: 'roster', icon: <NavIcon name="roster" />, label: VIEW_LABEL.roster },
       { key: 'stage', icon: <NavIcon name="stage" />, label: VIEW_LABEL.stage },
       { key: 'live', icon: <NavIcon name="live" />, label: VIEW_LABEL.live },
+      { key: 'mvp', icon: <NavIcon name="mvp" />, label: VIEW_LABEL.mvp },
       { key: 'history', icon: <NavIcon name="history" />, label: VIEW_LABEL.history },
       { key: 'profiles', icon: <NavIcon name="profiles" />, label: VIEW_LABEL.profiles },
       { key: 'page11', icon: <NavIcon name="page11" />, label: VIEW_LABEL.page11 },
       { key: 'stats', icon: <NavIcon name="stats" />, label: VIEW_LABEL.stats },
       { key: 'preview', icon: <NavIcon name="preview" />, label: VIEW_LABEL.preview },
-      { key: 'page4', icon: <NavIcon name="page4" />, label: VIEW_LABEL.page4 },
       { key: 'about', icon: <NavIcon name="about" />, label: VIEW_LABEL.about },
     ],
     []
@@ -3846,63 +3781,6 @@ function Dashboard() {
                     onToggleFinalFormFilter={toggleFinalFormFilter}
                     onToggleFormFilter={toggleFormFilter}
                     onClearSpriteFilters={clearSpriteFilters}
-                  />
-                </Col>
-              </Row>
-            </Space>
-          ) : null}
-
-          {view === 'page4' ? (
-            <Space direction="vertical" size={18} className="page-stack">
-              <Page4DeathPanel
-                page4Panels={page4Panels}
-                onTogglePage4DeadAt={togglePage4DeadAt}
-              />
-              <Row gutter={[18, 18]}>
-                <Col xs={24} xl={12}>
-                  <Page4PanelEditor
-                    side="left"
-                    panel={page4Panels.left}
-                    filter={page4SpriteFilters.left}
-                    notice={page4Notice}
-                    searchValue={deferredPage4LeftSearch}
-                    sprites={sprites}
-                    spriteFormOptions={spriteFormOptions}
-                    onMutatePanel={mutatePage4Panel}
-                    onDismissNotice={() => setPage4Notice(null)}
-                    onSavePanel={savePage4Panel}
-                    onRunQuickFill={runPage4QuickFill}
-                    onClearCurrentSlot={clearPage4CurrentSlot}
-                    onClearPanel={clearPage4Panel}
-                    onChooseQuickFillCandidate={choosePage4QuickFillCandidate}
-                    onApplySprite={applyPage4Sprite}
-                    onClearSpriteFilters={clearPage4SpriteFilters}
-                    onToggleAttributeFilter={togglePage4AttributeFilter}
-                    onToggleFinalFormFilter={togglePage4FinalFormFilter}
-                    onToggleFormFilter={togglePage4FormFilter}
-                  />
-                </Col>
-                <Col xs={24} xl={12}>
-                  <Page4PanelEditor
-                    side="right"
-                    panel={page4Panels.right}
-                    filter={page4SpriteFilters.right}
-                    notice={page4Notice}
-                    searchValue={deferredPage4RightSearch}
-                    sprites={sprites}
-                    spriteFormOptions={spriteFormOptions}
-                    onMutatePanel={mutatePage4Panel}
-                    onDismissNotice={() => setPage4Notice(null)}
-                    onSavePanel={savePage4Panel}
-                    onRunQuickFill={runPage4QuickFill}
-                    onClearCurrentSlot={clearPage4CurrentSlot}
-                    onClearPanel={clearPage4Panel}
-                    onChooseQuickFillCandidate={choosePage4QuickFillCandidate}
-                    onApplySprite={applyPage4Sprite}
-                    onClearSpriteFilters={clearPage4SpriteFilters}
-                    onToggleAttributeFilter={togglePage4AttributeFilter}
-                    onToggleFinalFormFilter={togglePage4FinalFormFilter}
-                    onToggleFormFilter={togglePage4FormFilter}
                   />
                 </Col>
               </Row>
@@ -4557,6 +4435,183 @@ function Dashboard() {
             </Space>
           ) : null}
 
+          {view === 'mvp' ? (
+            <Space direction="vertical" size={18} className="page-stack">
+              <Card
+                className="stage-control-card"
+                title="MVP 结算画面（推流页面4）"
+                extra={(
+                  <Space wrap>
+                    <Button href="/roco-pvp-page4.html" target="_blank">打开结算画面</Button>
+                  </Space>
+                )}
+              >
+                <Space direction="vertical" size={16} className="page-stack">
+                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                    点「载入当前对局胜方」把当前对局胜者的选手名字与阵容（仅最终形态精灵，最多 {MVP_MAX_ITEMS} 个）快照保存进结算画面；
+                    保存后推流画面即时更新，之后切换对局不会改变，需重新载入保存才会更新；
+                    为每个精灵项填写标签（最多四个字，可选）并标记 MVP，标记完整后点击「显示 MVP 结算」把推流画面切到本页，关闭时切回开启前的画面。
+                  </Paragraph>
+                  <Row gutter={[16, 16]} className="stage-config-cards">
+                    <Col xs={24} xl={10}>
+                      <Card size="small" className="subtle-card" title="显示控制">
+                        <Space direction="vertical" size={12} className="control-stack">
+                          <Space wrap>
+                            <Button type="primary" loading={mvpSaving} disabled={!mvpTagsComplete} onClick={() => void showMvpSettlement()}>
+                              显示 MVP 结算
+                            </Button>
+                            <Button danger loading={mvpSaving} disabled={!mvpVisible} onClick={() => void hideMvpSettlement()}>
+                              关闭
+                            </Button>
+                            {mvpVisible ? <Tag color="green">正在显示</Tag> : <Tag>未显示</Tag>}
+                          </Space>
+                          <Space size={8} wrap>
+                            <Tag color={mvpAssignedCount ? 'gold' : 'default'}>
+                              已标记精灵 {mvpAssignedCount}/{MVP_MAX_ITEMS}
+                            </Tag>
+                            {mvpTagsComplete ? <Tag color="green">标签已完整</Tag> : <Tag color="orange">标签未完整</Tag>}
+                            {mvpSlotsDraft.some((slot) => slot.petId && slot.isMvp)
+                              ? <Tag color="red">已标记 MVP</Tag>
+                              : <Tag>未标记 MVP</Tag>}
+                          </Space>
+                          {/* 已载入胜方：名字 + 头像（头像按快照 matchId+side 解析，未上传回退默认占位图） */}
+                          <Space size={10} align="center" wrap>
+                            <img
+                              className="mvp-winner-avatar"
+                              src={getMvpWinnerAvatarSrc()}
+                              alt={mvp?.winner?.playerName || '胜方选手'}
+                            />
+                            <Space direction="vertical" size={0}>
+                              <Text strong>{mvp?.winner?.playerName || '未载入胜方'}</Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                {mvp?.winner
+                                  ? `已载入胜方 · ${mvp.winner.side === 'left' ? '左侧' : '右侧'} · ${mvp.winner.matchId}`
+                                  : '点「载入当前对局胜方」后在这里显示选手头像'}
+                              </Text>
+                            </Space>
+                          </Space>
+                          <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
+                            尚未标记精灵或标签未填写完整时不能显示结算画面。
+                          </Paragraph>
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col xs={24} xl={14}>
+                      <Card
+                        size="small"
+                        className="subtle-card"
+                        title={mvpWinnerLineup.side
+                          ? `当前对局胜者阵容（${mvpWinnerLineup.playerName || '胜者'} · 第 ${mvpWinnerLineup.gameNumber} 局）`
+                          : '当前对局胜者阵容'}
+                        extra={(
+                          <Button size="small" disabled={!mvpWinnerLineup.side || mvpSaving} onClick={fillMvpWinnerLineup}>
+                            载入当前对局胜方
+                          </Button>
+                        )}
+                      >
+                        {mvpWinnerPetIds.length ? (
+                          <>
+                            <div className="mvp-lineup-grid">
+                              {mvpWinnerPetIds.map((petId) => {
+                                const sprite = spriteMap.get(petId);
+                                const active = mvpSlotsDraft.some((slot) => slot.petId === petId);
+                                return (
+                                  <button
+                                    key={petId}
+                                    type="button"
+                                    className={`mvp-lineup-item${active ? ' is-active' : ''}`}
+                                    onClick={() => toggleMvpWinnerSprite(petId)}
+                                  >
+                                    <img src={sprite?.iconUrl || sprite?.path || '/assets/ui/back.png'} alt={sprite?.displayName || petId} />
+                                    <span>{sprite?.displayName || petId}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <Paragraph type="secondary" style={{ margin: '10px 0 0', fontSize: 12 }}>
+                              仅最终形态精灵可进结算画面（已过滤 {mvpWinnerLineup.petIds.length - mvpWinnerPetIds.length} 个非最终形态）；
+                              点击精灵加入（再次点击移除），最多 {MVP_MAX_ITEMS} 个，顺序即页面上从左到右的展示顺序。
+                            </Paragraph>
+                          </>
+                        ) : (
+                          <Empty
+                            image={Empty.PRESENTED_IMAGE_SIMPLE}
+                            description="当前对局还没有已分胜负的小局（或胜者阵容中没有最终形态精灵）"
+                          />
+                        )}
+                        {mvpWinnerOutdated ? (
+                          <Paragraph type="warning" style={{ margin: '10px 0 0', fontSize: 12 }}>
+                            当前对局胜方与已载入的不一致，推流画面仍显示已载入的胜方；如需更新请点「载入当前对局胜方」。
+                          </Paragraph>
+                        ) : null}
+                      </Card>
+                    </Col>
+                  </Row>
+                  <Card size="small" className="subtle-card" title="精灵项标签与 MVP 标记">
+                    <Space direction="vertical" size={10} className="page-stack" style={{ width: '100%' }}>
+                      {mvpSlotsDraft.map((slot, index) => {
+                        const sprite = slot.petId ? spriteMap.get(slot.petId) : null;
+                        return (
+                          <Row key={index} gutter={[12, 8]} align="middle">
+                            <Col flex="32px">
+                              <Text strong>{index + 1}</Text>
+                            </Col>
+                            <Col flex="220px">
+                              {sprite ? (
+                                <Space size={8} align="center">
+                                  <img
+                                    className="mvp-slot-avatar"
+                                    src={sprite.iconUrl || sprite.path || '/assets/ui/back.png'}
+                                    alt={sprite.displayName}
+                                  />
+                                  <Text ellipsis style={{ maxWidth: 150 }}>{sprite.displayName}</Text>
+                                </Space>
+                              ) : (
+                                <Text type="secondary">未选择精灵</Text>
+                              )}
+                            </Col>
+                            <Col flex="280px">
+                              <AutoComplete
+                                value={slot.tag}
+                                disabled={!slot.petId}
+                                style={{ width: '100%' }}
+                                options={MVP_TAG_PRESETS.map((tag) => ({ value: tag }))}
+                                filterOption={(input, option) => String(option?.value ?? '').includes(input.trim())}
+                                onChange={(value) => updateMvpSlotDraft(index, { tag: String(value ?? '').slice(0, MVP_TAG_MAX_LENGTH) })}
+                              >
+                                <Input
+                                  maxLength={MVP_TAG_MAX_LENGTH}
+                                  placeholder="标签，最多四个字（可留空）"
+                                  onBlur={saveMvpTagDraft}
+                                  onPressEnter={saveMvpTagDraft}
+                                />
+                              </AutoComplete>
+                            </Col>
+                            <Col flex="auto">
+                              <Space wrap size={8}>
+                                <Button
+                                  size="small"
+                                  type={slot.isMvp ? 'primary' : 'default'}
+                                  disabled={!slot.petId}
+                                  onClick={() => toggleMvpSlotMvp(index)}
+                                >
+                                  {slot.isMvp ? 'MVP 已标记' : '标记 MVP'}
+                                </Button>
+                                <Button size="small" type="text" danger disabled={!slot.petId} onClick={() => clearMvpSlot(index)}>
+                                  清空
+                                </Button>
+                              </Space>
+                            </Col>
+                          </Row>
+                        );
+                      })}
+                    </Space>
+                  </Card>
+                </Space>
+              </Card>
+            </Space>
+          ) : null}
+
           {view === 'stage' ? (
             <Space direction="vertical" size={18} className="page-stack">
               <Card
@@ -4575,42 +4630,74 @@ function Dashboard() {
                   </Paragraph>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} md={12} xl={8}>
-                      <Card size="small" className="subtle-card" title="推流页面5-精灵出场胜率-统计口径">
+                      <Card size="small" className="subtle-card" title="推流页面3设置">
                         <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="页面5标题：">
-                            <Input
-                              maxLength={40}
-                              placeholder="例如：洛克比赛（自动拼上赛事标签与精灵出场胜率）"
-                              value={page5TitleDraft}
-                              onChange={(event) => setPage5TitleDraft(event.target.value)}
-                              onBlur={() => { void savePage5TitleNow(); }}
-                            />
-                          </SettingField>
-                          <SettingField label="赛事标签：">
-                            <Select
-                              className="stage-page5-tag-select"
-                              value={stage?.page5Tag || undefined}
+                          <SettingField label="精灵图片：">
+                            <Segmented
+                              block
+                              value={stage?.page3SpriteSource ?? 'sprite'}
                               disabled={stageSaving}
                               options={[
-                                { value: '', label: '全部' },
-                                ...allHistoryTags.map((tag) => ({ value: tag, label: tag })),
+                                { value: 'sprite', label: '精灵原图' },
+                                { value: 'thumbnail', label: '精灵头像' },
                               ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Tag: value ?? '' }); }}
+                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3SpriteSource: value as Page3SpriteSource }); }}
                             />
                           </SettingField>
-                          <SettingField label="选手：">
-                            <Select
-                              showSearch
-                              className="stage-page5-tag-select"
-                              value={stage?.page5Player || undefined}
-                              disabled={stageSaving}
-                              options={[
-                                { value: '', label: '全部' },
-                                ...allPlayers.map((playerName) => ({ value: playerName, label: playerName })),
-                              ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Player: value ?? '' }); }}
-                            />
+                          <SettingField
+                            label="红光特效："
+                            hint="自动开启：任一选手一侧精灵阵亡 3 只时显示，若阵亡的精灵中含卡瓦重、卡卡虫、丢丢则需 4 只；立即显示：一次性提前触发，进入下一局自动失效，不影响关闭/自动开启。"
+                          >
+                            <Space wrap>
+                              <Segmented
+                                value={stage?.page3RedLightMode ?? 'off'}
+                                disabled={stageSaving}
+                                options={[
+                                  { value: 'off', label: '关闭' },
+                                  { value: 'auto', label: '自动开启' },
+                                ]}
+                                onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightMode: value as Page3RedLightMode }); }}
+                              />
+                              <Button
+                                type={stage?.page3RedLightInstant ? 'default' : 'primary'}
+                                danger={Boolean(stage?.page3RedLightInstant)}
+                                disabled={stageSaving}
+                                loading={stageSaving}
+                                onClick={() => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightInstant: !(stage?.page3RedLightInstant ?? false) }); }}
+                              >
+                                {stage?.page3RedLightInstant ? '取消显示' : '立即显示'}
+                              </Button>
+                              {stage?.page3RedLightInstant ? <Tag color="red">显示中</Tag> : null}
+                            </Space>
                           </SettingField>
+                          <Row gutter={[16, 12]}>
+                            <Col xs={24} md={12}>
+                              <SettingField label="排位图标：">
+                                <Space wrap>
+                                  <Switch
+                                    checked={stage?.page3RankVisible ?? false}
+                                    disabled={stageSaving}
+                                    loading={stageSaving}
+                                    onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RankVisible: checked }); }}
+                                  />
+                                  {stage?.page3RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
+                                </Space>
+                              </SettingField>
+                            </Col>
+                            <Col xs={24} md={12}>
+                              <SettingField label="战队标识：">
+                                <Space wrap>
+                                  <Switch
+                                    checked={stage?.page3TeamVisible ?? false}
+                                    disabled={stageSaving}
+                                    loading={stageSaving}
+                                    onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3TeamVisible: checked }); }}
+                                  />
+                                  {stage?.page3TeamVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
+                                </Space>
+                              </SettingField>
+                            </Col>
+                          </Row>
                         </Space>
                       </Card>
                     </Col>
@@ -4747,41 +4834,41 @@ function Dashboard() {
                   </Row>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} md={8}>
-                      <Card size="small" className="subtle-card" title="推流页面3设置">
+                      <Card size="small" className="subtle-card" title="推流页面5-精灵出场胜率-统计口径">
                         <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="精灵图片：" hint="切换显示精灵完整立绘或者头像缩略图。">
-                            <Segmented
-                              block
-                              value={stage?.page3SpriteSource ?? 'sprite'}
-                              disabled={stageSaving}
-                              options={[
-                                { value: 'sprite', label: '精灵原图' },
-                                { value: 'thumbnail', label: '精灵头像' },
-                              ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3SpriteSource: value as Page3SpriteSource }); }}
+                          <SettingField label="页面5标题：">
+                            <Input
+                              maxLength={40}
+                              placeholder="例如：洛克比赛（自动拼上赛事标签与精灵出场胜率）"
+                              value={page5TitleDraft}
+                              onChange={(event) => setPage5TitleDraft(event.target.value)}
+                              onBlur={() => { void savePage5TitleNow(); }}
                             />
                           </SettingField>
-                          <SettingField label="排位图标：" hint="比分栏中显示选手的排名">
-                            <Space wrap>
-                              <Switch
-                                checked={stage?.page3RankVisible ?? false}
-                                disabled={stageSaving}
-                                loading={stageSaving}
-                                onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RankVisible: checked }); }}
-                              />
-                              {stage?.page3RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                            </Space>
+                          <SettingField label="赛事标签：">
+                            <Select
+                              className="stage-page5-tag-select"
+                              value={stage?.page5Tag || undefined}
+                              disabled={stageSaving}
+                              options={[
+                                { value: '', label: '全部' },
+                                ...allHistoryTags.map((tag) => ({ value: tag, label: tag })),
+                              ]}
+                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Tag: value ?? '' }); }}
+                            />
                           </SettingField>
-                          <SettingField label="战队标识：" hint="显示选手所在战队">
-                            <Space wrap>
-                              <Switch
-                                checked={stage?.page3TeamVisible ?? false}
-                                disabled={stageSaving}
-                                loading={stageSaving}
-                                onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3TeamVisible: checked }); }}
-                              />
-                              {stage?.page3TeamVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                            </Space>
+                          <SettingField label="选手：">
+                            <Select
+                              showSearch
+                              className="stage-page5-tag-select"
+                              value={stage?.page5Player || undefined}
+                              disabled={stageSaving}
+                              options={[
+                                { value: '', label: '全部' },
+                                ...allPlayers.map((playerName) => ({ value: playerName, label: playerName })),
+                              ]}
+                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Player: value ?? '' }); }}
+                            />
                           </SettingField>
                         </Space>
                       </Card>
@@ -5048,7 +5135,6 @@ function Dashboard() {
                       { value: 'page1', label: '推流页面1' },
                       { value: 'page2', label: '推流页面2' },
                       { value: 'page3', label: '推流页面3' },
-                      { value: 'page4', label: '仅显阵容' },
                       { value: 'page5', label: '推流页面5' },
                       { value: 'page6', label: '推流页面6' },
                       { value: 'page7', label: '推流页面7' },

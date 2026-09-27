@@ -21,21 +21,13 @@
 |---------|------|------|
 | ScoreboardState | 记分牌状态（leftName, leftScore, leftRank, rightName, rightScore, rightRank, bestOf, scoreboardEnabled, eventTitle, eventTitleEnabled, page2LineupDisplayMode, page5Title, page6Title, nameFontSize, scoreFontSize, mtime）。leftRank/rightRank 为选手排位排名（仅数字字符串，空 = 未输入，由赛事同步）；page5Title/page6Title 为推流页5/6 的标题（后台「直播推流」显示设置） | shared/types.ts |
 
-## 仅显阵容（page4）
-
-| 类型名称 | 说明 | 文件 |
-|---------|------|------|
-| Page4SlotState | page4 单个格子（slotIndex, sprite, opacityEnabled, opacity, saturation, healthEnabled, healthPercent, energyValue） | shared/types.ts |
-| Page4PanelState | page4 面板（position, count, selected, mtime） | shared/types.ts |
-| Page4State | page4 整体状态（left, right） | shared/types.ts |
-
 ## 直播推流（stage）
 
 | 类型名称 | 说明 | 文件 |
 |---------|------|------|
-| StagePageKey | 推流页面 key：page1-overlay / page2 / page3 / page5 / page6 / page7 / page8 / page9 / page10 / page11 / page12 / page13 / blank。page11/12/13 为选手介绍三画面（同一页面文件 ?mode=left/right/versus） | shared/types.ts |
+| StagePageKey | 推流页面 key：page1-overlay / page2 / page3 / page4 / page5 / page6 / page7 / page8 / page9 / page10 / page11 / page12 / page13 / blank。page4 为 MVP 结算画面；page11/12/13 为选手介绍三画面（同一页面文件 ?mode=left/right/versus） | shared/types.ts |
 | StageTransitionType | 过渡效果：none / blinds / wolf | shared/types.ts |
-| StageConfig | 推流载体配置（page, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit, mtime）。page3RankVisible 控制页面3排位排名图标显隐；page3TeamVisible 控制页面3左右两侧战队标识 div 显隐；page11RankVisible 控制选手介绍排位排名 div 显隐；page10Duration/page10DurationUnit 为胜负登记后自动切入 page10 的停留时长 | shared/types.ts |
+| StageConfig | 推流载体配置（page, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit, mtime）。page3RankVisible 控制页面3排位排名图标显隐；page3TeamVisible 控制页面3左右两侧战队标识 div 显隐；page3RedLightMode 为页面3红光特效持久策略（off/auto）；page3RedLightInstant 为一次性「立即显示」（进入下一局自动清除，不影响策略）；page11RankVisible 控制选手介绍排位排名 div 显隐；page10Duration/page10DurationUnit 为胜负登记后自动切入 page10 的停留时长 | shared/types.ts |
 | Page6State | 比赛结果页配置（matchIds 最多 8 个已结束比赛, title 副标题, mtime） | shared/types.ts |
 | Page7State | 对局推送页配置（matchIds 已结束比赛, title 主标题留空用默认「对局推送」, notice 温馨提示留空用默认, mtime） | shared/types.ts |
 | Page8State | 比赛预告页配置（matchIds 最多 4 个待开始/进行中比赛, title, background image/image-2/custom, wallpaperUrl, mtime） | shared/types.ts |
@@ -50,6 +42,10 @@
 | CountdownTheme | 倒计时配色：dark / light | shared/types.ts |
 | CountdownState | 倒计时插件状态（visible, running, duration 分钟, remainingSeconds, endAt, theme, mtime） | shared/types.ts |
 | CountdownPayload | 倒计时 API/Socket 载荷（state, serverNow 供客户端校准时钟偏差） | shared/types.ts |
+| MvpSlotEntry | MVP 结算（page4）单个精灵项（petId 精灵主键, tag 标签最多四字可空, isMvp 是否标记 MVP——全页最多一个） | shared/types.ts |
+| MvpState | MVP 结算（page4）状态（slots 最多 6 个精灵项顺序即页面从左到右, returnPage 关闭结算后切回的推流画面, winner 已载入的胜方快照或 null, mtime） | shared/types.ts |
+| MvpWinnerSnapshot | MVP 结算（page4）胜方快照（matchId 胜方所属比赛 id 用于解析头像, side left/right, playerName 保存时的胜方选手名字）——后台「载入当前对局胜方」写入 mvp.json，切换对局不改变 | shared/types.ts |
+| MvpWinnerInfo | MVP 结算（page4）胜方选手信息条（side left/right/null, playerName, avatarExists/avatarPath/avatarMtime——由已保存的胜方快照下发） | shared/types.ts |
 
 
 ## 比赛记录
@@ -81,7 +77,7 @@
 
 | 类型名称 | 说明 | 文件 |
 |---------|------|------|
-| SnapshotPayload | Socket 快照负载（panels, page4, scoreboard, avatars, store 即 MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown）。注意字段名是 `store` 不是 `matches` | shared/types.ts |
+| SnapshotPayload | Socket 快照负载（panels, scoreboard, avatars, store 即 MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown）。注意字段名是 `store` 不是 `matches` | shared/types.ts |
 | SOCKET_EVENTS | Socket 事件名称常量对象 | shared/events.ts |
 
 ## 数据统计（管理后台本地）

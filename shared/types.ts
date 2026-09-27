@@ -38,24 +38,6 @@ export interface PanelState {
   mtime: number | null;
 }
 
-export interface Page4SlotState {
-  slot: number;
-  sprite: SpriteRecord | null;
-  isDead: boolean;
-}
-
-export interface Page4PanelState {
-  position: 'left' | 'right';
-  count: number;
-  selected: Page4SlotState[];
-  mtime: number | null;
-}
-
-export interface Page4State {
-  panels: [Page4PanelState, Page4PanelState];
-  mtime: number | null;
-}
-
 export interface ScoreboardState {
   leftName: string;
   leftScore: string;
@@ -164,6 +146,7 @@ export interface AvatarCollectionState {
  * - page1-overlay: 推流页面1（Overlay 比分栏布局）
  * - page2: 推流页面2（全局阵容展示）
  * - page3: 推流页面3（头像比分阵容）
+ * - page4: 推流页面4（MVP 结算画面）
  * - page5: 推流页面5（使用率/胜率排行）
  * - page6: 推流页面6（比赛结果）
  * - page7: 推流页面7（对局推送）
@@ -176,6 +159,7 @@ export type StagePageKey =
   | 'page1-overlay'
   | 'page2'
   | 'page3'
+  | 'page4'
   | 'page5'
   | 'page6'
   | 'page7'
@@ -189,6 +173,8 @@ export type StagePageKey =
 
 export type StageTransitionType = 'none' | 'blinds' | 'wolf';
 export type Page3SpriteSource = 'sprite' | 'thumbnail';
+/** 推流页面3红光特效策略：关闭 / 自动开启（按阵亡阈值触发） */
+export type Page3RedLightMode = 'off' | 'auto';
 
 export interface StageConfig {
   page: StagePageKey;
@@ -199,6 +185,10 @@ export interface StageConfig {
   page3RankVisible: boolean;
   /** 推流页面3：是否显示比分栏两侧的战队 div（左右各一个：战队头像/logo + 底部名称色块） */
   page3TeamVisible: boolean;
+  /** 推流页面3：红光特效策略（关闭 / 自动开启） */
+  page3RedLightMode: Page3RedLightMode;
+  /** 推流页面3：红光特效「立即显示」一次性触发（进入下一局自动清除，不影响策略） */
+  page3RedLightInstant: boolean;
   /** 选手介绍（page11-13）：是否显示选手排位排名 div */
   page11RankVisible: boolean;
   /** 推流页面5：选手过滤（空字符串 = 全部选手） */
@@ -362,9 +352,61 @@ export interface CountdownPayload {
   serverNow: number;
 }
 
+/**
+ * MVP 结算（推流页面4）单个精灵项：
+ * - petId：精灵主键（pet_id，空字符串 = 空槽，不落盘也不展示）
+ * - tag：标签内容（最多四个字，可选，空字符串 = 不显示标签）
+ * - isMvp：是否标记为 MVP（页面在该精灵项上叠加 MVP.png；全页最多一个）
+ */
+export interface MvpSlotEntry {
+  petId: string;
+  tag: string;
+  isMvp: boolean;
+}
+
+/**
+ * MVP 结算（page4）胜方快照（页面顶部选手信息条取数口径）：
+ * 后台「结算画面」点「载入当前对局胜方」时把当前对局胜方写入 mvp.json，
+ * 之后切换对局不会改变推流画面，需重新载入保存才会更新。
+ * - matchId：胜方所属比赛 id（渲染时按它解析该场比赛头像；比赛被删/未上传时回退占位图）
+ * - side：胜方所在侧
+ * - playerName：保存时的胜方选手名字快照（不随赛事数据变化）
+ */
+export interface MvpWinnerSnapshot {
+  matchId: string;
+  side: 'left' | 'right';
+  playerName: string;
+}
+
+/**
+ * MVP 结算（推流页面4）状态：
+ * - slots：最多 MVP_MAX_ITEMS 个精灵项，顺序即页面从左到右的展示顺序
+ * - returnPage：开启结算前所在推流画面，关闭结算时切回
+ * - winner：已载入的胜方快照（null = 未载入，页面显示「待定」与默认占位头像）
+ */
+export interface MvpState {
+  slots: MvpSlotEntry[];
+  returnPage: StagePageKey;
+  winner: MvpWinnerSnapshot | null;
+  mtime: number | null;
+}
+
+/**
+ * MVP 结算（page4）胜方选手信息（页面顶部选手信息条）：
+ * 由已保存的胜方快照下发（MvpWinnerSnapshot），切换对局不会改变。
+ * - side 为 null：还没有已载入的胜方（页面显示「待定」与默认占位头像）
+ * - avatarExists 为 false：该选手未上传头像，页面回退默认占位图
+ */
+export interface MvpWinnerInfo {
+  side: 'left' | 'right' | null;
+  playerName: string;
+  avatarExists: boolean;
+  avatarPath: string;
+  avatarMtime: number | null;
+}
+
 export interface SnapshotPayload {
   panels: [PanelState, PanelState];
-  page4: Page4State;
   scoreboard: ScoreboardState;
   avatars: AvatarCollectionState;
   store: MatchStoreState;
@@ -377,6 +419,7 @@ export interface SnapshotPayload {
   nextgame: NextGamePayload;
   profiles: ProfileStoreState;
   countdown: CountdownState;
+  mvp: MvpState;
 }
 
 /**

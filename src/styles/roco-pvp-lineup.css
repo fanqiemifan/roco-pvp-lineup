@@ -1,0 +1,153 @@
+/* 阵容条 + 精灵卡（petsdiv3）共享样式：page1 比分栏阵容条、page10/page11 精灵卡、float 阵容悬浮窗复用 */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    min-height: 100vh;
+    overflow: hidden;
+    background: transparent !important;
+    font-family: "Microsoft YaHei", sans-serif;
+}
+
+body {
+    display: grid;
+    place-items: center;
+}
+
+.lineup-screen {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: transparent !important;
+}
+
+.lineup-all-div {
+    position: absolute;
+    left: 50%;
+    bottom: 24px;
+    width: 782px;
+    height: 74px;
+    transform: translateX(-50%);
+    border-radius: 20px;
+    background: #f7f2e8;
+    overflow: hidden;
+}
+
+.lineup-bg {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 398px;
+    background: #e6b34e;
+}
+
+.lineup-bg-left {
+    left: 0;
+    border-radius: 20px 50px 20px 20px;
+}
+
+.lineup-bg-right {
+    display: none;
+}
+
+.lineup-outline {
+    position: absolute;
+    inset: 0;
+    border: 2px solid #c9c9c9;
+    border-radius: 20px;
+    pointer-events: none;
+}
+
+.lineup {
+    position: absolute;
+    top: 4px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    height: 74px;
+}
+
+.lineup-left {
+    left: 20px;
+}
+
+.lineup-right {
+    right: 20px;
+}
+
+.petsdiv3 {
+    position: relative;
+    --petsdiv3-scale: 1;
+    width: calc(98px * var(--petsdiv3-scale));
+    height: calc(98px * var(--petsdiv3-scale));
+    overflow: visible;
+    flex: none;
+    /* 阵亡变黑渐变：filter 作用在常驻的槽位上，立绘更换时也不会生硬跳变 */
+    transition: filter 240ms ease-out;
+}
+
+.lineup .petsdiv3 {
+    --petsdiv3-scale: 0.6122448979591837;
+}
+
+.petsdiv3.is-active::before,
+.petsdiv3.is-empty::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(80px * var(--petsdiv3-scale));
+    height: calc(80px * var(--petsdiv3-scale));
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: #424442;
+    border: calc(3px * var(--petsdiv3-scale)) solid #5d5d5d;
+    overflow: hidden;
+}
+
+.petsdiv3 img {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(110px * var(--petsdiv3-scale));
+    height: calc(110px * var(--petsdiv3-scale));
+    transform: translate(-50%, -50%);
+    object-fit: contain;
+    pointer-events: none;
+}
+
+.petsdiv3.is-empty img {
+    display: none;
+}
+
+.petsdiv3.is-dead {
+    filter: grayscale(1) brightness(0.72);
+}
+
+/* 阵亡斜杠：常驻伪元素，靠 opacity/transform 过渡，阵亡与复活两个方向都是渐变 */
+.petsdiv3::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(70px * var(--petsdiv3-scale));
+    height: calc(4px * var(--petsdiv3-scale));
+    transform: translate(-50%, -50%) rotate(-28deg) scale(0.6);
+    border-radius: 999px;
+    background: rgba(214, 73, 60, 0.92);
+    box-shadow: 0 0 0 1px rgba(120, 18, 18, 0.16);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 240ms ease-out, transform 240ms ease-out;
+}
+
+.petsdiv3.is-dead::after {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-28deg) scale(1);
+}

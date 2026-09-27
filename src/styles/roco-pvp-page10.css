@@ -120,7 +120,7 @@ body {
     justify-content: center;
 }
 
-/* petsdiv3 复用 page4.css 结构，底托比例缩至 72（scale = 72/98），间隔 12px 居中，整体下移 10px */
+/* petsdiv3 复用 lineup.css 结构，底托比例缩至 72（scale = 72/98），间隔 12px 居中，整体下移 10px */
 .winner-lineup-pets {
     display: flex;
     align-items: center;
