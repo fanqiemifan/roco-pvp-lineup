@@ -23,6 +23,12 @@ const TEAM_NAME_MAX_LENGTH = 40;
 const MAX_GAME_SLOTS = 6;
 const FLOW_HISTORY_LIMIT = 50;
 const DELETE_HISTORY_LIMIT = 3;
+// 撤销/重做快照保留期：7 天，过期在读取与写入时自动清理，避免 matches.json 无限膨胀
+const FLOW_HISTORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// 已落盘数据结构版本：命中当前版本时跳过「全量序列化比对」迁移检测
+const MATCH_STORE_VERSION = 1;
+// 长跑不重启时，缓存命中路径上的过期清理节流间隔
+const STORE_CACHE_PRUNE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 interface MatchFlowSnapshot {
   matchId: string;
@@ -33,6 +39,8 @@ interface MatchFlowSnapshot {
   rightScore: number;
   winner: MatchRecord['winner'];
   completedAt: string | null;
+  // 快照入栈时间（ISO），用于 7 天过期清理；旧数据缺少该字段时在迁移时补当前时间
+  savedAt: string;
 }
 
 interface MatchFlowHistory {
@@ -52,11 +60,28 @@ interface DeletedMatchBatch {
 }
 
 interface MatchStoreFile {
+  // 仅用于落盘迁移检测，不参与对外状态（toPublicStore 不透出）
+  __version?: number;
   activeMatchId: string | null;
   matches: MatchRecord[];
   flowHistory: Record<string, MatchFlowHistory>;
   deletedHistory: DeletedMatchBatch[];
 }
+
+/**
+ * matches.json 进程内缓存（按 AppPaths 实例隔离）：
+ * 所有写操作都经本模块、单进程独占数据文件，因此文件 mtime 未变即可直接复用内存态，
+ * 把每次读取代价从「读盘 + 全量规范化 + 全量序列化比对」降为一次 stat。
+ */
+interface MatchStoreCacheEntry {
+  fileMtime: number | null;
+  store: MatchStoreFile;
+  mtime: number | null;
+  lastPruneAt: number;
+}
+
+const matchStoreCache = new WeakMap<AppPaths, MatchStoreCacheEntry>();
+let storeTmpCounter = 0;
 
 function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -439,6 +464,7 @@ function normalizeMatchRecord(match: unknown, lookup?: Map<string, SpriteRecord>
 
 function defaultStoreFile(): MatchStoreFile {
   return {
+    __version: MATCH_STORE_VERSION,
     activeMatchId: null,
     matches: [],
     flowHistory: {},
@@ -456,6 +482,7 @@ function flowSnapshotFromMatch(match: MatchRecord): MatchFlowSnapshot {
     rightScore: match.rightScore,
     winner: match.winner,
     completedAt: match.completedAt,
+    savedAt: new Date().toISOString(),
   };
 }
 
@@ -463,6 +490,7 @@ function normalizeFlowSnapshot(
   snapshot: unknown,
   fallbackMatchId: string,
   lookup?: Map<string, SpriteRecord>,
+  legacySavedAt?: string,
 ): MatchFlowSnapshot | null {
   if (!snapshot || typeof snapshot !== 'object') {
     return null;
@@ -512,6 +540,8 @@ function normalizeFlowSnapshot(
     rightScore: normalized.rightScore,
     winner: normalized.winner,
     completedAt: normalized.completedAt,
+    // 旧版数据无 savedAt：迁移时补入参给定的时间戳，给予一次完整 7 天保留期
+    savedAt: typeof raw.savedAt === 'string' && raw.savedAt.trim() ? raw.savedAt.trim() : (legacySavedAt ?? new Date().toISOString()),
   };
 }
 
@@ -519,6 +549,7 @@ function normalizeFlowHistoryEntry(
   value: unknown,
   matchId: string,
   lookup?: Map<string, SpriteRecord>,
+  legacySavedAt?: string,
 ): MatchFlowHistory {
   if (!value || typeof value !== 'object') {
     return { undoStack: [], redoStack: [] };
@@ -531,7 +562,7 @@ function normalizeFlowHistoryEntry(
     }
 
     return stack
-      .map((item) => normalizeFlowSnapshot(item, matchId, lookup))
+      .map((item) => normalizeFlowSnapshot(item, matchId, lookup, legacySavedAt))
       .filter((item): item is MatchFlowSnapshot => Boolean(item));
   };
 
@@ -544,6 +575,7 @@ function normalizeFlowHistoryEntry(
 function normalizeFlowHistoryMap(
   value: unknown,
   lookup?: Map<string, SpriteRecord>,
+  legacySavedAt?: string,
 ): Record<string, MatchFlowHistory> {
   if (!value || typeof value !== 'object') {
     return {};
@@ -551,13 +583,17 @@ function normalizeFlowHistoryMap(
 
   const raw = value as Record<string, unknown>;
   const normalizedEntries = Object.entries(raw)
-    .map(([matchId, history]) => [matchId, normalizeFlowHistoryEntry(history, matchId, lookup)] as const)
+    .map(([matchId, history]) => [matchId, normalizeFlowHistoryEntry(history, matchId, lookup, legacySavedAt)] as const)
     .filter(([matchId]) => Boolean(matchId.trim()));
 
   return Object.fromEntries(normalizedEntries);
 }
 
-function normalizeDeletedHistory(value: unknown, lookup?: Map<string, SpriteRecord>): DeletedMatchBatch[] {
+function normalizeDeletedHistory(
+  value: unknown,
+  lookup?: Map<string, SpriteRecord>,
+  legacySavedAt?: string,
+): DeletedMatchBatch[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -584,7 +620,7 @@ function normalizeDeletedHistory(value: unknown, lookup?: Map<string, SpriteReco
           return {
             match,
             index: Number.isFinite(Number(source.index)) ? Math.max(0, Number(source.index)) : 0,
-            flowHistory: normalizeFlowHistoryEntry(source.flowHistory, match.id, lookup),
+            flowHistory: normalizeFlowHistoryEntry(source.flowHistory, match.id, lookup, legacySavedAt),
           } satisfies DeletedMatchEntry;
         }).filter((entry): entry is DeletedMatchEntry => Boolean(entry))
         : [];
@@ -735,16 +771,88 @@ function toPublicStore(store: MatchStoreFile, mtime: number | null): MatchStoreS
   };
 }
 
+// 删除超过 7 天的撤销/重做快照（按 savedAt 判定），返回是否发生了清理
+function pruneExpiredFlowHistory(store: MatchStoreFile, nowMs: number): boolean {
+  const cutoffMs = nowMs - FLOW_HISTORY_TTL_MS;
+  let changed = false;
+
+  const isFresh = (snapshot: MatchFlowSnapshot): boolean => {
+    const savedAtMs = Date.parse(snapshot.savedAt);
+    return Number.isFinite(savedAtMs) && savedAtMs >= cutoffMs;
+  };
+
+  for (const history of Object.values(store.flowHistory)) {
+    if (history.undoStack.some((snapshot) => !isFresh(snapshot))) {
+      history.undoStack = history.undoStack.filter(isFresh);
+      changed = true;
+    }
+    if (history.redoStack.some((snapshot) => !isFresh(snapshot))) {
+      history.redoStack = history.redoStack.filter(isFresh);
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+// 原子写：同目录临时文件 + rename，避免写一半崩溃导致 matches.json 截断损坏
+function persistStoreFile(paths: AppPaths, store: MatchStoreFile): number {
+  ensureRuntimeDirs(paths);
+  const targetFile = paths.matchesFile;
+  storeTmpCounter += 1;
+  const tmpFile = `${targetFile}.tmp-${process.pid}-${storeTmpCounter}`;
+  const payload: MatchStoreFile = { __version: MATCH_STORE_VERSION, ...store };
+  fs.writeFileSync(tmpFile, JSON.stringify(payload, null, 2), 'utf-8');
+  fs.renameSync(tmpFile, targetFile);
+  return fs.statSync(targetFile).mtimeMs;
+}
+
+// 更新内存缓存（写盘成功后调用），后续读取零 IO
+function rememberStore(paths: AppPaths, entry: MatchStoreCacheEntry): void {
+  matchStoreCache.set(paths, entry);
+}
+
 function readStoreFile(paths: AppPaths): { store: MatchStoreFile; mtime: number | null } {
-  if (!fs.existsSync(paths.matchesFile)) {
-    return { store: defaultStoreFile(), mtime: null };
+  let fileMtime: number | null = null;
+  try {
+    fileMtime = fs.statSync(paths.matchesFile).mtimeMs;
+  } catch {
+    fileMtime = null;
+  }
+
+  const cached = matchStoreCache.get(paths);
+  if (cached && cached.fileMtime === fileMtime) {
+    // 长跑不重启兜底：节流检查 7 天过期快照，有清理才落盘
+    const nowMs = Date.now();
+    if (nowMs - cached.lastPruneAt >= STORE_CACHE_PRUNE_CHECK_INTERVAL_MS) {
+      cached.lastPruneAt = nowMs;
+      if (pruneExpiredFlowHistory(cached.store, nowMs)) {
+        const nextMtime = persistStoreFile(paths, cached.store);
+        cached.fileMtime = nextMtime;
+        cached.mtime = nextMtime;
+      }
+    }
+    return { store: cached.store, mtime: cached.mtime };
+  }
+
+  if (fileMtime === null) {
+    const entry: MatchStoreCacheEntry = {
+      fileMtime: null,
+      store: defaultStoreFile(),
+      mtime: null,
+      lastPruneAt: Date.now(),
+    };
+    rememberStore(paths, entry);
+    return { store: entry.store, mtime: null };
   }
 
   try {
     const rawText = fs.readFileSync(paths.matchesFile, 'utf-8');
     const raw = JSON.parse(rawText) as Record<string, unknown>;
-    const stat = fs.statSync(paths.matchesFile);
     const lookup = spriteLookup(paths);
+    const version = typeof raw.__version === 'number' ? raw.__version : 0;
+    // 旧版数据（无 savedAt）迁移时统一补当前时间，给予完整 7 天保留期
+    const legacySavedAt = new Date().toISOString();
     const matches = Array.isArray(raw.matches)
       ? raw.matches
         .map((match) => normalizeMatchRecord(match, lookup))
@@ -755,35 +863,44 @@ function readStoreFile(paths: AppPaths): { store: MatchStoreFile; mtime: number 
       : null;
 
     const store = normalizeStoreIdentifiers({
+      __version: version >= MATCH_STORE_VERSION ? MATCH_STORE_VERSION : version,
       activeMatchId: activeMatchId && matches.some((match) => match.id === activeMatchId) ? activeMatchId : null,
       matches,
-      flowHistory: normalizeFlowHistoryMap(raw.flowHistory, lookup),
-      deletedHistory: normalizeDeletedHistory(raw.deletedHistory, lookup),
+      flowHistory: normalizeFlowHistoryMap(raw.flowHistory, lookup, legacySavedAt),
+      deletedHistory: normalizeDeletedHistory(raw.deletedHistory, lookup, legacySavedAt),
     });
-    const normalizedText = JSON.stringify(store, null, 2);
 
-    if (rawText !== normalizedText) {
-      fs.writeFileSync(paths.matchesFile, normalizedText, 'utf-8');
-      return {
-        mtime: fs.statSync(paths.matchesFile).mtimeMs,
-        store,
-      };
+    let needsWriteBack = version < MATCH_STORE_VERSION;
+    if (pruneExpiredFlowHistory(store, Date.now())) {
+      needsWriteBack = true;
     }
 
-    return {
-      mtime: stat.mtimeMs,
-      store,
-    };
+    let mtime = fileMtime;
+    if (needsWriteBack) {
+      mtime = persistStoreFile(paths, store);
+    }
+
+    rememberStore(paths, { fileMtime: mtime, store, mtime, lastPruneAt: Date.now() });
+    return { store, mtime };
   } catch {
-    return { store: defaultStoreFile(), mtime: null };
+    const entry: MatchStoreCacheEntry = {
+      fileMtime,
+      store: defaultStoreFile(),
+      mtime: null,
+      lastPruneAt: Date.now(),
+    };
+    rememberStore(paths, entry);
+    return { store: entry.store, mtime: null };
   }
 }
 
 function writeStoreFile(paths: AppPaths, store: MatchStoreFile): MatchStoreState {
-  ensureRuntimeDirs(paths);
   const normalizedStore = normalizeStoreIdentifiers(store);
-  fs.writeFileSync(paths.matchesFile, JSON.stringify(normalizedStore, null, 2), 'utf-8');
-  return getMatchStore(paths);
+  pruneExpiredFlowHistory(normalizedStore, Date.now());
+  const mtime = persistStoreFile(paths, normalizedStore);
+  // 直接以内存态构建返回值，不再写后重读
+  rememberStore(paths, { fileMtime: mtime, store: normalizedStore, mtime, lastPruneAt: Date.now() });
+  return toPublicStore(normalizedStore, mtime);
 }
 
 function restorePanelFromSlots(paths: AppPaths, position: 'left' | 'right', slots: MatchSlotSnapshot[]): void {

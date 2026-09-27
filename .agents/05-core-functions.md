@@ -4,6 +4,12 @@
 
 持久化精灵主键字段 = `pet_id`（精灵 id）：快照槽位/阵容/撤销重做栈/删除历史均存 pet_id。不做旧数据兼容——pet_id 必须是精灵索引中存在的 id。
 
+性能/存储机制（2026-09 优化）：
+- **进程内内存态**：matches.json 按 AppPaths 实例做 WeakMap 缓存，读路径一次 stat 比对 mtime 即返回内存态；写路径直接更新缓存，不再写后重读。外部手改文件（mtime 变化）会自动重新载入。
+- **原子写**：`persistStoreFile` 先写 `matches.json.tmp-<pid>-<n>` 再 rename，防止写一半崩溃截断文件。
+- **版本号迁移**：落盘带 `__version: 1`；版本命中时跳过「全量序列化比对」，无版本旧文件首次读取时规范化回写一次。
+- **撤销栈 7 天过期**：`MatchFlowSnapshot.savedAt` 入栈时间；读（缓存命中时节流 6 小时）、写、迁移三条路径都会 prune 超过 `FLOW_HISTORY_TTL_MS`（7 天）的 undo/redo 快照；旧数据无 savedAt 时迁移补当前时间，给予完整 7 天保留期。
+
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 获取比赛列表 | getMatchStore | (paths: AppPaths) => MatchStoreState | 获取比赛存储状态 |
@@ -45,11 +51,12 @@
 
 数据源 `resources/data/pets.json`（字段映射：精灵编号=handbook_no、精灵名称=name、精灵属性=elements、精灵形态=stage，4=首领）；本地图片按 `{pet_id}_{name}.png` 命名（sprites-img 立绘 / sprites-icon 头像）。
 
+**进程级缓存**：`listSprites`/`spriteLookup` 结果按 AppPaths 实例缓存在 WeakMap，签名 = pets.json + sprites-img + sprites-icon 三者 mtimeMs；资源变化（如 sync:sprites 后）自动失效重建，无需重启；单次请求内 lookup 复用（如 savePanelState 6 槽只建一次）。
+
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
-| 加载精灵索引 | loadSpriteIndex | (paths: AppPaths) => SpriteRecord[] | 从 pets.json 加载精灵索引 |
-| 获取精灵列表 | listSprites | (paths: AppPaths) => SpriteRecord[] | 获取精灵列表（优先索引，否则扫描目录） |
-| 创建精灵查找表 | spriteLookup | (paths: AppPaths) => Map<string, SpriteRecord> | 创建精灵查找 Map（key: pet_id/filename/名称/别名） |
+| 获取精灵列表 | listSprites | (paths: AppPaths) => SpriteRecord[] | 获取精灵列表（优先 pets.json 索引，否则扫描目录）；走 mtime 签名缓存 |
+| 创建精灵查找表 | spriteLookup | (paths: AppPaths) => Map<string, SpriteRecord> | 创建精灵查找 Map（key: pet_id/filename/名称/别名）；与列表共用同一缓存条目 |
 | 搜索精灵 | spriteMatchesKeyword | (sprite: SpriteRecord, keyword: string) => boolean | 检查精灵是否匹配关键词 |
 | 快速填充阵容 | buildQuickFillPreview | (paths: AppPaths, text: string) => QuickFillPreview | 构建快速填充预览结果 |
 

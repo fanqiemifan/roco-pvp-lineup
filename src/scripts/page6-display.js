@@ -117,7 +117,7 @@
         if (typeof io !== 'function') {
             return;
         }
-        const socket = io({ transports: ['websocket', 'polling'] });
+        const socket = io({ transports: ['websocket', 'polling'], query: { role: 'page6' } });
 
         socket.on('snapshot', (payload) => {
             if (payload && payload.page6) {

@@ -223,6 +223,7 @@
         }
         const socket = io({
             transports: ['websocket', 'polling'],
+            query: { role: 'float' },
         });
 
         socket.on('snapshot', (payload) => {

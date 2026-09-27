@@ -18,6 +18,11 @@
 | /api/avatar/right-avatar.png | runtime/cache/ | 右侧头像图片 |
 | /api/page8/wallpaper | runtime/cache/page8-wallpaper.jpg | page8 自定义壁纸上传接口 |
 
+# 缓存头
+
+- **长缓存（`Cache-Control: public, max-age=2592000, immutable`）**：`/assets`、`/antd-assets`、`/resources`、`/img`、`/image`、`/font` —— 打包随版本发布/内容不可变（精灵按 `{pet_id}_{name}` 命名、bundle 带内容 hash），资源更新时文件名必变。
+- **协商缓存（express.static 默认 max-age=0）**：`/scripts`、`/styles`、`/json`、`/runtime`（用户上传内容可能替换）；页面 HTML 由 sendPage/sendAdminAntdPage 显式 `no-cache`。
+
 # 页面路由索引
 
 | 路径 | 页面 | 说明 |

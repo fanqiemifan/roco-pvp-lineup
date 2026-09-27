@@ -18,6 +18,28 @@
 | 倒计时更新通知 | countdown:update | Server → Client | 倒计时状态变更（保存/show/hide/start/pause/reset/归零），负载带 serverNow 供校准 | CountdownPayload（state + serverNow） |
 | MVP 结算更新通知 | mvp:update | Server → Client | MVP 结算（page4）精灵项/标签/MVP 标记/胜方快照变更（保存/显示时广播）；推流页收到后重拉 GET /api/mvp（state + winner），后台「结算画面」直接用 payload 的 state/winner 同步草稿与已载入胜方头像 | { state: MvpState, winner: MvpWinnerInfo } |
 
+# 角色房间（role rooms）与定向广播
+
+客户端连接时通过 `io({ query: { role } })` 声明身份；服务端把 socket 加入 `role:<role>` 房间，**首连快照按角色裁剪、事件只投订阅角色**，admin 房间始终收全量。未声明或未知 role 按 admin 处理（旧客户端零改动兼容）。
+
+| role | 客户端 | 首连快照字段 | 接收的事件 |
+|------|--------|-------------|-----------|
+| admin（默认） | App.tsx 后台、未知角色 | 全量 | 全部 |
+| page3 | page3-display.js | 全量 | panel / scoreboard / avatar / matches / stage / profiles / nextgame |
+| page1 | overlay.js | panels | panel |
+| page2 | lineup-display.js | panels, scoreboard | panel, scoreboard |
+| page4 | page4-display.js | mvp | mvp, avatar |
+| page5 | page5-display.js | stage, scoreboard | stage, scoreboard, matches |
+| page6/7/8 | pageN-display.js | pageN | pageN, matches（+avatar：7/8） |
+| page9 | page9-display.js | page9 | page9 |
+| page10 | page10-display.js | {}（仅作刷新信号） | matches, avatar |
+| page11 | page11-display.js | {} | matches, avatar, panel, stage, page11, profiles |
+| float | float.js | panels | panel |
+| carrier | stage-carrier.js | stage | stage |
+| countdown | countdown-overlay.js | {} | countdown |
+
+路由表常量在 socket-server.ts（`ROLES_FOR_*`、`SNAPSHOT_FIELDS_BY_ROLE`、`broadcast(event, payload, roles)`）；新增事件必须显式给出订阅角色，不能再裸 `io.emit`。
+
 # 数据流图
 
 ## 配置变更流程

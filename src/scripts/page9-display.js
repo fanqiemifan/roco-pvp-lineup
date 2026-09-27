@@ -125,7 +125,7 @@
         if (typeof io !== 'function') {
             return;
         }
-        var socket = io({ transports: ['websocket', 'polling'] });
+        var socket = io({ transports: ['websocket', 'polling'], query: { role: 'page9' } });
 
         socket.on('snapshot', function (payload) {
             if (payload && payload.page9) {

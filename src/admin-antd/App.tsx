@@ -292,6 +292,36 @@ function HistorySortHeader({ text, sortKey, activeOrder, onSort }: {
   );
 }
 
+/**
+ * 倒计时剩余时间显示：把 running 时的 500ms 节拍下沉在这个小组件内部，
+ * 避免节拍每 0.5 秒触发整个 Dashboard（6000+ 行单组件）协调一遍。
+ */
+function CountdownRemainingText({ state, clockOffsetMs }: { state: CountdownState; clockOffsetMs: number }) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!state.running) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setTick((value) => value + 1);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [state.running]);
+
+  const totalSeconds = !state.running || state.endAt === null
+    ? Math.max(0, Math.round(state.remainingSeconds))
+    : Math.max(0, Math.ceil((state.endAt - (Date.now() + clockOffsetMs)) / 1000));
+  const mm = Math.floor(totalSeconds / 60);
+  const ss = totalSeconds % 60;
+
+  return (
+    <Text strong style={{ fontSize: 16 }}>
+      剩余 {String(mm).padStart(2, '0')}:{String(ss).padStart(2, '0')}
+    </Text>
+  );
+}
+
 function Dashboard() {
   const { message, modal } = App.useApp();
   const [view, setView] = useState<ViewKey>('roster');
@@ -368,8 +398,6 @@ function Dashboard() {
   const [countdown, setCountdown] = useState<CountdownState | null>(null);
   const [countdownSaving, setCountdownSaving] = useState(false);
   const countdownClockRef = useRef({ offset: 0 });
-  // running 时每秒强制刷新以更新剩余时间显示
-  const [, setCountdownTick] = useState(0);
   // MVP 结算（推流页面4）：精灵项（最多 6 个，顺序即页面从左到右）、标签与 MVP 标记
   const [mvp, setMvp] = useState<MvpState | null>(null);
   // 已载入胜方的选手信息（名字 + 头像，由快照 matchId+side 解析，展示在「结算画面」面板）
@@ -746,16 +774,7 @@ function Dashboard() {
     void loadInitialData();
   }, []);
 
-  // 倒计时进行中：本地节拍刷新后台的剩余时间显示
-  useEffect(() => {
-    if (!countdown?.running) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      setCountdownTick((value) => value + 1);
-    }, 500);
-    return () => window.clearInterval(timer);
-  }, [countdown?.running]);
+  // 倒计时剩余时间的 500ms 节拍已下沉到 CountdownRemainingText 小组件，不再触发整个 Dashboard 协调
 
   // 切换/回显到待开始小局时，用赛事草稿槽位回填阵容编辑器：
   // pending 状态下全局面板被服务端清空（未开局阵容不上推流页），此前编辑器直接显示空面板，
@@ -802,6 +821,7 @@ function Dashboard() {
   useEffect(() => {
     const socket = io({
       transports: ['websocket', 'polling'],
+      query: { role: 'admin' },
     });
 
     socket.on(SOCKET_EVENTS.snapshot, (payload) => {
@@ -2638,21 +2658,6 @@ function Dashboard() {
     } finally {
       setCountdownSaving(false);
     }
-  }
-
-  /** 倒计时当前剩余秒数：running 用 endAt 实时计算（按服务端时钟偏差校准） */
-  function countdownRemainingSeconds(state: CountdownState): number {
-    if (!state.running || state.endAt === null) {
-      return Math.max(0, Math.round(state.remainingSeconds));
-    }
-    return Math.max(0, Math.ceil((state.endAt - (Date.now() + countdownClockRef.current.offset)) / 1000));
-  }
-
-  function formatCountdownText(state: CountdownState): string {
-    const seconds = countdownRemainingSeconds(state);
-    const mm = Math.floor(seconds / 60);
-    const ss = seconds % 60;
-    return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
   }
 
   async function saveMatchTags(matchId: string, tags: string[]) {
@@ -4746,7 +4751,7 @@ function Dashboard() {
                           <Space size={8} wrap>
                             {countdown?.visible ? <Tag color="green">显示中</Tag> : <Tag>已关闭</Tag>}
                             {countdown?.running ? <Tag color="blue">倒计时中</Tag> : <Tag>时间静止</Tag>}
-                            {countdown ? <Text strong style={{ fontSize: 16 }}>剩余 {formatCountdownText(countdown)}</Text> : null}
+                            {countdown ? <CountdownRemainingText state={countdown} clockOffsetMs={countdownClockRef.current.offset} /> : null}
                           </Space>
                         </Space>
                       </Card>

@@ -21,6 +21,47 @@ let cachedAttributeCodeByName: Map<string, string> | null = null;
 let cachedFinalFormIds: Set<string> | null = null;
 let cachedIconFilenameByPetId: Map<string, string> | null = null;
 
+/**
+ * 精灵索引进程级缓存：
+ * 资源（pets.json / sprites-img / sprites-icon）只由构建脚本 sync:sprites 更新、运行时不可变，
+ * 但为稳妥起见仍按三个来源的 mtimeMs 生成签名，任何替换/新增都会使缓存自动失效；
+ * 以 AppPaths 实例为键（生产环境全局只有一个 paths；测试各自 mkdtemp 互不污染）。
+ */
+interface SpriteIndexCacheEntry {
+  signature: string;
+  sprites: SpriteRecord[];
+  lookup: Map<string, SpriteRecord>;
+}
+
+const spriteIndexCache = new WeakMap<AppPaths, SpriteIndexCacheEntry>();
+
+function safeMtimeMs(targetPath: string): number | null {
+  try {
+    return fs.statSync(targetPath).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+// 索引签名：pets.json + 立绘目录 + 头像目录的 mtime（目录内文件增删会改变目录 mtime）
+function spriteSourceSignature(paths: AppPaths): string {
+  return JSON.stringify([
+    safeMtimeMs(path.join(paths.dataDir, 'pets.json')),
+    safeMtimeMs(paths.spritesDir),
+    safeMtimeMs(paths.spritesIconDir),
+  ]);
+}
+
+function buildSpriteLookup(sprites: SpriteRecord[]): Map<string, SpriteRecord> {
+  const lookup = new Map<string, SpriteRecord>();
+  for (const sprite of sprites) {
+    for (const key of [sprite.id, sprite.filename, ...sprite.aliases]) {
+      lookup.set(path.basename(key), sprite);
+    }
+  }
+  return lookup;
+}
+
 function normalizeSpriteAttributes(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value
@@ -267,7 +308,7 @@ function normalizePetRecord(record: unknown, paths: AppPaths): SpriteRecord | nu
   };
 }
 
-export function loadSpriteIndex(paths: AppPaths): SpriteRecord[] {
+function buildIndexedSprites(paths: AppPaths): SpriteRecord[] {
   const indexFile = path.join(paths.dataDir, 'pets.json');
   if (!fs.existsSync(indexFile)) {
     return [];
@@ -296,16 +337,8 @@ export function loadSpriteIndex(paths: AppPaths): SpriteRecord[] {
   }
 }
 
-export function listSprites(paths: AppPaths): SpriteRecord[] {
-  const indexed = loadSpriteIndex(paths);
-  if (indexed.length > 0) {
-    return indexed;
-  }
-
-  if (!fs.existsSync(paths.spritesDir)) {
-    return [];
-  }
-
+// 无 pets.json 时的兜底：直接扫描 sprites-img 目录
+function buildDirectorySprites(paths: AppPaths): SpriteRecord[] {
   const sprites = fs
     .readdirSync(paths.spritesDir)
     .filter((filename) => SUPPORTED_IMAGE_EXTENSIONS.has(path.extname(filename).toLowerCase()))
@@ -321,14 +354,33 @@ export function listSprites(paths: AppPaths): SpriteRecord[] {
   return sprites;
 }
 
-export function spriteLookup(paths: AppPaths): Map<string, SpriteRecord> {
-  const lookup = new Map<string, SpriteRecord>();
-  for (const sprite of listSprites(paths)) {
-    for (const key of [sprite.id, sprite.filename, ...sprite.aliases]) {
-      lookup.set(path.basename(key), sprite);
-    }
+// 取（必要时重建）按 mtime 签名缓存的精灵索引与查找表
+function getSpriteIndexCache(paths: AppPaths): SpriteIndexCacheEntry {
+  const signature = spriteSourceSignature(paths);
+  const cached = spriteIndexCache.get(paths);
+  if (cached && cached.signature === signature) {
+    return cached;
   }
-  return lookup;
+
+  const indexed = buildIndexedSprites(paths);
+  const sprites = indexed.length > 0 ? indexed : fs.existsSync(paths.spritesDir)
+    ? buildDirectorySprites(paths)
+    : [];
+  const entry: SpriteIndexCacheEntry = {
+    signature,
+    sprites,
+    lookup: buildSpriteLookup(sprites),
+  };
+  spriteIndexCache.set(paths, entry);
+  return entry;
+}
+
+export function listSprites(paths: AppPaths): SpriteRecord[] {
+  return getSpriteIndexCache(paths).sprites;
+}
+
+export function spriteLookup(paths: AppPaths): Map<string, SpriteRecord> {
+  return getSpriteIndexCache(paths).lookup;
 }
 
 function collectSpriteMatches(query: string, sprites: SpriteRecord[]): Array<{

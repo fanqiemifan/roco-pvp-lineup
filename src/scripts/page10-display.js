@@ -228,7 +228,7 @@
             return;
         }
 
-        const socket = io({ transports: ['websocket', 'polling'] });
+        const socket = io({ transports: ['websocket', 'polling'], query: { role: 'page10' } });
 
         socket.on('snapshot', () => {
             void loadData();

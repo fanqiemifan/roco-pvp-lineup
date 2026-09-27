@@ -662,7 +662,8 @@
         }
 
         const socket = io({
-            transports: ['websocket', 'polling']
+            transports: ['websocket', 'polling'],
+            query: { role: 'page2' }
         });
 
         socket.on('snapshot', payload => {

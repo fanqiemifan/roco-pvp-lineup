@@ -109,7 +109,7 @@
         if (typeof io !== 'function') {
             return;
         }
-        var socket = io({ transports: ['websocket', 'polling'] });
+        var socket = io({ transports: ['websocket', 'polling'], query: { role: 'countdown' } });
         socket.on('countdown:update', function (payload) {
             if (payload && payload.state) {
                 applyState(payload.state, payload.serverNow);

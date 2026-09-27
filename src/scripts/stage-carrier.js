@@ -449,7 +449,7 @@
             return;
         }
 
-        socket = io({ transports: ['websocket', 'polling'] });
+        socket = io({ transports: ['websocket', 'polling'], query: { role: 'carrier' } });
 
         socket.on('connect', function () {
             // 连接建立后服务端会下发 snapshot，其中包含 stage 字段

@@ -10,7 +10,7 @@ import {
   RANK_TEXT_MAX_LENGTH,
   SUPPORTED_BEST_OF,
 } from '../../shared/constants.js';
-import type { PanelState, ScoreboardState, SlotState } from '../../shared/types.js';
+import type { PanelState, ScoreboardState, SlotState, SpriteRecord } from '../../shared/types.js';
 import { spriteLookup } from './sprite-service.js';
 import type { AppPaths } from './path-service.js';
 import { ensureRuntimeDirs } from './image-service.js';
@@ -116,7 +116,12 @@ function serializeSlotState(slot: SlotState) {
   };
 }
 
-function parseSlotStateInput(paths: AppPaths, index: number, item: unknown): SlotState {
+function parseSlotStateInput(
+  paths: AppPaths,
+  index: number,
+  item: unknown,
+  lookup?: Map<string, SpriteRecord>,
+): SlotState {
   const slot = defaultSlot(index);
   if (item === null || item === undefined) {
     return slot;
@@ -125,7 +130,7 @@ function parseSlotStateInput(paths: AppPaths, index: number, item: unknown): Slo
     throw new Error('slot must be an object or null');
   }
 
-  const lookup = spriteLookup(paths);
+  const spriteLookupMap = lookup ?? spriteLookup(paths);
   const raw = item as Record<string, unknown>;
   const rawSprite = raw.sprite;
   const petId =
@@ -146,7 +151,7 @@ function parseSlotStateInput(paths: AppPaths, index: number, item: unknown): Slo
       throw new Error('sprite id must be a string or null');
     }
     const normalizedId = petId.trim();
-    const sprite = lookup.get(normalizedId);
+    const sprite = spriteLookupMap.get(normalizedId);
     if (!sprite) {
       throw new Error(`Sprite not found: ${normalizedId}`);
     }
@@ -333,9 +338,11 @@ export function savePanelState(paths: AppPaths, position: 'left' | 'right', sele
 
   ensureRuntimeDirs(paths);
   const selected: SlotState[] = [];
+  // 一次请求只构建一次精灵查找表（进程内另有 mtime 缓存兜底）
+  const lookup = spriteLookup(paths);
 
   selectedSlots.slice(0, MAX_SELECTION_COUNT).forEach((item, index) => {
-    selected.push(parseSlotStateInput(paths, index, item));
+    selected.push(parseSlotStateInput(paths, index, item, lookup));
   });
 
   while (selected.length < MAX_SELECTION_COUNT) {
