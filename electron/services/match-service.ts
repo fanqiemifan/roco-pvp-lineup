@@ -1,13 +1,15 @@
 import fs from 'node:fs';
-import { DEFAULT_BEST_OF, SUPPORTED_BEST_OF } from '../../shared/constants.js';
+import { DEFAULT_BEST_OF, MATCH_ID_REGEX, SUPPORTED_BEST_OF } from '../../shared/constants.js';
 import type {
   GameRecord,
   MatchRecord,
   MatchSlotSnapshot,
   MatchStoreState,
   SpriteRecord,
+  SyncConflictMode,
 } from '../../shared/types.js';
 import type { AppPaths } from './path-service.js';
+import { loadRuntimeConfig } from './config-service.js';
 import { ensureRuntimeDirs } from './image-service.js';
 import { spriteLookup } from './sprite-service.js';
 import {
@@ -320,41 +322,62 @@ function getDatePrefix(date = new Date()): string {
   return `${year}${month}${day}`;
 }
 
-function resolveMatchDatePrefix(matchId: string, createdAt?: string): string {
-  const idMatch = matchId.match(/^(\d{8})_\d+$/);
-  if (idMatch) {
-    return idMatch[1];
+interface ParsedMatchId {
+  date: string;
+  /** 机器码（解析端容忍小写，统一转大写；旧格式为空字符串） */
+  machine: string;
+  index: number;
+}
+
+function parseMatchId(matchId: string): ParsedMatchId | null {
+  const idMatch = String(matchId ?? '').match(MATCH_ID_REGEX);
+  if (!idMatch) {
+    return null;
+  }
+
+  const index = Number.parseInt(idMatch[3], 10);
+  if (!Number.isFinite(index)) {
+    return null;
+  }
+
+  return { date: idMatch[1], machine: idMatch[2].toUpperCase(), index };
+}
+
+/** 簇键：同一日期 + 同一机器码的比赛共享一个序号序列（旧格式机器码为空，即 `20260928_`） */
+function matchClusterKey(date: string, machine: string): string {
+  return `${date}_${machine}`;
+}
+
+/** id 所属簇键；id 无法解析时回退 createdAt（或当天）日期 + 空机器码 */
+function resolveMatchClusterKey(matchId: string, createdAt?: string): string {
+  const parsed = parseMatchId(matchId);
+  if (parsed) {
+    return matchClusterKey(parsed.date, parsed.machine);
   }
 
   if (createdAt) {
     const createdDate = new Date(createdAt);
     if (!Number.isNaN(createdDate.getTime())) {
-      return getDatePrefix(createdDate);
+      return matchClusterKey(getDatePrefix(createdDate), '');
     }
   }
 
-  return getDatePrefix();
+  return matchClusterKey(getDatePrefix(), '');
 }
 
 function resolveMatchNumericIndex(matchId: string): number | null {
-  const idMatch = matchId.match(/^\d{8}_(\d+)$/);
-  if (!idMatch) {
-    return null;
-  }
-
-  const nextIndex = Number.parseInt(idMatch[1], 10);
-  return Number.isFinite(nextIndex) ? nextIndex : null;
+  return parseMatchId(matchId)?.index ?? null;
 }
 
 function collectNextMatchIndexes(store: MatchStoreFile): Map<string, number> {
-  const nextIndexByDate = new Map<string, number>();
+  const nextIndexByCluster = new Map<string, number>();
 
   const register = (match: MatchRecord) => {
-    const datePrefix = resolveMatchDatePrefix(match.id, match.createdAt);
+    const clusterKey = resolveMatchClusterKey(match.id, match.createdAt);
     const numericIndex = resolveMatchNumericIndex(match.id);
     const nextValue = numericIndex ? numericIndex + 1 : 1;
-    const currentValue = nextIndexByDate.get(datePrefix) ?? 1;
-    nextIndexByDate.set(datePrefix, Math.max(currentValue, nextValue));
+    const currentValue = nextIndexByCluster.get(clusterKey) ?? 1;
+    nextIndexByCluster.set(clusterKey, Math.max(currentValue, nextValue));
   };
 
   store.matches.forEach(register);
@@ -362,23 +385,23 @@ function collectNextMatchIndexes(store: MatchStoreFile): Map<string, number> {
     batch.entries.forEach((entry) => register(entry.match));
   });
 
-  return nextIndexByDate;
+  return nextIndexByCluster;
 }
 
 function allocateUniqueMatchId(
   usedIds: Set<string>,
-  nextIndexByDate: Map<string, number>,
-  preferredDatePrefix: string,
+  nextIndexByCluster: Map<string, number>,
+  clusterKey: string,
 ): string {
-  let nextIndex = nextIndexByDate.get(preferredDatePrefix) ?? 1;
-  let candidate = `${preferredDatePrefix}_${String(nextIndex).padStart(3, '0')}`;
+  let nextIndex = nextIndexByCluster.get(clusterKey) ?? 1;
+  let candidate = `${clusterKey}${String(nextIndex).padStart(3, '0')}`;
 
   while (usedIds.has(candidate)) {
     nextIndex += 1;
-    candidate = `${preferredDatePrefix}_${String(nextIndex).padStart(3, '0')}`;
+    candidate = `${clusterKey}${String(nextIndex).padStart(3, '0')}`;
   }
 
-  nextIndexByDate.set(preferredDatePrefix, nextIndex + 1);
+  nextIndexByCluster.set(clusterKey, nextIndex + 1);
   usedIds.add(candidate);
   return candidate;
 }
@@ -435,12 +458,18 @@ function normalizeMatchRecord(match: unknown, lookup?: Map<string, SpriteRecord>
   }
 
   const raw = match as Record<string, unknown>;
+  const id = String(raw.id || '').trim();
+  // id 白名单：只接受 YYYYMMDD_[机器码]NNN 形态（match id 会被拼进头像目录，外部导入数据必须先过这里）
+  if (!MATCH_ID_REGEX.test(id)) {
+    return null;
+  }
+
   const bestOf = normalizeBestOf(raw.bestOf);
   const games = Array.isArray(raw.games) ? raw.games.map((game, index) => normalizeGameRecord(game, index, lookup)) : [];
   const normalizedGames = games.length ? games : [createEmptyGameRecord(1)];
 
   return computeMatchProgress({
-    id: String(raw.id || '').trim(),
+    id,
     createdAt: String(raw.createdAt || new Date().toISOString()),
     updatedAt: String(raw.updatedAt || new Date().toISOString()),
     status: raw.status === 'completed' || raw.status === 'in_progress' ? raw.status : 'pending',
@@ -640,11 +669,11 @@ function normalizeDeletedHistory(
 
 function normalizeStoreIdentifiers(store: MatchStoreFile): MatchStoreFile {
   const usedIds = new Set<string>();
-  const nextIndexByDate = new Map<string, number>();
+  const nextIndexByCluster = new Map<string, number>();
   const renamedIds = new Map<string, string>();
 
   const normalizeMatch = (match: MatchRecord): MatchRecord => {
-    const preferredDatePrefix = resolveMatchDatePrefix(match.id, match.createdAt);
+    const clusterKey = resolveMatchClusterKey(match.id, match.createdAt);
     const desiredId = typeof match.id === 'string' ? match.id.trim() : '';
     const canReuseDesiredId = desiredId && !usedIds.has(desiredId);
     const nextId = canReuseDesiredId
@@ -652,11 +681,11 @@ function normalizeStoreIdentifiers(store: MatchStoreFile): MatchStoreFile {
         usedIds.add(desiredId);
         const numericIndex = resolveMatchNumericIndex(desiredId);
         const nextValue = numericIndex ? numericIndex + 1 : 1;
-        const currentValue = nextIndexByDate.get(preferredDatePrefix) ?? 1;
-        nextIndexByDate.set(preferredDatePrefix, Math.max(currentValue, nextValue));
+        const currentValue = nextIndexByCluster.get(clusterKey) ?? 1;
+        nextIndexByCluster.set(clusterKey, Math.max(currentValue, nextValue));
         return desiredId;
       })()
-      : allocateUniqueMatchId(usedIds, nextIndexByDate, preferredDatePrefix);
+      : allocateUniqueMatchId(usedIds, nextIndexByCluster, clusterKey);
 
     if (desiredId && desiredId !== nextId) {
       renamedIds.set(desiredId, nextId);
@@ -1083,11 +1112,13 @@ export function createMatch(paths: AppPaths, payload: unknown): MatchStoreState 
 
   const { store } = readStoreFile(paths);
   const now = new Date().toISOString();
-  const datePrefix = getDatePrefix(new Date(now));
+  const machineCode = loadRuntimeConfig(paths).machineCode;
+  const clusterKey = matchClusterKey(getDatePrefix(new Date(now)), machineCode);
+  // usedIds 传入全部现存 id：即使簇键序号不规则也保证不产生重复 id
   const nextMatchId = allocateUniqueMatchId(
-    new Set<string>(),
+    new Set<string>(store.matches.map((match) => match.id)),
     collectNextMatchIndexes(store),
-    datePrefix,
+    clusterKey,
   );
   const match: MatchRecord = {
     id: nextMatchId,
@@ -1681,4 +1712,135 @@ export function syncActiveMatchLineupsFromPanels(paths: AppPaths): MatchStoreSta
   };
 
   return writeStoreFile(paths, store);
+}
+
+/* ==================== 双机数据同步：比赛导入合并 ==================== */
+
+/** 规范化包内比赛的结果：逐条过 normalizeMatchRecord，非法 id / 结构不符被拒并给出原因 */
+export interface NormalizedMatchImport {
+  records: MatchRecord[];
+  rejected: Array<{ index: number; id: string; reason: string }>;
+}
+
+export function normalizeImportedMatches(paths: AppPaths, incoming: unknown[]): NormalizedMatchImport {
+  const lookup = spriteLookup(paths);
+  const records: MatchRecord[] = [];
+  const rejected: NormalizedMatchImport['rejected'] = [];
+
+  incoming.forEach((item, index) => {
+    const normalized = normalizeMatchRecord(item, lookup);
+    if (normalized) {
+      records.push(normalized);
+      return;
+    }
+    const rawId = item && typeof item === 'object'
+      ? String((item as Record<string, unknown>).id ?? '').slice(0, 40)
+      : '';
+    rejected.push({ index, id: rawId, reason: 'id 不合法或结构不符，已忽略' });
+  });
+
+  return { records, rejected };
+}
+
+/** 单条比赛的导入判定结果（预览与合并共用同一判定逻辑） */
+export interface MatchImportDecision {
+  id: string;
+  action: 'add' | 'update' | 'skip';
+  reason: string;
+  localUpdatedAt: string | null;
+  incomingUpdatedAt: string | null;
+}
+
+function classifyMatchImport(
+  local: MatchRecord | null,
+  incoming: MatchRecord,
+  mode: SyncConflictMode,
+): MatchImportDecision {
+  const base = {
+    id: incoming.id,
+    localUpdatedAt: local ? local.updatedAt : null,
+    incomingUpdatedAt: incoming.updatedAt,
+  };
+
+  if (!local) {
+    return { ...base, action: 'add', reason: '' };
+  }
+
+  if (mode === 'bundle') {
+    const identical = JSON.stringify(local) === JSON.stringify(incoming);
+    return identical
+      ? { ...base, action: 'skip', reason: '与包内内容相同' }
+      : { ...base, action: 'update', reason: '以包为准覆盖本机版本' };
+  }
+
+  const localMs = Date.parse(local.updatedAt);
+  const incomingMs = Date.parse(incoming.updatedAt);
+  const newer = Number.isFinite(localMs) && Number.isFinite(incomingMs)
+    ? incomingMs > localMs
+    : String(incoming.updatedAt) > String(local.updatedAt);
+  return newer
+    ? { ...base, action: 'update', reason: '包内版本更新' }
+    : { ...base, action: 'skip', reason: '本机版本不早于包内（保持本机）' };
+}
+
+/** 只读：按 id 对比包内比赛与本机 store（供导入预览） */
+export function diffMatchRecords(
+  paths: AppPaths,
+  incoming: MatchRecord[],
+  mode: SyncConflictMode,
+): MatchImportDecision[] {
+  const { store } = readStoreFile(paths);
+  const localById = new Map(store.matches.map((match) => [match.id, match]));
+  return incoming.map((record) => classifyMatchImport(localById.get(record.id) ?? null, record, mode));
+}
+
+export interface MergeMatchRecordsReport {
+  store: MatchStoreState;
+  added: string[];
+  updated: string[];
+  skipped: Array<{ id: string; reason: string }>;
+}
+
+/**
+ * 合并包内比赛：不存在 → 追加；已存在 → 按冲突模式覆盖或跳过。
+ * 走 readStoreFile/writeStoreFile 既有管线（内存缓存 + 原子写 + 标识规范化）；
+ * 不修改 activeMatchId、不写撤销栈（导入不是本机操作，不参与撤销/重做）。
+ */
+export function mergeMatchRecords(
+  paths: AppPaths,
+  incoming: MatchRecord[],
+  mode: SyncConflictMode,
+): MergeMatchRecordsReport {
+  const { store } = readStoreFile(paths);
+  const matches = [...store.matches];
+  const indexById = new Map(matches.map((match, index) => [match.id, index]));
+
+  const added: string[] = [];
+  const updated: string[] = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+
+  incoming.forEach((record) => {
+    const localIndex = indexById.get(record.id);
+    const decision = classifyMatchImport(
+      localIndex === undefined ? null : matches[localIndex],
+      record,
+      mode,
+    );
+
+    if (decision.action === 'add') {
+      indexById.set(record.id, matches.length);
+      matches.push(record);
+      added.push(record.id);
+      return;
+    }
+    if (decision.action === 'update') {
+      matches[localIndex as number] = record;
+      updated.push(record.id);
+      return;
+    }
+    skipped.push({ id: record.id, reason: decision.reason });
+  });
+
+  const nextState = writeStoreFile(paths, { ...store, matches });
+  return { store: nextState, added, updated, skipped };
 }

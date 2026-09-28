@@ -13,7 +13,7 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 获取比赛列表 | getMatchStore | (paths: AppPaths) => MatchStoreState | 获取比赛存储状态 |
-| 创建比赛 | createMatch | (paths: AppPaths, payload: unknown) => MatchStoreState | 创建新比赛，payload 包含 leftPlayer, rightPlayer, leftRank, rightRank, leftTeamId/leftTeamName/rightTeamId/rightTeamName（所属战队，选填）, bestOf, tags |
+| 创建比赛 | createMatch | (paths: AppPaths, payload: unknown) => MatchStoreState | 创建新比赛，payload 包含 leftPlayer, rightPlayer, leftRank, rightRank, leftTeamId/leftTeamName/rightTeamId/rightTeamName（所属战队，选填）, bestOf, tags；比赛 id = `YYYYMMDD_{机器码}{NNN}`（机器码取 runtime config 的 machineCode，1-2 位大写字母；未设置则沿用旧格式 `YYYYMMDD_NNN`），同日按「日期 + 机器码」簇独立递增 |
 | 更新比赛信息 | updateMatch | (paths: AppPaths, matchId: string, payload: unknown) => MatchStoreState | 更新比赛信息（含排位排名与所属战队 leftTeamId/leftTeamName/rightTeamId/rightTeamName，未传时保留原值；syncScoreboardFromMatch 会把选手名与排名同步到记分牌） |
 | 更新比赛标签 | updateMatchTags | (paths: AppPaths, matchId: string, payload: unknown) => MatchStoreState | 更新比赛标签 |
 | 批量添加标签 | updateMatchesTags | (paths: AppPaths, matchIds: unknown, payload: unknown) => MatchStoreState | 为多场比赛追加标签（合并保留原有） |
@@ -28,6 +28,9 @@
 | 保存比赛草稿面板 | saveDraftPanelStateForActiveMatch | (paths: AppPaths, position: 'left' | 'right', selectedSlots: unknown) => MatchStoreState | 保存活动比赛的面板草稿 |
 | 保存比赛草稿格子 | saveDraftPanelSlotStateForActiveMatch | (paths: AppPaths, position: 'left' | 'right', slotIndex: number, slotData: unknown) => MatchStoreState | 保存活动比赛的单个格子草稿 |
 | 录入小局阵容 | saveGameLineupForMatch | (paths: AppPaths, matchId: string, gameNumber: number, selections: { left?: unknown; right?: unknown }) => MatchStoreState | 为指定比赛的「当前小局且待开始」写入双方阵容：双侧合并一次写入，不触碰面板/记分牌/activeMatchId；只传一侧时另一侧保留，空数组 = 清空该侧；已开局/已完赛/未轮到均拒绝（前端锁定文案见 App.tsx + lib/history.ts 的 getLineupEntryBlockReason） |
+| 规范化导入比赛 | normalizeImportedMatches | (paths: AppPaths, incoming: unknown[]) => NormalizedMatchImport | 双机同步导入：逐条过 normalizeMatchRecord（含 id 白名单，只接受 `YYYYMMDD_[机器码]NNN`，防止外部包把 id 拼进头像目录），返回可用记录与被拒明细 |
+| 比赛导入分类 | diffMatchRecords | (paths: AppPaths, incoming: MatchRecord[], mode: SyncConflictMode) => MatchImportDecision[] | 只读：按 id 对比本机 store 逐条给出 add/update/skip 与原因（newer = 包内 updatedAt 较新才覆盖；bundle = 内容有差异即覆盖、相同跳过） |
+| 合并导入比赛 | mergeMatchRecords | (paths: AppPaths, incoming: MatchRecord[], mode: SyncConflictMode) => MergeMatchRecordsReport | 双机同步落盘：不存在追加、已存在按冲突模式覆盖或跳过；复用 readStoreFile/writeStoreFile 缓存与原子写管线，不改 activeMatchId 与撤销栈 |
 
 ## 面板操作 (state-service.ts)
 
@@ -76,8 +79,9 @@
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
-| 加载运行时配置 | loadRuntimeConfig | (paths: AppPaths) => RuntimeConfig | 加载运行时配置（port） |
-| 保存运行时配置 | saveRuntimeConfig | (paths: AppPaths, config: RuntimeConfig) => RuntimeConfig | 保存运行时配置 |
+| 加载运行时配置 | loadRuntimeConfig | (paths: AppPaths) => RuntimeConfig | 加载运行时配置（runtime/config.json：port、machineCode） |
+| 保存运行时配置 | saveRuntimeConfig | (paths: AppPaths, patch: Partial<RuntimeConfig>) => RuntimeConfig | 按传入字段合并保存（未传字段保持现值；machineCode 归一化为 1-2 位大写字母，空串 = 未设置） |
+| 归一化本机标识 | normalizeMachineCode | (value: unknown) => string | 去空白 → 转大写 → 仅保留字母 → 截 2 位；不满足 1-2 位字母返回空串 |
 
 ## 直播推流 (stage-service.ts)
 
@@ -98,6 +102,16 @@
 | 删除选手录入 | deletePlayerProfile | (paths: AppPaths, playerId: string) => ProfileStoreState | 删除选手连同头像文件 |
 | 保存战队录入 | saveTeamProfile | (paths: AppPaths, payload: unknown) => ProfileStoreState | 新增/更新战队；未传 id 但同名视为更新（沿用旧 id 保住 logo 文件）；上限 100 支 |
 | 删除战队录入 | deleteTeamProfile | (paths: AppPaths, teamId: string) => ProfileStoreState | 删除战队连同 logo 文件 |
+| 档案导入分类 | diffProfileRecords | (paths: AppPaths, incoming: ProfileImportInput) => ProfileImportDiff | 双机同步预览：先按 id（内容相同跳过、差异覆盖）再按名字（同名不同 id 跳过并在 reason 提示，不覆盖），受 200 人 / 100 队上限约束 |
+| 合并导入档案 | mergeProfileRecords | (paths: AppPaths, incoming: ProfileImportInput, acceptedIds?) => MergeProfileRecordsReport | 双机同步落盘：按 diffProfileRecords 同规则合并；acceptedIds 传入时只合并其中条目（导入预览未勾选的条目不落盘） |
+
+## 双机数据同步 (sync-service.ts)
+
+| 自然语言描述 | 函数名 | 签名 | 说明 |
+|-------------|-------|------|------|
+| 导出同步包 | exportSyncBundle | (paths: AppPaths, options: SyncExportOptions) => SyncBundle | 打包全部比赛（含空白/进行中）+ 可选档案与头像（base64，仅在包含档案时附带；缺失头像文件不产生键） |
+| 导入预览 | previewSyncImport | (paths: AppPaths, raw: unknown, mode: SyncConflictMode) => SyncImportPreview | 校验 app/schema（不符抛中文错误）后组合比赛与档案 diff，统计头像 补缺/已有/无法对应；只读不写入 |
+| 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，按 includeAvatars 只补缺头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标 id 支持「同名匹配」）；返回 store/profiles/avatarsWritten/warnings |
 
 ## 对局推送 (page7-service.ts)
 

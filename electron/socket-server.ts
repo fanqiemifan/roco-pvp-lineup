@@ -8,7 +8,8 @@ import multer from 'multer';
 import { Server as SocketIOServer } from 'socket.io';
 
 import { SOCKET_EVENTS } from '../shared/events.js';
-import type { AvatarCollectionState, CountdownState, MatchStoreState, SnapshotPayload, StagePageKey } from '../shared/types.js';
+import { SYNC_BUNDLE_MAX_BYTES } from '../shared/constants.js';
+import type { AvatarCollectionState, CountdownState, MatchStoreState, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
 import { getSpriteRanking } from './services/stats-service.js';
 import {
@@ -31,6 +32,7 @@ import {
   deleteTeamProfile,
 } from './services/profile-service.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from './services/config-service.js';
+import { applySyncImport, exportSyncBundle, previewSyncImport } from './services/sync-service.js';
 import {
   getStageState,
   saveStageState,
@@ -117,6 +119,12 @@ declare module 'express-session' {
 }
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+// 双机数据同步：同步包为单个 JSON 文件（内嵌 base64 头像，可能几十 MB），单独限制单文件大小
+const syncUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: SYNC_BUNDLE_MAX_BYTES, files: 1 },
+});
 
 // ===== socket 角色分组：每个推流页/悬浮窗连接时声明 role，服务端只投递它需要的事件与快照字段 =====
 // 未声明或未知 role 一律按 admin 处理（收全量），旧版客户端行为完全不变。
@@ -1533,10 +1541,101 @@ export async function createLocalServer(
   });
 
   app.post('/api/runtime-config', (request, response) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    // 合并语义：只覆盖传入字段（单传 machineCode 不会把 port 重置为默认）
     const config = saveRuntimeConfig(paths, {
-      port: Number(request.body?.port),
+      port: body.port === undefined ? undefined : Number(body.port),
+      machineCode: body.machineCode === undefined ? undefined : String(body.machineCode),
     });
     response.json({ success: true, config });
+  });
+
+  // === 双机数据同步：导出 / 预览 / 导入（同步包为单个 JSON 文件，导入走 multipart 上传） ===
+
+  // 解析上传的同步包文件（multipart 字段：file + 可选 mode）
+  const readSyncRequest = (request: Request): { raw: unknown; mode: SyncConflictMode } => {
+    const file = request.file;
+    if (!file?.buffer?.length) {
+      throw new Error('未收到同步包文件');
+    }
+
+    let raw: unknown;
+    try {
+      raw = JSON.parse(file.buffer.toString('utf-8'));
+    } catch {
+      throw new Error('同步包不是有效的 JSON 文件');
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const mode: SyncConflictMode = body.mode === 'bundle' ? 'bundle' : 'newer';
+    return { raw, mode };
+  };
+
+  // 导出同步包：比赛（全部场次）+ 可选档案与头像，由前端落盘为 JSON 文件
+  app.post('/api/sync/export', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const bundle = exportSyncBundle(paths, {
+        includeProfiles: body.includeProfiles !== false,
+        includeAvatars: body.includeAvatars === true,
+      });
+      response.json({ success: true, bundle });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 导入预览：只读解析并逐条列出 新增 / 更新 / 跳过，不写入任何数据
+  app.post('/api/sync/preview', syncUpload.single('file'), (request, response) => {
+    try {
+      const { raw, mode } = readSyncRequest(request);
+      response.json({ success: true, preview: previewSyncImport(paths, raw, mode) });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 应用导入：服务端重新分类，按勾选条目合并比赛与档案、按需补缺头像，并广播刷新
+  app.post('/api/sync/import', syncUpload.single('file'), async (request, response) => {
+    try {
+      const { raw, mode } = readSyncRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+
+      let accepted: string[] = [];
+      if (typeof body.accepted === 'string' && body.accepted.trim()) {
+        try {
+          const parsed: unknown = JSON.parse(body.accepted);
+          if (Array.isArray(parsed)) {
+            accepted = parsed.map((item) => String(item ?? ''));
+          }
+        } catch {
+          accepted = [];
+        }
+      }
+
+      const result = await applySyncImport(paths, raw, {
+        mode,
+        acceptedKeys: accepted,
+        includeAvatars: String(body.includeAvatars ?? 'true') !== 'false',
+      });
+
+      emitMatchesUpdate(result.store);
+      if (result.profiles) {
+        broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
+      }
+      response.json({ success: true, result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // multer 中间件错误（如文件超过上限）统一转 400 JSON 提示
+  app.use(['/api/sync/preview', '/api/sync/import'], (error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+    const message = error instanceof Error ? error.message : '同步包上传失败';
+    response.status(400).json({
+      success: false,
+      error: /too large/i.test(message) ? '同步包超过大小上限（可关闭头像后重试）' : message,
+    });
   });
 
   app.get('/api/avatar/left-avatar.png', (_request, response) => {

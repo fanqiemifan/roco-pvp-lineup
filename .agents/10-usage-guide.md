@@ -53,6 +53,7 @@
 - NextGameState / NextGamePayload - 下场对局配置与载荷
 - CountdownState / CountdownPayload - 倒计时插件状态与载荷
 - MvpState / MvpSlotEntry / MvpWinnerSnapshot / MvpWinnerInfo - MVP 结算（page4）配置与胜方快照
+- SyncBundle / SyncConflictMode / SyncImportItem / SyncImportPreview / SyncImportResult - 双机数据同步（同步包、导入预览与结果）
 - SpriteUsageRow / StatsMetricKey / StatsRangeKey（管理后台统计，src/admin-antd/lib/stats.ts）
 
 ## 文件索引

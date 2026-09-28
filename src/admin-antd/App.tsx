@@ -23,6 +23,7 @@ import {
   Menu,
   Modal,
   Popconfirm,
+  Radio,
   Row,
   Segmented,
   Select,
@@ -44,7 +45,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { io } from 'socket.io-client';
 
 import { SOCKET_EVENTS } from '../../shared/events';
-import { MVP_MAX_ITEMS, MVP_TAG_MAX_LENGTH } from '../../shared/constants';
+import { MVP_MAX_ITEMS, MVP_TAG_MAX_LENGTH, SYNC_BUNDLE_MAX_BYTES } from '../../shared/constants';
 import type {
   AvatarCollectionState,
   CountdownPayload,
@@ -75,6 +76,11 @@ import type {
   StageConfig,
   StagePageKey,
   StageTransitionType,
+  SyncBundle,
+  SyncConflictMode,
+  SyncImportItem,
+  SyncImportPreview,
+  SyncImportResult,
   TeamProfile,
 } from '../../shared/types';
 
@@ -488,6 +494,21 @@ function Dashboard() {
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
   // 比赛历史「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
+  // === 数据同步（双机同步包导出 / 导入） ===
+  const [machineCodeInput, setMachineCodeInput] = useState('');
+  const [machineCodeSaving, setMachineCodeSaving] = useState(false);
+  const [syncExportInclProfiles, setSyncExportInclProfiles] = useState(true);
+  const [syncExportInclAvatars, setSyncExportInclAvatars] = useState(true);
+  const [syncExporting, setSyncExporting] = useState(false);
+  // 选中的同步包文件与解析出的预览；确认导入前不写入任何数据
+  const [syncFile, setSyncFile] = useState<File | null>(null);
+  const [syncFileName, setSyncFileName] = useState('');
+  const [syncPreview, setSyncPreview] = useState<SyncImportPreview | null>(null);
+  const [syncPreviewLoading, setSyncPreviewLoading] = useState(false);
+  const [syncMode, setSyncMode] = useState<SyncConflictMode>('newer');
+  const [syncSelectedKeys, setSyncSelectedKeys] = useState<string[]>([]);
+  const [syncIncludeAvatars, setSyncIncludeAvatars] = useState(true);
+  const [syncImporting, setSyncImporting] = useState(false);
   // 比赛列表懒加载游标：先渲染 6 条，滚动到底部再追加 6 条
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
@@ -707,7 +728,7 @@ function Dashboard() {
     setPageError('');
 
     try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp] = await Promise.all([
+      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig] = await Promise.all([
         requestJson<{ authenticated: boolean }>('/api/auth/check'),
         requestJson<ScoreboardState>('/api/scoreboard'),
         requestJson<MatchStoreState>('/api/matches'),
@@ -724,6 +745,7 @@ function Dashboard() {
         requestJson<ProfileStoreState>('/api/profiles'),
         requestJson<CountdownPayload>('/api/countdown'),
         requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp'),
+        requestJson<{ port: number; machineCode: string }>('/api/runtime-config'),
       ]);
 
       if (!auth.authenticated) {
@@ -750,6 +772,7 @@ function Dashboard() {
         setNextgameMatch(nextNextgame.match ?? null);
         setMvp(nextMvp.state);
         setMvpWinner(nextMvp.winner ?? null);
+        setMachineCodeInput(nextRuntimeConfig.machineCode ?? '');
         // 与 applyServerState 一致：先维护草稿上下文再同步面板，避免 pending 时全局面板覆写编辑器
         pendingDraftRef.current = getPendingDraftContext(nextMatches);
         syncPanelFromApi('left', nextPanels.panels[0]);
@@ -3438,6 +3461,182 @@ function Dashboard() {
     message.success(`已导出 ${sortedMatches.length} 场赛事历史`);
   }
 
+  // === 数据同步（双机同步包导出 / 导入） ===
+
+  async function saveMachineCode() {
+    setMachineCodeSaving(true);
+    try {
+      const result = await requestJson<{ success: boolean; config: { port: number; machineCode: string } }>('/api/runtime-config', {
+        method: 'POST',
+        json: { machineCode: machineCodeInput },
+      });
+      setMachineCodeInput(result.config.machineCode);
+      message.success(
+        result.config.machineCode
+          ? `本机标识已设为 ${result.config.machineCode}，新比赛编号将带该前缀`
+          : '已清空本机标识：新比赛沿用旧编号格式（两机同跑请分别设置 A / B）',
+      );
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMachineCodeSaving(false);
+    }
+  }
+
+  async function exportSyncBundle() {
+    setSyncExporting(true);
+    try {
+      const result = await requestJson<{ success: boolean; bundle: SyncBundle }>('/api/sync/export', {
+        method: 'POST',
+        json: {
+          includeProfiles: syncExportInclProfiles,
+          includeAvatars: syncExportInclProfiles && syncExportInclAvatars,
+        },
+      });
+
+      const blob = new Blob([JSON.stringify(result.bundle, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const stamp = new Date();
+      const pad = (value: number) => String(value).padStart(2, '0');
+      link.href = url;
+      link.download = `roco-sync-${result.bundle.machine || 'X'}-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      message.success(`已导出同步包（${result.bundle.matches.length} 场比赛）`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSyncExporting(false);
+    }
+  }
+
+  function defaultSyncSelection(preview: SyncImportPreview): string[] {
+    return [...preview.matchItems, ...preview.playerItems, ...preview.teamItems]
+      .filter((item) => item.action !== 'skip')
+      .map((item) => item.key);
+  }
+
+  async function loadSyncPreview(file: File, mode: SyncConflictMode) {
+    setSyncPreviewLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('mode', mode);
+      const result = await requestJson<{ success: boolean; preview: SyncImportPreview }>('/api/sync/preview', {
+        method: 'POST',
+        body: formData,
+      });
+      setSyncPreview(result.preview);
+      setSyncSelectedKeys(defaultSyncSelection(result.preview));
+      setSyncIncludeAvatars(true);
+    } catch (error) {
+      setSyncPreview(null);
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSyncPreviewLoading(false);
+    }
+  }
+
+  function handleSyncFile(file: File) {
+    if (file.size > SYNC_BUNDLE_MAX_BYTES) {
+      message.error('同步包超过大小上限（64MB），请在导出时关闭「包含头像与 logo」后重试');
+      return;
+    }
+    setSyncFile(file);
+    setSyncFileName(file.name);
+    void loadSyncPreview(file, syncMode);
+  }
+
+  function closeSyncPreview() {
+    setSyncPreview(null);
+    setSyncFile(null);
+    setSyncFileName('');
+    setSyncSelectedKeys([]);
+  }
+
+  async function applySyncPreview() {
+    if (!syncFile) {
+      return;
+    }
+    setSyncImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', syncFile);
+      formData.append('mode', syncMode);
+      formData.append('accepted', JSON.stringify(syncSelectedKeys));
+      formData.append('includeAvatars', syncIncludeAvatars ? 'true' : 'false');
+
+      const result = await requestJson<{ success: boolean; result: SyncImportResult }>('/api/sync/import', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (result.result.profiles) {
+        applyServerState({ store: result.result.store, profiles: result.result.profiles });
+      } else {
+        applyServerState({ store: result.result.store });
+      }
+
+      const applied = result.result.applied;
+      const avatarCount = result.result.avatarsWritten.players + result.result.avatarsWritten.teams;
+      const summary = `比赛 新增 ${applied.match.add} / 更新 ${applied.match.update} / 跳过 ${applied.match.skip}；`
+        + `档案 新增 ${applied.player.add + applied.team.add} / 更新 ${applied.player.update + applied.team.update}；`
+        + `头像补缺 ${avatarCount} 张`;
+      setHistoryNotice({ tone: 'success', text: `同步包导入完成：${summary}` });
+      message.success('同步包导入完成');
+      result.result.warnings.forEach((warning) => message.warning(warning));
+      closeSyncPreview();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSyncImporting(false);
+    }
+  }
+
+  const syncPreviewColumns: ColumnsType<SyncImportItem> = [
+    {
+      title: '类型',
+      dataIndex: 'kind',
+      width: 84,
+      render: (kind: SyncImportItem['kind']) => ({ match: '比赛', player: '选手档案', team: '战队档案' }[kind]),
+    },
+    {
+      title: '对象',
+      dataIndex: 'label',
+      render: (_value, record) => (
+        <Space direction="vertical" size={0}>
+          <Text>{record.label}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '处理',
+      dataIndex: 'action',
+      width: 76,
+      render: (action: SyncImportItem['action']) => (
+        <Tag color={action === 'add' ? 'green' : action === 'update' ? 'gold' : 'default'}>
+          {action === 'add' ? '新增' : action === 'update' ? '更新' : '跳过'}
+        </Tag>
+      ),
+    },
+    {
+      title: '说明',
+      dataIndex: 'reason',
+      render: (_value, record) => (
+        <Space direction="vertical" size={0}>
+          <Text type="secondary">{record.reason || '—'}</Text>
+          {record.kind === 'match' ? (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              本地 {formatDateTime(record.localUpdatedAt)} → 包内 {formatDateTime(record.incomingUpdatedAt)}
+            </Text>
+          ) : null}
+        </Space>
+      ),
+    },
+  ];
+
   return (
     <Layout className="admin-shell">
       <Sider
@@ -3963,6 +4162,126 @@ function Dashboard() {
                   locale={{ emptyText: '暂无历史赛事' }}
                 />
               </Card>
+              <Card title="数据同步" size="small">
+                <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                  <Space wrap align="center">
+                    <Text strong>本机标识</Text>
+                    <Input
+                      value={machineCodeInput}
+                      onChange={(event) => setMachineCodeInput(event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))}
+                      placeholder="A"
+                      maxLength={2}
+                      style={{ width: 64 }}
+                    />
+                    <Button onClick={() => void saveMachineCode()} loading={machineCodeSaving}>保存标识</Button>
+                    <Text type="secondary">新比赛编号形如 20260928_A001；两机请分别设为 A / B，未设置则沿用旧编号</Text>
+                  </Space>
+
+                  <Space wrap align="center">
+                    <Text strong>导出同步包</Text>
+                    <Checkbox
+                      checked={syncExportInclProfiles}
+                      onChange={(event) => setSyncExportInclProfiles(event.target.checked)}
+                    >
+                      包含选手 / 战队档案
+                    </Checkbox>
+                    <Checkbox
+                      checked={syncExportInclAvatars}
+                      disabled={!syncExportInclProfiles}
+                      onChange={(event) => setSyncExportInclAvatars(event.target.checked)}
+                    >
+                      包含头像与 logo
+                    </Checkbox>
+                    <Button type="primary" onClick={() => void exportSyncBundle()} loading={syncExporting}>导出同步包</Button>
+                    <Text type="secondary">赛前可把包发给另一台机器导入，做「基线分发」；同一场比赛不要在两台机器分别创建</Text>
+                  </Space>
+
+                  <Space wrap align="center">
+                    <Text strong>导入同步包</Text>
+                    <Upload
+                      accept=".json,application/json"
+                      showUploadList={false}
+                      beforeUpload={(file) => {
+                        handleSyncFile(file as File);
+                        return false;
+                      }}
+                    >
+                      <Button loading={syncPreviewLoading}>选择同步包并预览</Button>
+                    </Upload>
+                    <Text type="secondary">先预览「新增 / 更新 / 跳过」，确认后才写入；重复导入同一包不会有副作用</Text>
+                  </Space>
+                </Space>
+              </Card>
+
+              <Modal
+                title="导入同步包预览"
+                open={Boolean(syncPreview)}
+                width={780}
+                onCancel={closeSyncPreview}
+                okText={`确认导入（${syncSelectedKeys.length} 项）`}
+                okButtonProps={{ disabled: !syncPreview || syncSelectedKeys.length === 0 }}
+                confirmLoading={syncImporting}
+                onOk={() => void applySyncPreview()}
+              >
+                {syncPreview ? (
+                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    {syncPreview.sameMachine ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={syncPreview.meta.machine
+                          ? `源包与本机标识（${syncPreview.meta.machine}）相同，可能覆盖本机数据，请核对后再导入`
+                          : '源包与本机都未设置机器码，比赛编号可能相撞，建议两台机器分别设置 A / B'}
+                      />
+                    ) : null}
+
+                    <Space wrap align="center">
+                      <Text>冲突处理</Text>
+                      <Radio.Group
+                        value={syncMode}
+                        optionType="button"
+                        buttonStyle="solid"
+                        options={[
+                          { label: '较新覆盖', value: 'newer' },
+                          { label: '以包为准', value: 'bundle' },
+                        ]}
+                        onChange={(event) => {
+                          const nextMode = event.target.value as SyncConflictMode;
+                          setSyncMode(nextMode);
+                          if (syncFile) {
+                            void loadSyncPreview(syncFile, nextMode);
+                          }
+                        }}
+                      />
+                      <Text type="secondary">较新覆盖 = 按更新时间取最新；以包为准 = 不看时间，内容有差异即用包内版本</Text>
+                    </Space>
+
+                    <Space wrap align="center">
+                      <Checkbox checked={syncIncludeAvatars} onChange={(event) => setSyncIncludeAvatars(event.target.checked)}>
+                        缺失头像 / logo 一并补缺（{syncPreview.avatars.players.fill + syncPreview.avatars.teams.fill} 张，只补缺不覆盖）
+                      </Checkbox>
+                      <Text type="secondary">
+                        已有头像保持不动 {syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张 · 无法对应档案 {syncPreview.avatars.players.unmatched + syncPreview.avatars.teams.unmatched} 张
+                      </Text>
+                    </Space>
+
+                    <Table<SyncImportItem>
+                      rowKey="key"
+                      size="small"
+                      dataSource={[...syncPreview.matchItems, ...syncPreview.playerItems, ...syncPreview.teamItems]}
+                      columns={syncPreviewColumns}
+                      pagination={false}
+                      scroll={{ y: 320 }}
+                      rowSelection={{
+                        selectedRowKeys: syncSelectedKeys,
+                        onChange: (keys) => setSyncSelectedKeys(keys.map(String)),
+                        getCheckboxProps: (record) => ({ disabled: record.action === 'skip' }),
+                      }}
+                    />
+                  </Space>
+                ) : null}
+              </Modal>
+
               <Modal
                 title="批量添加标签"
                 open={batchTagOpen}

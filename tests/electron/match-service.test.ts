@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { createMatch, saveGameLineupForMatch, startCurrentGame } from '../../electron/services/match-service';
+import { saveRuntimeConfig } from '../../electron/services/config-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
 
 let paths: AppPaths;
@@ -115,5 +116,35 @@ describe('saveGameLineupForMatch', () => {
     startCurrentGame(paths, matchId);
 
     expect(() => saveGameLineupForMatch(paths, matchId, 1, { left: [] })).toThrow('该局已开始');
+  });
+});
+
+describe('createMatch 机器码 id', () => {
+  it('未设置机器码时沿用旧格式，并按当日序号递增', () => {
+    const first = createMatch(paths, { leftPlayer: '甲', rightPlayer: '乙', bestOf: 3 });
+    const second = createMatch(paths, { leftPlayer: '丙', rightPlayer: '丁', bestOf: 3 });
+
+    expect(first.matches[0].id).toMatch(/^\d{8}_001$/);
+    expect(second.matches[0].id).toMatch(/^\d{8}_002$/);
+  });
+
+  it('设置机器码后 id 带前缀，并按本机段独立递增', () => {
+    saveRuntimeConfig(paths, { machineCode: 'A' });
+
+    const first = createMatch(paths, { leftPlayer: '甲', rightPlayer: '乙', bestOf: 3 });
+    const second = createMatch(paths, { leftPlayer: '丙', rightPlayer: '丁', bestOf: 3 });
+
+    expect(first.matches[0].id).toMatch(/^\d{8}_A001$/);
+    expect(second.matches[0].id).toMatch(/^\d{8}_A002$/);
+  });
+
+  it('存量旧格式比赛不影响机器码段序号（A 段仍从 001 起）', () => {
+    createMatch(paths, { leftPlayer: '甲', rightPlayer: '乙', bestOf: 3 });
+    saveRuntimeConfig(paths, { machineCode: 'A' });
+
+    const store = createMatch(paths, { leftPlayer: '丙', rightPlayer: '丁', bestOf: 3 });
+
+    expect(store.matches[0].id).toMatch(/^\d{8}_A001$/);
+    expect(store.matches[1].id).toMatch(/^\d{8}_001$/);
   });
 });

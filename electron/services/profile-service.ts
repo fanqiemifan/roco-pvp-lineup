@@ -406,3 +406,214 @@ export function deleteTeamProfile(paths: AppPaths, teamId: string): ProfileStore
   writeStoreFile(paths, store);
   return getProfileStore(paths);
 }
+
+/* ==================== 双机数据同步：档案导入合并 ==================== */
+
+/** 包内档案输入（字段缺失按空处理；id / 名字不合法的条目会被忽略并给出原因） */
+export interface ProfileImportInput {
+  players?: unknown[];
+  teams?: unknown[];
+}
+
+export interface ProfileImportDecision {
+  kind: 'player' | 'team';
+  id: string;
+  name: string;
+  action: 'add' | 'update' | 'skip';
+  reason: string;
+}
+
+export interface ProfileImportRejected {
+  kind: 'player' | 'team';
+  index: number;
+  reason: string;
+}
+
+export interface ProfileImportDiff {
+  players: ProfileImportDecision[];
+  teams: ProfileImportDecision[];
+  rejected: ProfileImportRejected[];
+}
+
+export interface MergeProfileRecordsReport {
+  profiles: ProfileStoreState;
+  players: { added: string[]; updated: string[]; skipped: Array<{ id: string; name: string; reason: string }> };
+  teams: { added: string[]; updated: string[]; skipped: Array<{ id: string; name: string; reason: string }> };
+  rejected: ProfileImportRejected[];
+}
+
+function normalizeIncomingPlayers(items: unknown[]): { entries: PlayerProfileFileEntry[]; rejected: ProfileImportRejected[] } {
+  const entries: PlayerProfileFileEntry[] = [];
+  const rejected: ProfileImportRejected[] = [];
+
+  items.forEach((item, index) => {
+    const raw = (item ?? {}) as Record<string, unknown>;
+    const id = normalizeId(raw.id);
+    const name = normalizeName(raw.name);
+    if (!id || !name) {
+      rejected.push({ kind: 'player', index, reason: 'id 或名字不合法，已忽略' });
+      return;
+    }
+    entries.push({
+      id,
+      name,
+      pets: normalizeText(raw.pets),
+      declaration: normalizeText(raw.declaration),
+      rank: normalizeRank(raw.rank),
+    });
+  });
+
+  return { entries, rejected };
+}
+
+function normalizeIncomingTeams(items: unknown[]): { entries: TeamProfileFileEntry[]; rejected: ProfileImportRejected[] } {
+  const entries: TeamProfileFileEntry[] = [];
+  const rejected: ProfileImportRejected[] = [];
+
+  items.forEach((item, index) => {
+    const raw = (item ?? {}) as Record<string, unknown>;
+    const id = normalizeId(raw.id);
+    const name = normalizeName(raw.name);
+    if (!id || !name) {
+      rejected.push({ kind: 'team', index, reason: 'id 或名字不合法，已忽略' });
+      return;
+    }
+    entries.push({
+      id,
+      name,
+      captain: normalizeName(raw.captain),
+      declaration: normalizeText(raw.declaration),
+    });
+  });
+
+  return { entries, rejected };
+}
+
+function samePlayerEntry(a: PlayerProfileFileEntry, b: PlayerProfileFileEntry): boolean {
+  return a.name === b.name && a.pets === b.pets && a.declaration === b.declaration && a.rank === b.rank;
+}
+
+function sameTeamEntry(a: TeamProfileFileEntry, b: TeamProfileFileEntry): boolean {
+  return a.name === b.name && a.captain === b.captain && a.declaration === b.declaration;
+}
+
+/** 选手档案判定：先按 id（相同跳过 / 差异覆盖），再按名字（同名不同 id 跳过不覆盖），最后受上限约束 */
+function classifyPlayerImport(players: PlayerProfileFileEntry[], entry: PlayerProfileFileEntry): ProfileImportDecision {
+  const base = { kind: 'player' as const, id: entry.id, name: entry.name };
+
+  const byIdIndex = players.findIndex((item) => item.id === entry.id);
+  if (byIdIndex >= 0) {
+    return samePlayerEntry(players[byIdIndex], entry)
+      ? { ...base, action: 'skip', reason: '与本机档案内容相同' }
+      : { ...base, action: 'update', reason: '覆盖本机档案' };
+  }
+
+  const sameName = players.find((item) => item.name === entry.name);
+  if (sameName) {
+    return { ...base, action: 'skip', reason: `同名档案已存在（id ${sameName.id}），不覆盖` };
+  }
+
+  if (players.length >= MAX_PLAYERS) {
+    return { ...base, action: 'skip', reason: `选手档案已达上限（${MAX_PLAYERS}）` };
+  }
+
+  return { ...base, action: 'add', reason: '' };
+}
+
+/** 战队档案判定：规则同选手档案 */
+function classifyTeamImport(teams: TeamProfileFileEntry[], entry: TeamProfileFileEntry): ProfileImportDecision {
+  const base = { kind: 'team' as const, id: entry.id, name: entry.name };
+
+  const byIdIndex = teams.findIndex((item) => item.id === entry.id);
+  if (byIdIndex >= 0) {
+    return sameTeamEntry(teams[byIdIndex], entry)
+      ? { ...base, action: 'skip', reason: '与本机档案内容相同' }
+      : { ...base, action: 'update', reason: '覆盖本机档案' };
+  }
+
+  const sameName = teams.find((item) => item.name === entry.name);
+  if (sameName) {
+    return { ...base, action: 'skip', reason: `同名档案已存在（id ${sameName.id}），不覆盖` };
+  }
+
+  if (teams.length >= MAX_TEAMS) {
+    return { ...base, action: 'skip', reason: `战队档案已达上限（${MAX_TEAMS}）` };
+  }
+
+  return { ...base, action: 'add', reason: '' };
+}
+
+/** 只读：对比包内档案与本机档案（供导入预览） */
+export function diffProfileRecords(paths: AppPaths, incoming: ProfileImportInput): ProfileImportDiff {
+  const { store } = readStoreFile(paths);
+  const players = normalizeIncomingPlayers(Array.isArray(incoming.players) ? incoming.players : []);
+  const teams = normalizeIncomingTeams(Array.isArray(incoming.teams) ? incoming.teams : []);
+
+  return {
+    players: players.entries.map((entry) => classifyPlayerImport(store.players, entry)),
+    teams: teams.entries.map((entry) => classifyTeamImport(store.teams, entry)),
+    rejected: [...players.rejected, ...teams.rejected],
+  };
+}
+
+/**
+ * 合并包内档案：按 id 覆盖 / 同名跳过 / 新增（受上限约束）；头像由同步服务另行补缺。
+ * acceptedIds 传入时只合并其中的条目（导入预览里未勾选的条目不落盘）。
+ */
+export function mergeProfileRecords(
+  paths: AppPaths,
+  incoming: ProfileImportInput,
+  acceptedIds?: { players?: Set<string>; teams?: Set<string> },
+): MergeProfileRecordsReport {
+  const { store } = readStoreFile(paths);
+  const normalizedPlayers = normalizeIncomingPlayers(Array.isArray(incoming.players) ? incoming.players : []);
+  const normalizedTeams = normalizeIncomingTeams(Array.isArray(incoming.teams) ? incoming.teams : []);
+
+  const players: MergeProfileRecordsReport['players'] = { added: [], updated: [], skipped: [] };
+  normalizedPlayers.entries.forEach((entry) => {
+    if (acceptedIds?.players && !acceptedIds.players.has(entry.id)) {
+      return;
+    }
+    const decision = classifyPlayerImport(store.players, entry);
+    if (decision.action === 'add') {
+      store.players.push(entry);
+      players.added.push(entry.id);
+      return;
+    }
+    if (decision.action === 'update') {
+      const index = store.players.findIndex((item) => item.id === entry.id);
+      store.players[index] = entry;
+      players.updated.push(entry.id);
+      return;
+    }
+    players.skipped.push({ id: entry.id, name: entry.name, reason: decision.reason });
+  });
+
+  const teams: MergeProfileRecordsReport['teams'] = { added: [], updated: [], skipped: [] };
+  normalizedTeams.entries.forEach((entry) => {
+    if (acceptedIds?.teams && !acceptedIds.teams.has(entry.id)) {
+      return;
+    }
+    const decision = classifyTeamImport(store.teams, entry);
+    if (decision.action === 'add') {
+      store.teams.push(entry);
+      teams.added.push(entry.id);
+      return;
+    }
+    if (decision.action === 'update') {
+      const index = store.teams.findIndex((item) => item.id === entry.id);
+      store.teams[index] = entry;
+      teams.updated.push(entry.id);
+      return;
+    }
+    teams.skipped.push({ id: entry.id, name: entry.name, reason: decision.reason });
+  });
+
+  writeStoreFile(paths, store);
+  return {
+    profiles: getProfileStore(paths),
+    players,
+    teams,
+    rejected: [...normalizedPlayers.rejected, ...normalizedTeams.rejected],
+  };
+}

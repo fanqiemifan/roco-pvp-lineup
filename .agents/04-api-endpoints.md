@@ -43,6 +43,16 @@
 | 批量删除比赛 | POST | /api/matches/history/delete | 批量删除比赛 | electron/socket-server.ts |
 | 撤销删除 | POST | /api/matches/history/undo-delete | 撤销删除 | electron/socket-server.ts |
 
+## 数据同步接口
+
+| 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
+|-------------|------|------|------|------|
+| 导出同步包 | POST | /api/sync/export | 导出同步包（body: includeProfiles / includeAvatars）；比赛含全部场次（含空白/进行中，基线分发需要），头像 base64 内嵌且仅在包含档案时附带 | electron/socket-server.ts |
+| 导入预览 | POST | /api/sync/preview | 只读解析同步包并返回逐条「新增/更新/跳过」（multipart: file + mode，mode = newer/bundle），不写入任何数据 | electron/socket-server.ts |
+| 应用导入 | POST | /api/sync/import | 按勾选条目合并比赛与档案、按需补缺头像（multipart: file + mode + accepted（JSON 数组）+ includeAvatars），成功后广播 matches:update（含档案变更时另广播 profiles:update） | electron/socket-server.ts |
+
+> 数据同步上传走独立 multer 实例（单文件，上限 SYNC_BUNDLE_MAX_BYTES = 64MB），不经过全局 express.json（2mb），避免大包被拦；超限/坏包统一 400 中文提示。
+
 ## 直播推流（stage）接口
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
@@ -163,5 +173,5 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取运行时配置 | GET | /api/runtime-config | 获取运行时配置 | electron/socket-server.ts |
-| 保存运行时配置 | POST | /api/runtime-config | 保存运行时配置 | electron/socket-server.ts |
+| 获取运行时配置 | GET | /api/runtime-config | 获取运行时配置（port、machineCode 本机标识） | electron/socket-server.ts |
+| 保存运行时配置 | POST | /api/runtime-config | 保存运行时配置（合并语义：只覆盖传入字段——单传 machineCode 不会重置 port；machineCode 归一化为 1-2 位大写字母，空串 = 未设置） | electron/socket-server.ts |
