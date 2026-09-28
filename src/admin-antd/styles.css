@@ -1913,6 +1913,103 @@ a {
   margin-top: 2px;
 }
 
+/* ===== 数据同步卡片：标题下分隔线 + 三行分区（左标签列 / 右控件+提示，行间分隔线） ===== */
+.sync-card .ant-card-head {
+  min-height: auto;
+  padding: 12px 24px;
+  border-bottom: 1px solid #EDE4D8;
+}
+
+.sync-card .ant-card-body {
+  padding: 2px 24px 6px;
+}
+
+.sync-card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 18px 0;
+}
+
+.sync-card-label {
+  flex: 0 0 96px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #2f2418;
+}
+
+.sync-card-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sync-card-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.sync-card-hint .ant-tag {
+  margin-inline: 3px;
+  padding-inline: 8px;
+  transform: translateY(-1px);
+}
+
+.sync-card-hint code {
+  margin: 0 2px;
+  padding: 1px 8px;
+  border: none;
+  border-radius: 6px;
+  background: #F1E8DC;
+  color: #6B5944;
+  font-size: 12px;
+}
+
+.sync-card-divider.ant-divider {
+  margin: 0;
+  border-color: #EDE4D8;
+}
+
+/* 导出行：勾选项靠左、导出按钮靠右 */
+.sync-export-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 胶囊样式的勾选项：选中时奶油底 + 主题橙描边（对勾框沿用 colorPrimary） */
+.sync-check-card.ant-checkbox-wrapper {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  margin-inline-end: 0;
+  padding: 0 18px;
+  border: 1px solid #E6D9C8;
+  border-radius: 12px;
+  background: #FFFDF9;
+  color: #4A3B2B;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.sync-check-card.ant-checkbox-wrapper:hover {
+  border-color: rgba(199, 99, 47, 0.45);
+}
+
+.sync-check-card.ant-checkbox-wrapper-checked {
+  border-color: rgba(199, 99, 47, 0.55);
+  background: #FDF2E6;
+}
+
+.sync-check-card.ant-checkbox-wrapper-disabled {
+  background: #F6EFE6;
+}
+
 /* ===== 数据同步：导入预览弹窗（左列表 + 右差异面板） ===== */
 .sync-preview-modal .ant-modal-body {
   max-height: min(760px, calc(100vh - 200px));

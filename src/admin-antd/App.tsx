@@ -4188,49 +4188,89 @@ function Dashboard() {
                       </Space>
                     ),
                     expandedRowKeys: expandedHistoryKeys,
-                    onExpand: (expanded, record) => {
-                      setExpandedHistoryKeys(expanded ? [record.id] : []);
-                    },
+                    // 不显示左侧 + 号展开列，改为点击整行展开（见 Table onRow）
+                    showExpandColumn: false,
                   }}
+                  onRow={(record) => ({
+                    style: { cursor: 'pointer' },
+                    onClick: (event: React.MouseEvent<HTMLElement>) => {
+                      // 点行内交互控件（勾选框 / 标签 / 按钮 / 行内编辑等）时不触发展开
+                      if ((event.target as HTMLElement).closest(
+                        'button, a, input, label, .ant-select, .ant-tag, .history-tag-cell',
+                      )) {
+                        return;
+                      }
+                      setExpandedHistoryKeys((prev) => (prev.includes(record.id) ? [] : [record.id]));
+                    },
+                  })}
                   locale={{ emptyText: '暂无历史赛事' }}
                 />
               </Card>
-              <Card title="数据同步" size="small">
-                <Space direction="vertical" size={14} style={{ width: '100%' }}>
-                  <Space wrap align="center">
-                    <Text strong>本机标识</Text>
-                    <Input
-                      value={machineCodeInput}
-                      onChange={(event) => setMachineCodeInput(event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))}
-                      placeholder="A"
-                      maxLength={2}
-                      style={{ width: 64 }}
-                    />
-                    <Button onClick={() => void saveMachineCode()} loading={machineCodeSaving}>保存标识</Button>
-                    <Text type="secondary">新比赛编号形如 20260928_A001；两机请分别设为 A / B，未设置则沿用旧编号</Text>
+              <Card
+                size="small"
+                className="sync-card"
+                title={(
+                  <Space size={8} align="center">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#c7632f" aria-hidden="true">
+                      <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+                    </svg>
+                    <span>数据同步</span>
                   </Space>
+                )}
+              >
+                <div className="sync-card-row">
+                  <div className="sync-card-label">本机标识</div>
+                  <div className="sync-card-content">
+                    <Space size={10} align="center">
+                      <Input
+                        value={machineCodeInput}
+                        onChange={(event) => setMachineCodeInput(event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))}
+                        placeholder="A"
+                        maxLength={2}
+                        style={{ width: 96 }}
+                      />
+                      <Button onClick={() => void saveMachineCode()} loading={machineCodeSaving}>保存标识</Button>
+                    </Space>
+                    <div className="sync-card-hint">
+                      新比赛编号形如 <Text code>20260928_A001</Text>；两台请分别设为 <Text strong>A / B</Text>，未设置则沿用旧编号
+                    </div>
+                  </div>
+                </div>
 
-                  <Space wrap align="center">
-                    <Text strong>导出同步包</Text>
-                    <Checkbox
-                      checked={syncExportInclProfiles}
-                      onChange={(event) => setSyncExportInclProfiles(event.target.checked)}
-                    >
-                      包含选手 / 战队档案
-                    </Checkbox>
-                    <Checkbox
-                      checked={syncExportInclAvatars}
-                      disabled={!syncExportInclProfiles}
-                      onChange={(event) => setSyncExportInclAvatars(event.target.checked)}
-                    >
-                      包含头像与 logo
-                    </Checkbox>
-                    <Button type="primary" onClick={() => void exportSyncBundle()} loading={syncExporting}>导出同步包</Button>
-                    <Text type="secondary">赛前可把包发给另一台机器导入，做「基线分发」；同一场比赛不要在两台机器分别创建</Text>
-                  </Space>
+                <Divider className="sync-card-divider" />
 
-                  <Space wrap align="center">
-                    <Text strong>导入同步包</Text>
+                <div className="sync-card-row">
+                  <div className="sync-card-label">导出同步包</div>
+                  <div className="sync-card-content">
+                    <div className="sync-export-bar">
+                      <Space size={12} align="center">
+                        <Checkbox
+                          className="sync-check-card"
+                          checked={syncExportInclProfiles}
+                          onChange={(event) => setSyncExportInclProfiles(event.target.checked)}
+                        >
+                          包含选手 / 战队档案
+                        </Checkbox>
+                        <Checkbox
+                          className="sync-check-card"
+                          checked={syncExportInclAvatars}
+                          disabled={!syncExportInclProfiles}
+                          onChange={(event) => setSyncExportInclAvatars(event.target.checked)}
+                        >
+                          包含头像与 logo
+                        </Checkbox>
+                      </Space>
+                      <Button type="primary" onClick={() => void exportSyncBundle()} loading={syncExporting}>导出同步包</Button>
+                    </div>
+                    <div className="sync-card-hint">赛前可把包发给另一台机器导入，做「基线分发」；同一场比赛不要在两台机器分别创建</div>
+                  </div>
+                </div>
+
+                <Divider className="sync-card-divider" />
+
+                <div className="sync-card-row">
+                  <div className="sync-card-label">导入同步包</div>
+                  <div className="sync-card-content">
                     <Upload
                       accept=".json,application/json"
                       showUploadList={false}
@@ -4241,9 +4281,15 @@ function Dashboard() {
                     >
                       <Button loading={syncPreviewLoading}>选择同步包并预览</Button>
                     </Upload>
-                    <Text type="secondary">先预览「新增 / 更新 / 跳过」，确认后才写入；重复导入同一包不会有副作用</Text>
-                  </Space>
-                </Space>
+                    <div className="sync-card-hint">
+                      先预览
+                      <Tag color="success" bordered={false}>新增</Tag>
+                      <Tag color="warning" bordered={false}>更新</Tag>
+                      <Tag bordered={false}>跳过</Tag>
+                      ，确认后才写入；重复导入同一包不会有副作用
+                    </div>
+                  </div>
+                </div>
               </Card>
 
               <Modal
