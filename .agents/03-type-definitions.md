@@ -80,7 +80,9 @@
 | SyncBundle | 同步包（app/schema/machine/exportedAt/matches，可选 profiles 与 avatars——头像 base64 按档案 id 归属） | shared/types.ts |
 | SyncBundlePlayerProfile / SyncBundleTeamProfile | 同步包内嵌档案条目（Pick 去掉 avatarExists/logoMtime 等本地派生字段） | shared/types.ts |
 | SyncConflictMode | 导入冲突策略（newer 较新覆盖 / bundle 以包为准） | shared/types.ts |
-| SyncImportItem | 导入预览明细项（key/kind/id/label/action/reason/localUpdatedAt/incomingUpdatedAt） | shared/types.ts |
+| SyncImportItem | 导入预览明细项（key/kind/id/label/action/reason/localUpdatedAt/incomingUpdatedAt，conflict 双方都登记过且内容不同、diff 字段级差异列表、avatarCompare 档案项的头像左右对照） | shared/types.ts |
+| SyncImportDiffField | 导入预览的字段级差异项（label 字段名, local 本机值, incoming 包内值） | shared/types.ts |
+| SyncImportAvatarCompare | 导入预览的头像/logo 左右对照（localUrl 本机头像地址、incomingDataUrl 包内头像 data URL、note 处理说明） | shared/types.ts |
 | SyncImportPreview | 导入预览（meta/sameMachine/mode/matchItems/playerItems/teamItems/summary/avatars 统计） | shared/types.ts |
 | SyncImportResult | 导入结果（store/profiles/avatarsWritten/warnings/applied） | shared/types.ts |
 | SyncImportCounts / SyncAvatarCounts | 逐类 新增/更新/跳过 计数；头像 补缺/已有/无法对应 计数 | shared/types.ts |

@@ -9,7 +9,9 @@ import type {
   SyncBundlePlayerProfile,
   SyncBundleTeamProfile,
   SyncConflictMode,
+  SyncImportAvatarCompare,
   SyncImportCounts,
+  SyncImportDiffField,
   SyncImportItem,
   SyncImportPreview,
   SyncImportResult,
@@ -24,6 +26,7 @@ import {
   normalizeImportedMatches,
 } from './match-service.js';
 import type { AppPaths } from './path-service.js';
+import type { ProfileImportDecision } from './profile-service.js';
 import { diffProfileRecords, getProfileStore, mergeProfileRecords } from './profile-service.js';
 
 /** 导出选项：头像只在包含档案时才有效（头像按档案 id 归属） */
@@ -214,32 +217,50 @@ function normalizeBundleId(value: unknown): string {
   return String(value ?? '').replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** 头像补缺统计：源 id 命中本机档案 → 本地缺文件算补缺，已有算保持；命中不到算 unmatched */
-function countAvatarFill(paths: AppPaths, payload: SyncBundlePayload, kind: 'player' | 'team'): SyncAvatarCounts {
+/** 档案目标解析：源 id 命中 → 同名匹配（用于头像补缺与左右对照） */
+function resolveLocalProfileEntry(
+  localEntries: Array<PlayerProfile | TeamProfile>,
+  sourceId: string,
+  nameById: Map<string, string>,
+): PlayerProfile | TeamProfile | undefined {
+  const byId = localEntries.find((entry) => entry.id === sourceId);
+  if (byId) {
+    return byId;
+  }
+  const name = nameById.get(sourceId);
+  return name ? localEntries.find((entry) => entry.name === name) : undefined;
+}
+
+function avatarExistsOf(kind: 'player' | 'team', entry: PlayerProfile | TeamProfile): boolean {
+  return kind === 'player' ? (entry as PlayerProfile).avatarExists : (entry as TeamProfile).logoExists;
+}
+
+/**
+ * 头像补缺统计：源 id 命中本机档案（或本次将新增该档案）→ 本地缺文件算补缺、已有算保持；命中不到算 unmatched。
+ */
+function countAvatarFill(
+  profiles: ProfileStoreState,
+  payload: SyncBundlePayload,
+  kind: 'player' | 'team',
+  addedIds: Set<string>,
+): SyncAvatarCounts {
   const counts: SyncAvatarCounts = { fill: 0, existing: 0, unmatched: 0 };
   const avatarMap = kind === 'player' ? payload.avatars?.players : payload.avatars?.teams;
   if (!avatarMap) {
     return counts;
   }
 
-  const profiles = getProfileStore(paths);
-  const localEntries: Array<PlayerProfile | TeamProfile> = kind === 'player' ? profiles.players : profiles.teams;
-  const byId = new Map(localEntries.map((entry) => [entry.id, entry]));
-  const byName = new Map(localEntries.map((entry) => [entry.name, entry]));
+  const localEntries = kind === 'player' ? profiles.players : profiles.teams;
   const nameById = buildBundleNameMap(payload, kind);
 
   Object.keys(avatarMap).forEach((sourceId) => {
-    let local = byId.get(sourceId);
-    if (!local) {
-      const name = nameById.get(sourceId);
-      local = name ? byName.get(name) : undefined;
-    }
-    if (!local) {
+    const local = resolveLocalProfileEntry(localEntries, sourceId, nameById);
+    // 包内新增的档案导入后会按源 id 落盘，头像同样能补缺
+    if (!local && !addedIds.has(sourceId)) {
       counts.unmatched += 1;
       return;
     }
-    const exists = kind === 'player' ? (local as PlayerProfile).avatarExists : (local as TeamProfile).logoExists;
-    if (exists) {
+    if (local && avatarExistsOf(kind, local)) {
       counts.existing += 1;
     } else {
       counts.fill += 1;
@@ -247,6 +268,68 @@ function countAvatarFill(paths: AppPaths, payload: SyncBundlePayload, kind: 'pla
   });
 
   return counts;
+}
+
+interface AvatarDiffInfo {
+  diffField: SyncImportDiffField | null;
+  compare: SyncImportAvatarCompare | null;
+}
+
+/**
+ * 头像 / logo 的左右对照与差异行（只在「头像可用性发生变化」时给出，避免两边都有头像时的噪音）：
+ * - 本机缺、包内有 → 「无 → 有（导入后补缺）」并附包内头像预览（本机无对应档案则提示不会写入）
+ * - 本机有、包内无 → 「有（保持本机）→ 无」
+ * - 两边都有 / 两边都无 → 无差异，不显示
+ * 说明：两边都有头像时不做逐字节比对（导入会经 sharp 重新压缩，字节比较易误报）。
+ */
+function buildAvatarDiffInfo(
+  profiles: ProfileStoreState,
+  payload: SyncBundlePayload,
+  kind: 'player' | 'team',
+  sourceId: string,
+  willBeAdded: boolean,
+): AvatarDiffInfo {
+  const avatarMap = kind === 'player' ? payload.avatars?.players : payload.avatars?.teams;
+  if (!avatarMap) {
+    return { diffField: null, compare: null };
+  }
+
+  const base64 = avatarMap[sourceId] ?? null;
+  const label = kind === 'player' ? '头像' : 'logo';
+  const localEntries = kind === 'player' ? profiles.players : profiles.teams;
+  const local = resolveLocalProfileEntry(localEntries, sourceId, buildBundleNameMap(payload, kind));
+  const localExists = local ? avatarExistsOf(kind, local) : false;
+
+  if (!base64 && !localExists) {
+    return { diffField: null, compare: null };
+  }
+
+  const localUrl = local && localExists
+    ? (kind === 'player'
+      ? `/runtime/profiles/players/${local.id}.png?v=${(local as PlayerProfile).avatarMtime ?? 0}`
+      : `/runtime/profiles/teams/${local.id}.png?v=${(local as TeamProfile).logoMtime ?? 0}`)
+    : null;
+
+  if (base64 && !localExists) {
+    const canFill = Boolean(local) || willBeAdded;
+    return {
+      diffField: { label, local: '无', incoming: canFill ? '有（导入后补缺）' : '有（本机无对应档案，不会写入）' },
+      compare: {
+        localUrl: null,
+        incomingDataUrl: `data:image/png;base64,${base64}`,
+        note: canFill ? '导入后将补缺到本机' : '包内有头像，但本机没有对应档案，不会写入',
+      },
+    };
+  }
+
+  if (base64 && localExists) {
+    return { diffField: null, compare: null };
+  }
+
+  return {
+    diffField: { label, local: '有（保持本机）', incoming: '无' },
+    compare: null,
+  };
 }
 
 /** 组合预览：比赛 diff + 档案 diff + 头像统计（预览与应用共用，保证判定一致） */
@@ -266,6 +349,8 @@ function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncCon
       reason: decision.reason,
       localUpdatedAt: decision.localUpdatedAt,
       incomingUpdatedAt: decision.incomingUpdatedAt,
+      conflict: decision.conflict,
+      diff: decision.diff,
     };
   });
   normalized.rejected.forEach((rejected) => {
@@ -278,30 +363,45 @@ function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncCon
       reason: rejected.reason,
       localUpdatedAt: null,
       incomingUpdatedAt: null,
+      conflict: false,
+      diff: [],
     });
   });
 
   const profileDiff = payload.profiles ? diffProfileRecords(paths, payload.profiles) : null;
-  const playerItems: SyncImportItem[] = (profileDiff?.players ?? []).map((decision) => ({
-    key: `player:${decision.id}`,
-    kind: 'player',
-    id: decision.id,
-    label: decision.name,
-    action: decision.action,
-    reason: decision.reason,
-    localUpdatedAt: null,
-    incomingUpdatedAt: null,
-  }));
-  const teamItems: SyncImportItem[] = (profileDiff?.teams ?? []).map((decision) => ({
-    key: `team:${decision.id}`,
-    kind: 'team',
-    id: decision.id,
-    label: decision.name,
-    action: decision.action,
-    reason: decision.reason,
-    localUpdatedAt: null,
-    incomingUpdatedAt: null,
-  }));
+  const profilesNow = getProfileStore(paths);
+  const addedIdsOf = (decisions: ProfileImportDecision[] | undefined) => new Set(
+    (decisions ?? []).filter((decision) => decision.action === 'add').map((decision) => decision.id),
+  );
+  const addedPlayerIds = addedIdsOf(profileDiff?.players);
+  const addedTeamIds = addedIdsOf(profileDiff?.teams);
+
+  // 档案项：把头像 / logo 的差异行与左右对照合并进同一条目
+  const toProfileItem = (kind: 'player' | 'team', decision: ProfileImportDecision): SyncImportItem => {
+    const avatarInfo = payload.avatars
+      ? buildAvatarDiffInfo(profilesNow, payload, kind, decision.id, decision.action === 'add')
+      : { diffField: null, compare: null };
+
+    const item: SyncImportItem = {
+      key: `${kind}:${decision.id}`,
+      kind,
+      id: decision.id,
+      label: decision.name,
+      action: decision.action,
+      reason: decision.reason,
+      localUpdatedAt: null,
+      incomingUpdatedAt: null,
+      conflict: false,
+      diff: avatarInfo.diffField ? [...decision.diff, avatarInfo.diffField] : decision.diff,
+    };
+    if (avatarInfo.compare) {
+      item.avatarCompare = avatarInfo.compare;
+    }
+    return item;
+  };
+
+  const playerItems: SyncImportItem[] = (profileDiff?.players ?? []).map((decision) => toProfileItem('player', decision));
+  const teamItems: SyncImportItem[] = (profileDiff?.teams ?? []).map((decision) => toProfileItem('team', decision));
   (profileDiff?.rejected ?? []).forEach((rejected) => {
     const item: SyncImportItem = {
       key: `${rejected.kind}:invalid-${rejected.index}`,
@@ -312,6 +412,8 @@ function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncCon
       reason: rejected.reason,
       localUpdatedAt: null,
       incomingUpdatedAt: null,
+      conflict: false,
+      diff: [],
     };
     if (rejected.kind === 'player') {
       playerItems.push(item);
@@ -340,8 +442,8 @@ function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncCon
       team: countActions(teamItems),
     },
     avatars: {
-      players: countAvatarFill(paths, payload, 'player'),
-      teams: countAvatarFill(paths, payload, 'team'),
+      players: countAvatarFill(profilesNow, payload, 'player', addedPlayerIds),
+      teams: countAvatarFill(profilesNow, payload, 'team', addedTeamIds),
     },
   };
 }

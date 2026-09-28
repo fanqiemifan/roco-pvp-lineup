@@ -1912,3 +1912,119 @@ a {
 .select-match-confirm .ant-checkbox-wrapper {
   margin-top: 2px;
 }
+
+/* ===== 数据同步：导入预览弹窗（左列表 + 右差异面板） ===== */
+.sync-preview-modal .ant-modal-body {
+  max-height: min(760px, calc(100vh - 200px));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sync-preview-layout {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.sync-preview-list {
+  flex: 0 0 560px;
+  min-width: 0;
+}
+
+.sync-preview-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 424px;
+  overflow-y: auto;
+  padding-left: 14px;
+  border-left: 1px solid #EBE2D7;
+}
+
+@media (max-width: 1200px) {
+  .sync-preview-layout {
+    flex-direction: column;
+  }
+  .sync-preview-list {
+    flex: 1 1 auto;
+  }
+  .sync-preview-detail {
+    max-height: none;
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid #EBE2D7;
+    padding-top: 12px;
+  }
+}
+
+.sync-preview-list .ant-table-row.sync-preview-row-active > .ant-table-cell {
+  background: #FBEDE4;
+}
+
+/* 左右差异表：本机值暖色、包内值绿色，便于一眼分辨 */
+.sync-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  table-layout: fixed;
+}
+
+.sync-diff-table th {
+  text-align: left;
+  font-weight: 600;
+  color: #7C6C5F;
+  padding: 6px 8px;
+  border-bottom: 1px solid #EBE2D7;
+  background: #FBF8F3;
+}
+
+.sync-diff-table td {
+  padding: 7px 8px;
+  border-bottom: 1px dashed #EBE2D7;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.sync-diff-table th:nth-child(1),
+.sync-diff-table td:nth-child(1) {
+  width: 108px;
+}
+
+.sync-diff-label {
+  color: #4A3E34;
+  white-space: nowrap;
+}
+
+.sync-diff-local {
+  color: #B8451F;
+  background: #FDF1EA;
+}
+
+.sync-diff-incoming {
+  color: #2E6A4A;
+  background: #EDF6F0;
+}
+
+/* 头像 / logo 左右对照（导入预览详情面板） */
+.sync-avatar-compare {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.sync-avatar-compare img,
+.sync-avatar-empty {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  border: 1px solid #EBE2D7;
+  object-fit: cover;
+  background: #FBF8F3;
+}
+
+.sync-avatar-empty {
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #7C6C5F;
+}

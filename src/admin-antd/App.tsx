@@ -507,6 +507,8 @@ function Dashboard() {
   const [syncPreviewLoading, setSyncPreviewLoading] = useState(false);
   const [syncMode, setSyncMode] = useState<SyncConflictMode>('newer');
   const [syncSelectedKeys, setSyncSelectedKeys] = useState<string[]>([]);
+  // 预览弹窗右侧差异面板当前查看的条目 key
+  const [syncActiveKey, setSyncActiveKey] = useState<string | null>(null);
   const [syncIncludeAvatars, setSyncIncludeAvatars] = useState(true);
   const [syncImporting, setSyncImporting] = useState(false);
   // 比赛列表懒加载游标：先渲染 6 条，滚动到底部再追加 6 条
@@ -3517,6 +3519,23 @@ function Dashboard() {
       .map((item) => item.key);
   }
 
+  /** 预览弹窗默认查看的条目：优先第一处冲突，否则第一条 */
+  function defaultSyncActiveKey(preview: SyncImportPreview): string | null {
+    const items = [...preview.matchItems, ...preview.playerItems, ...preview.teamItems];
+    return (items.find((item) => item.conflict) ?? items[0])?.key ?? null;
+  }
+
+  /** 冲突批量处理：accept = true 全部用包内覆盖（勾选），false 全部保留本机（取消勾选） */
+  function resolveSyncConflicts(accept: boolean) {
+    if (!syncPreview) {
+      return;
+    }
+    const conflictKeys = syncPreview.matchItems.filter((item) => item.conflict).map((item) => item.key);
+    setSyncSelectedKeys((prev) => (accept
+      ? Array.from(new Set([...prev, ...conflictKeys]))
+      : prev.filter((key) => !conflictKeys.includes(key))));
+  }
+
   async function loadSyncPreview(file: File, mode: SyncConflictMode) {
     setSyncPreviewLoading(true);
     try {
@@ -3529,6 +3548,7 @@ function Dashboard() {
       });
       setSyncPreview(result.preview);
       setSyncSelectedKeys(defaultSyncSelection(result.preview));
+      setSyncActiveKey(defaultSyncActiveKey(result.preview));
       setSyncIncludeAvatars(true);
     } catch (error) {
       setSyncPreview(null);
@@ -3553,6 +3573,7 @@ function Dashboard() {
     setSyncFile(null);
     setSyncFileName('');
     setSyncSelectedKeys([]);
+    setSyncActiveKey(null);
   }
 
   async function applySyncPreview() {
@@ -3594,12 +3615,17 @@ function Dashboard() {
     }
   }
 
+  const SYNC_KIND_LABELS: Record<SyncImportItem['kind'], string> = { match: '比赛', player: '选手档案', team: '战队档案' };
+  const SYNC_ACTION_LABELS: Record<SyncImportItem['action'], string> = { add: '新增', update: '更新', skip: '跳过' };
+  // 列表排序权重：更新排最前，其次新增，最后跳过
+  const SYNC_ACTION_ORDER: Record<SyncImportItem['action'], number> = { update: 0, add: 1, skip: 2 };
+
   const syncPreviewColumns: ColumnsType<SyncImportItem> = [
     {
       title: '类型',
       dataIndex: 'kind',
-      width: 84,
-      render: (kind: SyncImportItem['kind']) => ({ match: '比赛', player: '选手档案', team: '战队档案' }[kind]),
+      width: 72,
+      render: (kind: SyncImportItem['kind']) => SYNC_KIND_LABELS[kind],
     },
     {
       title: '对象',
@@ -3614,28 +3640,35 @@ function Dashboard() {
     {
       title: '处理',
       dataIndex: 'action',
-      width: 76,
-      render: (action: SyncImportItem['action']) => (
-        <Tag color={action === 'add' ? 'green' : action === 'update' ? 'gold' : 'default'}>
-          {action === 'add' ? '新增' : action === 'update' ? '更新' : '跳过'}
-        </Tag>
+      width: 108,
+      render: (action: SyncImportItem['action'], record) => (
+        <Space size={4}>
+          <Tag color={action === 'add' ? 'green' : action === 'update' ? 'gold' : 'default'}>
+            {SYNC_ACTION_LABELS[action]}
+          </Tag>
+          {record.conflict ? <Tag color="red">冲突</Tag> : null}
+        </Space>
       ),
     },
     {
       title: '说明',
       dataIndex: 'reason',
-      render: (_value, record) => (
-        <Space direction="vertical" size={0}>
-          <Text type="secondary">{record.reason || '—'}</Text>
-          {record.kind === 'match' ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              本地 {formatDateTime(record.localUpdatedAt)} → 包内 {formatDateTime(record.incomingUpdatedAt)}
-            </Text>
-          ) : null}
-        </Space>
-      ),
+      width: 148,
+      ellipsis: true,
+      render: (_value, record) => <Text type="secondary">{record.reason || '—'}</Text>,
     },
   ];
+
+  // 排序：处理 = 更新 的优先显示（其次新增、跳过）；同一组内冲突优先
+  const syncPreviewItems = syncPreview
+    ? [...syncPreview.matchItems, ...syncPreview.playerItems, ...syncPreview.teamItems]
+      .sort((a, b) => {
+        const orderDiff = SYNC_ACTION_ORDER[a.action] - SYNC_ACTION_ORDER[b.action];
+        return orderDiff !== 0 ? orderDiff : Number(b.conflict) - Number(a.conflict);
+      })
+    : [];
+  const syncActiveItem = syncPreviewItems.find((item) => item.key === syncActiveKey) ?? null;
+  const syncConflictCount = syncPreview ? syncPreview.matchItems.filter((item) => item.conflict).length : 0;
 
   return (
     <Layout className="admin-shell">
@@ -4216,7 +4249,9 @@ function Dashboard() {
               <Modal
                 title="导入同步包预览"
                 open={Boolean(syncPreview)}
-                width={780}
+                width={1160}
+                style={{ top: 24 }}
+                className="sync-preview-modal"
                 onCancel={closeSyncPreview}
                 okText={`确认导入（${syncSelectedKeys.length} 项）`}
                 okButtonProps={{ disabled: !syncPreview || syncSelectedKeys.length === 0 }}
@@ -4256,6 +4291,20 @@ function Dashboard() {
                       <Text type="secondary">较新覆盖 = 按更新时间取最新；以包为准 = 不看时间，内容有差异即用包内版本</Text>
                     </Space>
 
+                    {syncConflictCount > 0 ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={`检测到 ${syncConflictCount} 场比赛两台机器都登记过（内容不同），请逐条确认保留哪一边`}
+                        action={(
+                          <Space>
+                            <Button size="small" onClick={() => resolveSyncConflicts(false)}>冲突全部保留本机</Button>
+                            <Button size="small" type="primary" onClick={() => resolveSyncConflicts(true)}>冲突全部用包内覆盖</Button>
+                          </Space>
+                        )}
+                      />
+                    ) : null}
+
                     <Space wrap align="center">
                       <Checkbox checked={syncIncludeAvatars} onChange={(event) => setSyncIncludeAvatars(event.target.checked)}>
                         缺失头像 / logo 一并补缺（{syncPreview.avatars.players.fill + syncPreview.avatars.teams.fill} 张，只补缺不覆盖）
@@ -4265,19 +4314,124 @@ function Dashboard() {
                       </Text>
                     </Space>
 
-                    <Table<SyncImportItem>
-                      rowKey="key"
-                      size="small"
-                      dataSource={[...syncPreview.matchItems, ...syncPreview.playerItems, ...syncPreview.teamItems]}
-                      columns={syncPreviewColumns}
-                      pagination={false}
-                      scroll={{ y: 320 }}
-                      rowSelection={{
-                        selectedRowKeys: syncSelectedKeys,
-                        onChange: (keys) => setSyncSelectedKeys(keys.map(String)),
-                        getCheckboxProps: (record) => ({ disabled: record.action === 'skip' }),
-                      }}
-                    />
+                    <div className="sync-preview-layout">
+                      <div className="sync-preview-list">
+                        <Table<SyncImportItem>
+                          rowKey="key"
+                          size="small"
+                          dataSource={syncPreviewItems}
+                          columns={syncPreviewColumns}
+                          pagination={false}
+                          scroll={{ y: 380 }}
+                          onRow={(record) => ({
+                            onClick: () => setSyncActiveKey(record.key),
+                            style: { cursor: 'pointer' },
+                          })}
+                          rowClassName={(record) => (record.key === syncActiveKey ? 'sync-preview-row-active' : '')}
+                          rowSelection={{
+                            selectedRowKeys: syncSelectedKeys,
+                            onChange: (keys) => setSyncSelectedKeys(keys.map(String)),
+                            getCheckboxProps: (record) => ({ disabled: record.action === 'skip' }),
+                          }}
+                        />
+                      </div>
+                      <div className="sync-preview-detail">
+                        {syncActiveItem ? (
+                          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                            <Space wrap size={8} align="center">
+                              <Tag>{SYNC_KIND_LABELS[syncActiveItem.kind]}</Tag>
+                              <Text strong>{syncActiveItem.label}</Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>{syncActiveItem.id}</Text>
+                            </Space>
+
+                            {syncActiveItem.conflict ? (
+                              <Alert
+                                type="error"
+                                showIcon
+                                message="冲突：两台机器都登记过这场比赛"
+                                description="下方为「本机版本 vs 包内版本」的差异，请确认保留哪一边。"
+                              />
+                            ) : null}
+
+                            <Space wrap size={12}>
+                              <Text type="secondary">处理结果：{SYNC_ACTION_LABELS[syncActiveItem.action]}</Text>
+                              <Text type="secondary">
+                                本机 {formatDateTime(syncActiveItem.localUpdatedAt)} → 包内 {formatDateTime(syncActiveItem.incomingUpdatedAt)}
+                              </Text>
+                            </Space>
+
+                            {syncActiveItem.reason ? <Text type="secondary">原因：{syncActiveItem.reason}</Text> : null}
+
+                            {syncActiveItem.diff.length ? (
+                              <table className="sync-diff-table">
+                                <thead>
+                                  <tr>
+                                    <th>字段</th>
+                                    <th>本机版本</th>
+                                    <th>包内版本</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {syncActiveItem.diff.map((field) => (
+                                    <tr key={field.label}>
+                                      <td className="sync-diff-label">{field.label}</td>
+                                      <td className="sync-diff-local">{field.local}</td>
+                                      <td className="sync-diff-incoming">{field.incoming}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <Text type="secondary">
+                                {syncActiveItem.action === 'add' ? '本机没有这条记录，导入后新增。' : '本机与包内没有字段差异。'}
+                              </Text>
+                            )}
+
+                            {syncActiveItem.avatarCompare ? (
+                              <Space align="start" size={14} wrap>
+                                <div className="sync-avatar-compare">
+                                  <Text type="secondary" style={{ fontSize: 12 }}>本机</Text>
+                                  {syncActiveItem.avatarCompare.localUrl ? (
+                                    <img src={syncActiveItem.avatarCompare.localUrl} alt="本机头像" />
+                                  ) : (
+                                    <div className="sync-avatar-empty">无</div>
+                                  )}
+                                </div>
+                                <div className="sync-avatar-compare">
+                                  <Text type="secondary" style={{ fontSize: 12 }}>包内</Text>
+                                  {syncActiveItem.avatarCompare.incomingDataUrl ? (
+                                    <img src={syncActiveItem.avatarCompare.incomingDataUrl} alt="包内头像" />
+                                  ) : (
+                                    <div className="sync-avatar-empty">无</div>
+                                  )}
+                                </div>
+                                <Text type="secondary" style={{ alignSelf: 'center' }}>{syncActiveItem.avatarCompare.note}</Text>
+                              </Space>
+                            ) : null}
+
+                            {syncActiveItem.action === 'skip' ? null : (
+                              <Radio.Group
+                                value={syncSelectedKeys.includes(syncActiveItem.key) ? 'bundle' : 'local'}
+                                optionType="button"
+                                buttonStyle="solid"
+                                options={syncActiveItem.action === 'add'
+                                  ? [{ label: '不导入此条', value: 'local' }, { label: '新增此条', value: 'bundle' }]
+                                  : [{ label: '保留本机', value: 'local' }, { label: '用包内覆盖', value: 'bundle' }]}
+                                onChange={(event) => {
+                                  const accept = event.target.value === 'bundle';
+                                  const activeKey = syncActiveItem.key;
+                                  setSyncSelectedKeys((prev) => (accept
+                                    ? Array.from(new Set([...prev, activeKey]))
+                                    : prev.filter((key) => key !== activeKey)));
+                                }}
+                              />
+                            )}
+                          </Space>
+                        ) : (
+                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="点击左侧条目查看左右差异" />
+                        )}
+                      </div>
+                    </div>
                   </Space>
                 ) : null}
               </Modal>

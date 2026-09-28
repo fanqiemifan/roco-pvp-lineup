@@ -288,6 +288,44 @@ describe('previewSyncImport / applySyncImport（档案与头像）', () => {
     });
     expect(result.avatarsWritten.players).toBe(0);
   });
+
+  it('头像变更进入 diff：本机无、包内有 → 头像行 + 左右对照（新增档案同样计入补缺）', async () => {
+    const bundle = exportMatchesFromSource();
+    bundle.profiles = {
+      players: [{ id: 'p_new_with_avatar', name: '小满', pets: '', declaration: '', rank: '' }],
+      teams: [],
+    };
+    bundle.avatars = { players: { p_new_with_avatar: PNG_1X1_BASE64 }, teams: {} };
+
+    const preview = previewSyncImport(paths, bundle, 'newer');
+    const item = preview.playerItems[0];
+    expect(item.action).toBe('add');
+    expect(item.diff).toEqual([{ label: '头像', local: '无', incoming: '有（导入后补缺）' }]);
+    expect(item.avatarCompare?.incomingDataUrl).toContain(PNG_1X1_BASE64);
+    expect(item.avatarCompare?.localUrl).toBeNull();
+    expect(item.avatarCompare?.note).toContain('补缺');
+    // 包内新增的档案导入后会落盘，其头像算「补缺」而不是「无法对应」
+    expect(preview.avatars.players).toEqual({ fill: 1, existing: 0, unmatched: 0 });
+  });
+
+  it('本机已有头像、包内无头像 → 显示「保持本机」差异行且不补缺', async () => {
+    const profiles = savePlayerProfile(paths, { name: '夜航' });
+    const localId = profiles.players[0].id;
+    await saveProfilePlayerAvatar(paths, localId, Buffer.from(PNG_1X1_BASE64, 'base64'));
+
+    const bundle = exportMatchesFromSource();
+    bundle.profiles = {
+      players: [{ id: 'p_other_machine', name: '夜航', pets: '', declaration: '', rank: '' }],
+      teams: [],
+    };
+    bundle.avatars = { players: {}, teams: {} };
+
+    const preview = previewSyncImport(paths, bundle, 'newer');
+    const item = preview.playerItems[0];
+    expect(item.diff).toEqual([{ label: '头像', local: '有（保持本机）', incoming: '无' }]);
+    expect(item.avatarCompare).toBeUndefined();
+    expect(preview.avatars.players).toEqual({ fill: 0, existing: 0, unmatched: 0 });
+  });
 });
 
 describe('机器码与 id 分配', () => {
@@ -421,5 +459,86 @@ describe('完整工作流（A 统一创建 + 基线分发 + 回传）', () => {
       expect(lineupPet(storeA, matchId)).toBe('pet-a');
       expect(lineupPet(storeB, matchId)).toBe('pet-a');
     });
+  });
+});
+
+describe('冲突识别与字段级 diff', () => {
+  it('两台机器都登记过同一场且内容不同 → conflict = true，diff 列出差异字段', async () => {
+    const bundle = exportMatchesFromSource();
+    const basePreview = previewSyncImport(paths, bundle, 'newer');
+    await applySyncImport(paths, bundle, {
+      mode: 'newer',
+      acceptedKeys: acceptAllKeys(basePreview),
+      includeAvatars: false,
+    });
+
+    const matchId = bundle.matches[0].id;
+    // 本机登记这场（录入阵容）
+    saveGameLineupForMatch(paths, matchId, 1, { left: [{ sprite: 'pet-local' }] });
+
+    // 包内也登记了同一场（不同阵容 + 更晚时间戳）
+    const incoming = cloneBundle(bundle);
+    const incomingMatch = incoming.matches.find((match) => match.id === matchId);
+    if (!incomingMatch) {
+      throw new Error('match not found in bundle');
+    }
+    incomingMatch.games[0].leftSlots[0].pet_id = 'pet-bundle';
+    incomingMatch.games[0].leftLineup = ['pet-bundle'];
+    incomingMatch.updatedAt = new Date(Date.now() + 60_000).toISOString();
+
+    const preview = previewSyncImport(paths, incoming, 'newer');
+    const item = preview.matchItems.find((entry) => entry.id === matchId);
+    expect(item?.conflict).toBe(true);
+    expect(item?.action).toBe('update');
+    expect(item?.diff.length ?? 0).toBeGreaterThan(0);
+    expect(item?.diff.map((field) => field.label)).toContain('第 1 局左侧阵容');
+    expect(item?.diff.find((field) => field.label === '第 1 局左侧阵容')).toEqual({
+      label: '第 1 局左侧阵容',
+      local: 'pet-local',
+      incoming: 'pet-bundle',
+    });
+  });
+
+  it('只有一边登记过 → 不算冲突（正常同步），但仍有 diff', async () => {
+    const bundle = exportMatchesFromSource();
+    const basePreview = previewSyncImport(paths, bundle, 'newer');
+    await applySyncImport(paths, bundle, {
+      mode: 'newer',
+      acceptedKeys: acceptAllKeys(basePreview),
+      includeAvatars: false,
+    });
+
+    // 只有包内登记（本机保持空白基线）
+    const incoming = cloneBundle(bundle);
+    const incomingMatch = incoming.matches[0];
+    incomingMatch.games[0].status = 'completed';
+    incomingMatch.games[0].winner = 'left';
+    incomingMatch.updatedAt = new Date(Date.now() + 60_000).toISOString();
+
+    const preview = previewSyncImport(paths, incoming, 'newer');
+    const item = preview.matchItems.find((entry) => entry.id === incomingMatch.id);
+    expect(item?.action).toBe('update');
+    expect(item?.conflict).toBe(false);
+    expect(item?.diff.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it('档案 diff：同 id 内容差异列出变更字段', async () => {
+    const bundle = exportMatchesFromSource();
+    bundle.profiles = {
+      players: [{ id: 'p_sync_1', name: '白鹭', pets: '', declaration: '', rank: '7' }],
+      teams: [],
+    };
+    const firstPreview = previewSyncImport(paths, bundle, 'newer');
+    await applySyncImport(paths, bundle, {
+      mode: 'newer',
+      acceptedKeys: firstPreview.playerItems.map((item) => item.key),
+      includeAvatars: false,
+    });
+
+    bundle.profiles.players[0].rank = '9';
+    const preview = previewSyncImport(paths, bundle, 'newer');
+    const item = preview.playerItems[0];
+    expect(item.action).toBe('update');
+    expect(item.diff).toEqual([{ label: '排名', local: '7', incoming: '9' }]);
   });
 });

@@ -515,6 +515,25 @@ export type SyncConflictMode = 'newer' | 'bundle';
 export type SyncImportAction = 'add' | 'update' | 'skip';
 export type SyncImportItemKind = 'match' | 'player' | 'team';
 
+/** 导入预览的字段级差异项（本机 vs 包内） */
+export interface SyncImportDiffField {
+  label: string;
+  /** 本机值（本机无该记录时为空字符串） */
+  local: string;
+  /** 包内值 */
+  incoming: string;
+}
+
+/** 导入预览：头像 / logo 的左右对照（仅档案项、且包内带头像或本机已有头像时提供） */
+export interface SyncImportAvatarCompare {
+  /** 本机头像访问地址（本机无头像 = null） */
+  localUrl: string | null;
+  /** 包内头像 data URL（包内无头像 = null） */
+  incomingDataUrl: string | null;
+  /** 处理说明（如「导入后将补缺到本机」） */
+  note: string;
+}
+
 /** 导入预览明细项：key 为 `${kind}:${id}`，前端勾选后原样回传 */
 export interface SyncImportItem {
   key: string;
@@ -528,6 +547,12 @@ export interface SyncImportItem {
   localUpdatedAt: string | null;
   /** 仅比赛项：包内版本更新时间 */
   incomingUpdatedAt: string | null;
+  /** 双方都已登记且内容不同（疑似两台机器都录过这场，需要人工确认是否覆盖） */
+  conflict: boolean;
+  /** 字段级差异（只列出不同的字段；本机无该记录时为空数组） */
+  diff: SyncImportDiffField[];
+  /** 仅档案项：头像 / logo 的左右对照（无差异或包内不含头像时不提供） */
+  avatarCompare?: SyncImportAvatarCompare;
 }
 
 export interface SyncImportCounts {

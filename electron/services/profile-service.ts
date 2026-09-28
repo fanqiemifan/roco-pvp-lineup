@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import type {
   PlayerProfile,
   ProfileStoreState,
+  SyncImportDiffField,
   TeamProfile,
 } from '../../shared/types.js';
 import { ensureRuntimeDirs, saveProfilePlayerAvatar } from './image-service.js';
@@ -421,6 +422,8 @@ export interface ProfileImportDecision {
   name: string;
   action: 'add' | 'update' | 'skip';
   reason: string;
+  /** 字段级差异（只列出不同的字段；本机无该档案时为空数组） */
+  diff: SyncImportDiffField[];
 }
 
 export interface ProfileImportRejected {
@@ -489,12 +492,27 @@ function normalizeIncomingTeams(items: unknown[]): { entries: TeamProfileFileEnt
   return { entries, rejected };
 }
 
-function samePlayerEntry(a: PlayerProfileFileEntry, b: PlayerProfileFileEntry): boolean {
-  return a.name === b.name && a.pets === b.pets && a.declaration === b.declaration && a.rank === b.rank;
+function pushProfileDiffField(fields: SyncImportDiffField[], label: string, local: string, incoming: string): void {
+  if (local !== incoming) {
+    fields.push({ label, local, incoming });
+  }
 }
 
-function sameTeamEntry(a: TeamProfileFileEntry, b: TeamProfileFileEntry): boolean {
-  return a.name === b.name && a.captain === b.captain && a.declaration === b.declaration;
+function buildPlayerDiff(local: PlayerProfileFileEntry, incoming: PlayerProfileFileEntry): SyncImportDiffField[] {
+  const fields: SyncImportDiffField[] = [];
+  pushProfileDiffField(fields, '名字', local.name, incoming.name);
+  pushProfileDiffField(fields, '常用精灵', local.pets || '（空）', incoming.pets || '（空）');
+  pushProfileDiffField(fields, '宣言', local.declaration || '（空）', incoming.declaration || '（空）');
+  pushProfileDiffField(fields, '排名', local.rank || '（空）', incoming.rank || '（空）');
+  return fields;
+}
+
+function buildTeamDiff(local: TeamProfileFileEntry, incoming: TeamProfileFileEntry): SyncImportDiffField[] {
+  const fields: SyncImportDiffField[] = [];
+  pushProfileDiffField(fields, '名字', local.name, incoming.name);
+  pushProfileDiffField(fields, '队长', local.captain || '（空）', incoming.captain || '（空）');
+  pushProfileDiffField(fields, '宣言', local.declaration || '（空）', incoming.declaration || '（空）');
+  return fields;
 }
 
 /** 选手档案判定：先按 id（相同跳过 / 差异覆盖），再按名字（同名不同 id 跳过不覆盖），最后受上限约束 */
@@ -503,21 +521,27 @@ function classifyPlayerImport(players: PlayerProfileFileEntry[], entry: PlayerPr
 
   const byIdIndex = players.findIndex((item) => item.id === entry.id);
   if (byIdIndex >= 0) {
-    return samePlayerEntry(players[byIdIndex], entry)
-      ? { ...base, action: 'skip', reason: '与本机档案内容相同' }
-      : { ...base, action: 'update', reason: '覆盖本机档案' };
+    const diff = buildPlayerDiff(players[byIdIndex], entry);
+    return diff.length === 0
+      ? { ...base, action: 'skip', reason: '与本机档案内容相同', diff }
+      : { ...base, action: 'update', reason: '覆盖本机档案', diff };
   }
 
   const sameName = players.find((item) => item.name === entry.name);
   if (sameName) {
-    return { ...base, action: 'skip', reason: `同名档案已存在（id ${sameName.id}），不覆盖` };
+    return {
+      ...base,
+      action: 'skip',
+      reason: `同名档案已存在（id ${sameName.id}），不覆盖`,
+      diff: buildPlayerDiff(sameName, entry),
+    };
   }
 
   if (players.length >= MAX_PLAYERS) {
-    return { ...base, action: 'skip', reason: `选手档案已达上限（${MAX_PLAYERS}）` };
+    return { ...base, action: 'skip', reason: `选手档案已达上限（${MAX_PLAYERS}）`, diff: [] };
   }
 
-  return { ...base, action: 'add', reason: '' };
+  return { ...base, action: 'add', reason: '', diff: [] };
 }
 
 /** 战队档案判定：规则同选手档案 */
@@ -526,21 +550,27 @@ function classifyTeamImport(teams: TeamProfileFileEntry[], entry: TeamProfileFil
 
   const byIdIndex = teams.findIndex((item) => item.id === entry.id);
   if (byIdIndex >= 0) {
-    return sameTeamEntry(teams[byIdIndex], entry)
-      ? { ...base, action: 'skip', reason: '与本机档案内容相同' }
-      : { ...base, action: 'update', reason: '覆盖本机档案' };
+    const diff = buildTeamDiff(teams[byIdIndex], entry);
+    return diff.length === 0
+      ? { ...base, action: 'skip', reason: '与本机档案内容相同', diff }
+      : { ...base, action: 'update', reason: '覆盖本机档案', diff };
   }
 
   const sameName = teams.find((item) => item.name === entry.name);
   if (sameName) {
-    return { ...base, action: 'skip', reason: `同名档案已存在（id ${sameName.id}），不覆盖` };
+    return {
+      ...base,
+      action: 'skip',
+      reason: `同名档案已存在（id ${sameName.id}），不覆盖`,
+      diff: buildTeamDiff(sameName, entry),
+    };
   }
 
   if (teams.length >= MAX_TEAMS) {
-    return { ...base, action: 'skip', reason: `战队档案已达上限（${MAX_TEAMS}）` };
+    return { ...base, action: 'skip', reason: `战队档案已达上限（${MAX_TEAMS}）`, diff: [] };
   }
 
-  return { ...base, action: 'add', reason: '' };
+  return { ...base, action: 'add', reason: '', diff: [] };
 }
 
 /** 只读：对比包内档案与本机档案（供导入预览） */

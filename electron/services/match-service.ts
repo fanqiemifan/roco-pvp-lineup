@@ -7,6 +7,7 @@ import type {
   MatchStoreState,
   SpriteRecord,
   SyncConflictMode,
+  SyncImportDiffField,
 } from '../../shared/types.js';
 import type { AppPaths } from './path-service.js';
 import { loadRuntimeConfig } from './config-service.js';
@@ -1749,6 +1750,104 @@ export interface MatchImportDecision {
   reason: string;
   localUpdatedAt: string | null;
   incomingUpdatedAt: string | null;
+  /** 双方都已登记且内容不同（疑似两台机器都录过这场，需要人工确认是否覆盖） */
+  conflict: boolean;
+  /** 字段级差异（只列出不同的字段；本机无该记录时为空数组） */
+  diff: SyncImportDiffField[];
+}
+
+function matchStatusLabel(match: MatchRecord): string {
+  if (match.status === 'completed') {
+    return '已结束';
+  }
+  if (match.status === 'in_progress') {
+    return '进行中';
+  }
+  return '未开始';
+}
+
+function gameWinnerLabel(winner: 'left' | 'right' | null): string {
+  if (winner === 'left') {
+    return '左侧胜';
+  }
+  if (winner === 'right') {
+    return '右侧胜';
+  }
+  return '未分胜负';
+}
+
+function gameSummary(game: GameRecord): string {
+  const statusLabel = game.status === 'completed' ? '已结束' : game.status === 'in_progress' ? '进行中' : '未开始';
+  return `${statusLabel} · ${gameWinnerLabel(game.winner)}`;
+}
+
+/** 阵容快照的可读文本：优先名称快照，缺失时回退 pet_id；空阵容显示「（空）」 */
+function lineupText(slots: MatchSlotSnapshot[]): string {
+  const names = slots.filter((slot) => slot.pet_id).map((slot) => slot.name || slot.pet_id || '');
+  return names.length ? names.join('、') : '（空）';
+}
+
+function pushDiffField(fields: SyncImportDiffField[], label: string, local: string, incoming: string): void {
+  if (local !== incoming) {
+    fields.push({ label, local, incoming });
+  }
+}
+
+/** 比赛「已登记」判定：任一小局已开始/已分胜负/已录入阵容（用于识别两台机器都录过的冲突） */
+function matchHasRecordedContent(match: MatchRecord): boolean {
+  return match.games.some((game) => game.status !== 'pending'
+    || game.winner === 'left' || game.winner === 'right'
+    || game.leftLineup.length > 0 || game.rightLineup.length > 0);
+}
+
+/**
+ * 字段级差异（本机 vs 包内）：基础信息 + 逐小局状态/双方阵容，只列出不同的行，最多 20 条。
+ * 导出供前端预览弹窗做左右 diff 展示。
+ */
+export function buildMatchDiffFields(local: MatchRecord, incoming: MatchRecord): SyncImportDiffField[] {
+  const fields: SyncImportDiffField[] = [];
+  pushDiffField(fields, '状态', matchStatusLabel(local), matchStatusLabel(incoming));
+  pushDiffField(
+    fields,
+    '比分',
+    `${local.leftScore} : ${local.rightScore}`,
+    `${incoming.leftScore} : ${incoming.rightScore}`,
+  );
+  pushDiffField(
+    fields,
+    '选手',
+    `${local.leftPlayer} vs ${local.rightPlayer}`,
+    `${incoming.leftPlayer} vs ${incoming.rightPlayer}`,
+  );
+  pushDiffField(fields, '赛制', `BO${local.bestOf}`, `BO${incoming.bestOf}`);
+  pushDiffField(fields, '标签', local.tags.join('、') || '（无）', incoming.tags.join('、') || '（无）');
+
+  const gameCount = Math.max(local.games.length, incoming.games.length);
+  for (let index = 0; index < gameCount; index += 1) {
+    const localGame = local.games[index];
+    const incomingGame = incoming.games[index];
+    const label = `第 ${index + 1} 局`;
+    pushDiffField(
+      fields,
+      label,
+      localGame ? gameSummary(localGame) : '（无）',
+      incomingGame ? gameSummary(incomingGame) : '（无）',
+    );
+    pushDiffField(
+      fields,
+      `${label}左侧阵容`,
+      localGame ? lineupText(localGame.leftSlots) : '（无）',
+      incomingGame ? lineupText(incomingGame.leftSlots) : '（无）',
+    );
+    pushDiffField(
+      fields,
+      `${label}右侧阵容`,
+      localGame ? lineupText(localGame.rightSlots) : '（无）',
+      incomingGame ? lineupText(incomingGame.rightSlots) : '（无）',
+    );
+  }
+
+  return fields.slice(0, 20);
 }
 
 function classifyMatchImport(
@@ -1763,14 +1862,17 @@ function classifyMatchImport(
   };
 
   if (!local) {
-    return { ...base, action: 'add', reason: '' };
+    return { ...base, action: 'add', reason: '', conflict: false, diff: [] };
   }
 
+  const diff = buildMatchDiffFields(local, incoming);
+  // 冲突 = 本机与包内都「已登记」且有内容差异（只登记过一边属于正常同步，不提示）
+  const conflict = diff.length > 0 && matchHasRecordedContent(local) && matchHasRecordedContent(incoming);
+
   if (mode === 'bundle') {
-    const identical = JSON.stringify(local) === JSON.stringify(incoming);
-    return identical
-      ? { ...base, action: 'skip', reason: '与包内内容相同' }
-      : { ...base, action: 'update', reason: '以包为准覆盖本机版本' };
+    return diff.length === 0
+      ? { ...base, action: 'skip', reason: '与包内内容相同', conflict, diff }
+      : { ...base, action: 'update', reason: '以包为准覆盖本机版本', conflict, diff };
   }
 
   const localMs = Date.parse(local.updatedAt);
@@ -1779,8 +1881,8 @@ function classifyMatchImport(
     ? incomingMs > localMs
     : String(incoming.updatedAt) > String(local.updatedAt);
   return newer
-    ? { ...base, action: 'update', reason: '包内版本更新' }
-    : { ...base, action: 'skip', reason: '本机版本不早于包内（保持本机）' };
+    ? { ...base, action: 'update', reason: '包内版本更新', conflict, diff }
+    : { ...base, action: 'skip', reason: '本机版本不早于包内（保持本机）', conflict, diff };
 }
 
 /** 只读：按 id 对比包内比赛与本机 store（供导入预览） */
