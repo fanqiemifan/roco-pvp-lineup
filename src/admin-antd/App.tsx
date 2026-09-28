@@ -549,6 +549,8 @@ function Dashboard() {
   const mvpWinnerPetIds = mvpWinnerLineup.petIds.filter((petId) => spriteMap.get(petId)?.isFinalForm === true);
   const mvpAssignedCount = mvpSlotsDraft.filter((slot) => slot.petId).length;
   const mvpTagsComplete = mvpAssignedCount > 0 && mvpSlotsDraft.every((slot) => !slot.petId || slot.tag.trim().length > 0);
+  // 显示 MVP 结算的门槛：只要标记了 MVP（标签可选，不要求填写完整）
+  const mvpMarked = mvpSlotsDraft.some((slot) => slot.petId && slot.isMvp);
   const mvpVisible = stage?.page === 'page4';
   // 当前对局胜方与已载入快照不一致：推流画面不会自动更新，需重新「载入当前对局胜方」
   const mvpWinnerOutdated = Boolean(mvpWinnerLineup.side) && (
@@ -4455,14 +4457,14 @@ function Dashboard() {
                   <Paragraph type="secondary" style={{ marginBottom: 0 }}>
                     点「载入当前对局胜方」把当前对局胜者的选手名字与阵容（仅最终形态精灵，最多 {MVP_MAX_ITEMS} 个）快照保存进结算画面；
                     保存后推流画面即时更新，之后切换对局不会改变，需重新载入保存才会更新；
-                    为每个精灵项填写标签（最多四个字，可选）并标记 MVP，标记完整后点击「显示 MVP 结算」把推流画面切到本页，关闭时切回开启前的画面。
+                    为每个精灵项填写标签（最多四个字，可选）并标记 MVP，标记 MVP 后点击「显示 MVP 结算」把推流画面切到本页，关闭时切回开启前的画面。
                   </Paragraph>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} xl={10}>
                       <Card size="small" className="subtle-card" title="显示控制">
                         <Space direction="vertical" size={12} className="control-stack">
                           <Space wrap>
-                            <Button type="primary" loading={mvpSaving} disabled={!mvpTagsComplete} onClick={() => void showMvpSettlement()}>
+                            <Button type="primary" loading={mvpSaving} disabled={!mvpMarked} onClick={() => void showMvpSettlement()}>
                               显示 MVP 结算
                             </Button>
                             <Button danger loading={mvpSaving} disabled={!mvpVisible} onClick={() => void hideMvpSettlement()}>
@@ -4475,7 +4477,7 @@ function Dashboard() {
                               已标记精灵 {mvpAssignedCount}/{MVP_MAX_ITEMS}
                             </Tag>
                             {mvpTagsComplete ? <Tag color="green">标签已完整</Tag> : <Tag color="orange">标签未完整</Tag>}
-                            {mvpSlotsDraft.some((slot) => slot.petId && slot.isMvp)
+                            {mvpMarked
                               ? <Tag color="red">已标记 MVP</Tag>
                               : <Tag>未标记 MVP</Tag>}
                           </Space>
@@ -4496,7 +4498,7 @@ function Dashboard() {
                             </Space>
                           </Space>
                           <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
-                            尚未标记精灵或标签未填写完整时不能显示结算画面。
+                            尚未标记精灵或未标记 MVP 时不能显示结算画面（标签可留空）。
                           </Paragraph>
                         </Space>
                       </Card>
