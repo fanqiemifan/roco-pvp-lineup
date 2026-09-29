@@ -109,6 +109,7 @@ import {
   onMatchUndo,
   previewOpeningWave,
   redrawTournament,
+  resolveTournamentLabels,
   rollbackWave,
   savePairingDraft,
   startTournament,
@@ -665,7 +666,9 @@ export async function createLocalServer(
       state.startTime,
       state.matchTimes,
     );
-    response.json({ state, matches, avatars, scheduleTimes });
+    // 系列赛阶段语义标签（仅系列赛对局有值，page6 卡片用它替换场序信息行）
+    const tournamentLabels = resolveTournamentLabels(paths, matches);
+    response.json({ state, matches, avatars, scheduleTimes, tournamentLabels });
   });
 
   app.post('/api/page6', (request, response) => {
@@ -721,7 +724,9 @@ export async function createLocalServer(
       state.startTime,
       state.matchTimes,
     );
-    response.json({ state, matches, avatars, scheduleTimes });
+    // 系列赛阶段语义标签（仅系列赛对局有值，page8 与 page6 同口径）
+    const tournamentLabels = resolveTournamentLabels(paths, matches);
+    response.json({ state, matches, avatars, scheduleTimes, tournamentLabels });
   });
 
   app.post('/api/page8', (request, response) => {

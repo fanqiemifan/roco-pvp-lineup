@@ -93,14 +93,28 @@ body {
     width: 412px;
 }
 
-/* 场序信息行：「第一场 19:00」，20px 白色，距卡片 8px，左对齐 */
+/* 卡片上方信息行：语义阶段标签 与/或 时间胶囊并排（20px 白字、距卡片 8px、左对齐） */
 .mp-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 26px;
     margin-bottom: 8px;
     font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
     font-size: 20px;
     color: #ffffff;
     line-height: 1;
     white-space: nowrap;
+}
+
+/* 信息胶囊（page6/page8）：系列赛语义标签（如「8进4·胜者组」）或时间（如 19:00） */
+.mp-info-tag {
+    display: inline-block;
+    padding: 3px 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    line-height: 1;
 }
 
 /* 对局卡片：412×166 */

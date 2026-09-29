@@ -84,14 +84,14 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取比赛结果页状态与已选比赛 | GET | /api/page6 | 获取 page6 状态、完整比赛数据（公开 GET）、按赛事隔离的选手头像 avatars，以及场序时间 scheduleTimes（开始时间 + BO×30 分钟累加） | electron/socket-server.ts |
+| 获取比赛结果页状态与已选比赛 | GET | /api/page6 | 获取 page6 状态、完整比赛数据（公开 GET）、按赛事隔离的选手头像 avatars、场序时间 scheduleTimes（开始时间 + BO×30 分钟累加），以及系列赛阶段语义标签 tournamentLabels（仅系列赛对局有值，如「8进4·胜者组」，普通对局/孤儿引用缺席；由 tournament-service 的 resolveTournamentLabels 解析） | electron/socket-server.ts |
 | 保存比赛结果配置 | POST | /api/page6 | 保存 page6 配置（matchIds 最多 9 个已结束比赛 / title 大标题 / startTime 第一场开始时间 HH:mm / matchTimes 手动时间覆盖） | electron/socket-server.ts |
 
 ## 比赛预告（page8）接口
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取比赛预告页状态与已选比赛 | GET | /api/page8 | 获取 page8 状态、完整比赛数据（仅待开始/进行中，公开 GET）、按赛事隔离的选手头像 avatars，以及场序时间 scheduleTimes | electron/socket-server.ts |
+| 获取比赛预告页状态与已选比赛 | GET | /api/page8 | 获取 page8 状态、完整比赛数据（仅待开始/进行中，公开 GET）、按赛事隔离的选手头像 avatars、场序时间 scheduleTimes，以及系列赛阶段语义标签 tournamentLabels（与 page6 同口径） | electron/socket-server.ts |
 | 保存比赛预告配置 | POST | /api/page8 | 保存 page8 配置（matchIds 最多 9 个待开始/进行中比赛 / title / startTime / matchTimes，已完成比赛会被过滤） | electron/socket-server.ts |
 
 ## 对局推送（page7）接口

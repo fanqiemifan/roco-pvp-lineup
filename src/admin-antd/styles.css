@@ -2678,6 +2678,29 @@ a {
   border-radius: 8px;
 }
 
+/* 选场弹窗候选分组行：系列赛按「阶段/语义轮次」分组、普通对局一组（组头可整组勾选） */
+.match-push-group-row > td,
+.match-push-group-row:hover > td,
+.match-push-group-row > td.ant-table-cell-row-hover {
+  background: rgba(91, 67, 43, 0.06) !important;
+}
+
+.match-push-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.match-push-group-name {
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.78);
+}
+
+.match-push-group-count {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
 .match-push-selected {
   border: 1px solid rgba(91, 67, 43, 0.14);
   border-radius: 8px;

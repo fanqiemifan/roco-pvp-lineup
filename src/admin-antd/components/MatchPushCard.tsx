@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { App, Button, Card, Checkbox, Empty, Input, Modal, Space, Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
-import type { MatchRecord, Page6State, Page7State, Page8State } from '../../../shared/types';
+import type { MatchRecord, Page6State, Page7State, Page8State, TournamentRecord } from '../../../shared/types';
 import { computeScheduleTimes, normalizeHHmm } from '../../../shared/match-schedule';
+import { buildPushCandidateGroups, type PushCandidateGroup } from '../lib/tournament';
 
 const { Text } = Typography;
 
@@ -19,6 +20,14 @@ export interface MatchPushPayload {
   notice?: string;
 }
 
+/** 候选表格的一行：分组标题行 或 比赛行 */
+type PushCandidateRow =
+  | { rowType: 'group'; key: string; group: PushCandidateGroup }
+  | { rowType: 'match'; key: string; match: MatchRecord };
+
+/** 候选表格列数（分组标题行整行合并，其余列 colSpan 置 0） */
+const CANDIDATE_COLUMN_COUNT = 5;
+
 interface MatchPushCardProps {
   kind: MatchPushKind;
   /** 功能卡片标题，如「推送比赛结果」 */
@@ -26,6 +35,8 @@ interface MatchPushCardProps {
   maxCount: number;
   /** 全部比赛（候选池，组件内部做搜索与资格过滤） */
   matches: MatchRecord[];
+  /** 系列赛列表（候选分组用：解析阶段名与语义轮次，与 page6 卡片标签同口径） */
+  tournaments: TournamentRecord[];
   /** 服务端当前配置（打开弹窗时作为初始值） */
   state: Page6State | Page7State | Page8State;
   pushing: boolean;
@@ -76,9 +87,10 @@ function versusText(match: MatchRecord): string {
 
 /**
  * 比赛管理上方的推流功能卡片：展示已选摘要，点击后弹出比赛管理详情选场弹窗。
- * 弹窗内勾选（勾选顺序即卡片场序）、上移/下移调整、page6/8 可编辑标题与场序时间。
+ * 弹窗内候选按「系列赛阶段/轮次 + 普通对局」分组（组头可整组勾选），
+ * 勾选（勾选顺序即卡片场序）、上移/下移调整、page6/8 可编辑标题与场序时间。
  */
-export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushing, onPush }: MatchPushCardProps) {
+export function MatchPushCard({ kind, cardTitle, maxCount, matches, tournaments, state, pushing, onPush }: MatchPushCardProps) {
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>([]);
@@ -149,6 +161,24 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
     });
   }, [matches, search]);
 
+  /** 候选分组：系列赛按「阶段 + 语义轮次」、普通对局一组（搜索过滤后重建） */
+  const candidateGroups = useMemo(
+    () => buildPushCandidateGroups(filteredCandidates, tournaments),
+    [filteredCandidates, tournaments],
+  );
+
+  /** 分组标题行 + 比赛行拍平成表格数据源（组标题行在组内比赛之前） */
+  const candidateRows = useMemo<PushCandidateRow[]>(() => {
+    const rows: PushCandidateRow[] = [];
+    candidateGroups.forEach((group) => {
+      rows.push({ rowType: 'group', key: `group:${group.key}`, group });
+      group.matches.forEach((match) => {
+        rows.push({ rowType: 'match', key: `match:${match.id}`, match });
+      });
+    });
+    return rows;
+  }, [candidateGroups]);
+
   function isEligible(match: MatchRecord): boolean {
     return ELIGIBLE_STATUS[kind].has(match.status);
   }
@@ -199,6 +229,32 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
     });
   }
 
+  /** 组头勾选：按组内顺序加入（受最大场数约束）；取消时移除该组全部已选并清理手动时间 */
+  function toggleGroup(group: PushCandidateGroup, checked: boolean) {
+    if (checked) {
+      setDraftIds((prev) => {
+        const next = [...prev];
+        group.matches.forEach((match) => {
+          if (next.length >= maxCount) {
+            return;
+          }
+          if (isEligible(match) && !next.includes(match.id)) {
+            next.push(match.id);
+          }
+        });
+        return next;
+      });
+      return;
+    }
+    const groupIds = new Set(group.matches.map((match) => match.id));
+    setDraftIds((prev) => prev.filter((id) => !groupIds.has(id)));
+    setMatchTimesDraft((prev) => {
+      const next = { ...prev };
+      groupIds.forEach((id) => delete next[id]);
+      return next;
+    });
+  }
+
   async function handleConfirm() {
     // 手动时间必须为 HH:mm，非法时提示具体场次而不是静默丢弃
     if (withSchedule) {
@@ -243,12 +299,30 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
     }
   }
 
-  const candidateColumns: ColumnsType<MatchRecord> = [
+  const candidateColumns: ColumnsType<PushCandidateRow> = [
     {
       title: '',
       key: 'select',
       width: 48,
-      render: (_: unknown, record: MatchRecord) => {
+      onCell: (row) => (row.rowType === 'group' ? { colSpan: CANDIDATE_COLUMN_COUNT } : {}),
+      render: (_: unknown, row: PushCandidateRow) => {
+        if (row.rowType === 'group') {
+          const eligible = row.group.matches.filter(isEligible);
+          const selectedCount = eligible.filter((match) => draftIds.includes(match.id)).length;
+          return (
+            <div className="match-push-group-title">
+              <Checkbox
+                checked={eligible.length > 0 && selectedCount === eligible.length}
+                indeterminate={selectedCount > 0 && selectedCount < eligible.length}
+                disabled={eligible.length === 0}
+                onChange={(event) => toggleGroup(row.group, event.target.checked)}
+              />
+              <span className="match-push-group-name">{row.group.title}</span>
+              <span className="match-push-group-count">共 {row.group.matches.length} 场</span>
+            </div>
+          );
+        }
+        const record = row.match;
         const checked = draftIds.includes(record.id);
         const disabled = !isEligible(record) || (draftIds.length >= maxCount && !checked);
         return (
@@ -263,34 +337,50 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
     {
       title: '对阵',
       key: 'versus',
-      render: (_: unknown, record: MatchRecord) => (
-        <Space direction="vertical" size={0}>
-          <Text strong={isEligible(record)} type={isEligible(record) ? undefined : 'secondary'}>
-            {versusText(record)}
-          </Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
-        </Space>
-      ),
+      onCell: (row) => (row.rowType === 'group' ? { colSpan: 0 } : {}),
+      render: (_: unknown, row: PushCandidateRow) => {
+        if (row.rowType === 'group') {
+          return null;
+        }
+        const record = row.match;
+        return (
+          <Space direction="vertical" size={0}>
+            <Text strong={isEligible(record)} type={isEligible(record) ? undefined : 'secondary'}>
+              {versusText(record)}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+          </Space>
+        );
+      },
     },
     {
       title: '比分',
       key: 'score',
       width: 90,
-      render: (_: unknown, record: MatchRecord) => <Text>{record.leftScore} : {record.rightScore}</Text>,
+      onCell: (row) => (row.rowType === 'group' ? { colSpan: 0 } : {}),
+      render: (_: unknown, row: PushCandidateRow) => (
+        row.rowType === 'group' ? null : <Text>{row.match.leftScore} : {row.match.rightScore}</Text>
+      ),
     },
     {
       title: '赛制',
-      dataIndex: 'bestOf',
       key: 'bestOf',
       width: 72,
-      render: (value: number) => <Tag color="gold">BO{value}</Tag>,
+      onCell: (row) => (row.rowType === 'group' ? { colSpan: 0 } : {}),
+      render: (_: unknown, row: PushCandidateRow) => (
+        row.rowType === 'group' ? null : <Tag color="gold">BO{row.match.bestOf}</Tag>
+      ),
     },
     {
       title: '状态',
       key: 'status',
       width: 84,
-      render: (_: unknown, record: MatchRecord) => {
-        const meta = STATUS_META[record.status];
+      onCell: (row) => (row.rowType === 'group' ? { colSpan: 0 } : {}),
+      render: (_: unknown, row: PushCandidateRow) => {
+        if (row.rowType === 'group') {
+          return null;
+        }
+        const meta = STATUS_META[row.match.status];
         return <Tag color={meta.color}>{meta.label}</Tag>;
       },
     },
@@ -385,13 +475,14 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
                 onChange={(event) => setSearch(event.target.value)}
                 style={{ marginBottom: 8 }}
               />
-              <Table<MatchRecord>
+              <Table<PushCandidateRow>
                 size="small"
-                rowKey="id"
+                rowKey="key"
                 columns={candidateColumns}
-                dataSource={filteredCandidates}
+                dataSource={candidateRows}
                 pagination={false}
                 scroll={{ y: 430 }}
+                rowClassName={(row) => (row.rowType === 'group' ? 'match-push-group-row' : '')}
               />
             </div>
 

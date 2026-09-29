@@ -790,3 +790,84 @@ export function getPlayerStateText(
   const label = promoted ? '已晋级' : eliminated ? '已淘汰' : '存活';
   return `${state.wins}-${state.losses} ${label}`;
 }
+
+/* ---------- 选场弹窗候选分组（MatchPushCard） ---------- */
+
+/** 选场弹窗中的一个候选分组 */
+export interface PushCandidateGroup {
+  /** 分组 key（系列赛 = tournamentId:stageIndex:语义段；普通对局 = 'normal'） */
+  key: string;
+  /** 组标题：系列赛「🏆 名称 · 阶段名 · 语义轮次」；普通对局「普通对局」 */
+  title: string;
+  matches: MatchRecord[];
+}
+
+/**
+ * 候选比赛分组：系列赛按「阶段 + 语义轮次」分组
+ * （双败：首轮 / 胜者组 / 败者组 / 决胜轮，与服务端 resolveTournamentLabel 及 page6 卡片标签同口径；
+ * 单败：一个阶段一组），普通对局（含孤儿引用）归为一组。
+ * 组顺序 = 组内首场比赛在候选列表中的位置（保持列表「新 → 旧」的既有顺序）。
+ */
+export function buildPushCandidateGroups(
+  matches: MatchRecord[],
+  tournaments: TournamentRecord[],
+): PushCandidateGroup[] {
+  const recordById = new Map(tournaments.map((record) => [record.id, record]));
+  const groups = new Map<string, PushCandidateGroup>();
+  const ordered: PushCandidateGroup[] = [];
+
+  matches.forEach((match) => {
+    const target = resolvePushCandidateGroup(match, recordById);
+    let group = groups.get(target.key);
+    if (!group) {
+      group = { key: target.key, title: target.title, matches: [] };
+      groups.set(target.key, group);
+      ordered.push(group);
+    }
+    group.matches.push(match);
+  });
+
+  return ordered;
+}
+
+function resolvePushCandidateGroup(
+  match: MatchRecord,
+  recordById: Map<string, TournamentRecord>,
+): { key: string; title: string } {
+  const ref = match.tournamentRef;
+  const record = ref ? recordById.get(ref.tournamentId) : undefined;
+  const stage = ref && record ? record.stages[ref.stageIndex] : undefined;
+  if (!ref || !record || !stage) {
+    return { key: 'normal', title: '普通对局' };
+  }
+  const prefix = `🏆 ${record.name} · ${stage.name}`;
+  if (stage.format !== 'double-life') {
+    return { key: `${record.id}:${ref.stageIndex}:stage`, title: prefix };
+  }
+  if (ref.waveIndex === 1) {
+    return { key: `${record.id}:${ref.stageIndex}:opening`, title: `${prefix} · 首轮` };
+  }
+  if (ref.waveIndex === 3) {
+    return { key: `${record.id}:${ref.stageIndex}:decider`, title: `${prefix} · 决胜轮` };
+  }
+  if (ref.waveIndex === 2) {
+    // 与后端 resolveTournamentLabel 同口径：按该场两位选手的首轮胜负判池（胜者组 / 败者组）
+    const wave = record.waves.find(
+      (item) => item.stageIndex === ref.stageIndex && item.waveIndex === 2,
+    );
+    const node = wave?.nodes.find((item) => item.id === ref.nodeId);
+    if (node?.playerAId && node.playerBId) {
+      const aWonOpeningRound = wonOpeningRound(record, ref.stageIndex, node.playerAId);
+      const bWonOpeningRound = wonOpeningRound(record, ref.stageIndex, node.playerBId);
+      if (aWonOpeningRound === bWonOpeningRound) {
+        return {
+          key: `${record.id}:${ref.stageIndex}:${aWonOpeningRound ? 'winner' : 'loser'}`,
+          title: `${prefix} · ${aWonOpeningRound ? '胜者组' : '败者组'}`,
+        };
+      }
+    }
+    // 跨桶等非常规组合拿不到一致池归属：按波次归组，标题退回阶段名
+    return { key: `${record.id}:${ref.stageIndex}:wave2`, title: prefix };
+  }
+  return { key: `${record.id}:${ref.stageIndex}:wave${ref.waveIndex}`, title: prefix };
+}

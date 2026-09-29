@@ -10,6 +10,7 @@ import {
   TOURNAMENT_TARGET_WINS,
 } from '../../shared/constants.js';
 import type {
+  MatchRecord,
   PairingImportResult,
   PairingRule,
   PairingValidation,
@@ -1539,4 +1540,69 @@ export function deleteTournament(
     matchIds,
     matchesDeleted: shouldDelete,
   };
+}
+
+/* ==================== 阶段标注（page6「比赛结果」卡片语义标签） ==================== */
+
+/**
+ * 解析一批比赛的系列赛阶段标注（page6「比赛结果」卡片用）。
+ * 单败阶段只给阶段名（如「总决赛」）；双败阶段按波次给观众侧语义名：
+ * W1 首轮 / W2 胜者组·败者组（按该场两位选手的首轮胜负判定）/ W3 决胜轮。
+ * 仅系列赛对局（tournamentRef 指向现存系列赛）返回；普通对局与孤儿引用不出现在结果中。
+ */
+export function resolveTournamentLabels(
+  paths: AppPaths,
+  matches: Array<Pick<MatchRecord, 'id' | 'tournamentRef'>>,
+): Record<string, string> {
+  const store = getTournamentStore(paths);
+  const labels: Record<string, string> = {};
+  matches.forEach((match) => {
+    const label = resolveTournamentLabel(store, match);
+    if (label) {
+      labels[match.id] = label;
+    }
+  });
+  return labels;
+}
+
+function resolveTournamentLabel(
+  store: TournamentRecord[],
+  match: Pick<MatchRecord, 'id' | 'tournamentRef'>,
+): string | null {
+  const ref = match.tournamentRef;
+  if (!ref) {
+    return null;
+  }
+  const record = store.find((item) => item.id === ref.tournamentId);
+  const stage = record?.stages[ref.stageIndex];
+  if (!record || !stage) {
+    return null;
+  }
+  if (stage.format !== 'double-life') {
+    return stage.name;
+  }
+  if (ref.waveIndex === 1) {
+    return `${stage.name}·首轮`;
+  }
+  if (ref.waveIndex === 3) {
+    return `${stage.name}·决胜轮`;
+  }
+  if (ref.waveIndex !== 2) {
+    return stage.name;
+  }
+  // W2 分胜者组（1-0 池）/ 败者组（0-1 池）：看该场两位选手首轮是否取胜。
+  // 跨桶手动配对等非常规组合拿不到一致池归属时退回阶段名。
+  const wave = record.waves.find(
+    (item) => item.stageIndex === ref.stageIndex && item.waveIndex === 2,
+  );
+  const node = wave?.nodes.find((item) => item.id === ref.nodeId);
+  if (!node || !node.playerAId || !node.playerBId) {
+    return stage.name;
+  }
+  const aWonOpeningRound = wonOpeningRound(record, ref.stageIndex, node.playerAId);
+  const bWonOpeningRound = wonOpeningRound(record, ref.stageIndex, node.playerBId);
+  if (aWonOpeningRound !== bWonOpeningRound) {
+    return stage.name;
+  }
+  return `${stage.name}·${aWonOpeningRound ? '胜者组' : '败者组'}`;
 }

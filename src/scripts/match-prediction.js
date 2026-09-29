@@ -1,8 +1,12 @@
 /*
  * 推流页面6（比赛结果）/ 页面8（比赛预告）共享渲染器。
  * 画面：蓝色渐变 + 主标题/副标题（Match Prediction）+ 3×3 对局卡片网格（最多 9 张）。
- * 场序时间由后端在 scheduleTimes 中下发（开始时间 + BO×30 分钟累加，手动覆盖由后台维护）。
- * 用法：MatchPredictionPage.mount({ apiUrl, role, updateEvent, defaultTitle })
+ * 卡片上方信息行 = 语义阶段标签（系列赛对局，如「8进4·胜者组」，数据来自 tournamentLabels）+ 时间胶囊
+ * （均 mp-info-tag 样式）；两页都不显示「第N场」（卡片内已有场序数字）。
+ * - page6（比赛结果）：系列赛对局只显示语义标签；普通对局显示时间
+ * - page8（比赛预告）：系列赛对局显示语义标签 + 时间（showTimeWithLabel=true）；普通对局显示时间
+ * 时间由后端在 scheduleTimes 中下发（开始时间 + BO×30 分钟累加，手动覆盖由后台维护）。
+ * 用法：MatchPredictionPage.mount({ apiUrl, role, updateEvent, defaultTitle, useTournamentLabel, showTimeWithLabel })
  */
 (function () {
     'use strict';
@@ -15,7 +19,6 @@
         left: '/assets/ui/left-avatar.png',
         right: '/assets/ui/right-avatar.png'
     };
-    var CHINESE_ORDINALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
     function formatRankText(value) {
         var digits = String(value || '').replace(/\D/g, '');
@@ -23,12 +26,6 @@
             return '';
         }
         return Number(digits) > 10000 ? '10000+' : digits;
-    }
-
-    /** 卡片上方场序信息：「第一场 19:00」；无时间时只显示「第一场」 */
-    function formatScheduleLabel(index, time) {
-        var ordinal = CHINESE_ORDINALS[index] || String(index + 1);
-        return time ? '第' + ordinal + '场 ' + time : '第' + ordinal + '场';
     }
 
     function buildRankIcon(rankValue) {
@@ -90,14 +87,27 @@
         return sideEl;
     }
 
-    /** 单张对局卡片：场序信息行 + 底板 + BO + 场序数字 + 左右选手条 */
-    function buildCard(index, match, time, avatars) {
+    /** 单张对局卡片：上信息行（语义标签 或/与 时间胶囊）+ 底板 + BO + 场序数字 + 左右选手条 */
+    function buildCard(index, match, time, avatars, tournamentLabel, showTimeWithLabel) {
         var item = document.createElement('div');
         item.className = 'mp-item';
 
         var info = document.createElement('div');
         info.className = 'mp-info';
-        info.textContent = formatScheduleLabel(index, time);
+        if (tournamentLabel) {
+            // 系列赛对局：语义阶段标签（page6/page8 共用，见 mount 的 useTournamentLabel）
+            var tag = document.createElement('span');
+            tag.className = 'mp-info-tag';
+            tag.textContent = tournamentLabel;
+            info.appendChild(tag);
+        }
+        // 时间：普通对局恒显示；系列赛对局仅 page8 并排显示（showTimeWithLabel）
+        if (time && (!tournamentLabel || showTimeWithLabel)) {
+            var timeTag = document.createElement('span');
+            timeTag.className = 'mp-info-tag';
+            timeTag.textContent = time;
+            info.appendChild(timeTag);
+        }
         item.appendChild(info);
 
         var card = document.createElement('div');
@@ -146,12 +156,20 @@
             var matches = (data && data.matches) || [];
             var avatars = (data && data.avatars) || null;
             var scheduleTimes = (data && data.scheduleTimes) || {};
+            var labels = options.useTournamentLabel ? ((data && data.tournamentLabels) || {}) : {};
             matches.slice(0, 9).forEach(function (match, index) {
-                gridEl.appendChild(buildCard(index, match, scheduleTimes[match.id], avatars));
+                gridEl.appendChild(buildCard(
+                    index,
+                    match,
+                    scheduleTimes[match.id],
+                    avatars,
+                    labels[match.id],
+                    options.showTimeWithLabel
+                ));
             });
         }
 
-        // 渲染签名：标题/开始时间/手动时间/所选比赛/可见字段/头像 任一变化才重建网格
+        // 渲染签名：标题/开始时间/手动时间/所选比赛/可见字段/头像/系列赛标签 任一变化才重建网格
         function buildSignature(data) {
             var state = (data && data.state) || {};
             var matches = (data && data.matches) || [];
@@ -161,6 +179,7 @@
                 startTime: state.startTime || '',
                 matchTimes: state.matchTimes || {},
                 scheduleTimes: data && data.scheduleTimes || {},
+                tournamentLabels: (data && data.tournamentLabels) || null,
                 matches: matches.map(function (match) {
                     return {
                         id: match.id,

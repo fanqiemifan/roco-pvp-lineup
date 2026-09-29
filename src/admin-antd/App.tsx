@@ -3857,6 +3857,7 @@ function Dashboard() {
                         cardTitle="推送比赛结果"
                         maxCount={PAGE6_MAX_MATCHES}
                         matches={matchStore.matches}
+                        tournaments={tournaments}
                         state={page6}
                         pushing={Boolean(matchPushLoading.page6)}
                         onPush={(payload) => pushMatchesForPage('page6', payload)}
@@ -3870,6 +3871,7 @@ function Dashboard() {
                         cardTitle="推送对局推送"
                         maxCount={PAGE7_MAX_MATCHES}
                         matches={matchStore.matches}
+                        tournaments={tournaments}
                         state={page7}
                         pushing={Boolean(matchPushLoading.page7)}
                         onPush={(payload) => pushMatchesForPage('page7', payload)}
@@ -3883,6 +3885,7 @@ function Dashboard() {
                         cardTitle="推送比赛预告"
                         maxCount={PAGE8_MAX_MATCHES}
                         matches={matchStore.matches}
+                        tournaments={tournaments}
                         state={page8}
                         pushing={Boolean(matchPushLoading.page8)}
                         onPush={(payload) => pushMatchesForPage('page8', payload)}

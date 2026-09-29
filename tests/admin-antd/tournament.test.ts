@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBracketGraph,
   buildPlayerNameMap,
+  buildPushCandidateGroups,
   buildWaveCards,
   countCompletedMatches,
   crossPairDeciderPool,
@@ -889,5 +890,106 @@ describe('getPlayerStateText', () => {
     expect(getPlayerStateText('single-elim', { wins: 0, losses: 1 })).toBe('0-1 已淘汰');
     expect(getPlayerStateText('single-elim', { wins: 0, losses: 0 })).toBe('0-0 存活');
     expect(getPlayerStateText('double-life', undefined)).toBe('');
+  });
+});
+
+describe('buildPushCandidateGroups（选场弹窗候选分组）', () => {
+  /** 节点构造（本文件内共用字段形态） */
+  function node(
+    id: string,
+    matchId: string,
+    a: string,
+    b: string,
+    winnerId: string | null = null,
+  ): TournamentWave['nodes'][number] {
+    return { id, matchId, playerAId: a, playerBId: b, winnerId, isBye: false };
+  }
+
+  const record = makeRecord({
+    status: 'running',
+    waves: [
+      makeWave(0, 1, {
+        nodes: [
+          node('s0-w1-n00', 'm1', 'p0', 'p1', 'p0'),
+          node('s0-w1-n01', 'm2', 'p2', 'p3', 'p2'),
+        ],
+      }),
+      makeWave(0, 2, {
+        nodes: [
+          // 1-0 池（双方首轮均胜）
+          node('s0-w2-n00', 'm3', 'p0', 'p2'),
+          // 0-1 池（双方首轮均负）
+          node('s0-w2-n01', 'm4', 'p1', 'p3'),
+        ],
+      }),
+      makeWave(0, 3, { nodes: [node('s0-w3-n00', 'm5', 'p1', 'p2')] }),
+      makeWave(1, 1, { nodes: [node('s1-w1-n00', 'm6', 'p0', 'p2')] }),
+      makeWave(2, 1, { nodes: [node('s2-w1-n00', 'm7', 'p0', 'p2')] }),
+    ],
+  });
+
+  function ref(nodeId: string, stageIndex: number, waveIndex: number) {
+    return { tournamentId: record.id, nodeId, stageIndex, waveIndex };
+  }
+
+  it('系列赛按 阶段+语义轮次 分组、普通对局与孤儿引用一组；组序按组内首场位置', () => {
+    const matches = [
+      makeMatch('m7', { tournamentRef: ref('s2-w1-n00', 2, 1) }), // 总决赛（单败）
+      makeMatch('m3', { tournamentRef: ref('s0-w2-n00', 0, 2) }), // 胜者组
+      makeMatch('m5', { tournamentRef: ref('s0-w3-n00', 0, 3) }), // 决胜轮
+      makeMatch('m1', { tournamentRef: ref('s0-w1-n00', 0, 1) }), // 首轮
+      makeMatch('normal-1'), // 普通对局
+      makeMatch('m4', { tournamentRef: ref('s0-w2-n01', 0, 2) }), // 败者组
+      makeMatch('orphan-1', {
+        tournamentRef: { tournamentId: 'T19990101_A99', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+      }),
+    ];
+
+    const groups = buildPushCandidateGroups(matches, [record]);
+
+    expect(groups.map((group) => group.title)).toEqual([
+      '🏆 星空杯S1 · 总决赛',
+      '🏆 星空杯S1 · 8进4 · 胜者组',
+      '🏆 星空杯S1 · 8进4 · 决胜轮',
+      '🏆 星空杯S1 · 8进4 · 首轮',
+      '普通对局',
+      '🏆 星空杯S1 · 8进4 · 败者组',
+    ]);
+    expect(groups.map((group) => group.matches.map((match) => match.id))).toEqual([
+      ['m7'],
+      ['m3'],
+      ['m5'],
+      ['m1'],
+      ['normal-1', 'orphan-1'],
+      ['m4'],
+    ]);
+  });
+
+  it('跨桶配对拿不到一致池归属：按波次归组、标题退回阶段名', () => {
+    const crossRecord = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, { nodes: [node('s0-w1-n00', 'm1', 'p0', 'p1', 'p0')] }),
+        // p0（首轮胜）对 p1（首轮负）：战绩不对等
+        makeWave(0, 2, { nodes: [node('s0-w2-n00', 'm2', 'p0', 'p1')] }),
+      ],
+    });
+    const groups = buildPushCandidateGroups(
+      [makeMatch('m2', {
+        tournamentRef: { tournamentId: crossRecord.id, nodeId: 's0-w2-n00', stageIndex: 0, waveIndex: 2 },
+      })],
+      [crossRecord],
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].title).toBe('🏆 星空杯S1 · 8进4');
+    expect(groups[0].key).toBe(`${crossRecord.id}:0:wave2`);
+  });
+
+  it('无系列赛数据 / 空列表：全部归入普通对局组、空输入返回空数组', () => {
+    const groups = buildPushCandidateGroups([makeMatch('a'), makeMatch('b')], []);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].title).toBe('普通对局');
+    expect(groups[0].matches.map((match) => match.id)).toEqual(['a', 'b']);
+    expect(buildPushCandidateGroups([], [])).toEqual([]);
   });
 });
