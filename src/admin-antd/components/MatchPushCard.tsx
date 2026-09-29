@@ -111,9 +111,20 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
     return map;
   }, [matches]);
 
+  /** 弹窗内已选（本地草稿，仅打开弹窗时从服务端初始化） */
   const selectedMatches = useMemo(
     () => draftIds.map((id) => matchById.get(id)).filter((match): match is MatchRecord => Boolean(match)),
     [draftIds, matchById],
+  );
+
+  /**
+   * 卡片摘要展示的已推送比赛：取自服务端 state.matchIds。
+   * 不能用 draftIds —— 它只在弹窗打开时才初始化，否则卡片会一直显示「尚未选择比赛」，
+   * 要点进弹窗再退出来才正常。
+   */
+  const pushedMatches = useMemo(
+    () => state.matchIds.map((id) => matchById.get(id)).filter((match): match is MatchRecord => Boolean(match)),
+    [state.matchIds, matchById],
   );
 
   // 自动场序时间：开始时间 + 前场各场 BO×30 分钟累加；手动值只替换该场显示
@@ -291,15 +302,15 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
         size="small"
         className="subtle-card match-push-card"
         title={cardTitle}
-        extra={<Tag color={draftIds.length ? 'blue' : 'default'}>{state.matchIds.length}/{maxCount}</Tag>}
+        extra={<Tag color={pushedMatches.length ? 'blue' : 'default'}>{state.matchIds.length}/{maxCount}</Tag>}
       >
         <Space direction="vertical" size={10} className="match-push-card-body">
-          {selectedMatches.length ? (
+          {pushedMatches.length ? (
             <div className="match-push-summary">
-              {selectedMatches.slice(0, 2).map((match) => (
+              {pushedMatches.slice(0, 2).map((match) => (
                 <Tag key={match.id} className="match-push-summary-tag">{versusText(match)}</Tag>
               ))}
-              {selectedMatches.length > 2 ? <Tag>+{selectedMatches.length - 2}</Tag> : null}
+              {pushedMatches.length > 2 ? <Tag>+{pushedMatches.length - 2}</Tag> : null}
             </div>
           ) : (
             <Text type="secondary" className="match-push-empty-hint">尚未选择比赛</Text>

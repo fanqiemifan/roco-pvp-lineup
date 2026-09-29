@@ -83,8 +83,8 @@ body {
     grid-template-columns: repeat(3, 412px);
     grid-auto-rows: auto;
     justify-content: center;
-    column-gap: 40px;
-    row-gap: 26px;
+    column-gap: 82px;
+    row-gap: 32px;
 }
 
 /* 单个卡片单元：场序信息行 + 412×166 对局卡片 */
@@ -157,11 +157,11 @@ body {
 }
 
 .mp-side-left {
-    top: 8px;
+    top: 6px;
 }
 
 .mp-side-right {
-    top: 84px;
+    top: 82px;
 }
 
 /* 选手头像：72×72，left 0 垂直居中（top 1），圆形 + 内描边 2px 黑色 50% */
