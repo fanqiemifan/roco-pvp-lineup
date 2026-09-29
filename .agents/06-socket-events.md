@@ -19,7 +19,7 @@
 | MVP 结算更新通知 | mvp:update | Server → Client | MVP 结算（page4）精灵项/标签/MVP 标记/胜方快照变更（保存/显示时广播）；推流页收到后重拉 GET /api/mvp（state + winner），后台「结算画面」直接用 payload 的 state/winner 同步草稿与已载入胜方头像 | { state: MvpState, winner: MvpWinnerInfo } |
 | 系列赛更新通知 | tournament:update | Server → Client | 系列赛编排变更（创建/抽签/开赛/锁定配对/回退/弃权后广播）；V1 仅投 admin 房间（配对确认台第 11 视图下轮接入） | { tournaments: TournamentRecord[] } |
 
-> 双机数据同步（/api/sync/*）**不新增事件**：导入成功后复用 matches:update（比赛）与 profiles:update（档案）广播，各客户端按既有订阅自动刷新。
+> 双机数据同步（/api/sync/*）**不新增事件**：导入成功后复用 matches:update（比赛）与 profiles:update（档案）广播，包内系列赛有新增/更新或写回推进时另广播 tournament:update，各客户端按既有订阅自动刷新。
 
 # 角色房间（role rooms）与定向广播
 

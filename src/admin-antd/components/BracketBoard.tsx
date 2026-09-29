@@ -46,6 +46,8 @@ export interface BracketBoardProps {
   names: Map<string, string>;
   matches: MatchRecord[];
   onSelectMatch(matchId: string): Promise<void>;
+  /** 只读副本（系列赛由另一台机器编排）：隐藏弃权操作 */
+  readOnly?: boolean;
 }
 
 /** 槽位 ref key：`${nodeId}#a` / `${nodeId}#b` */
@@ -66,6 +68,7 @@ export function BracketBoard({
   names,
   matches,
   onSelectMatch,
+  readOnly = false,
 }: BracketBoardProps): React.ReactElement {
   const { message } = App.useApp();
   const graph = useMemo(
@@ -405,7 +408,7 @@ export function BracketBoard({
           cardRef={(element) => registerCard(card.nodeId, element)}
           slotRef={(side, element) => registerSlot(slotKey(card.nodeId, side), element)}
           onSelectMatch={(matchId) => void onSelectMatch(matchId)}
-          onForfeit={() => setForfeitNode(resolveNode(column, card.nodeId))}
+          onForfeit={readOnly ? undefined : () => setForfeitNode(resolveNode(column, card.nodeId))}
         />
       </div>
     );

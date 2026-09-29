@@ -13,9 +13,11 @@ import {
   getPairingLabel,
   getPlayerStateText,
   getStageState,
+  getTournamentOwnerCode,
   getTournamentStatusMeta,
   getWaveGlobalIndex,
   getWaveRoundLabels,
+  isTournamentOwnedByLocal,
   resolvePlayerName,
   shuffleBucketPairs,
   validateDraftPairs,
@@ -991,5 +993,21 @@ describe('buildPushCandidateGroups（选场弹窗候选分组）', () => {
     expect(groups[0].title).toBe('普通对局');
     expect(groups[0].matches.map((match) => match.id)).toEqual(['a', 'b']);
     expect(buildPushCandidateGroups([], [])).toEqual([]);
+  });
+});
+
+describe('双机同步：编排机判定（与服务端同口径）', () => {
+  it('解析 id 机器码并按本机机器码判定所有权', () => {
+    expect(getTournamentOwnerCode('T20260929_A01')).toBe('A');
+    expect(getTournamentOwnerCode('T20260929_AB12')).toBe('AB');
+    expect(getTournamentOwnerCode('T20260929_01')).toBe('');
+    expect(getTournamentOwnerCode('not-an-id')).toBeNull();
+
+    expect(isTournamentOwnedByLocal('T20260929_A01', 'A')).toBe(true);
+    expect(isTournamentOwnedByLocal('T20260929_A01', 'a')).toBe(true);
+    expect(isTournamentOwnedByLocal('T20260929_A01', 'B')).toBe(false);
+    // 未设置机器标识（两侧都为空）时按本机编排处理，保持单机既有行为
+    expect(isTournamentOwnedByLocal('T20260929_01', '')).toBe(true);
+    expect(isTournamentOwnedByLocal('T20260929_01', 'B')).toBe(false);
   });
 });

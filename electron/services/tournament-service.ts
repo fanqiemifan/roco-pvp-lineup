@@ -16,6 +16,7 @@ import type {
   PairingValidation,
   StageFormat,
   StageRule,
+  SyncConflictMode,
   TournamentEntry,
   TournamentNode,
   TournamentRecord,
@@ -338,6 +339,37 @@ function writeRecords(paths: AppPaths, records: TournamentRecord[]): void {
   fs.writeFileSync(paths.tournamentsFile, JSON.stringify({ tournaments: records }, null, 2), 'utf-8');
 }
 
+/** 系列赛 id 中的编排机机器码（T{日期}_{机器码}{序号}）；解析失败返回 null */
+function getOwnerCode(tournamentId: string): string | null {
+  const parsed = TOURNAMENT_ID_REGEX.exec(tournamentId);
+  return parsed ? parsed[2].toUpperCase() : null;
+}
+
+/**
+ * 本机是否为该系列赛的编排机（id 机器码 == 本机 machineCode）。
+ * 双机同步后每台机器都持有系列赛记录，但只有编排机能变更它：否则两台机器各自推进
+ * 会为同一场对决重复建场（比赛 id 带各自机器码），对阵状态也会分叉。
+ * 机器码未设置（两侧都为空）时按本机编排处理，保持单机既有行为。
+ */
+function isOwnedByLocal(paths: AppPaths, tournamentId: string): boolean {
+  const machine = loadRuntimeConfig(paths).machineCode;
+  const owner = getOwnerCode(tournamentId);
+  return owner !== null && owner === machine;
+}
+
+/** 编排机校验：只读副本上的一切变更都要拒绝；写回钩子另行静默跳过（返回 null，不阻断比分登记） */
+function assertEditable(paths: AppPaths, tournamentId: string): void {
+  if (isOwnedByLocal(paths, tournamentId)) {
+    return;
+  }
+  const owner = getOwnerCode(tournamentId);
+  throw new Error(
+    owner
+      ? `该系列赛由机器 ${owner} 编排，请到机器 ${owner} 上操作`
+      : '该系列赛创建时未设置机器标识，只能在创建它的机器上操作',
+  );
+}
+
 /** 在指定系列赛上执行变更：统一更新 updatedAt、落盘，返回深拷贝避免外部篡改 */
 function mutateRecord(
   paths: AppPaths,
@@ -349,6 +381,7 @@ function mutateRecord(
   if (index === -1) {
     throw new Error('系列赛不存在');
   }
+  assertEditable(paths, tournamentId);
   mutator(records[index]);
   records[index].updatedAt = new Date().toISOString();
   writeRecords(paths, records);
@@ -1097,9 +1130,11 @@ export function onMatchCompleted(paths: AppPaths, matchId: string): TournamentRe
   const ref = match.tournamentRef;
   let output: TournamentRecord | null = null;
 
-  // 系列赛已被删除（正常删除时会先解绑，这里兜底撤销恢复等渠道留下的孤儿引用）：
+  // 系列赛已被删除（正常删除时会先解绑，这里兜底撤销恢复等渠道留下的孤儿引用）、
+  // 或本机只是只读副本（系列赛由另一台机器编排）：
   // 按普通对局处理，不阻断比分登记
-  if (!readRecords(paths).some((record) => record.id === ref.tournamentId)) {
+  if (!readRecords(paths).some((record) => record.id === ref.tournamentId)
+    || !isOwnedByLocal(paths, ref.tournamentId)) {
     return null;
   }
 
@@ -1177,8 +1212,9 @@ export function onMatchUndo(paths: AppPaths, matchId: string): TournamentRecord 
   const ref = match.tournamentRef;
   let output: TournamentRecord | null = null;
 
-  // 同 onMatchCompleted：系列赛已删除则无需写回，不阻断撤回
-  if (!readRecords(paths).some((record) => record.id === ref.tournamentId)) {
+  // 同 onMatchCompleted：系列赛已删除或本机只是只读副本则无需写回，不阻断撤回
+  if (!readRecords(paths).some((record) => record.id === ref.tournamentId)
+    || !isOwnedByLocal(paths, ref.tournamentId)) {
     return null;
   }
 
@@ -1231,6 +1267,152 @@ export function onMatchUndo(paths: AppPaths, matchId: string): TournamentRecord 
   });
 
   return output ? cloneRecord(output) : null;
+}
+
+/* ==================== 双机同步：系列赛导入合并与写回补跑 ==================== */
+
+export interface MergeTournamentRecordsReport {
+  added: string[];
+  updated: string[];
+  skipped: Array<{ id: string; reason: string }>;
+  /** 结构不合法被忽略的条目数 */
+  rejected: number;
+}
+
+/**
+ * 合并包内系列赛（编排数据随同步包流转，自动合并、不参与逐条勾选）：
+ * - 本机不存在 → 新增（只读副本首次拿到对阵图）；
+ * - 内容相同 → 跳过（幂等，重复导入无副作用）；
+ * - 内容有差异 → 默认按 updatedAt「较新覆盖」，bundle 模式以包为准直接覆盖。
+ * 只有编排机会修改系列赛，只读副本的本地版本不会新于包内，因此不会反向覆盖编排机。
+ */
+export function mergeTournamentRecords(
+  paths: AppPaths,
+  incoming: unknown[],
+  mode: SyncConflictMode,
+): MergeTournamentRecordsReport {
+  const records = readRecords(paths);
+  const indexById = new Map(records.map((record, index) => [record.id, index]));
+  const added: string[] = [];
+  const updated: string[] = [];
+  const skipped: MergeTournamentRecordsReport['skipped'] = [];
+  let rejected = 0;
+
+  incoming.forEach((raw) => {
+    const record = normalizeRecord(raw);
+    if (!record) {
+      rejected += 1;
+      return;
+    }
+    const localIndex = indexById.get(record.id);
+    if (localIndex === undefined) {
+      indexById.set(record.id, records.length);
+      records.push(record);
+      added.push(record.id);
+      return;
+    }
+    const local = records[localIndex];
+    if (JSON.stringify(local) === JSON.stringify(record)) {
+      skipped.push({ id: record.id, reason: '与包内内容相同' });
+      return;
+    }
+    if (mode === 'bundle' || isIncomingNewer(record.updatedAt, local.updatedAt)) {
+      records[localIndex] = record;
+      updated.push(record.id);
+      return;
+    }
+    skipped.push({ id: record.id, reason: '本机版本不早于包内（保持本机）' });
+  });
+
+  if (added.length || updated.length) {
+    writeRecords(paths, records);
+  }
+  return { added, updated, skipped, rejected };
+}
+
+/** 包内版本是否更新（与比赛导入同口径：先解析时间，解析不出退化为字符串比较） */
+function isIncomingNewer(incoming: string, local: string): boolean {
+  const incomingMs = Date.parse(incoming);
+  const localMs = Date.parse(local);
+  return Number.isFinite(incomingMs) && Number.isFinite(localMs)
+    ? incomingMs > localMs
+    : String(incoming) > String(local);
+}
+
+export interface TournamentWriteBackReport {
+  /** 写回是否真正改动了系列赛内容（已排除 updatedAt 空转） */
+  advanced: boolean;
+  warnings: string[];
+}
+
+/**
+ * 同步导入后的写回补跑：对本机全部「已完成 + 带 tournamentRef」的比赛逐场执行完成钩子。
+ * - 钩子幂等：节点已有胜者直接跳过，重复导入不会重复推进；
+ * - 只读副本（本机不是该系列赛编排机）自动跳过，不阻断比赛登记；
+ * - 最后一场补齐时自动推进（生成下一波 / 总冠军）——双机「各登记一半、汇合推进」的关键一步；
+ * - 赛果与已写回节点胜者不一致（如协作机撤回重登后回传）时记 warning，提示人工走「回退上一波」。
+ */
+export function runTournamentWriteBack(paths: AppPaths): TournamentWriteBackReport {
+  const warnings: string[] = [];
+  let advanced = false;
+
+  getMatchStore(paths).matches.forEach((match) => {
+    if (match.status !== 'completed' || !match.tournamentRef) {
+      return;
+    }
+    const tournamentId = match.tournamentRef.tournamentId;
+    const before = tournamentDigest(paths, tournamentId);
+    try {
+      const updated = onMatchCompleted(paths, match.id);
+      if (updated && tournamentDigest(paths, tournamentId) !== before) {
+        advanced = true;
+      }
+    } catch (error) {
+      warnings.push(
+        `「${match.leftPlayer} vs ${match.rightPlayer}」未能写回系列赛：${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+    const mismatch = tournamentResultMismatch(paths, match);
+    if (mismatch) {
+      warnings.push(mismatch);
+    }
+  });
+
+  return { advanced, warnings };
+}
+
+/**
+ * 赛果与系列赛节点胜者不一致检测（钩子幂等不会覆盖已写回的旧胜者）：
+ * 返回人工处理提示，正常（一致 / 无节点胜者）返回 null。
+ */
+function tournamentResultMismatch(paths: AppPaths, match: MatchRecord): string | null {
+  const ref = match.tournamentRef;
+  if (!ref) {
+    return null;
+  }
+  const record = readRecords(paths).find((item) => item.id === ref.tournamentId);
+  const node = record?.waves
+    .find((item) => item.stageIndex === ref.stageIndex && item.waveIndex === ref.waveIndex)
+    ?.nodes.find((item) => item.id === ref.nodeId);
+  if (!node?.winnerId) {
+    return null;
+  }
+  const expected = match.winner === 'left' ? node.playerAId : node.playerBId;
+  if (expected && node.winnerId === expected) {
+    return null;
+  }
+  return `「${match.leftPlayer} vs ${match.rightPlayer}」的赛果与系列赛记录不一致（系列赛已按旧赛果推进），请在系列赛视图走「回退上一波」后重新登记`;
+}
+
+/** 系列赛内容摘要（排除每次变更都会刷新的 updatedAt），用于判断写回是否真正改了内容 */
+function tournamentDigest(paths: AppPaths, tournamentId: string): string {
+  const record = readRecords(paths).find((item) => item.id === tournamentId);
+  if (!record) {
+    return '';
+  }
+  const { updatedAt: _unused, ...rest } = record;
+  return JSON.stringify(rest);
 }
 
 /* ==================== 波次回退 ==================== */
@@ -1525,6 +1707,7 @@ export function deleteTournament(
   if (!records.some((record) => record.id === tournamentId)) {
     throw new Error('系列赛不存在');
   }
+  assertEditable(paths, tournamentId);
 
   // 按 tournamentId 全量扫描解绑，比节点登记的 matchId 更能覆盖异常数据
   const { matchIds } = detachMatchesFromTournament(paths, tournamentId);

@@ -1,4 +1,8 @@
-import { TOURNAMENT_TARGET_LOSSES, TOURNAMENT_TARGET_WINS } from '../../../shared/constants';
+import {
+  TOURNAMENT_ID_REGEX,
+  TOURNAMENT_TARGET_LOSSES,
+  TOURNAMENT_TARGET_WINS,
+} from '../../../shared/constants';
 import type {
   MatchRecord,
   PairingValidation,
@@ -24,6 +28,23 @@ export function resolvePlayerName(names: Map<string, string>, id: string | null)
     return '';
   }
   return names.get(id) ?? id;
+}
+
+/* ---------- 双机同步：系列赛编排机（只读副本判定，与服务端同口径） ---------- */
+
+/** 系列赛 id 中的编排机机器码（T{日期}_{机器码}{序号}）；解析失败返回 null */
+export function getTournamentOwnerCode(tournamentId: string): string | null {
+  const parsed = TOURNAMENT_ID_REGEX.exec(tournamentId);
+  return parsed ? parsed[2].toUpperCase() : null;
+}
+
+/**
+ * 本机是否为该系列赛的编排机（id 机器码 == 本机 machineCode），与服务端 tournament-service 同口径。
+ * 只读副本只能查看对阵图和登记对局，推进/编排操作会被服务端直接拒绝。
+ */
+export function isTournamentOwnedByLocal(tournamentId: string, machineCode: string): boolean {
+  const owner = getTournamentOwnerCode(tournamentId);
+  return owner !== null && owner === machineCode.trim().toUpperCase();
 }
 
 /** 系列赛状态文案与配色（列表/详情头部用） */

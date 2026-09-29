@@ -41,10 +41,12 @@ import {
   getDraftBucketSpecs,
   getPairingLabel,
   getStageState,
+  getTournamentOwnerCode,
   getTournamentStatusMeta,
   getWaveGlobalIndex,
   getWaveRoundLabels,
   isDeciderBucket,
+  isTournamentOwnedByLocal,
   resolvePlayerName,
   shuffleBucketPairs,
   summarizeTournamentMatches,
@@ -79,6 +81,8 @@ export interface TournamentViewProps {
   tournaments: TournamentRecord[];
   profiles: ProfileStoreState | null;
   matches: MatchRecord[];
+  /** 本机机器标识：判定系列赛是否归本机编排（只读副本禁用编排操作） */
+  machineCode: string;
   /** 切换为当前比赛后跳转赛事面板（App 提供） */
   onJumpToRoster?: () => void;
 }
@@ -87,6 +91,7 @@ export function TournamentView({
   tournaments,
   profiles,
   matches,
+  machineCode,
   onJumpToRoster,
 }: TournamentViewProps): React.ReactElement {
   const { message } = App.useApp();
@@ -186,6 +191,7 @@ export function TournamentView({
             type="link"
             danger
             style={{ padding: 0 }}
+            disabled={!isTournamentOwnedByLocal(record.id, machineCode)}
             onClick={() => {
               setDeleteWithMatches(false);
               setDeleteTarget(record);
@@ -234,6 +240,7 @@ export function TournamentView({
           record={selected}
           names={names}
           matches={matches}
+          machineCode={machineCode}
           onSelectMatch={handleSelectMatch}
           onDelete={() => {
             setDeleteWithMatches(false);
@@ -312,6 +319,7 @@ interface DetailProps {
   record: TournamentRecord;
   names: Map<string, string>;
   matches: MatchRecord[];
+  machineCode: string;
   onSelectMatch(matchId: string): Promise<void>;
   onDelete(): void;
 }
@@ -320,10 +328,14 @@ function TournamentDetail({
   record,
   names,
   matches,
+  machineCode,
   onSelectMatch,
   onDelete,
 }: DetailProps): React.ReactElement {
   const { message, modal } = App.useApp();
+  // 只读副本（系列赛由另一台机器编排）：可查看与登记对局，编排/推进由服务端拒绝
+  const ownerCode = getTournamentOwnerCode(record.id);
+  const readOnly = !isTournamentOwnedByLocal(record.id, machineCode);
   // 详情视图：晋级图（默认）/ 波次列表；setup 阶段固定走抽签面板
   const [detailView, setDetailView] = useState<'bracket' | 'waves'>('bracket');
 
@@ -344,6 +356,9 @@ function TournamentDetail({
       title={`系列赛详情 · ${record.name}`}
       extra={(
         <Space>
+          {readOnly ? (
+            <Tag color="blue">只读副本{ownerCode ? ` · 机器 ${ownerCode} 编排` : ''}</Tag>
+          ) : null}
           <Tag color={getTournamentStatusMeta(record).color}>
             {getTournamentStatusMeta(record).label}
           </Tag>
@@ -354,12 +369,18 @@ function TournamentDetail({
             cancelText="取消"
             onConfirm={() => void handleRollback()}
           >
-            <Button disabled={record.waves.length === 0}>↺ 回退上一波</Button>
+            <Button disabled={record.waves.length === 0 || readOnly}>↺ 回退上一波</Button>
           </Popconfirm>
-          <Button danger onClick={onDelete}>删除系列赛</Button>
+          <Button danger disabled={readOnly} onClick={onDelete}>删除系列赛</Button>
         </Space>
       )}
     >
+      {readOnly ? (
+        <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          只读副本：该系列赛由{ownerCode ? `机器 ${ownerCode}` : '另一台机器'}编排 —— 本机可查看对阵图、可登记对局赛果；推进与编排请在编排机执行，回传后本机对阵图自动更新。
+        </Paragraph>
+      ) : null}
+
       {record.result ? (
         <Paragraph>
           <Tag color="gold">🏆 冠军：{resolvePlayerName(names, record.result.championId)}</Tag>
@@ -389,7 +410,7 @@ function TournamentDetail({
       />
 
       {record.status === 'setup' ? (
-        <SetupDraftPanel record={record} names={names} />
+        <SetupDraftPanel record={record} names={names} readOnly={readOnly} />
       ) : (
         <Segmented
           className="tournament-view-switch"
@@ -408,6 +429,7 @@ function TournamentDetail({
           names={names}
           matches={matches}
           onSelectMatch={onSelectMatch}
+          readOnly={readOnly}
         />
       ) : (
         <div className="tournament-waves">
@@ -419,6 +441,7 @@ function TournamentDetail({
               names={names}
               matches={matches}
               onSelectMatch={onSelectMatch}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -453,11 +476,14 @@ function SetupDraftPanel({
   record,
   names,
   onChanged,
+  readOnly = false,
 }: {
   record: TournamentRecord;
   names: Map<string, string>;
   /** 抽签/开赛后通知父组件重新取数（详情页走 socket 可不传） */
   onChanged?: () => void;
+  /** 只读副本：禁用抽签与开赛（服务端也会拒绝） */
+  readOnly?: boolean;
 }): React.ReactElement {
   const { message } = App.useApp();
   const [drawing, setDrawing] = useState(false);
@@ -523,10 +549,10 @@ function SetupDraftPanel({
       style={{ margin: '16px 0' }}
       extra={(
         <Space>
-          <Button loading={drawing} onClick={() => void handleDraw()}>
+          <Button loading={drawing} disabled={readOnly} onClick={() => void handleDraw()}>
             🎲 重新抽签
           </Button>
-          <Button type="primary" loading={starting} onClick={() => void handleStart()}>
+          <Button type="primary" loading={starting} disabled={readOnly} onClick={() => void handleStart()}>
             确认开赛
           </Button>
         </Space>
@@ -578,6 +604,7 @@ interface WavePanelProps {
   names: Map<string, string>;
   matches: MatchRecord[];
   onSelectMatch(matchId: string): Promise<void>;
+  readOnly: boolean;
 }
 
 function WavePanel({
@@ -586,6 +613,7 @@ function WavePanel({
   names,
   matches,
   onSelectMatch,
+  readOnly,
 }: WavePanelProps): React.ReactElement {
   const stage = record.stages[wave.stageIndex];
   // 轮次表述与晋级图同一套术语：双败给「败者组 R1 / 胜者组 R2」，单败直接用阶段名
@@ -611,7 +639,7 @@ function WavePanel({
       )}
     >
       {wave.pairingStatus === 'draft' ? (
-        <PairingConsole record={record} wave={wave} names={names} />
+        <PairingConsole record={record} wave={wave} names={names} readOnly={readOnly} />
       ) : (
         <NodeGrid
           record={record}
@@ -619,6 +647,7 @@ function WavePanel({
           names={names}
           matches={matches}
           onSelectMatch={onSelectMatch}
+          readOnly={readOnly}
         />
       )}
     </Card>
@@ -631,10 +660,13 @@ function PairingConsole({
   record,
   wave,
   names,
+  readOnly = false,
 }: {
   record: TournamentRecord;
   wave: TournamentWave;
   names: Map<string, string>;
+  /** 只读副本：禁用草稿编辑与锁定（服务端也会拒绝） */
+  readOnly?: boolean;
 }): React.ReactElement {
   const { message, modal } = App.useApp();
   const globalIndex = getWaveGlobalIndex(record, wave.stageIndex, wave.waveIndex);
@@ -830,11 +862,11 @@ function PairingConsole({
   return (
     <div>
       <Space style={{ marginBottom: 12 }} wrap>
-        <Button onClick={handleShuffle}>🎲 桶内随机重排</Button>
-        <Button onClick={() => setImportOpen(true)}>📋 导入对阵表</Button>
-        <Button onClick={addRow}>＋ 添加一行</Button>
+        <Button onClick={handleShuffle} disabled={readOnly}>🎲 桶内随机重排</Button>
+        <Button onClick={() => setImportOpen(true)} disabled={readOnly}>📋 导入对阵表</Button>
+        <Button onClick={addRow} disabled={readOnly}>＋ 添加一行</Button>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {saving ? '保存中…' : '草稿自动暂存（锁定前赛事面板看不到比赛）'}
+          {readOnly ? '只读副本：配对草稿由编排机编辑' : saving ? '保存中…' : '草稿自动暂存（锁定前赛事面板看不到比赛）'}
         </Text>
       </Space>
 
@@ -872,6 +904,7 @@ function PairingConsole({
                       options={options}
                       showSearch
                       optionFilterProp="label"
+                      disabled={readOnly}
                       onChange={(value) => updateSlot(flatIndex, 0, value)}
                     />
                     <Text type="secondary">vs</Text>
@@ -882,9 +915,10 @@ function PairingConsole({
                       options={options}
                       showSearch
                       optionFilterProp="label"
+                      disabled={readOnly}
                       onChange={(value) => updateSlot(flatIndex, 1, value)}
                     />
-                    <Button type="text" danger onClick={() => removeRow(flatIndex)}>
+                    <Button type="text" danger disabled={readOnly} onClick={() => removeRow(flatIndex)}>
                       删除
                     </Button>
                   </div>
@@ -927,7 +961,7 @@ function PairingConsole({
           type="primary"
           size="large"
           loading={locking}
-          disabled={liveValidation.errors.length > 0}
+          disabled={readOnly || liveValidation.errors.length > 0}
           onClick={() => void handleLock()}
         >
           🔒 校验通过 · 锁定并创建 {expectedPairCount(specs)} 场比赛
@@ -995,12 +1029,15 @@ function NodeGrid({
   names,
   matches,
   onSelectMatch,
+  readOnly = false,
 }: {
   record: TournamentRecord;
   wave: TournamentWave;
   names: Map<string, string>;
   matches: MatchRecord[];
   onSelectMatch(matchId: string): Promise<void>;
+  /** 只读副本：隐藏弃权操作（服务端也会拒绝） */
+  readOnly?: boolean;
 }): React.ReactElement {
   const { message } = App.useApp();
   const [forfeitNode, setForfeitNode] = useState<TournamentNode | null>(null);
@@ -1034,7 +1071,7 @@ function NodeGrid({
             <TournamentNodeCard
               card={card}
               onSelectMatch={(matchId) => void onSelectMatch(matchId)}
-              onForfeit={() => setForfeitNode(
+              onForfeit={readOnly ? undefined : () => setForfeitNode(
                 wave.nodes.find((node) => node.id === card.nodeId) ?? null,
               )}
             />

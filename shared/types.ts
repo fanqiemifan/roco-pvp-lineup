@@ -500,6 +500,8 @@ export interface SyncBundle {
   machine: string;
   exportedAt: string;
   matches: MatchRecord[];
+  /** 系列赛编排（全量随包流转；编辑权归编排机，只读副本由导入合并维护） */
+  tournaments: TournamentRecord[];
   profiles?: {
     players: SyncBundlePlayerProfile[];
     teams: SyncBundleTeamProfile[];
@@ -592,6 +594,17 @@ export interface SyncImportPreview {
   };
 }
 
+/** 系列赛导入合并与写回统计（编排数据自动合并，不参与逐条勾选） */
+export interface SyncTournamentReport {
+  added: number;
+  updated: number;
+  skipped: number;
+  /** 结构不合法被忽略的条目数 */
+  rejected: number;
+  /** 写回补跑是否真正改动了系列赛（如最后一场补齐后自动推进到下一波） */
+  advanced: boolean;
+}
+
 /** 导入应用结果 */
 export interface SyncImportResult {
   store: MatchStoreState;
@@ -599,6 +612,7 @@ export interface SyncImportResult {
   profiles: ProfileStoreState | null;
   applied: SyncImportPreview['summary'];
   avatarsWritten: { players: number; teams: number };
+  tournaments: SyncTournamentReport;
   warnings: string[];
 }
 

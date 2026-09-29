@@ -10,7 +10,9 @@ import { createLocalServer, type LocalServer } from '../../electron/socket-serve
 import { loadRuntimeConfig, saveRuntimeConfig } from '../../electron/services/config-service';
 import { createMatch } from '../../electron/services/match-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
+import { savePlayerProfile } from '../../electron/services/profile-service';
 import { exportSyncBundle } from '../../electron/services/sync-service';
+import { createTournament, getTournamentStore, startTournament } from '../../electron/services/tournament-service';
 import type { SyncBundle, SyncImportPreview } from '../../shared/types';
 
 let server: LocalServer;
@@ -177,5 +179,51 @@ describe('POST /api/runtime-config 合并语义', () => {
     const restore = await postJson('/api/runtime-config', { machineCode: 'A' });
     expect(restore.data.config.machineCode).toBe('A');
     expect(loadRuntimeConfig(paths).machineCode).toBe('A');
+  });
+});
+
+describe('导入携带系列赛的同步包（只读副本 + 广播）', () => {
+  it('编排机包内系列赛落到本机作为只读副本，并广播 tournament:update', async () => {
+    // 另起一台编排机（机器码 C）建系列赛并导出
+    const sourceRoot = mkdtempSync(join(tmpdir(), 'roco-sync-tourney-http-'));
+    const sourcePaths = createAppPaths(sourceRoot, sourceRoot);
+    mkdirSync(sourcePaths.dataDir, { recursive: true });
+    saveRuntimeConfig(sourcePaths, { machineCode: 'C' });
+    const playerIds = Array.from({ length: 8 }, (_unused, index) => `p${index}`);
+    playerIds.forEach((id, index) => savePlayerProfile(sourcePaths, { id, name: `选手${index}` }));
+    const created = createTournament(sourcePaths, { name: 'HTTP杯', playerIds, seed: 42 });
+    startTournament(sourcePaths, created.id);
+    const bundle = exportSyncBundle(sourcePaths, { includeProfiles: false, includeAvatars: false });
+    expect(bundle.tournaments).toHaveLength(1);
+
+    const client: Socket = ioClient(base, { transports: ['websocket'] });
+    await new Promise<void>((resolve, reject) => {
+      client.once('connect', resolve);
+      client.once('connect_error', reject);
+    });
+
+    try {
+      const tournamentUpdates: unknown[] = [];
+      client.on('tournament:update', (payload) => tournamentUpdates.push(payload));
+
+      const previewResponse = await postBundle('/api/sync/preview', bundle);
+      const preview = previewResponse.data.preview as SyncImportPreview;
+      const accepted = preview.matchItems.filter((item) => item.action !== 'skip').map((item) => item.key);
+
+      const { status, data } = await postBundle('/api/sync/import', bundle, {
+        mode: 'newer',
+        accepted: JSON.stringify(accepted),
+        includeAvatars: 'false',
+      });
+
+      expect(status).toBe(200);
+      expect(data.result.tournaments.added).toBe(1);
+      expect(data.result.tournaments.advanced).toBe(false); // 本机非编排机：导入不推进
+      await vi.waitFor(() => expect(tournamentUpdates).toHaveLength(1), { timeout: 2000 });
+
+      expect(getTournamentStore(paths).map((record) => record.id)).toContain(created.id);
+    } finally {
+      client.close();
+    }
   });
 });

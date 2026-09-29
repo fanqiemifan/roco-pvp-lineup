@@ -28,6 +28,7 @@ import {
 import type { AppPaths } from './path-service.js';
 import type { ProfileImportDecision } from './profile-service.js';
 import { diffProfileRecords, getProfileStore, mergeProfileRecords } from './profile-service.js';
+import { getTournamentStore, mergeTournamentRecords, runTournamentWriteBack } from './tournament-service.js';
 
 /** 导出选项：头像只在包含档案时才有效（头像按档案 id 归属） */
 export interface SyncExportOptions {
@@ -40,6 +41,8 @@ interface SyncBundlePayload {
   machine: string;
   exportedAt: string;
   matches: unknown[];
+  /** 系列赛编排（旧包可能不含该字段，按空数组处理） */
+  tournaments: unknown[];
   profiles: { players: unknown[]; teams: unknown[] } | null;
   avatars: { players: Record<string, string>; teams: Record<string, string> } | null;
 }
@@ -82,7 +85,7 @@ function readAvatarBase64(filePath: string): string | null {
 }
 
 /**
- * 导出同步包：比赛（全部场次，含空白/进行中，基线分发需要）+ 可选档案与头像。
+ * 导出同步包：比赛（全部场次，含空白/进行中，基线分发需要）+ 系列赛编排 + 可选档案与头像。
  * 头像只在 includeProfiles 时附带（按档案 id 归属）。
  */
 export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): SyncBundle {
@@ -92,6 +95,7 @@ export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): S
     machine: loadRuntimeConfig(paths).machineCode,
     exportedAt: new Date().toISOString(),
     matches: getMatchStore(paths).matches,
+    tournaments: getTournamentStore(paths),
   };
 
   if (!options.includeProfiles) {
@@ -184,6 +188,7 @@ function parseSyncBundle(raw: unknown): SyncBundlePayload {
     machine: typeof payload.machine === 'string' ? payload.machine.trim().slice(0, 4) : '',
     exportedAt: typeof payload.exportedAt === 'string' ? payload.exportedAt : '',
     matches: payload.matches as unknown[],
+    tournaments: Array.isArray(payload.tournaments) ? payload.tournaments as unknown[] : [],
     profiles,
     avatars,
   };
@@ -511,7 +516,8 @@ async function writeMissingAvatars(
 
 /**
  * 应用导入：服务端重新分类（不信任客户端），按 acceptedKeys 取交集后合并比赛与档案，
- * 再按 includeAvatars 补缺头像；不改动 activeMatchId / 撤销栈 / 推流状态。
+ * 再按 includeAvatars 补缺头像；系列赛编排自动合并（不参与勾选）并补跑写回；
+ * 不改动 activeMatchId / 撤销栈 / 推流状态。
  */
 export async function applySyncImport(
   paths: AppPaths,
@@ -530,7 +536,7 @@ export async function applySyncImport(
       .filter((item) => accepted.has(item.key) && item.action !== 'skip')
       .map((item) => item.id),
   );
-  const matchReport = mergeMatchRecords(
+  mergeMatchRecords(
     paths,
     normalized.records.filter((record) => acceptedMatchIds.has(record.id)),
     options.mode,
@@ -538,6 +544,21 @@ export async function applySyncImport(
   if (normalized.rejected.length) {
     warnings.push(`包内有 ${normalized.rejected.length} 条比赛因 id 不合法被忽略`);
   }
+
+  // 系列赛：编排数据随包流转（自动合并，不进勾选列表）。
+  // 只有编排机会修改系列赛，只读副本的本地版本不会反向覆盖编排机（见 tournament-service 所有权校验）。
+  const tournamentReport = mergeTournamentRecords(paths, payload.tournaments, options.mode);
+  if (tournamentReport.rejected) {
+    warnings.push(`包内有 ${tournamentReport.rejected} 条系列赛记录不合法被忽略`);
+  }
+  if (payload.tournaments.length && !loadRuntimeConfig(paths).machineCode) {
+    warnings.push('本机未设置机器标识（machineCode），系列赛所有权无法区分，双机编排可能冲突');
+  }
+
+  // 写回补跑：把包内带来的「已完成」赛果在编排机上补写回系列赛（幂等；只读副本自动跳过）。
+  // 双机「各登记一半」流程在这里汇合：最后一场补齐时自动推进、生成下一波比赛。
+  const writeBack = runTournamentWriteBack(paths);
+  warnings.push(...writeBack.warnings);
 
   // 档案：只合并「被勾选且非跳过」的条目
   let profilesState: ProfileStoreState | null = null;
@@ -588,10 +609,17 @@ export async function applySyncImport(
   });
 
   return {
-    store: matchReport.store,
+    store: getMatchStore(paths),
     profiles: profilesState,
     applied,
     avatarsWritten,
+    tournaments: {
+      added: tournamentReport.added.length,
+      updated: tournamentReport.updated.length,
+      skipped: tournamentReport.skipped.length,
+      rejected: tournamentReport.rejected,
+      advanced: writeBack.advanced,
+    },
     warnings,
   };
 }

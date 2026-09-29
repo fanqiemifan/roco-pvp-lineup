@@ -1830,6 +1830,10 @@ export async function createLocalServer(
       });
 
       emitMatchesUpdate(result.store);
+      // 系列赛有变化（新副本 / 编排机写回推进，可能已自动生成下一波比赛 → store 已取最新）：广播刷新
+      if (result.tournaments.added || result.tournaments.updated || result.tournaments.advanced) {
+        emitTournamentUpdate();
+      }
       if (result.profiles) {
         broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
       }

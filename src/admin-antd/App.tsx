@@ -3405,9 +3405,15 @@ function Dashboard() {
 
       const applied = result.result.applied;
       const avatarCount = result.result.avatarsWritten.players + result.result.avatarsWritten.teams;
+      const tournamentInfo = result.result.tournaments;
+      // 系列赛编排自动合并（不参与勾选）：有变化时在摘要里带上；写回推进额外标注
+      const tournamentSegment = tournamentInfo.added + tournamentInfo.updated + tournamentInfo.skipped > 0
+        ? `；系列赛 新增 ${tournamentInfo.added} / 更新 ${tournamentInfo.updated} / 跳过 ${tournamentInfo.skipped}`
+          + (tournamentInfo.advanced ? '（已补写回推进）' : '')
+        : '';
       const summary = `比赛 新增 ${applied.match.add} / 更新 ${applied.match.update} / 跳过 ${applied.match.skip}；`
         + `档案 新增 ${applied.player.add + applied.team.add} / 更新 ${applied.player.update + applied.team.update}；`
-        + `头像补缺 ${avatarCount} 张`;
+        + `头像补缺 ${avatarCount} 张${tournamentSegment}`;
       setHistoryNotice({ tone: 'success', text: `同步包导入完成：${summary}` });
       message.success('同步包导入完成');
       result.result.warnings.forEach((warning) => message.warning(warning));
@@ -5503,6 +5509,7 @@ function Dashboard() {
               tournaments={tournaments}
               profiles={profiles}
               matches={matchStore.matches}
+              machineCode={machineCodeInput}
               onJumpToRoster={() => setView('roster')}
             />
           ) : null}

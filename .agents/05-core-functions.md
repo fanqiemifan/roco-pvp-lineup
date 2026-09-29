@@ -38,7 +38,7 @@
 
 ## 系列赛管理 (tournament-service.ts)
 
-编排层「搭在比赛系统之上」：赛程/战绩/晋级落 cache/tournaments.json；每场对决仍是普通 MatchRecord，经 createMatch 创建并打 tournamentRef。RNG = mulberry32（同 seed 可复现），波次 RNG 由 series seed 与 stage/wave 位置混合。
+编排层「搭在比赛系统之上」：赛程/战绩/晋级落 cache/tournaments.json；每场对决仍是普通 MatchRecord，经 createMatch 创建并打 tournamentRef。RNG = mulberry32（同 seed 可复现），波次 RNG 由 series seed 与 stage/wave 位置混合。系列赛归创建它的机器码所有：`mutateRecord`（全部变更入口）、`deleteTournament` 与写回钩子都有**编排机所有权闸门**，非编排机为只读副本（变更被拒「该系列赛由机器 X 编排」，登记赛果不写回，识别方式 = id 机器码 == 本机 machineCode）。
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
@@ -52,9 +52,11 @@
 | 锁定配对 | lockPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 校验通过后批量 createMatch（draft→nodes），自动标签（赛事名/阶段名/W波次，跨桶加标签） |
 | 导入外部对阵 | importPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => PairingImportResult | text（每行 A vs B）/pairs 名字数组；匹配池仅本波选手，精确→子串模糊，未唯一匹配进 unmatched，回填草稿不锁定 |
 | 回退上一波 | rollbackWave | (paths: AppPaths, tournamentId: string) => TournamentRecord | 最后波三情形：①整波刚打完（总决赛完赛）→ 波保留，比赛复位 pending、清节点胜者、撤销冠军、recompute 战绩；②波未打（pending/draft）→ 删未打比赛与波（可恢复）、重开前一波；③部分进行 → 拒绝并提示逐场撤销。跨阶段回落 currentStageIndex |
-| 比赛完成钩子 | onMatchCompleted | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 无 ref/未完成→null；系列赛已删除（孤儿引用）→null 不报错；节点写胜者+更新战绩（幂等）；波齐→completed 并自动生成下一波/下一阶段或冠军 |
-| 撤回小局钩子 | onMatchUndo | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 清节点胜者并用 recomputeStageEntries 重算该阶段战绩（同阶段撤回与跨阶段回退口径一致）；该波已自动推进时，若后续波全是「自动锁定（pairingStatus=locked）且一场未打」则级联丢弃（软删其比赛、回退 currentStageIndex、删冠军结果），否则抛错提示走「回退上一波」；节点无胜者（撤回非决胜小局）→null 不广播；孤儿引用同样 →null。调用方（undo 路由）须先跑本钩子再撤比赛 |
-| 删除系列赛 | deleteTournament | (paths: AppPaths, tournamentId: string, options?: { deleteMatches?: boolean }) => DeleteTournamentResult | 不存在抛错；关联比赛一律先 detachMatchesFromTournament 解绑：默认仅删 tournaments.json 记录（比赛保留为普通对局）；deleteMatches=true 再走 deleteMatches 连对局删除（可撤回，恢复后无关联）；返回 matchIds/matchesDeleted |
+| 比赛完成钩子 | onMatchCompleted | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 无 ref/未完成→null；系列赛已删除（孤儿引用）或本机只是只读副本（非编排机）→null 不报错；节点写胜者+更新战绩（幂等）；波齐→completed 并自动生成下一波/下一阶段或冠军 |
+| 撤回小局钩子 | onMatchUndo | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 清节点胜者并用 recomputeStageEntries 重算该阶段战绩（同阶段撤回与跨阶段回退口径一致）；该波已自动推进时，若后续波全是「自动锁定（pairingStatus=locked）且一场未打」则级联丢弃（软删其比赛、回退 currentStageIndex、删冠军结果），否则抛错提示走「回退上一波」；节点无胜者（撤回非决胜小局）→null 不广播；孤儿引用或只读副本同样 →null。调用方（undo 路由）须先跑本钩子再撤比赛 |
+| 删除系列赛 | deleteTournament | (paths: AppPaths, tournamentId: string, options?: { deleteMatches?: boolean }) => DeleteTournamentResult | 不存在抛错；非编排机拒绝（「该系列赛由机器 X 编排」，解绑前先校验）；关联比赛一律先 detachMatchesFromTournament 解绑：默认仅删 tournaments.json 记录（比赛保留为普通对局）；deleteMatches=true 再走 deleteMatches 连对局删除（可撤回，恢复后无关联）；返回 matchIds/matchesDeleted |
+| 合并导入系列赛 | mergeTournamentRecords | (paths: AppPaths, incoming: unknown[], mode: SyncConflictMode) => MergeTournamentRecordsReport | 双机同步自动合并（不参与勾选）：逐条 normalizeRecord 白名单校验（非法计数 rejected）；本机不存在→新增、内容相同→跳过（幂等）、有差异按「较新覆盖 / 以包为准」覆盖；只有编排机会修改系列赛，只读副本不会反向覆盖编排机 |
+| 写回补跑 | runTournamentWriteBack | (paths: AppPaths) => TournamentWriteBackReport | 同步导入后对本机全部「已完成 + 带 tournamentRef」比赛逐场跑 onMatchCompleted（幂等）：最后一场补齐时自动推进（下一波/冠军），双机「各登记一半、汇合推进」的关键一步；只读副本自动跳过；advanced 按内容摘要（排除 updatedAt 空转）判断是否真正改动；失败与「赛果和已写回节点胜者不一致」（协作机撤回重登后回传）都记 warnings 不阻断导入，后者提示走「回退上一波」 |
 | 阶段标注解析 | resolveTournamentLabels | (paths: AppPaths, matches: Array<Pick<MatchRecord, 'id' \| 'tournamentRef'>>) => Record<string, string> | page6/page8 卡片用（经 GET /api/page6、/api/page8 下发 tournamentLabels）：格式「阶段名·轮次」（`·` 两侧无空格）——单败阶段只给阶段名（如「总决赛」）；双败 W1=「首轮」、W2 按节点两位选手首轮胜负判池=「胜者组/败者组」、W3=「决胜轮」；跨桶等拿不到一致池归属退回阶段名；仅 tournamentRef 指向现存系列赛的比赛有值（普通对局/孤儿引用缺席） |
 
 内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`wonOpeningRound`（该选手本阶段 W1 是否取胜——决胜池 1-1 池里「胜者组掉落者」与「败者组上扬者」的判据）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`crossPair`（左右两侧交叉配对：左侧每人从右侧剩余池随机取对手；决胜波 1-1 池两类人互不相遇，avoidRematch 优先避开已交手）、`bracketPositions`（标准种子位序列，**仅 stageIndex=0 的首阶段使用**）、`generateDraftPairs`（生成配对草稿：单败 `bracket-seed` 从 stage 1 起按 `entries` 顺序两两相邻配对，**延续固定对阵树，不再每轮重新种子**；双败 W3 的 1-1 池走 `crossPair` 经典交叉配对）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`bracketOrderOfStage`（晋级选手在上一阶段的获胜节点位置 `(waveIndex, nodeIndex)`，单败即节点序、双败则胜者组出线在前）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→按 `bracketOrderOfStage` 的对阵树顺序换批进入下一阶段（而非全局种子序），否则双败建下一波）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用）。
@@ -136,9 +138,9 @@
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
-| 导出同步包 | exportSyncBundle | (paths: AppPaths, options: SyncExportOptions) => SyncBundle | 打包全部比赛（含空白/进行中）+ 可选档案与头像（base64，仅在包含档案时附带；缺失头像文件不产生键） |
-| 导入预览 | previewSyncImport | (paths: AppPaths, raw: unknown, mode: SyncConflictMode) => SyncImportPreview | 校验 app/schema（不符抛中文错误）后组合比赛与档案 diff，统计头像 补缺/已有/无法对应；只读不写入 |
-| 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，按 includeAvatars 只补缺头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标 id 支持「同名匹配」）；返回 store/profiles/avatarsWritten/warnings |
+| 导出同步包 | exportSyncBundle | (paths: AppPaths, options: SyncExportOptions) => SyncBundle | 打包全部比赛（含空白/进行中）+ 系列赛编排全量 + 可选档案与头像（base64，仅在包含档案时附带；缺失头像文件不产生键） |
+| 导入预览 | previewSyncImport | (paths: AppPaths, raw: unknown, mode: SyncConflictMode) => SyncImportPreview | 校验 app/schema（不符抛中文错误）后组合比赛与档案 diff，统计头像 补缺/已有/无法对应；只读不写入（系列赛不进预览，导入时自动合并） |
+| 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，系列赛编排自动合并（不参与勾选）后补跑写回（runTournamentWriteBack，幂等，波打齐自动推进），按 includeAvatars 只补缺头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标 id 支持「同名匹配」）；返回 store（写回后最新、可能含新生成的下一波比赛）/profiles/avatarsWritten/tournaments/warnings |
 
 ## 对局推送 (page7-service.ts)
 
