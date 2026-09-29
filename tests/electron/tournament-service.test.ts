@@ -303,6 +303,24 @@ describe('startTournament', () => {
     expect(waveMatches.every((match) => nodeIds.has(match.tournamentRef?.nodeId ?? ''))).toBe(true);
   });
 
+  it('引擎建场时从选手档案快照排位排名（leftRank/rightRank 随档案带出）', () => {
+    const playerIds = seedPlayers(4);
+    // 覆盖档案排名：选手0=1、选手1=12、选手2=7、选手3=22
+    const ranks = ['1', '12', '7', '22'];
+    playerIds.forEach((id, index) => {
+      savePlayerProfile(paths, { id, name: `选手${index}`, rank: ranks[index] });
+    });
+    const tournament = createTournament(paths, { name: '排名杯', playerIds, seed: 7 });
+    startTournament(paths, tournament.id);
+
+    const matches = getMatchStore(paths).matches;
+    expect(matches).toHaveLength(2);
+    for (const match of matches) {
+      expect(match.leftRank).toBe(ranks[Number(match.leftPlayer.replace('选手', ''))]);
+      expect(match.rightRank).toBe(ranks[Number(match.rightPlayer.replace('选手', ''))]);
+    }
+  });
+
   it('manual-bucket 或 requireConfirm：W1 仅生成 draft 草稿，matches.json 无新增', () => {
     const playerIds = seedPlayers(8);
     const manual = createTournament(paths, {

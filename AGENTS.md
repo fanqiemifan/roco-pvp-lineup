@@ -71,7 +71,7 @@
 - 选手 JSON 批量导入：只识别白名单字段 `name`/`rank`/`declaration`/`pets`（前后端双侧白名单防注入）；**常用精灵仅在命中 pets.json 时录入**，未命中走 `review` 弹窗逐条补录（每条最多 5 个模糊候选）；后端入口 `importPlayerProfiles` + `matchSpriteToken` + `POST /api/profiles/players/import`，成功广播 `profiles:update`。
 - 批量操作：选手/战队表格可勾选多行一键删除（确认弹窗列出名称清单）；「批量头像」先按文件名本地匹配出「原头像 vs 新头像」预览弹窗，确认才提交覆盖保存；文件名经表单 `names` 字段以 JSON 传递，规避 multer 将 multipart 文件名按 latin1 解码的乱码问题。
 - 战队标识（page3）：赛事携带 `leftTeamId/leftTeamName/rightTeamId/rightTeamName`，「直播推流」的 `page3TeamVisible` 控制显隐；logo 优先按 teamId 匹配录入战队，未录入仅显示名称色块；渲染细节见 `.agents/09`。
-- 排位排名图标（page3 比分栏 / 选手介绍页）：创建弹窗或「当前比赛」表单输入（仅数字、可选），随对局存入 matches.json 并由 `syncScoreboardFromMatch` 同步到记分牌；`page3RankVisible` / `page11RankVisible` 控制推流页显隐（开启但未输入排名只显示图标，超 10000 显示 `10000+`）。
+- 排位排名图标（page3 比分栏 / 选手介绍页）：创建弹窗或「当前比赛」表单输入（仅数字、可选），随对局存入 matches.json 并由 `syncScoreboardFromMatch` 同步到记分牌；`page3RankVisible` / `page11RankVisible` 控制推流页显隐（开启但未输入排名只显示图标，超 10000 显示 `10000+`）。系列赛引擎建场时会把选手档案排名快照进对局的 `leftRank/rightRank`（与前端「快速创建比赛」同口径）；`/api/page6` 与 `/api/page8` 再对空排名按选手名回退「信息录入」档案排名（对局已填值优先、不覆盖），兜底系列赛早期无排名快照的存量对局。
 - 红光特效（page3）：「直播推流-推流页面3设置」含 `page3RedLightMode` 持久策略（关闭/自动开启）与 `page3RedLightInstant` 一次性「立即显示」（提前触发，进入下一局由服务端在 `emitMatchesUpdate` 广播出口统一清除，不影响策略）；素材 `src/assets/Effect/red-light.jpg` 由页面运行时去黑转 alpha 后以 `mix-blend-mode: screen` 叠加并呼吸显示；自动档任一侧阵亡 ≥3 只触发（阵亡中含卡瓦重/卡卡虫/丢丢时需 4 只），细节见 `.agents/09`。
 - 详细索引（类型、API 路由、函数、socket 事件、常量、文件地图）在 `.agents/01..10-*.md` —— 遇到问题先查它们；行为有变化时要同步更新这些文档。
 

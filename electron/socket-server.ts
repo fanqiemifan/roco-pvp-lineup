@@ -10,7 +10,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { SOCKET_EVENTS } from '../shared/events.js';
 import { SYNC_BUNDLE_MAX_BYTES } from '../shared/constants.js';
 import { computeScheduleTimes } from '../shared/match-schedule.js';
-import type { AvatarCollectionState, CountdownState, MatchStoreState, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
+import type { AvatarCollectionState, CountdownState, MatchRecord, MatchStoreState, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
 import { getSpriteRanking } from './services/stats-service.js';
 import {
@@ -210,6 +210,26 @@ function sendPage(paths: AppPaths, response: Response, pageFile: string): void {
   // 页面随版本更新：禁止启发式缓存，避免升级后仍加载旧页面（资源文件名带 hash 不受影响）
   response.set('Cache-Control', 'no-cache');
   response.sendFile(path.join(paths.pagesDir, pageFile));
+}
+
+/**
+ * 卡片排位排名兜底：对局自身未填排名时，按选手名回退「信息录入」档案中的排名。
+ * 系列赛引擎早期自动建场的对局没有排名快照，避免比赛结果/比赛预告卡片 rank 区空显示；
+ * 对局已填排名时以对局值为准（不覆盖）。
+ */
+function withProfileRankFallback(paths: AppPaths, matches: MatchRecord[]): MatchRecord[] {
+  const rankByName = new Map(getProfileStore(paths).players.map((player) => [player.name, player.rank]));
+  if (rankByName.size === 0) {
+    return matches;
+  }
+  return matches.map((match) => {
+    const leftRank = match.leftRank || rankByName.get(match.leftPlayer) || '';
+    const rightRank = match.rightRank || rankByName.get(match.rightPlayer) || '';
+    if (leftRank === match.leftRank && rightRank === match.rightRank) {
+      return match;
+    }
+    return { ...match, leftRank, rightRank };
+  });
 }
 
 function sendAdminAntdPage(paths: AppPaths, response: Response): void {
@@ -652,9 +672,13 @@ export async function createLocalServer(
   app.get('/api/page6', (_request, response) => {
     const state = getPage6State(paths);
     const matchStore = getMatchStore(paths);
-    const matches = state.matchIds
-      .map((id) => matchStore.matches.find((match) => match.id === id))
-      .filter((match): match is NonNullable<typeof match> => match !== undefined && match.status === 'completed');
+    // 排名兜底：对局未填排名时按选手名回退「信息录入」档案排名（系列赛早期对局无快照）
+    const matches = withProfileRankFallback(
+      paths,
+      state.matchIds
+        .map((id) => matchStore.matches.find((match) => match.id === id))
+        .filter((match): match is NonNullable<typeof match> => match !== undefined && match.status === 'completed'),
+    );
     // 头像按赛事隔离：{ [matchId]: { left, right } }
     const avatars: Record<string, AvatarCollectionState> = {};
     for (const match of matches) {
@@ -710,9 +734,13 @@ export async function createLocalServer(
   app.get('/api/page8', (_request, response) => {
     const state = getPage8State(paths);
     const matchStore = getMatchStore(paths);
-    const matches = state.matchIds
-      .map((id) => matchStore.matches.find((match) => match.id === id))
-      .filter((match): match is NonNullable<typeof match> => match != null && (match.status === 'pending' || match.status === 'in_progress'));
+    // 排名兜底：与 page6 同口径，按选手名回退「信息录入」档案排名
+    const matches = withProfileRankFallback(
+      paths,
+      state.matchIds
+        .map((id) => matchStore.matches.find((match) => match.id === id))
+        .filter((match): match is NonNullable<typeof match> => match != null && (match.status === 'pending' || match.status === 'in_progress')),
+    );
     // 头像按赛事隔离：{ [matchId]: { left, right } }
     const avatars: Record<string, AvatarCollectionState> = {};
     for (const match of matches) {

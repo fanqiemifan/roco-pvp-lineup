@@ -209,3 +209,47 @@ describe('page6 系列赛阶段标注', () => {
     120000,
   );
 });
+
+describe('page6/page8 排位排名兜底', () => {
+  it(
+    '对局未填排名时按选手名回退「信息录入」档案排名；已填排名以对局值为准；page6/page8 同口径',
+    async () => {
+      savePlayerProfile(paths, { id: 'rank-a', name: '排名甲', rank: '7' });
+      savePlayerProfile(paths, { id: 'rank-b', name: '排名乙', rank: '12' });
+
+      // ① 空排名对局（系列赛早期引擎建场的形态）：page6 用档案排名补足
+      const blank = (await postJson('/api/matches', {
+        leftPlayer: '排名甲',
+        rightPlayer: '排名乙',
+        bestOf: 1,
+      })).data.store.matches[0] as { id: string };
+      await playMatchHttp(blank.id, 'left');
+      expect((await postJson('/api/page6', { matchIds: [blank.id] })).status).toBe(200);
+      const page6Blank = (await getJson('/api/page6')).data.matches as Array<{ id: string; leftRank: string; rightRank: string }>;
+      expect(page6Blank.find((match) => match.id === blank.id)).toMatchObject({ leftRank: '7', rightRank: '12' });
+
+      // ② page8（比赛预告，未开赛对局）与 page6 同口径兜底
+      const preview = (await postJson('/api/matches', {
+        leftPlayer: '排名甲',
+        rightPlayer: '排名乙',
+        bestOf: 1,
+      })).data.store.matches[0] as { id: string };
+      expect((await postJson('/api/page8', { matchIds: [preview.id] })).status).toBe(200);
+      const page8 = (await getJson('/api/page8')).data.matches as Array<{ id: string; leftRank: string; rightRank: string }>;
+      expect(page8.find((match) => match.id === preview.id)).toMatchObject({ leftRank: '7', rightRank: '12' });
+
+      // ③ 对局显式填写的排名优先，不被档案覆盖（空的一侧仍回退档案）
+      const explicit = (await postJson('/api/matches', {
+        leftPlayer: '排名甲',
+        rightPlayer: '排名乙',
+        leftRank: '99',
+        bestOf: 1,
+      })).data.store.matches[0] as { id: string };
+      await playMatchHttp(explicit.id, 'left');
+      await postJson('/api/page6', { matchIds: [explicit.id] });
+      const page6Explicit = (await getJson('/api/page6')).data.matches as Array<{ id: string; leftRank: string; rightRank: string }>;
+      expect(page6Explicit.find((match) => match.id === explicit.id)).toMatchObject({ leftRank: '99', rightRank: '12' });
+    },
+    30000,
+  );
+});

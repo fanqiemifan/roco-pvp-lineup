@@ -860,16 +860,21 @@ function lockDraftPairs(
   }
 
   const stage = record.stages[wave.stageIndex];
-  const profileNames = new Map(getProfileStore(paths).players.map((player) => [player.id, player.name]));
+  const profileById = new Map(getProfileStore(paths).players.map((player) => [player.id, player]));
   const nodes: TournamentNode[] = [];
 
   pairs.forEach((draftPair, index) => {
     const [a, b] = draftPair.pair;
     const nodeId = `s${wave.stageIndex}-w${wave.waveIndex}-n${String(index).padStart(2, '0')}`;
     const cross = isCrossPair(record, draftPair);
+    const leftProfile = profileById.get(a ?? '');
+    const rightProfile = profileById.get(b ?? '');
     const created = createMatch(paths, {
-      leftPlayer: profileNames.get(a ?? ''),
-      rightPlayer: profileNames.get(b ?? ''),
+      leftPlayer: leftProfile?.name,
+      rightPlayer: rightProfile?.name,
+      // 排位排名随建场从档案快照（与前端「快速创建比赛」一致，保证推流页 rank 区有数据）
+      leftRank: leftProfile?.rank ?? '',
+      rightRank: rightProfile?.rank ?? '',
       bestOf: stage.bestOf,
       tags: buildWaveTags(record, stage, wave, cross),
       tournamentRef: {
