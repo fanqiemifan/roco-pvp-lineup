@@ -34,6 +34,7 @@
 | 合并导入比赛 | mergeMatchRecords | (paths: AppPaths, incoming: MatchRecord[], mode: SyncConflictMode) => MergeMatchRecordsReport | 双机同步落盘：不存在追加、已存在按冲突模式覆盖或跳过；复用 readStoreFile/writeStoreFile 缓存与原子写管线，不改 activeMatchId 与撤销栈 |
 | 弃权判负 | forfeitMatch | (paths: AppPaths, matchId: string, loserSide: 'left' \| 'right') => MatchStoreState | 仅 pending 无结果比赛可用；补决胜小局（BO1=1:0、BO3=2:0，空阵容）+「弃权」标签，completed，入 undo 栈 |
 | 批量复位未开始 | resetMatchesToPending | (paths: AppPaths, matchIds: string[]) => MatchStoreState | 系列赛回退专用：比赛直接置 pending（单空小局/0:0/无胜者），清 flowHistory；不进删除/撤销栈 |
+| 解除系列赛关联 | detachMatchesFromTournament | (paths: AppPaths, tournamentId: string) => { store: MatchStoreState; matchIds: string[] } | 删除系列赛专用：剥离全部关联比赛的 tournamentRef（比赛保留为普通对局），不进删除/撤销栈；先解绑再删比赛可保证撤销栈快照无孤儿引用 |
 
 ## 系列赛管理 (tournament-service.ts)
 
@@ -50,8 +51,9 @@
 | 锁定配对 | lockPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 校验通过后批量 createMatch（draft→nodes），自动标签（赛事名/阶段名/W波次，跨桶加标签） |
 | 导入外部对阵 | importPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => PairingImportResult | text（每行 A vs B）/pairs 名字数组；匹配池仅本波选手，精确→子串模糊，未唯一匹配进 unmatched，回填草稿不锁定 |
 | 回退上一波 | rollbackWave | (paths: AppPaths, tournamentId: string) => TournamentRecord | 最后波三情形：①整波刚打完（总决赛完赛）→ 波保留，比赛复位 pending、清节点胜者、撤销冠军、recompute 战绩；②波未打（pending/draft）→ 删未打比赛与波（可恢复）、重开前一波；③部分进行 → 拒绝并提示逐场撤销。跨阶段回落 currentStageIndex |
-| 比赛完成钩子 | onMatchCompleted | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 无 ref/未完成→null；节点写胜者+更新战绩（幂等）；波齐→completed 并自动生成下一波/下一阶段或冠军 |
-| 撤回小局钩子 | onMatchUndo | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 仅该波是最后一波；清节点胜者、回退战绩，系列赛因此退出完赛态时一并撤销冠军结果；已推进拒绝（提示回退上一波） |
+| 比赛完成钩子 | onMatchCompleted | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 无 ref/未完成→null；系列赛已删除（孤儿引用）→null 不报错；节点写胜者+更新战绩（幂等）；波齐→completed 并自动生成下一波/下一阶段或冠军 |
+| 撤回小局钩子 | onMatchUndo | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 仅该波是最后一波；清节点胜者、回退战绩，系列赛因此退出完赛态时一并撤销冠军结果；已推进拒绝（提示回退上一波）；孤儿引用同样 →null |
+| 删除系列赛 | deleteTournament | (paths: AppPaths, tournamentId: string, options?: { deleteMatches?: boolean }) => DeleteTournamentResult | 不存在抛错；关联比赛一律先 detachMatchesFromTournament 解绑：默认仅删 tournaments.json 记录（比赛保留为普通对局）；deleteMatches=true 再走 deleteMatches 连对局删除（可撤回，恢复后无关联）；返回 matchIds/matchesDeleted |
 
 内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`bracketPositions`（标准种子位序列）、`generateDraftPairs`（生成配对草稿）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→换阶段，否则双败建下一波）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用）。
 

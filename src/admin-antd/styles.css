@@ -1018,6 +1018,16 @@ a {
   margin-bottom: 16px;
 }
 
+.history-filter-row .history-filter-group-label {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.history-filter-row .history-filter-divider {
+  height: 18px;
+  margin-inline: 4px;
+}
+
 .history-search-input {
   width: 240px;
 }

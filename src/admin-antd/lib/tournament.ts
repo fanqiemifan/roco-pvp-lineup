@@ -92,6 +92,34 @@ export function countCompletedMatches(
   ).length;
 }
 
+/** 系列赛关联比赛的状态统计（仅计比赛库中实际存在的节点比赛），删除确认弹窗用 */
+export function summarizeTournamentMatches(
+  record: TournamentRecord,
+  matches: MatchRecord[],
+): { total: number; completed: number; inProgress: number; pending: number } {
+  const summary = { total: 0, completed: 0, inProgress: 0, pending: 0 };
+  const nodeMatchIds = new Set<string>();
+  record.waves.forEach((wave) => wave.nodes.forEach((node) => {
+    if (node.matchId) {
+      nodeMatchIds.add(node.matchId);
+    }
+  }));
+  matches.forEach((match) => {
+    if (!nodeMatchIds.has(match.id)) {
+      return;
+    }
+    summary.total += 1;
+    if (match.status === 'completed') {
+      summary.completed += 1;
+    } else if (match.status === 'in_progress') {
+      summary.inProgress += 1;
+    } else {
+      summary.pending += 1;
+    }
+  });
+  return summary;
+}
+
 /** 节点对应比赛（找不到返回 undefined） */
 export function findNodeMatch(
   wave: TournamentWave,

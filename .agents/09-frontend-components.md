@@ -46,13 +46,13 @@
   - 显示控制：`显示 MVP 结算`（POST /api/mvp/show：记录当前画面到 returnPage 并切 stage 到 page4）/ `关闭`（POST /api/mvp/hide：切回 returnPage）；状态标签显示已标记精灵 n/6、标签是否完整、是否已标记 MVP；另展示**已载入胜方头像（56 圆形，`.mvp-winner-avatar`）+ 名字 + 侧/比赛 id**（头像按快照 matchId+side 解析、带 mtime 缓存参数，未上传回退 left/right-avatar.png 占位图，数据取 GET /api/mvp 的 winner，mvp:update 用 payload、avatar:update 时重拉）；未标记 MVP 时禁用「显示」（标签可留空，不要求全部填完）。
   - 精灵项（最多 6 行）：点选当前对局胜者阵容精灵填入第一个空槽（再次点击移除），每行可填标签（预设 MVP_TAG_PRESETS + 手动输入 ≤4 字，选择即时保存、手动输入失焦/回车保存）、标记 MVP（全页互斥，最多一个）、清空；空槽位不可编辑。
   - 草稿同步：服务端 mvp.slots 变化时按内容比较回填（一致则保持原引用，避免编辑中标签被覆盖）。
-- history - 比赛历史（列表、删除、批量删除、撤销删除；「推送」勾选列→页面6、「预告」勾选列→页面8、「对局」勾选列配合「推送对局推送」按钮→页面7，可勾选待开始与进行中的对局；「录入阵容」弹窗 HistoryLineupEntryModal 为待开始小局录入双方阵容；「数据同步」卡片 = 本机标识 + 导出同步包 + 导入预览弹窗，弹窗为「左条目列表 + 右侧本机 vs 包内字段级 diff 面板」，列表按「更新 → 新增 → 跳过」排序（同级冲突优先），冲突场次红色标记并可逐条/批量选择保留哪一边，档案项的头像/logo 变更在 diff 中显示「本机 / 包内」左右对照图）
+- history - 比赛历史（列表、删除、批量删除、撤销删除；筛选区分两行维度且 AND 叠加：紫色「系列赛」组 = 普通对局 + 各系列赛 🏆名称（N场），按对局首次出现顺序，只含有关联赛局的系列赛，孤儿引用（系列赛已删）归普通对局；蓝色「标签」组 = 全部/未分类/各标签；标签单元格对系列赛对局固定前置紫色奖杯 Tag（不可随标签编辑删除，点击即按该系列赛筛选），纯函数 buildHistoryTournamentFilters/getEffectiveTournamentId 在 lib/history.ts；「推送」勾选列→页面6、「预告」勾选列→页面8、「对局」勾选列配合「推送对局推送」按钮→页面7，可勾选待开始与进行中的对局；「录入阵容」弹窗 HistoryLineupEntryModal 为待开始小局录入双方阵容；「数据同步」卡片 = 本机标识 + 导出同步包 + 导入预览弹窗，弹窗为「左条目列表 + 右侧本机 vs 包内字段级 diff 面板」，列表按「更新 → 新增 → 跳过」排序（同级冲突优先），冲突场次红色标记并可逐条/批量选择保留哪一边，档案项的头像/logo 变更在 diff 中显示「本机 / 包内」左右对照图）
 - stats - 数据统计（StatsView：使用率/上场率排行、属性分布、标签趋势；1920px 断点布局）
 - preview - 页面预览（推流页面1-13 切换，含页面4 MVP 结算，`PREVIEW_PAGES` 定义于 constants.ts；页面8 附带「比赛预告设置」：主标题/副标题、壁纸图片1/图片2/自定义上传）
 - tournament - 系列赛（TournamentView：列表 + 4 步创建向导 + 详情；导航图标 系列赛.svg）
-  - 「系列赛列表」表格：名称（点击打开详情）、人数、当前位置（阶段名·波次）、已完成/已建场次、状态标签；头部「＋ 创建系列赛」开导向导。
+  - 「系列赛列表」表格：名称（点击打开详情）、人数、当前位置（阶段名·波次）、已完成/已建场次、状态标签、操作（打开详情 + 红色「删除」）；头部「＋ 创建系列赛」开导向导。删除走统一确认弹窗（summarizeTournamentMatches 给出关联对局总数与已完成/进行中/未开始分布）：默认仅删编排记录、对局保留转普通；勾选「同时删除 N 场对局」则连对局删除（比赛历史可撤回最近删除），DELETE /api/tournaments/:id。
   - 创建向导 4 步：①名称 → ②选手勾选（搜索 + 固定高度滚动 Checkbox 列表，实时校验人数 ∈ 4/8/16/32）→ ③阶段规则可编辑表（阶段名/双败单败分段/BO1-BO3/配对方式/避重复/需确认；人数变化时重填 buildDefaultStages 默认模板）点「创建草稿」POST → ④首波抽签面板（seed 与种子顺序标签流，「重新抽签」/「确认开赛」；开赛后提示已生成第 1 波）。setup 记录可随时在列表「继续配置」。
-  - 详情：阶段进度 Steps（finish/process/wait）+ setup 时复用抽签面板 + 波次卡片（最新在前）：draft → 配对确认台；locked → 节点卡片网格。头部 Popconfirm「回退上一波」；冠军结果显示冠亚军标签。
+  - 详情：阶段进度 Steps（finish/process/wait）+ setup 时复用抽签面板 + 波次卡片（最新在前）：draft → 配对确认台；locked → 节点卡片网格。头部 Popconfirm「回退上一波」与红色「删除系列赛」（复用列表的删除确认弹窗）；冠军结果显示冠亚军标签。
   - 配对确认台：桶结构固定按 getDraftBucketSpecs 渲染（初始池/胜者池/败者池/决胜池，空桶也显示），每场两个 Select（严格模式仅本桶选项；勾选「允许跨桶」后列出全部选手并带桶后缀），编辑 500ms 防抖自动 PUT 暂存；「🎲 桶内随机重排」（RNG 洗牌）、「📋 导入对阵表」（TextArea 每行 A vs B，未匹配行弹窗列出）、实时校验信息（错误红/警告橙，已交手仅提醒）、「🔒 锁定并创建 N 场」（跨桶二次确认 modal）。
   - 节点卡片：状态 Tag（待开始/进行中/已结束）、双方名字（胜者加粗、负者删除线）、比分、每人战绩状态脚注（如 2-0 已晋级）、「切换为当前比赛」（POST select 后经 onJumpToRoster 跳赛事面板）；pending 比赛可「弃权判负」（选左右侧 → forfeit）。
 - about - 关于项目（项目链接、作者与许可、字体说明、数据来源）
@@ -66,13 +66,13 @@
 ### 核心逻辑（lib/）
 
 - request.ts - fetch 封装
-- tournament.ts - 系列赛纯函数（状态文案/阶段与波次定位/桶规格 getDraftBucketSpecs/草稿校验 validateDraftPairs/桶内洗牌 shuffleBucketPairs 等，不依赖 DOM 可在 node 环境单测）
-- tournament-api.ts - 系列赛 API 层（11 个端点封装，依赖 request）
+- tournament.ts - 系列赛纯函数（状态文案/阶段与波次定位/桶规格 getDraftBucketSpecs/草稿校验 validateDraftPairs/桶内洗牌 shuffleBucketPairs/关联对局状态统计 summarizeTournamentMatches 等，不依赖 DOM 可在 node 环境单测）
+- tournament-api.ts - 系列赛 API 层（12 个端点封装，含 deleteTournamentApi 删除系列赛，依赖 request）
 - sprite.ts - 精灵数据辅助（buildSpriteLookup：id/文件名/别名多键查找）
 - match.ts - 比赛操作辅助（getPendingDraftContext：当前小局 pending 且赛事未完赛时返回该局草稿槽位上下文）
 - panel.ts - 面板状态辅助（draftSlotsToSelected：赛事草稿快照 pet_id → 编辑器槽位，查不到的精灵降级空槽位）
 - live.ts - 实时控制辅助
-- history.ts - 历史记录辅助（getLineupEntryBlockReason：录入阵容入口锁定文案）
+- history.ts - 历史记录辅助（getLineupEntryBlockReason：录入阵容入口锁定文案；buildHistoryTournamentFilters/getEffectiveTournamentId：系列赛筛选维度，PLAIN_HISTORY_MATCH_FILTER=普通对局）
 - stats.ts - 统计聚合（buildUsageStats、buildStatsCsv）
 - format.ts - 格式化工具
 - preview.ts - 预览链接构建

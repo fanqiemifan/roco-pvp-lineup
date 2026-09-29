@@ -45,10 +45,12 @@ import {
   getWaveGlobalIndex,
   resolvePlayerName,
   shuffleBucketPairs,
+  summarizeTournamentMatches,
   validateDraftPairs,
 } from '../lib/tournament';
 import {
   createTournamentApi,
+  deleteTournamentApi,
   drawTournamentApi,
   forfeitApi,
   importPairingsApi,
@@ -85,6 +87,33 @@ export function TournamentView({
   const { message } = App.useApp();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 删除系列赛确认弹窗：deleteWithMatches=连同关联对局一起删（可在比赛历史撤回）
+  const [deleteTarget, setDeleteTarget] = useState<TournamentRecord | null>(null);
+  const [deleteWithMatches, setDeleteWithMatches] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+
+  async function handleDeleteTournament(): Promise<void> {
+    if (!deleteTarget) {
+      return;
+    }
+    setDeleteSaving(true);
+    try {
+      const result = await deleteTournamentApi(deleteTarget.id, deleteWithMatches);
+      message.success(
+        result.matchesDeleted
+          ? `已删除系列赛及其 ${result.matchIds.length} 场对局（可在比赛历史撤回）`
+          : result.matchIds.length > 0
+            ? `已删除系列赛，${result.matchIds.length} 场对局已转为普通对局`
+            : '已删除系列赛',
+      );
+      setDeleteTarget(null);
+      setDeleteWithMatches(false);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeleteSaving(false);
+    }
+  }
 
   // 当前选中记录（被删除时自动回退到第一条；无数据则 null）
   const selected = useMemo(() => {
@@ -142,11 +171,24 @@ export function TournamentView({
     },
     {
       title: '操作',
-      width: 130,
+      width: 176,
       render: (_value, record) => (
-        <Button type="link" style={{ padding: 0 }} onClick={() => setSelectedId(record.id)}>
-          {record.status === 'setup' ? '继续配置 →' : '打开详情 →'}
-        </Button>
+        <Space size={4}>
+          <Button type="link" style={{ padding: 0 }} onClick={() => setSelectedId(record.id)}>
+            {record.status === 'setup' ? '继续配置 →' : '打开详情 →'}
+          </Button>
+          <Button
+            type="link"
+            danger
+            style={{ padding: 0 }}
+            onClick={() => {
+              setDeleteWithMatches(false);
+              setDeleteTarget(record);
+            }}
+          >
+            删除
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -188,8 +230,62 @@ export function TournamentView({
           names={names}
           matches={matches}
           onSelectMatch={handleSelectMatch}
+          onDelete={() => {
+            setDeleteWithMatches(false);
+            setDeleteTarget(selected);
+          }}
         />
       ) : null}
+
+      <Modal
+        title="删除系列赛"
+        open={Boolean(deleteTarget)}
+        okText="删除"
+        okButtonProps={{ danger: true, loading: deleteSaving }}
+        cancelText="取消"
+        onCancel={() => {
+          setDeleteTarget(null);
+          setDeleteWithMatches(false);
+        }}
+        onOk={() => void handleDeleteTournament()}
+      >
+        {deleteTarget ? (
+          (() => {
+            const summary = summarizeTournamentMatches(deleteTarget, matches);
+            return (
+              <Space direction="vertical" size={12} style={{ marginTop: 8 }}>
+                <Paragraph style={{ marginBottom: 0 }}>
+                  确定删除系列赛「<b>{deleteTarget.name}</b>」？编排记录（阶段、波次、对阵树）将被删除且不可恢复。
+                </Paragraph>
+                {summary.total > 0 ? (
+                  <>
+                    <Text type="secondary">
+                      关联对局共 {summary.total} 场：已完成 {summary.completed} · 进行中 {summary.inProgress} · 未开始 {summary.pending}
+                    </Text>
+                    <Checkbox
+                      checked={deleteWithMatches}
+                      onChange={(event) => setDeleteWithMatches(event.target.checked)}
+                    >
+                      同时删除这 {summary.total} 场对局（之后仍可在比赛历史「撤回最近删除」恢复）
+                    </Checkbox>
+                    {!deleteWithMatches ? (
+                      <Text type="secondary">
+                        不勾选时对局全部保留，解除系列赛关联后转为普通对局，已有标签与战绩不受影响。
+                      </Text>
+                    ) : (
+                      <Text type="warning">
+                        对局删除后若不及时撤回，将与普通删除一样受七天清理期限限制。
+                      </Text>
+                    )}
+                  </>
+                ) : (
+                  <Text type="secondary">该系列赛尚未创建任何对局，将仅删除编排记录。</Text>
+                )}
+              </Space>
+            );
+          })()
+        ) : null}
+      </Modal>
 
       <CreateTournamentModal
         open={createOpen}
@@ -212,6 +308,7 @@ interface DetailProps {
   names: Map<string, string>;
   matches: MatchRecord[];
   onSelectMatch(matchId: string): Promise<void>;
+  onDelete(): void;
 }
 
 function TournamentDetail({
@@ -219,6 +316,7 @@ function TournamentDetail({
   names,
   matches,
   onSelectMatch,
+  onDelete,
 }: DetailProps): React.ReactElement {
   const { message, modal } = App.useApp();
 
@@ -251,6 +349,7 @@ function TournamentDetail({
           >
             <Button disabled={record.waves.length === 0}>↺ 回退上一波</Button>
           </Popconfirm>
+          <Button danger onClick={onDelete}>删除系列赛</Button>
         </Space>
       )}
     >

@@ -100,6 +100,20 @@ export async function forfeitApi(
   return data.tournament;
 }
 
+/**
+ * 删除系列赛：默认仅解除对局关联（对局保留为普通比赛）；
+ * deleteRelatedMatches=true 时连同关联对局一并删除（比赛历史可「撤回最近删除」）。
+ */
+export async function deleteTournamentApi(
+  tournamentId: string,
+  deleteRelatedMatches: boolean,
+): Promise<{ matchIds: string[]; matchesDeleted: boolean }> {
+  return requestJson(`/api/tournaments/${tournamentId}`, {
+    method: 'DELETE',
+    json: { deleteMatches: deleteRelatedMatches },
+  });
+}
+
 /** 切换为当前比赛（赛事面板跳转复用现有路由） */
 export async function selectMatchApi(matchId: string): Promise<void> {
   await requestJson<{ success: boolean }>(`/api/matches/${matchId}/select`, { method: 'POST' });

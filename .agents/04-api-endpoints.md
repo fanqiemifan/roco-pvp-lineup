@@ -68,8 +68,9 @@
 | 导入外部对阵 | POST | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/import | body.text（每行 `A vs B`）或 body.pairs（名字数组）；匹配池仅本波选手，先精确后子串模糊，未唯一匹配的行进入 unmatched，已匹配的回填草稿（不锁定） | electron/socket-server.ts |
 | 回退上一波 | POST | /api/tournaments/:tournamentId/rollback-wave | 管理级回退：仅最后波、且该波比赛全部 pending 无小局结果；删除未打比赛（deleteMatches 可恢复）、清节点胜者并复位战绩；跨阶段时 currentStageIndex 回落。广播 matches:update + tournament:update | electron/socket-server.ts |
 | 弃权判负 | POST | /api/tournaments/:tournamentId/forfeit | body: matchId + loserSide(left/right)；校验比赛属于本系列赛且 pending，补决胜小局（BO1=1:0、BO3=2:0）+「弃权」标签，completed 后走完成钩子写回节点 | electron/socket-server.ts |
+| 删除系列赛 | DELETE | /api/tournaments/:tournamentId | body.deleteMatches 可空：默认只删编排记录，关联比赛先解除 tournamentRef 再保留（转为普通对局，标签/战绩不动）；deleteMatches=true 时解绑后再 deleteMatches 连对局一起删（进删除栈，比赛历史可「撤回最近删除」，恢复后也是无关联普通对局）。广播 matches:update + tournament:update；不存在 400 | electron/socket-server.ts |
 
-> 系列赛关联保护：DELETE /api/matches/:matchId 与批量删除遇 tournamentRef 一律 400（提示用回退上一波）；POST /api/matches 公开入口会剥离 body.tournamentRef（系列赛比赛只能由引擎锁定时内部创建）。
+> 系列赛关联保护：DELETE /api/matches/:matchId 与批量删除遇 tournamentRef 一律 400（提示用回退上一波）；POST /api/matches 公开入口会剥离 body.tournamentRef（系列赛比赛只能由引擎锁定时内部创建）。解除关联的唯一正规入口是 DELETE /api/tournaments/:tournamentId（删除系列赛）；onMatchCompleted/onMatchUndo 遇到已删除系列赛的孤儿引用时返回 null（按普通对局处理，不阻断比分登记/撤回）。
 
 ## 直播推流（stage）接口
 

@@ -23,6 +23,7 @@ import type {
 import {
   createMatch,
   deleteMatches,
+  detachMatchesFromTournament,
   getMatchStore,
   resetMatchesToPending,
 } from './match-service.js';
@@ -966,6 +967,12 @@ export function onMatchCompleted(paths: AppPaths, matchId: string): TournamentRe
   const ref = match.tournamentRef;
   let output: TournamentRecord | null = null;
 
+  // 系列赛已被删除（正常删除时会先解绑，这里兜底撤销恢复等渠道留下的孤儿引用）：
+  // 按普通对局处理，不阻断比分登记
+  if (!readRecords(paths).some((record) => record.id === ref.tournamentId)) {
+    return null;
+  }
+
   mutateRecord(paths, ref.tournamentId, (record) => {
     const wave = record.waves.find((item) => item.stageIndex === ref.stageIndex && item.waveIndex === ref.waveIndex);
     if (!wave) {
@@ -1014,6 +1021,11 @@ export function onMatchUndo(paths: AppPaths, matchId: string): TournamentRecord 
   }
   const ref = match.tournamentRef;
   let output: TournamentRecord | null = null;
+
+  // 同 onMatchCompleted：系列赛已删除则无需写回，不阻断撤回
+  if (!readRecords(paths).some((record) => record.id === ref.tournamentId)) {
+    return null;
+  }
 
   mutateRecord(paths, ref.tournamentId, (record) => {
     const globalIndex = record.waves.findIndex(
@@ -1331,4 +1343,47 @@ export function importPairings(
     throw new Error('对阵导入失败');
   }
   return { tournament: cloneRecord(output), unmatched };
+}
+
+/* ==================== 删除系列赛 ==================== */
+
+export interface DeleteTournamentResult {
+  tournamentId: string;
+  /** 受影响的比赛 id（已解绑；matchesDeleted=true 时已一并删除，可在比赛历史撤回） */
+  matchIds: string[];
+  /** true = 比赛连同系列赛一并删除（进撤销栈）；false = 比赛保留为普通对局 */
+  matchesDeleted: boolean;
+}
+
+/**
+ * 删除系列赛编排记录。
+ * 关联比赛一律先解除 tournamentRef：
+ * - 默认仅解绑，比赛保留为普通对局（标签保留，战绩/统计不受影响）；
+ * - deleteMatches=true 时再走 deleteMatches 删除比赛（进撤销栈可恢复），
+ *   因解绑在前，撤回恢复的快照也是无关联普通对局，不会产生孤儿引用。
+ */
+export function deleteTournament(
+  paths: AppPaths,
+  tournamentId: string,
+  options: { deleteMatches?: boolean } = {},
+): DeleteTournamentResult {
+  const records = readRecords(paths);
+  if (!records.some((record) => record.id === tournamentId)) {
+    throw new Error('系列赛不存在');
+  }
+
+  // 按 tournamentId 全量扫描解绑，比节点登记的 matchId 更能覆盖异常数据
+  const { matchIds } = detachMatchesFromTournament(paths, tournamentId);
+  const shouldDelete = options.deleteMatches === true && matchIds.length > 0;
+  if (shouldDelete) {
+    deleteMatches(paths, matchIds);
+  }
+
+  writeRecords(paths, records.filter((record) => record.id !== tournamentId));
+
+  return {
+    tournamentId,
+    matchIds,
+    matchesDeleted: shouldDelete,
+  };
 }

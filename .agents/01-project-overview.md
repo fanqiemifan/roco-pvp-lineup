@@ -71,7 +71,7 @@ roco-pvp-lineup/
 | electron/services/profile-service.ts | 选手/战队信息录入（增删改、JSON 批量导入 importPlayerProfiles、常用精灵命中判定 matchSpriteToken） |
 | electron/services/stats-service.ts | 精灵精灵登场/胜率排行统计（/api/stats/ranking） |
 | electron/services/sync-service.ts | 双机数据同步（导出同步包 exportSyncBundle / 导入预览 previewSyncImport / 合并应用 applySyncImport） |
-| electron/services/tournament-service.ts | 系列赛自动化引擎（创建/抽签/分桶配对/完成与撤回钩子/波次回退/弃权，编排落 cache/tournaments.json） |
+| electron/services/tournament-service.ts | 系列赛自动化引擎（创建/抽签/分桶配对/完成与撤回钩子/波次回退/弃权/删除，删除时经 match-service 解绑 tournamentRef 或连对局一并删除；编排落 cache/tournaments.json） |
 
 ### 共享模块
 

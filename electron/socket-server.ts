@@ -101,6 +101,7 @@ import {
 import {
   advanceTournament,
   createTournament,
+  deleteTournament,
   getTournamentStore,
   importPairings,
   lockPairings,
@@ -1489,6 +1490,23 @@ export async function createLocalServer(
       }
       const tournament = getTournamentStore(paths).find((item) => item.id === request.params.tournamentId);
       response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 删除系列赛：默认仅解绑关联比赛（保留为普通对局）；body.deleteMatches=true 连同比赛一起删
+  app.delete('/api/tournaments/:tournamentId', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as { deleteMatches?: unknown };
+      const result = deleteTournament(
+        paths,
+        request.params.tournamentId,
+        { deleteMatches: body.deleteMatches === true },
+      );
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, ...result });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

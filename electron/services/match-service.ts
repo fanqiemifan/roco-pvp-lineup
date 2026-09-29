@@ -1755,6 +1755,38 @@ export function resetMatchesToPending(paths: AppPaths, matchIds: string[]): Matc
   return getMatchStore(paths);
 }
 
+/**
+ * 解除一批比赛与某系列赛的关联（删除 tournamentRef），比赛本身保留为普通对局。
+ * 删除系列赛前调用：即使随后 deleteMatches 把比赛放进撤销栈，撤回恢复的快照
+ * 也已经是无关联版本，不会留下指向不存在系列赛的孤儿引用。
+ * 管理级动作，不进 deletedHistory/undo 栈。返回实际解绑的比赛 id。
+ */
+export function detachMatchesFromTournament(
+  paths: AppPaths,
+  tournamentId: string,
+): { store: MatchStoreState; matchIds: string[] } {
+  const { store } = readStoreFile(paths);
+  const detachedIds: string[] = [];
+  const now = new Date().toISOString();
+
+  store.matches = store.matches.map((match) => {
+    if (match.tournamentRef?.tournamentId !== tournamentId) {
+      return match;
+    }
+    detachedIds.push(match.id);
+    const { tournamentRef: _unused, ...rest } = match;
+    return { ...rest, updatedAt: now };
+  });
+
+  if (!detachedIds.length) {
+    return { store: getMatchStore(paths), matchIds: [] };
+  }
+
+  const publicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, publicStore);
+  return { store: getMatchStore(paths), matchIds: detachedIds };
+}
+
 export function undoMatchAction(paths: AppPaths, matchId: string): MatchStoreState {
   const { store } = readStoreFile(paths);
   const history = ensureFlowHistory(store, matchId);

@@ -1,4 +1,10 @@
-import type { GameRecord, MatchRecord, MatchStoreState, SpriteRecord } from '../../../shared/types';
+import type {
+  GameRecord,
+  MatchRecord,
+  MatchStoreState,
+  SpriteRecord,
+  TournamentRecord,
+} from '../../../shared/types';
 import { DEFAULT_TAGS } from '../constants';
 import type { PanelSide } from '../types';
 import { formatDateTime } from './format';
@@ -98,6 +104,59 @@ export function getLineupEntryBlockReason(match: MatchRecord, game: GameRecord):
     return 'game-completed';
   }
   return null;
+}
+
+/** 历史筛选特殊值：非系列赛创建的普通对局（tournamentRef 缺失或指向已删除系列赛） */
+export const PLAIN_HISTORY_MATCH_FILTER = '__plain__';
+
+/**
+ * 比赛的有效系列赛归属 id：
+ * 有 tournamentRef 且系列赛仍存在才返回；系列赛已删除时的孤儿引用视同普通对局。
+ */
+export function getEffectiveTournamentId(
+  match: MatchRecord,
+  existingTournamentIds: ReadonlySet<string>,
+): string | null {
+  const tournamentId = match.tournamentRef?.tournamentId;
+  return tournamentId && existingTournamentIds.has(tournamentId) ? tournamentId : null;
+}
+
+/** 历史页系列赛筛选项 */
+export interface HistoryTournamentFilter {
+  id: string;
+  name: string;
+  count: number;
+}
+
+/**
+ * 构建系列赛筛选组：仅含比赛库里存在有效关联赛局的系列赛（0 场的不列），
+ * 顺序按该系列赛关联赛局在列表中首次出现的位置（比赛库新对局在前，天然近期优先）。
+ */
+export function buildHistoryTournamentFilters(
+  matches: MatchRecord[],
+  tournaments: TournamentRecord[],
+): HistoryTournamentFilter[] {
+  const nameMap = new Map(tournaments.map((tournament) => [tournament.id, tournament.name]));
+  const order: string[] = [];
+  const countMap = new Map<string, number>();
+
+  matches.forEach((match) => {
+    const tournamentId = match.tournamentRef?.tournamentId;
+    if (!tournamentId || !nameMap.has(tournamentId)) {
+      return;
+    }
+    if (!countMap.has(tournamentId)) {
+      countMap.set(tournamentId, 0);
+      order.push(tournamentId);
+    }
+    countMap.set(tournamentId, (countMap.get(tournamentId) ?? 0) + 1);
+  });
+
+  return order.map((id) => ({
+    id,
+    name: nameMap.get(id) ?? id,
+    count: countMap.get(id) ?? 0,
+  }));
 }
 
 export function buildHistoryTags(matches: MatchStoreState['matches']): string[] {

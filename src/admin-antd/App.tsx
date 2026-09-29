@@ -103,9 +103,12 @@ import {
   buildHistoryCsv,
   buildHistoryLineupEntries,
   buildHistoryTags,
+  buildHistoryTournamentFilters,
+  getEffectiveTournamentId,
   getHistoryVisibleGames,
   getLineupEntryBlockReason,
   LINEUP_ENTRY_BLOCK_TEXT,
+  PLAIN_HISTORY_MATCH_FILTER,
 } from './lib/history';
 import {
   clampNumber,
@@ -388,6 +391,8 @@ function Dashboard() {
   const [selectedHistoryKeys, setSelectedHistoryKeys] = useState<React.Key[]>([]);
   const [expandedHistoryKeys, setExpandedHistoryKeys] = useState<React.Key[]>([]);
   const [historyTagFilter, setHistoryTagFilter] = useState<string | null>(null);
+  // 系列赛维度筛选（独立于标签）：PLAIN_HISTORY_MATCH_FILTER=普通对局，或具体系列赛 id
+  const [historyTournamentFilter, setHistoryTournamentFilter] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState('');
   const [historySort, setHistorySort] = useState<HistorySortState>({ key: 'updatedAt', order: 'desc' });
   const [batchTagOpen, setBatchTagOpen] = useState(false);
@@ -568,6 +573,16 @@ function Dashboard() {
   const lineupLocked = activeMatch?.status === 'completed';
   const progress = buildProgressItems(activeMatch);
   const allHistoryTags = buildHistoryTags(matchStore.matches);
+  // 系列赛筛选组：id→名称映射 + 有效 id 集合（系列赛删除后残留的孤儿引用按普通对局处理）
+  const tournamentNameMap = useMemo(
+    () => new Map(tournaments.map((tournament) => [tournament.id, tournament.name])),
+    [tournaments],
+  );
+  const tournamentIdSet = useMemo(() => new Set(tournamentNameMap.keys()), [tournamentNameMap]);
+  const historyTournamentFilters = useMemo(
+    () => buildHistoryTournamentFilters(matchStore.matches, tournaments),
+    [matchStore.matches, tournaments],
+  );
   const pendingMatches = matchStore.matches.filter((match) => match.status === 'pending');
   const allPlayers = Array.from(new Set(matchStore.matches.flatMap((match) => [
     match.leftPlayer,
@@ -594,6 +609,17 @@ function Dashboard() {
       }
     } else if (historyTagFilter && !(match.tags ?? []).includes(historyTagFilter)) {
       return false;
+    }
+    // 系列赛维度与标签维度 AND 叠加：普通对局=无有效归属；否则按系列赛 id 精确过滤
+    if (historyTournamentFilter) {
+      const effectiveTournamentId = getEffectiveTournamentId(match, tournamentIdSet);
+      if (historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER) {
+        if (effectiveTournamentId) {
+          return false;
+        }
+      } else if (effectiveTournamentId !== historyTournamentFilter) {
+        return false;
+      }
     }
     if (!normalizedHistorySearch) {
       return true;
@@ -3380,6 +3406,17 @@ function Dashboard() {
             }
           }}>
             <Space wrap>
+              {record.tournamentRef && tournamentNameMap.has(record.tournamentRef.tournamentId) ? (
+                <Tag
+                  color="purple"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setHistoryTournamentFilter(record.tournamentRef?.tournamentId ?? null);
+                  }}
+                >
+                  🏆 {tournamentNameMap.get(record.tournamentRef.tournamentId)}
+                </Tag>
+              ) : null}
               {tags?.length ? tags.map((tag) => (
                 <Tag
                   key={`${record.id}-${tag}`}
@@ -4104,6 +4141,26 @@ function Dashboard() {
                     allowClear
                     className="history-search-input"
                   />
+                  <Text type="secondary" className="history-filter-group-label">系列赛</Text>
+                  <Tag
+                    color={historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER ? 'purple' : 'default'}
+                    onClick={() => setHistoryTournamentFilter(
+                      historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER ? null : PLAIN_HISTORY_MATCH_FILTER,
+                    )}
+                  >
+                    普通对局
+                  </Tag>
+                  {historyTournamentFilters.map((item) => (
+                    <Tag
+                      key={item.id}
+                      color={historyTournamentFilter === item.id ? 'purple' : 'default'}
+                      onClick={() => setHistoryTournamentFilter(historyTournamentFilter === item.id ? null : item.id)}
+                    >
+                      🏆 {item.name}（{item.count}）
+                    </Tag>
+                  ))}
+                  <Divider type="vertical" className="history-filter-divider" />
+                  <Text type="secondary" className="history-filter-group-label">标签</Text>
                   <Tag
                     color={historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? 'processing' : 'default'}
                     onClick={() => setHistoryTagFilter(historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? null : UNCATEGORIZED_HISTORY_TAG)}

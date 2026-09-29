@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   advanceTournament,
   createTournament,
+  deleteTournament,
   getTournamentStore,
   importPairings,
   lockPairings,
@@ -24,6 +25,7 @@ import {
   recordMatchWinner,
   saveGameLineupForMatch,
   startCurrentGame,
+  undoDeletedMatches,
   undoMatchAction,
 } from '../../electron/services/match-service';
 import { savePlayerProfile } from '../../electron/services/profile-service';
@@ -682,6 +684,86 @@ describe('弃权判负（forfeitMatch + 完成钩子）', () => {
     expect(match?.tags).toContain('弃权');
     const updated = getTournamentStore(paths)[0];
     expect(updated.waves[0].nodes.find((item) => item.id === node.id)?.winnerId).toBe(node.playerAId);
+  });
+});
+
+describe('deleteTournament（删除系列赛）', () => {
+  it('setup 无对局：仅删除编排记录，matchIds 为空', () => {
+    const tournament = createSeries(4);
+    const result = deleteTournament(paths, tournament.id);
+    expect(result.matchIds).toEqual([]);
+    expect(result.matchesDeleted).toBe(false);
+    expect(getTournamentStore(paths)).toEqual([]);
+  });
+
+  it('默认：已建对局全部保留并解除关联（标签保留），系列赛记录删除', () => {
+    const tournament = createSeries(4);
+    startTournament(paths, tournament.id);
+    const related = getMatchStore(paths).matches.filter(
+      (match) => match.tournamentRef?.tournamentId === tournament.id,
+    );
+    expect(related.length).toBeGreaterThan(0);
+    const tagsSnapshot = related.map((match) => [...(match.tags ?? [])]);
+
+    const result = deleteTournament(paths, tournament.id);
+    expect(getTournamentStore(paths)).toEqual([]);
+    expect(result.matchIds).toHaveLength(related.length);
+    expect(result.matchesDeleted).toBe(false);
+
+    const store = getMatchStore(paths);
+    expect(store.matches).toHaveLength(related.length);
+    expect(store.matches.every((match) => match.tournamentRef === undefined)).toBe(true);
+    expect(store.matches.map((match) => match.tags)).toEqual(tagsSnapshot);
+  });
+
+  it('deleteMatches=true：对局一并删除；撤回恢复后为无关联普通对局', () => {
+    const tournament = createSeries(4);
+    startTournament(paths, tournament.id);
+    const relatedIds = getMatchStore(paths).matches
+      .filter((match) => match.tournamentRef?.tournamentId === tournament.id)
+      .map((match) => match.id);
+
+    const result = deleteTournament(paths, tournament.id, { deleteMatches: true });
+    expect(result.matchesDeleted).toBe(true);
+    expect(result.matchIds).toHaveLength(relatedIds.length);
+    expect(getMatchStore(paths).matches).toEqual([]);
+
+    undoDeletedMatches(paths);
+    const restored = getMatchStore(paths).matches;
+    expect(restored).toHaveLength(relatedIds.length);
+    expect(restored.every((match) => match.tournamentRef === undefined)).toBe(true);
+  });
+
+  it('系列赛不存在：抛错且不动比赛库', () => {
+    createSeries(4);
+    expect(() => deleteTournament(paths, 'T20260928_A99')).toThrow('系列赛不存在');
+    expect(getTournamentStore(paths)).toHaveLength(1);
+  });
+
+  it('孤儿引用（系列赛已删除）：完成/撤回钩子返回 null，不阻断比分登记', () => {
+    seedPlayers(2);
+    const created = createMatch(paths, {
+      leftPlayer: '选手0',
+      rightPlayer: '选手1',
+      bestOf: 1,
+      tournamentRef: {
+        tournamentId: 'T20260928_A01',
+        nodeId: 's0-w1-n00',
+        stageIndex: 0,
+        waveIndex: 1,
+      },
+    });
+    const matchId = created.activeMatchId!;
+    saveGameLineupForMatch(paths, matchId, 1, {
+      left: [{ sprite: '3001' }],
+      right: [{ sprite: '3002' }],
+    });
+    startCurrentGame(paths, matchId);
+    recordMatchWinner(paths, matchId, 'left');
+    expect(onMatchCompleted(paths, matchId)).toBeNull();
+    expect(getMatchStore(paths).matches[0].status).toBe('completed');
+
+    expect(onMatchUndo(paths, matchId)).toBeNull();
   });
 });
 

@@ -67,6 +67,7 @@ async function requestJson(
 
 const postJson = (pathname: string, body?: unknown) => requestJson('POST', pathname, body);
 const putJson = (pathname: string, body?: unknown) => requestJson('PUT', pathname, body);
+const deleteJson = (pathname: string, body?: unknown) => requestJson('DELETE', pathname, body ?? {});
 const getJson = (pathname: string) => requestJson('GET', pathname);
 
 /** 等待 socket 事件投递完成（广播在响应前发出，但客户端回调可能略晚于 fetch 解析） */
@@ -277,6 +278,60 @@ describe('删除保护', () => {
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error?: string };
     expect(body.error).toMatch(/回退/);
+  });
+});
+
+describe('DELETE /api/tournaments/:id（删除系列赛）', () => {
+  it('默认：200，系列赛删除、关联对局保留但解除关联，并广播', async () => {
+    const playerIds = seedPlayers(4);
+    const created = (await postJson('/api/tournaments', { name: '解绑杯', playerIds, seed: 1 })).data.tournament;
+    await postJson(`/api/tournaments/${created.id}/start`);
+    const related = (await getJson('/api/matches')).data.matches.filter(
+      (match: { tournamentRef?: { tournamentId: string } }) =>
+        match.tournamentRef?.tournamentId === created.id,
+    );
+    expect(related.length).toBeGreaterThan(0);
+    const matchesBefore = (await getJson('/api/matches')).data.matches.length;
+
+    const updatesBefore = tournamentUpdates;
+    const { status, data } = await deleteJson(`/api/tournaments/${created.id}`);
+    expect(status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.matchesDeleted).toBe(false);
+    expect(data.matchIds).toHaveLength(related.length);
+    await flushEvents();
+    expect(tournamentUpdates).toBe(updatesBefore + 1);
+
+    expect((await getJson(`/api/tournaments/${created.id}`)).status).toBe(404);
+    const matchesAfter = (await getJson('/api/matches')).data.matches;
+    expect(matchesAfter).toHaveLength(matchesBefore);
+    const stillRelated = matchesAfter.filter(
+      (match: { id: string; tournamentRef?: { tournamentId: string } }) =>
+        data.matchIds.includes(match.id) && match.tournamentRef,
+    );
+    expect(stillRelated).toEqual([]);
+  });
+
+  it('deleteMatches=true：关联对局一并删除（比赛库数量下降）', async () => {
+    const playerIds = seedPlayers(4);
+    const created = (await postJson('/api/tournaments', { name: '连删杯', playerIds, seed: 1 })).data.tournament;
+    await postJson(`/api/tournaments/${created.id}/start`);
+    const relatedCount = (await getJson('/api/matches')).data.matches.filter(
+      (match: { tournamentRef?: { tournamentId: string } }) =>
+        match.tournamentRef?.tournamentId === created.id,
+    ).length;
+    const matchesBefore = (await getJson('/api/matches')).data.matches.length;
+
+    const { status, data } = await deleteJson(`/api/tournaments/${created.id}`, { deleteMatches: true });
+    expect(status).toBe(200);
+    expect(data.matchesDeleted).toBe(true);
+    expect(data.matchIds).toHaveLength(relatedCount);
+    expect((await getJson('/api/matches')).data.matches).toHaveLength(matchesBefore - relatedCount);
+  });
+
+  it('系列赛不存在：400', async () => {
+    const { status } = await deleteJson('/api/tournaments/T20260928_A99');
+    expect(status).toBe(400);
   });
 });
 
