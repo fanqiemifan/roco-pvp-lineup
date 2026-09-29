@@ -28,10 +28,10 @@
 | StagePageKey | 推流页面 key：page1-overlay / page2 / page3 / page4 / page5 / page6 / page7 / page8 / page9 / page10 / page11 / page12 / page13 / blank。page4 为 MVP 结算画面；page11/12/13 为选手介绍三画面（同一页面文件 ?mode=left/right/versus） | shared/types.ts |
 | StageTransitionType | 过渡效果：none / blinds / wolf | shared/types.ts |
 | StageConfig | 推流载体配置（page, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit, mtime）。page3RankVisible 控制页面3排位排名图标显隐；page3TeamVisible 控制页面3左右两侧战队标识 div 显隐；page3RedLightMode 为页面3红光特效持久策略（off/auto）；page3RedLightInstant 为一次性「立即显示」（进入下一局自动清除，不影响策略）；page11RankVisible 控制选手介绍排位排名 div 显隐；page10Duration/page10DurationUnit 为胜负登记后自动切入 page10 的停留时长 | shared/types.ts |
-| Page6State | 比赛结果页配置（matchIds 最多 8 个已结束比赛, title 副标题, mtime） | shared/types.ts |
-| Page7State | 对局推送页配置（matchIds 已结束比赛, title 主标题留空用默认「对局推送」, notice 温馨提示留空用默认, mtime） | shared/types.ts |
-| Page8State | 比赛预告页配置（matchIds 最多 4 个待开始/进行中比赛, title, background image/image-2/custom, wallpaperUrl, mtime） | shared/types.ts |
-| Page8Background | 页面8背景类型：image / image-2 / custom（自定义上传壁纸） | shared/types.ts |
+| Page6State | 比赛结果页配置（matchIds 最多 9 个已结束比赛且顺序即卡片场序, title 大标题（空=前端兜底「比赛结果」）, startTime 第一场开始时间 HH:mm, matchTimes 按比赛 id 的手动时间覆盖, mtime） | shared/types.ts |
+| Page7State | 对局推送页配置（matchIds 最多 9 场任意状态比赛, title 主标题留空用默认「对局推送」, notice 温馨提示留空用默认, mtime） | shared/types.ts |
+| Page8State | 比赛预告页配置（matchIds 最多 9 个待开始/进行中比赛且顺序即卡片场序, title 大标题（空=隐藏标题）, startTime, matchTimes, mtime）。背景固定蓝色渐变无背景类型字段 | shared/types.ts |
+| 场序时间排期 | normalizeHHmm / addMinutesToHHmm / computeScheduleTimes / formatScheduleLabel / CHINESE_ORDINALS / MATCH_SLOT_MINUTES_PER_BO(30)：第一场=startTime，之后每场按 Σ(BO×30 分钟) 累加，手动覆盖只替换该场不影响后续；electron 下发与后台选场弹窗共用 | shared/match-schedule.ts |
 | Page9TeamEntry | 团队积分榜单支战队录入项（name 战队名称, r1/r2/r3 三轮积分仅数字字符串, 空字符串 = 未输入显示「-」） | shared/types.ts |
 | Page9State | 团队积分榜配置（title 主标题留空用默认「团队积分榜」, teams 最多 4 支战队, 排名与总积分由页面自动计算不落盘, mtime） | shared/types.ts |
 | Page11SideConfig | 选手介绍单侧配置（source: manual/match, name/rank/declaration/pets 手动填写, 留空字段回退「信息录入」按名字匹配值） | shared/types.ts |

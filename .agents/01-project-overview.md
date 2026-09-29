@@ -80,6 +80,7 @@ roco-pvp-lineup/
 | shared/types.ts | 所有 TypeScript 类型定义 |
 | shared/events.ts | Socket.IO 事件名称常量 |
 | shared/constants.ts | 全局常量（端口、默认值、推流页面/过渡枚举） |
+| shared/match-schedule.ts | page6/8 卡片场序时间排期纯函数（开始时间 + BO×30 分钟累加、手动覆盖、中文序数文案），electron 下发与后台选场弹窗共用 |
 
 ### 管理后台（src/admin-antd）
 
@@ -89,7 +90,7 @@ roco-pvp-lineup/
 | views/RosterPanelEditor.tsx | 阵容编辑（左右面板、精灵搜索、快速填充） |
 | views/HistoryLineupEntryModal.tsx | 比赛历史「录入阵容」弹窗（为待开始小局录入双方阵容） |
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、标签趋势） |
-| components/ | SettingField、SpritePetCard、StageThumb 等小组件 |
+| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛历史推流选场卡片+弹窗）、BracketBoard（系列赛晋级图）等小组件 |
 | lib/ | format、history、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
@@ -104,9 +105,10 @@ roco-pvp-lineup/
 | page3-display.js | 推流页面3（头像比分阵容）脚本 |
 | page4-display.js | 推流页面4（MVP 结算画面）脚本（按 pet_id 索引 webm/头像，增量渲染最多 6 个精灵项与标签、MVP 角标） |
 | page5-display.js | 登场/胜率排行页（page5）脚本 |
-| page6-display.js | 比赛结果页（page6）脚本 |
+| page6-display.js | 比赛结果页（page6）脚本（薄封装：调用共享 match-prediction.js，defaultTitle「比赛结果」） |
 | page7-display.js | 对局推送页（page7）脚本（多场比赛逐行滚动展示） |
-| page8-display.js | 比赛预告页（page8）脚本 |
+| page8-display.js | 比赛预告页（page8）脚本（薄封装：调用共享 match-prediction.js，标题留空隐藏） |
+| match-prediction.js | page6/8 共享卡片画面挂载器（蓝色渐变 + 标题/副标题 + 3×3 对局卡片网格 + 场序信息行，数据 GET /api/pageN，签名比对防闪烁） |
 | page9-display.js | 团队积分榜页（page9）脚本（排名与总积分自动计算） |
 | page10-display.js | 推流页面10（胜者结算画面）脚本（解析最近一个已分胜负的小局胜者） |
 | page11-display.js | 选手介绍页脚本（page11-13 共用，`?mode=left/right/versus` 区分画面） |

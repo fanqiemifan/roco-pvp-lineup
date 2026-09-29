@@ -2475,3 +2475,105 @@ a {
   margin-top: 20px;
 }
 
+/* ==================== 比赛历史：推流功能卡片（比赛结果 / 对局推送 / 比赛预告） ==================== */
+
+.match-push-card-row {
+  margin-bottom: 4px;
+}
+
+.match-push-card .ant-card-body {
+  padding: 14px 16px 16px;
+}
+
+.match-push-card-body {
+  width: 100%;
+}
+
+.match-push-summary {
+  min-height: 48px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+}
+
+.match-push-summary-tag {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-push-empty-hint {
+  display: block;
+  min-height: 48px;
+  line-height: 48px;
+}
+
+/* 选场弹窗：左候选列表 + 右已选列表 */
+.match-push-modal-body {
+  width: 100%;
+}
+
+.match-push-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.match-push-candidates .ant-table-wrapper {
+  border: 1px solid rgba(91, 67, 43, 0.14);
+  border-radius: 8px;
+}
+
+.match-push-selected {
+  border: 1px solid rgba(91, 67, 43, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 252, 248, 0.8);
+  padding: 12px;
+  min-height: 470px;
+}
+
+.match-push-selected-list {
+  width: 100%;
+}
+
+.match-push-selected-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid rgba(91, 67, 43, 0.12);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.match-push-index-tag.ant-tag {
+  flex: none;
+  margin: 0;
+  min-width: 24px;
+  text-align: center;
+}
+
+.match-push-selected-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.match-push-time-input {
+  flex: none;
+  width: 84px;
+}
+
+@media (max-width: 900px) {
+  .match-push-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+

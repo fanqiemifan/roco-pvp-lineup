@@ -11,12 +11,11 @@
 | /resources/sprites-260-630-webm/ | resources/sprites-260-630-webm/ | MVP 结算（page4）精灵动态 webm，命名 `{pet_id}_{name}.webm` |
 | /img-2/ | resources/sprites-alt/ | 备用精灵图片 |
 | /json/ | resources/data/ | JSON 数据文件 |
-| /runtime/ | runtime/cache/ | 运行时生成的图片（头像、截图、page8 自定义壁纸 page8-wallpaper.jpg） |
+| /runtime/ | runtime/cache/ | 运行时生成的图片（头像、截图） |
 | /image/ | src/assets/ui/ | UI 图片 |
 | /font/ | src/assets/fonts/ | 字体文件 |
 | /api/avatar/left-avatar.png | runtime/cache/ | 左侧头像图片 |
 | /api/avatar/right-avatar.png | runtime/cache/ | 右侧头像图片 |
-| /api/page8/wallpaper | runtime/cache/page8-wallpaper.jpg | page8 自定义壁纸上传接口 |
 
 # 缓存头
 

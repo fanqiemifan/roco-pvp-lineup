@@ -4,26 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>洛克王国PVP - 推流页面6（比赛结果）</title>
-    <link rel="stylesheet" href="/styles/roco-pvp-page6.css">
+    <link rel="stylesheet" href="/styles/match-prediction.css">
     <link rel="stylesheet" href="/styles/stage-enter.css">
     <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
 </head>
 <body>
-    <main class="page6-screen" id="page6Screen" aria-label="洛克王国PVP比赛结果">
-        <video class="page6-back-video" id="page6BackVideo" autoplay loop muted playsinline preload="auto">
-            <source src="/assets/ui/backvideo-for-page6.mp4" type="video/mp4">
-        </video>
-        <div class="page6-title fx-enter">比赛结果</div>
-        <div class="page6-subtitle fx-enter" id="page6Subtitle" style="--fx-delay:100ms"></div>
-
-        <div class="page6-decor page6-decor-1">ROCO<br>KINGDOM</div>
-        <div class="page6-decor page6-decor-2">ROCO</div>
-        <div class="page6-decor page6-decor-3">PVP</div>
-
-        <div class="page6-grid fx-enter" id="page6Grid" style="--fx-delay:200ms"></div>
+    <main class="mp-screen" id="mpScreen" aria-label="洛克王国PVP比赛结果">
+        <!-- 主标题：后台可编辑，空值兜底「比赛结果」 -->
+        <div class="mp-title fx-enter" id="mpTitle"></div>
+        <!-- 副标题：固定内容 -->
+        <div class="mp-subtitle fx-enter" style="--fx-delay:100ms">Match Prediction</div>
+        <!-- 对局卡片网格：最多 9 张，顺序即后台选择的场序 -->
+        <div class="mp-grid fx-enter" id="mpGrid" style="--fx-delay:200ms"></div>
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/match-prediction.js"></script>
     <script src="/scripts/page6-display.js"></script>
     <script src="/scripts/stage-enter.js"></script>
 </body>

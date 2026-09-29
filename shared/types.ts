@@ -59,8 +59,6 @@ export interface ScoreboardState {
   mtime: number | null;
 }
 
-export type Page6Background = 'image' | 'image-2' | 'video';
-
 export interface MatchSlotSnapshot {
   slot: number;
   /** 精灵 id（pet_id），持久化主键 */
@@ -211,15 +209,18 @@ export interface StageConfig {
 }
 
 /**
- * 比赛结果（page6）状态：展示哪些已结束的比赛，以及副标题（标题2）。
+ * 比赛结果（page6）状态：展示哪些已结束的比赛、大标题与场序时间排期。
+ * 画面采用与比赛预告（page8）相同的蓝色渐变卡片设计。
  */
 export interface Page6State {
-  /** 已选中的已结束比赛 id（最多 8 个，顺序即展示顺序） */
+  /** 已选中的已结束比赛 id（最多 9 个，顺序即展示顺序与卡片场序） */
   matchIds: string[];
-  /** 标题2 内容（后端输入，空字符串则隐藏） */
+  /** 大标题内容（空字符串时前端兜底显示「比赛结果」） */
   title: string;
-  /** 页面6背景类型：默认图片、备用图片或视频 */
-  background: Page6Background;
+  /** 第一场开始时间 HH:mm（空字符串 = 未配置，卡片只显示「第N场」） */
+  startTime: string;
+  /** 按比赛 id 记录的手动场序时间覆盖（HH:mm），清空某场即恢复自动累加 */
+  matchTimes: Record<string, string>;
   mtime: number | null;
 }
 
@@ -237,26 +238,18 @@ export interface Page7State {
 }
 
 /**
- * 比赛预告（page8）背景类型：
- * - image: 内置背景图 1（Match-Preview.jpg）
- * - image-2: 内置背景图 2（back.for-page6-2.png）
- * - custom: 后台手动上传的自定义壁纸
- */
-export type Page8Background = 'image' | 'image-2' | 'custom';
-
-/**
- * 比赛预告（page8）状态：展示哪些待开始/进行中的比赛，以及主标题与壁纸。
- * 每场比赛一行卡片：左右选手信息 div（头像 + 名字 + 排位排名）+ 中央 vs。
+ * 比赛预告（page8）状态：展示哪些待开始/进行中的比赛、大标题与场序时间排期。
+ * 每场比赛一张 412×166 卡片：底板 + BO/场序 + 左右选手条（头像/名字/比分/rank）。
  */
 export interface Page8State {
-  /** 已选中的比赛 id（最多 4 个，顺序即展示顺序） */
+  /** 已选中的比赛 id（最多 9 个，顺序即展示顺序与卡片场序） */
   matchIds: string[];
-  /** 主标题内容（后台输入，空字符串则隐藏） */
+  /** 大标题内容（空字符串则隐藏标题行，仅显示副标题 Match Prediction） */
   title: string;
-  /** 页面8背景类型 */
-  background: Page8Background;
-  /** 自定义壁纸访问 URL（background 为 custom 时使用，空字符串则回退内置图） */
-  wallpaperUrl: string;
+  /** 第一场开始时间 HH:mm（空字符串 = 未配置，卡片只显示「第N场」） */
+  startTime: string;
+  /** 按比赛 id 记录的手动场序时间覆盖（HH:mm），清空某场即恢复自动累加 */
+  matchTimes: Record<string, string>;
   mtime: number | null;
 }
 

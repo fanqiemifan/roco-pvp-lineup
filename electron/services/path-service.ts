@@ -27,7 +27,6 @@ export interface AppPaths {
   mvpFile: string;
   /** 倒计时插件状态文件（cache/countdown.json） */
   countdownFile: string;
-  page8WallpaperFile: string;
   nextgameFile: string;
   configFile: string;
   profilesFile: string;
@@ -70,7 +69,6 @@ export function createAppPaths(projectRoot: string, userDataDir: string): AppPat
     page11File: path.join(cacheDir, 'page11.json'),
     mvpFile: path.join(cacheDir, 'mvp.json'),
     countdownFile: path.join(cacheDir, 'countdown.json'),
-    page8WallpaperFile: path.join(cacheDir, 'page8-wallpaper.jpg'),
     nextgameFile: path.join(cacheDir, 'nextgame.json'),
     configFile: path.join(runtimeDir, 'config.json'),
     profilesFile: path.join(cacheDir, 'profiles.json'),

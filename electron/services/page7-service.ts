@@ -11,6 +11,9 @@ export const PAGE7_DEFAULT_TITLE = '对局推送';
 /** 对局推送页（page7）默认温馨提示 */
 export const PAGE7_DEFAULT_NOTICE = '温馨提示：排名选自选手历史最高非实时';
 
+/** 对局推送页（page7）最多选择的比赛数量（画面按小局逐行滚动，结构不变） */
+export const PAGE7_MAX_MATCHES = 9;
+
 function defaultPage7State(): Page7State {
   return {
     matchIds: [],
@@ -31,6 +34,9 @@ function normalizeMatchIds(value: unknown): string[] {
     if (id && !seen.has(id)) {
       seen.add(id);
       ids.push(id);
+    }
+    if (ids.length >= PAGE7_MAX_MATCHES) {
+      break;
     }
   }
   return ids;

@@ -33,7 +33,7 @@
 | page2 | lineup-display.js | panels, scoreboard | panel, scoreboard |
 | page4 | page4-display.js | mvp | mvp, avatar |
 | page5 | page5-display.js | stage, scoreboard | stage, scoreboard, matches |
-| page6/7/8 | pageN-display.js | pageN | pageN, matches（+avatar：7/8） |
+| page6/7/8 | page6-display.js / page7-display.js / page8-display.js（6/8 为薄封装，画面共用 match-prediction.js） | pageN | pageN, matches（+avatar：6/7/8） |
 | page9 | page9-display.js | page9 | page9 |
 | page10 | page10-display.js | {}（仅作刷新信号） | matches, avatar |
 | page11 | page11-display.js | {} | matches, avatar, panel, stage, page11, profiles |

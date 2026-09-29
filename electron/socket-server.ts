@@ -9,6 +9,7 @@ import { Server as SocketIOServer } from 'socket.io';
 
 import { SOCKET_EVENTS } from '../shared/events.js';
 import { SYNC_BUNDLE_MAX_BYTES } from '../shared/constants.js';
+import { computeScheduleTimes } from '../shared/match-schedule.js';
 import type { AvatarCollectionState, CountdownState, MatchStoreState, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
 import { getSpriteRanking } from './services/stats-service.js';
@@ -16,7 +17,6 @@ import {
   ensureRuntimeDirs,
   getAvatarStates,
   saveAvatar,
-  savePage8Wallpaper,
   saveProfilePlayerAvatar,
   saveProfileTeamLogo,
   deleteAvatar,
@@ -177,7 +177,7 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
 
 // 事件 → 需要该事件的角色（admin 房间始终收到全部）
 const ROLES_FOR_STAGE = ['page3', 'page5', 'page11', 'carrier'];
-const ROLES_FOR_AVATAR = ['page3', 'page4', 'page7', 'page8', 'page10', 'page11'];
+const ROLES_FOR_AVATAR = ['page3', 'page4', 'page6', 'page7', 'page8', 'page10', 'page11'];
 const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11'];
 const ROLES_FOR_SCOREBOARD = ['page2', 'page3', 'page5'];
 const ROLES_FOR_PANEL = ['page1', 'page2', 'page3', 'page11', 'float'];
@@ -652,8 +652,19 @@ export async function createLocalServer(
     const matchStore = getMatchStore(paths);
     const matches = state.matchIds
       .map((id) => matchStore.matches.find((match) => match.id === id))
-      .filter((match) => match && match.status === 'completed');
-    response.json({ state, matches });
+      .filter((match): match is NonNullable<typeof match> => match !== undefined && match.status === 'completed');
+    // 头像按赛事隔离：{ [matchId]: { left, right } }
+    const avatars: Record<string, AvatarCollectionState> = {};
+    for (const match of matches) {
+      avatars[match.id] = getAvatarStates(paths, match.id);
+    }
+    // 卡片场序时间：开始时间 + 按 BO×30 分钟累加（手动覆盖由 service 归一化在 state.matchTimes）
+    const scheduleTimes = computeScheduleTimes(
+      matches.map((match) => ({ id: match.id, bestOf: match.bestOf })),
+      state.startTime,
+      state.matchTimes,
+    );
+    response.json({ state, matches, avatars, scheduleTimes });
   });
 
   app.post('/api/page6', (request, response) => {
@@ -703,42 +714,18 @@ export async function createLocalServer(
     for (const match of matches) {
       avatars[match.id] = getAvatarStates(paths, match.id);
     }
-    response.json({ state, matches, avatars });
+    // 卡片场序时间：开始时间 + 按 BO×30 分钟累加（手动覆盖由 service 归一化在 state.matchTimes）
+    const scheduleTimes = computeScheduleTimes(
+      matches.map((match) => ({ id: match.id, bestOf: match.bestOf })),
+      state.startTime,
+      state.matchTimes,
+    );
+    response.json({ state, matches, avatars, scheduleTimes });
   });
 
   app.post('/api/page8', (request, response) => {
     try {
       const state = savePage8State(paths, request.body ?? {});
-      broadcast(SOCKET_EVENTS.page8Update, { state }, ["page8"]);
-      response.json({ success: true, state });
-    } catch (error) {
-      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  // 比赛预告（page8）自定义壁纸上传：魔数校验 + 1920x1080 压缩落盘
-  app.post('/api/page8/wallpaper', upload.single('file'), async (request, response) => {
-    if (!request.file?.buffer) {
-      response.status(400).json({ success: false, error: 'No file data' });
-      return;
-    }
-    try {
-      await savePage8Wallpaper(paths, request.file.buffer);
-      const state = savePage8State(paths, { background: 'custom', wallpaperUrl: '/runtime/page8-wallpaper.jpg' });
-      broadcast(SOCKET_EVENTS.page8Update, { state }, ["page8"]);
-      response.json({ success: true, state, wallpaperUrl: '/runtime/page8-wallpaper.jpg' });
-    } catch (error) {
-      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  // 删除自定义壁纸：回退到内置背景图
-  app.delete('/api/page8/wallpaper', (request, response) => {
-    try {
-      if (fs.existsSync(paths.page8WallpaperFile)) {
-        fs.unlinkSync(paths.page8WallpaperFile);
-      }
-      const state = savePage8State(paths, { background: 'image', wallpaperUrl: '' });
       broadcast(SOCKET_EVENTS.page8Update, { state }, ["page8"]);
       response.json({ success: true, state });
     } catch (error) {

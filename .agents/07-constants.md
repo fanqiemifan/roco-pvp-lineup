@@ -37,7 +37,7 @@
 
 > 系列赛默认阶段模板构建器 `buildDefaultStages(playerCount): StageRule[]` 位于 shared/constants.ts：32人=双败BO1×2（32进16/16进8）+ 单败BO3×3（8进4/4进2/总决赛），16/8/4 人类似递减；默认 avoidRematch=true、requireConfirm=false。
 
-> 页面8（比赛预告）的比赛上限常量 PAGE8_MAX_MATCHES = 4 位于 electron/services/page8-service.ts，前台同值常量 PAGE8_MAX_MATCHES 位于 src/admin-antd/App.tsx。
+> 推流选场上限三页统一为 9：PAGE6_MAX_MATCHES / PAGE8_MAX_MATCHES 位于 electron/services/page6-service.ts、page8-service.ts，PAGE7_MAX_MATCHES 位于 page7-service.ts；后台同值常量 PAGE6/PAGE7/PAGE8_MAX_MATCHES 位于 src/admin-antd/App.tsx。场序排期常量 MATCH_SLOT_MINUTES_PER_BO = 30 位于 shared/match-schedule.ts（每场占用 = BO 数 × 30 分钟）。
 >
 > 页面9（团队积分榜）在 SUPPORTED_STAGE_PAGES 中；战队上限常量 PAGE9_MAX_TEAMS = 4 位于 electron/services/page9-service.ts，后台表单行数常量 PAGE9_TEAM_COUNT = 4 位于 src/admin-antd/App.tsx；单项积分最长 3 位数字（0-999）。
 >

@@ -1,0 +1,242 @@
+/* 推流页面6（比赛结果）/ 页面8（比赛预告）共享：蓝色渐变 + 3×3 对局卡片（1920x1080） */
+/* YouSheBiaoTiHei 不打包字体文件，改用系统安装字体，未安装时回退 MiSans */
+@font-face {
+    font-family: "YouSheBiaoTiHei";
+    src: local("YouSheBiaoTiHei");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Regular";
+    src: url("/assets/fonts/MiSans-Regular.otf") format("opentype");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Heavy";
+    src: url("/assets/fonts/MiSans-Heavy.otf") format("opentype");
+    font-display: swap;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent !important;
+}
+
+/* 屏幕：蓝色渐变背景（stops 0% #2A5EF2 → 100% #31B0FD），不再使用背景图片 */
+.mp-screen {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #2A5EF2 0%, #31B0FD 100%);
+}
+
+/* 主标题：96px YouSheBiaoTiHei 白色，水平居中，top 100px；空内容时由 JS 隐藏 */
+.mp-title {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100px;
+    z-index: 2;
+    text-align: center;
+    font-family: "YouSheBiaoTiHei", "MiSans-Heavy", "Microsoft YaHei", sans-serif;
+    font-size: 96px;
+    color: #ffffff;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* 副标题：固定内容 Match Prediction，40px 白色，水平居中（标题下方） */
+.mp-subtitle {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 214px;
+    z-index: 2;
+    text-align: center;
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 40px;
+    color: #ffffff;
+    line-height: 1;
+    white-space: nowrap;
+    letter-spacing: 2px;
+}
+
+/* 对局卡片区：3 列 × 3 行居中网格，最多 9 张，top 296px */
+.mp-grid {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 296px;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: repeat(3, 412px);
+    grid-auto-rows: auto;
+    justify-content: center;
+    column-gap: 40px;
+    row-gap: 26px;
+}
+
+/* 单个卡片单元：场序信息行 + 412×166 对局卡片 */
+.mp-item {
+    position: relative;
+    width: 412px;
+}
+
+/* 场序信息行：「第一场 19:00」，20px 白色，距卡片 8px，左对齐 */
+.mp-info {
+    margin-bottom: 8px;
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 20px;
+    color: #ffffff;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* 对局卡片：412×166 */
+.mp-card {
+    position: relative;
+    width: 412px;
+    height: 166px;
+}
+
+/* 卡片底板：Rectangle-01.svg 铺满，z-index -1 */
+.mp-card-bg {
+    position: absolute;
+    inset: 0;
+    left: 0px;
+    z-index: 0;
+    width: 268px;
+    height: 166px;
+    pointer-events: none;
+}
+
+/* 赛制文本（BO3）：20px 白色，右对齐 right 4px */
+.mp-bo {
+    position: absolute;
+    right: 4px;
+    top: 6px;
+    z-index: 1;
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 20px;
+    color: #ffffff;
+    line-height: 1;
+}
+
+/* 对局排序数字：36px 黑色，left 18px，在 166 高卡片内垂直居中（左对齐，按后台选择场序展示 1-9） */
+.mp-order {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+    font-family: "YouSheBiaoTiHei", "MiSans-Heavy", "Microsoft YaHei", sans-serif;
+    font-size: 36px;
+    color: #000000;
+    line-height: 1;
+}
+
+/* 选手条：370×74，x42；左条 y8、右条 y84；背景 card-01.png */
+.mp-side {
+    position: absolute;
+    left: 42px;
+    width: 370px;
+    height: 74px;
+    z-index: 1;
+    background: url("/assets/ui/card-01.png") no-repeat center / 100% 100%;
+}
+
+.mp-side-left {
+    top: 8px;
+}
+
+.mp-side-right {
+    top: 84px;
+}
+
+/* 选手头像：72×72，left 0 垂直居中（top 1），圆形 + 内描边 2px 黑色 50% */
+.mp-avatar {
+    position: absolute;
+    left: 0;
+    top: 1px;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #fff7e9;
+    box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+.mp-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* 选手名字：24px 白色，left 88 top 42，过长省略 */
+.mp-name {
+    position: absolute;
+    left: 88px;
+    top: 42px;
+    max-width: 150px;
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 24px;
+    color: #ffffff;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 比分：36px #63C0E9，right 24 top 36；无比分显示「-」 */
+.mp-score {
+    position: absolute;
+    right: 24px;
+    top: 36px;
+    font-family: "YouSheBiaoTiHei", "MiSans-Heavy", "Microsoft YaHei", sans-serif;
+    font-size: 36px;
+    color: #63C0E9;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+/* rank 区：96×26，x88 y8，图标 18×21 + 排名文字 13px MiSans-Heavy #FEC55E，居中对齐 */
+.mp-rank {
+    position: absolute;
+    left: 88px;
+    top: 8px;
+    width: 96px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    pointer-events: none;
+}
+
+.mp-rank img {
+    width: 18px;
+    height: 21px;
+    object-fit: contain;
+    flex: none;
+}
+
+.mp-rank-txt {
+    font-family: "MiSans-Heavy", "MiSans-Medium", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    font-weight: 900;
+    color: #FEC55E;
+    line-height: 1;
+    white-space: nowrap;
+}
