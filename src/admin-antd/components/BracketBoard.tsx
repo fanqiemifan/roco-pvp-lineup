@@ -59,6 +59,8 @@ export function BracketBoard({
   const [wires, setWires] = useState<BracketWire[]>([]);
   const [canvas, setCanvas] = useState({ width: 0, height: 0 });
   const [forfeitNode, setForfeitNode] = useState<TournamentNode | null>(null);
+  /** 当前选中的卡片：仅显示与它相关的连线，避免整图连线交叉杂乱（null = 不显示任何连线） */
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
 
   const registerCard = useCallback((key: string, element: HTMLDivElement | null) => {
     if (element) {
@@ -75,6 +77,42 @@ export function BracketBoard({
       slotRefs.current.delete(key);
     }
   }, []);
+
+  /**
+   * 选中卡片时高亮的连线：上游链路（沿 slot.from 递归全部祖先）+ 从它出发的下游连线。
+   * 连线 key 形如 `${来源nodeId}->${目标nodeId}#${来源槽位}`，这里按 `${来源}->${目标}` 去重匹配。
+   */
+  const activeEdges = useMemo(() => {
+    if (!activeNodeId) {
+      return null;
+    }
+    const edges = new Set<string>();
+    const seen = new Set<string>();
+    const walkUpstream = (nodeId: string): void => {
+      if (seen.has(nodeId)) {
+        return;
+      }
+      seen.add(nodeId);
+      const card = cardIndex.get(nodeId);
+      if (!card) {
+        return;
+      }
+      [card.playerA, card.playerB].forEach((slot) => {
+        if (!slot.from) {
+          return;
+        }
+        edges.add(`${slot.from.nodeId}->${nodeId}`);
+        walkUpstream(slot.from.nodeId);
+      });
+    };
+    walkUpstream(activeNodeId);
+    wires.forEach((wire) => {
+      if (wire.key.startsWith(`${activeNodeId}->`)) {
+        edges.add(wire.key.slice(0, wire.key.indexOf('#')));
+      }
+    });
+    return edges;
+  }, [activeNodeId, cardIndex, wires]);
 
   /** 量测各节点/槽位真实位置，重算连线与画布尺寸 */
   const measure = useCallback(() => {
@@ -176,14 +214,26 @@ export function BracketBoard({
 
   function renderCard(card: BracketCard, column: BracketColumn): React.ReactElement {
     return (
-      <TournamentNodeCard
+      <div
+        className="bracket-card-hitbox"
         key={card.nodeId}
-        card={card}
-        cardRef={(element) => registerCard(card.nodeId, element)}
-        slotRef={(side, element) => registerSlot(slotKey(card.nodeId, side), element)}
-        onSelectMatch={(matchId) => void onSelectMatch(matchId)}
-        onForfeit={() => setForfeitNode(resolveNode(column, card.nodeId))}
-      />
+        onClick={(event) => {
+          // 卡片内按钮（切换为当前比赛 / 弃权判负）不触发选中
+          if ((event.target as HTMLElement).closest('button')) {
+            return;
+          }
+          setActiveNodeId((current) => (current === card.nodeId ? null : card.nodeId));
+        }}
+      >
+        <TournamentNodeCard
+          card={card}
+          isActive={activeNodeId === card.nodeId}
+          cardRef={(element) => registerCard(card.nodeId, element)}
+          slotRef={(side, element) => registerSlot(slotKey(card.nodeId, side), element)}
+          onSelectMatch={(matchId) => void onSelectMatch(matchId)}
+          onForfeit={() => setForfeitNode(resolveNode(column, card.nodeId))}
+        />
+      </div>
     );
   }
 
@@ -192,13 +242,23 @@ export function BracketBoard({
   }
 
   return (
-    <div className="bracket-board">
+    <div
+      className="bracket-board"
+      onClick={(event) => {
+        // 点击卡片以外区域取消选中（隐藏全部连线）
+        if ((event.target as HTMLElement).closest('.bracket-card-hitbox')) {
+          return;
+        }
+        setActiveNodeId(null);
+      }}
+    >
       <div className="bracket-board-legend">
         <Text type="secondary">
           <i className="bracket-wire-sample bracket-wire-sample-winner" />
           胜者晋级
           <i className="bracket-wire-sample bracket-wire-sample-loser" />
           败者下沉
+          <span className="bracket-legend-hint">（点击卡片查看该场的晋级连线）</span>
         </Text>
         <Text type="secondary">
           已结束 {graph.completedCount} / 共 {graph.cardCount} 场
@@ -212,16 +272,18 @@ export function BracketBoard({
           height={canvas.height}
           aria-hidden="true"
         >
-          {wires.map((wire) => (
-            <path
-              key={wire.key}
-              d={wire.d}
-              fill="none"
-              stroke={wire.kind === 'w' ? '#2d7a58' : '#c24635'}
-              strokeWidth={wire.kind === 'w' ? 2.4 : 2}
-              strokeDasharray={wire.kind === 'w' ? undefined : '5 4'}
-            />
-          ))}
+          {wires
+            .filter((wire) => activeEdges?.has(wire.key.slice(0, wire.key.indexOf('#'))))
+            .map((wire) => (
+              <path
+                key={wire.key}
+                d={wire.d}
+                fill="none"
+                stroke={wire.kind === 'w' ? '#2d7a58' : '#c24635'}
+                strokeWidth={wire.kind === 'w' ? 2.4 : 2}
+                strokeDasharray={wire.kind === 'w' ? undefined : '5 4'}
+              />
+            ))}
         </svg>
 
         <div className="bracket-board-columns" ref={columnsRef}>

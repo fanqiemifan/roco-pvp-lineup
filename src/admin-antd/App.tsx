@@ -162,7 +162,7 @@ import introIcon from '../assets/ui/选手介绍.svg?raw';
 import statsIcon from '../assets/ui/数据统计.svg?raw';
 import previewIcon from '../assets/ui/页面预览.svg?raw';
 import aboutIcon from '../assets/ui/关于项目.svg?raw';
-import tournamentIcon from '../assets/ui/系列赛.svg?raw';
+import tournamentIcon from '../assets/ui/系列比赛.svg?raw';
 import brandLogoRaw from '../assets/ui/logo.svg?raw';
 import type {
   CreateMatchValues,
@@ -223,7 +223,7 @@ const VIEW_LABEL: Record<NavIconName, string> = {
   page11: '选手介绍',
   stats: '数据统计',
   preview: '页面预览',
-  tournament: '系列赛',
+  tournament: '系列比赛',
   about: '关于项目',
 };
 
@@ -3090,14 +3090,14 @@ function Dashboard() {
     () => [
       { key: 'roster', icon: <NavIcon name="roster" />, label: VIEW_LABEL.roster },
       { key: 'stage', icon: <NavIcon name="stage" />, label: VIEW_LABEL.stage },
-      { key: 'live', icon: <NavIcon name="live" />, label: VIEW_LABEL.live },
+      { key: 'tournament', icon: <NavIcon name="tournament" />, label: VIEW_LABEL.tournament },
       { key: 'mvp', icon: <NavIcon name="mvp" />, label: VIEW_LABEL.mvp },
       { key: 'history', icon: <NavIcon name="history" />, label: VIEW_LABEL.history },
       { key: 'profiles', icon: <NavIcon name="profiles" />, label: VIEW_LABEL.profiles },
       { key: 'page11', icon: <NavIcon name="page11" />, label: VIEW_LABEL.page11 },
       { key: 'stats', icon: <NavIcon name="stats" />, label: VIEW_LABEL.stats },
       { key: 'preview', icon: <NavIcon name="preview" />, label: VIEW_LABEL.preview },
-      { key: 'tournament', icon: <NavIcon name="tournament" />, label: VIEW_LABEL.tournament },
+      { key: 'live', icon: <NavIcon name="live" />, label: VIEW_LABEL.live },
       { key: 'about', icon: <NavIcon name="about" />, label: VIEW_LABEL.about },
     ],
     []

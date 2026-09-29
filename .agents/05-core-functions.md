@@ -55,7 +55,7 @@
 | 撤回小局钩子 | onMatchUndo | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 仅该波是最后一波；清节点胜者、回退战绩，系列赛因此退出完赛态时一并撤销冠军结果；已推进拒绝（提示回退上一波）；孤儿引用同样 →null |
 | 删除系列赛 | deleteTournament | (paths: AppPaths, tournamentId: string, options?: { deleteMatches?: boolean }) => DeleteTournamentResult | 不存在抛错；关联比赛一律先 detachMatchesFromTournament 解绑：默认仅删 tournaments.json 记录（比赛保留为普通对局）；deleteMatches=true 再走 deleteMatches 连对局删除（可撤回，恢复后无关联）；返回 matchIds/matchesDeleted |
 
-内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`bracketPositions`（标准种子位序列）、`generateDraftPairs`（生成配对草稿）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→换阶段，否则双败建下一波）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用）。
+内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`bracketPositions`（标准种子位序列，**仅 stageIndex=0 的首阶段使用**）、`generateDraftPairs`（生成配对草稿：单败 `bracket-seed` 从 stage 1 起按 `entries` 顺序两两相邻配对，**延续固定对阵树，不再每轮重新种子**）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`bracketOrderOfStage`（晋级选手在上一阶段的获胜节点位置 `(waveIndex, nodeIndex)`，单败即节点序、双败则胜者组出线在前）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→按 `bracketOrderOfStage` 的对阵树顺序换批进入下一阶段（而非全局种子序），否则双败建下一波）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用）。
 
 ## 面板操作 (state-service.ts)
 

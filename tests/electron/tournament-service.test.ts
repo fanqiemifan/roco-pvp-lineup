@@ -113,6 +113,33 @@ function runWholeSeries(tournamentId: string): TournamentRecord {
   }
 }
 
+/** 打完某阶段全部未开始比赛（左侧胜），直到晋级推进到下一阶段，返回结束时记录 */
+function playStage(tournamentId: string, stageIndex: number): TournamentRecord {
+  let guard = 0;
+  while (true) {
+    const record = getTournamentStore(paths).find((item) => item.id === tournamentId)!;
+    if (record.currentStageIndex !== stageIndex || record.status !== 'running') {
+      return record;
+    }
+    const stageMatchIds = new Set(
+      record.waves
+        .filter((wave) => wave.stageIndex === stageIndex)
+        .flatMap((wave) => wave.nodes.map((node) => node.matchId)),
+    );
+    const pending = getMatchStore(paths).matches.find(
+      (match) => match.status === 'pending' && stageMatchIds.has(match.id),
+    );
+    if (!pending) {
+      return record;
+    }
+    playMatchToEnd(pending.id, 'left');
+    guard += 1;
+    if (guard > 40) {
+      throw new Error('阶段无法收敛');
+    }
+  }
+}
+
 describe('getTournamentStore', () => {
   it('未落盘时返回空列表', () => {
     expect(getTournamentStore(paths)).toEqual([]);
@@ -446,6 +473,43 @@ describe('onMatchCompleted（比赛完成钩子）', () => {
     expect(finalRecord.playerIds).toContain(championId);
     expect(finalRecord.playerIds).toContain(runnerUpId);
     expect(finalRecord.entries.find((entry) => entry.playerId === championId)?.state).toBe('promoted');
+  });
+
+  it('单败阶段延续固定对阵树：相邻两场胜者相遇（不再每轮重新种子）', () => {
+    const tournament = createSeries(16);
+    startTournament(paths, tournament.id);
+    // 打完 s0（16进8 双败）→ 生成 s1（8进4 单败）
+    playStage(tournament.id, 0);
+    let record = getTournamentStore(paths)[0];
+    expect(record.currentStageIndex).toBe(1);
+    expect(record.stages[1].name).toBe('8进4');
+
+    const s1Wave = record.waves.find((wave) => wave.stageIndex === 1 && wave.waveIndex === 1)!;
+    expect(s1Wave.nodes.map((node) => node.id)).toEqual([
+      's1-w1-n00',
+      's1-w1-n01',
+      's1-w1-n02',
+      's1-w1-n03',
+    ]);
+    // 全部按左侧胜 ⇒ 胜者即 playerAId
+    const winnerOf = new Map(s1Wave.nodes.map((node) => [node.id, node.playerAId]));
+
+    // 打完 s1 全部比赛 → 生成 s2（4进2 单败）
+    playStage(tournament.id, 1);
+    record = getTournamentStore(paths)[0];
+    expect(record.currentStageIndex).toBe(2);
+
+    const s2Wave = record.waves.find((wave) => wave.stageIndex === 2 && wave.waveIndex === 1)!;
+    expect(s2Wave.nodes).toHaveLength(2);
+    const pairOf = (node: (typeof s2Wave.nodes)[number]): Array<string | null> =>
+      [node.playerAId, node.playerBId].sort();
+    // s2-w1-n00 = 相邻的 s1-w1-n00 / n01 胜者；s2-w1-n01 = n02 / n03 胜者
+    expect(pairOf(s2Wave.nodes[0])).toEqual(
+      [winnerOf.get('s1-w1-n00'), winnerOf.get('s1-w1-n01')].sort(),
+    );
+    expect(pairOf(s2Wave.nodes[1])).toEqual(
+      [winnerOf.get('s1-w1-n02'), winnerOf.get('s1-w1-n03')].sort(),
+    );
   });
 });
 

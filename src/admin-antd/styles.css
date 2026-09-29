@@ -199,6 +199,11 @@ a {
   position: relative;
 }
 
+/* grid 子项默认 min-width:auto（= min-content），会被内部 max-content 内容（如晋级图列）撑开导致整页横向滚动 */
+.admin-content > * {
+  min-width: 0;
+}
+
 .admin-content .ant-card,
 .workspace-card {
   border-color: rgba(91, 67, 43, 0.12);
@@ -2259,6 +2264,9 @@ a {
 /* 晋级图：双败按战绩桶拆列（胜者组/败者组 R1、R2），单败一阶段一列，列间画晋级连线 */
 .bracket-board {
   margin-top: 12px;
+  /* 允许收缩到卡片宽度以内，超宽部分交给 .bracket-board-scroller 内部横向滚动 */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .bracket-board-empty {
@@ -2307,7 +2315,8 @@ a {
   position: relative;
   z-index: 1;
   display: flex;
-  align-items: flex-start;
+  /* 各列等高：配合列体 space-around，卡片少的列垂直居中分布，形成扇形/三角趋势 */
+  align-items: stretch;
   gap: 56px;
   width: max-content;
 }
@@ -2315,6 +2324,8 @@ a {
 .bracket-column {
   width: 248px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .bracket-column-head {
@@ -2322,6 +2333,8 @@ a {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 10px;
+  /* 列头等高，保证各列卡片区起点一致 */
+  min-height: 48px;
 }
 
 .bracket-column-title {
@@ -2337,8 +2350,28 @@ a {
 
 .bracket-column-body {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  justify-content: space-around;
   gap: 16px;
+}
+
+/* 卡片点击区：点击选中该场 → 只显示与它相关的晋级连线 */
+.bracket-card-hitbox {
+  display: block;
+  cursor: pointer;
+}
+
+/* 卡片选中态（连线高亮时） */
+.bracket-card.bracket-card-active {
+  border-color: #d48806;
+  box-shadow: 0 0 0 2px rgba(212, 136, 6, 0.28);
+}
+
+/* 图例提示文案 */
+.bracket-legend-hint {
+  margin-left: 8px;
+  color: rgba(47, 36, 24, 0.45);
 }
 
 /* 卡片需有不透明底色，避免连线从卡片下透出；左右不设内边距，让槽位色条贴到卡片边缘 */

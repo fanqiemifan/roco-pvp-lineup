@@ -583,8 +583,13 @@ function generateDraftPairs(
     let ordered: string[];
     if (stage.pairing === 'random-round') {
       ordered = shuffleInPlace([...players], rng);
-    } else {
+    } else if (stageIndex === 0) {
+      // 首轮：按标准种子位配对（仅整个系列赛的第一阶段这一次）
       ordered = bracketPositions(players.length).map((position) => players[position]);
+    } else {
+      // 后续阶段：entries 已按上一阶段对阵树顺序排列（progressFromWave），
+      // 直接相邻配对即可延续固定对阵树，避免每轮重新种子导致相邻两场胜者不相遇
+      ordered = players;
     }
     return pairsFromOrdered(ordered, undefined);
   }
@@ -912,6 +917,37 @@ function applyGameResult(
   }
 }
 
+/** 节点序号（`s0-w2-n03` → 3），解析失败排到末尾 */
+function parseNodeIndex(nodeId: string): number {
+  const matched = /-n(\d+)$/.exec(nodeId);
+  return matched ? Number(matched[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * 晋级选手在上一阶段的「对阵树位置」：取该选手获胜节点的 (waveIndex, nodeIndex)。
+ * 单败阶段每人只打一场，等价于按节点序号；双败阶段则胜者组出线者在前、败者组出线者随后。
+ * 用于换批进入下一阶段时保持对阵树顺序（而非全局种子序），使相邻两场胜者相遇。
+ */
+function bracketOrderOfStage(record: TournamentRecord, stageIndex: number): Map<string, number> {
+  const order = new Map<string, number>();
+  record.waves
+    .filter((wave) => wave.stageIndex === stageIndex)
+    .forEach((wave) => {
+      wave.nodes.forEach((node) => {
+        if (!node.winnerId) {
+          return;
+        }
+        // 同一选手可能多次获胜（双败），取最靠后的波次作为其晋级节点
+        const key = wave.waveIndex * 1000 + parseNodeIndex(node.id);
+        const current = order.get(node.winnerId);
+        if (current === undefined || key > current) {
+          order.set(node.winnerId, key);
+        }
+      });
+    });
+  return order;
+}
+
 /** 波次完成后的阶段/波次推进 */
 function progressFromWave(
   paths: AppPaths,
@@ -937,13 +973,19 @@ function progressFromWave(
       return;
     }
 
-    // 进入下一阶段：promoted 选手换批清零（按全局种子顺序稳定排列）
+    // 进入下一阶段：promoted 选手换批清零，按上一阶段对阵树顺序排列（保持固定对阵树）
     const nextStageIndex = wave.stageIndex + 1;
     record.currentStageIndex = nextStageIndex;
+    const bracketOrder = bracketOrderOfStage(record, wave.stageIndex);
     const promotedIds = record.entries
       .filter((entry) => entry.state === 'promoted')
-      .map((entry) => entry.playerId)
-      .sort((a, b) => record.playerIds.indexOf(a) - record.playerIds.indexOf(b));
+      .map((entry, index) => ({ playerId: entry.playerId, index }))
+      .sort((left, right) => {
+        const leftKey = bracketOrder.get(left.playerId) ?? Number.MAX_SAFE_INTEGER;
+        const rightKey = bracketOrder.get(right.playerId) ?? Number.MAX_SAFE_INTEGER;
+        return leftKey - rightKey || left.index - right.index;
+      })
+      .map((item) => item.playerId);
     record.entries = initialEntries(promotedIds);
     materializeWave(paths, record, nextStageIndex, 1);
     return;
