@@ -102,7 +102,7 @@ export async function forfeitApi(
 
 /**
  * 删除系列赛：默认仅解除对局关联（对局保留为普通比赛）；
- * deleteRelatedMatches=true 时连同关联对局一并删除（比赛历史可「撤回最近删除」）。
+ * deleteRelatedMatches=true 时连同关联对局一并删除（比赛管理可「撤回最近删除」）。
  */
 export async function deleteTournamentApi(
   tournamentId: string,

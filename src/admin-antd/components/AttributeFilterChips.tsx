@@ -9,7 +9,7 @@ type AttributeFilterChipsProps = {
 };
 
 /**
- * 精灵属性筛选 chips：图标 + 属性文案，赛事面板阵容编辑器与比赛历史「录入阵容」弹窗共用，
+ * 精灵属性筛选 chips：图标 + 属性文案，赛事面板阵容编辑器与比赛管理「录入阵容」弹窗共用，
  * 改动需同时兼顾两处。chip 宽度不足以容纳文案时（container query）自动退化为纯图标，
  * 此时仍保留 title/aria-label 的悬浮提示与无障碍语义。
  */

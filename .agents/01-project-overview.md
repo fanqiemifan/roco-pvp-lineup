@@ -88,9 +88,9 @@ roco-pvp-lineup/
 |---------|------|
 | App.tsx | 主组件：九视图分发（roster/stage/live/history/profiles/page11/stats/preview/about）、可收缩 Sider 导航（SVG 图标 via `?raw`）、工具栏 |
 | views/RosterPanelEditor.tsx | 阵容编辑（左右面板、精灵搜索、快速填充） |
-| views/HistoryLineupEntryModal.tsx | 比赛历史「录入阵容」弹窗（为待开始小局录入双方阵容） |
+| views/HistoryLineupEntryModal.tsx | 比赛管理「录入阵容」弹窗（为待开始小局录入双方阵容） |
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、标签趋势） |
-| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛历史推流选场卡片+弹窗）、BracketBoard（系列赛晋级图）等小组件 |
+| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、BracketBoard（系列赛晋级图）等小组件 |
 | lib/ | format、history、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |

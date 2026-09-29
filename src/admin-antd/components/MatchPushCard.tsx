@@ -75,7 +75,7 @@ function versusText(match: MatchRecord): string {
 }
 
 /**
- * 比赛历史上方的推流功能卡片：展示已选摘要，点击后弹出比赛历史详情选场弹窗。
+ * 比赛管理上方的推流功能卡片：展示已选摘要，点击后弹出比赛管理详情选场弹窗。
  * 弹窗内勾选（勾选顺序即卡片场序）、上移/下移调整、page6/8 可编辑标题与场序时间。
  */
 export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushing, onPush }: MatchPushCardProps) {

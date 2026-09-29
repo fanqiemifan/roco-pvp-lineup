@@ -156,6 +156,7 @@ import rosterIcon from '../assets/ui/赛事面板.svg?raw';
 import stageIcon from '../assets/ui/直播推流.svg?raw';
 import liveIcon from '../assets/ui/实时控制.svg?raw';
 import mvpIcon from '../assets/ui/结算页面.svg?raw';
+// 图标沿用原「比赛历史」素材文件名，改文案时别动这里
 import historyIcon from '../assets/ui/比赛历史.svg?raw';
 import profilesIcon from '../assets/ui/信息录入.svg?raw';
 import introIcon from '../assets/ui/选手介绍.svg?raw';
@@ -218,7 +219,7 @@ const VIEW_LABEL: Record<NavIconName, string> = {
   stage: '直播推流',
   live: '实时控制',
   mvp: '结算画面',
-  history: '比赛历史',
+  history: '比赛管理',
   profiles: '信息录入',
   page11: '选手介绍',
   stats: '数据统计',
@@ -493,7 +494,7 @@ function Dashboard() {
   const avatarBatchInputRef = useRef<HTMLInputElement | null>(null);
   const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
-  // 比赛历史「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
+  // 比赛管理「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
   // === 数据同步（双机同步包导出 / 导入） ===
   const [machineCodeInput, setMachineCodeInput] = useState('');
@@ -1267,7 +1268,7 @@ function Dashboard() {
             选手信息与当前小局阵容（比分栏、推流页面1-3 会被覆盖）。
           </Paragraph>
           <Paragraph type="secondary">
-            如当前正在推流其他对局，请先确认再切换。阵容可在「比赛历史」中提前录入，无需切换当前赛事。
+            如当前正在推流其他对局，请先确认再切换。阵容可在「比赛管理」中提前录入，无需切换当前赛事。
           </Paragraph>
           <Checkbox onChange={(event) => { suppressNextTime = event.target.checked; }}>
             不再提示
@@ -1954,7 +1955,7 @@ function Dashboard() {
     }
   }
 
-  // 比赛历史上方三个功能卡片的统一推送：选场弹窗确认后调用，失败时抛错以保持弹窗打开
+  // 比赛管理上方三个功能卡片的统一推送：选场弹窗确认后调用，失败时抛错以保持弹窗打开
   async function pushMatchesForPage(kind: MatchPushKind, payload: MatchPushPayload): Promise<void> {
     setMatchPushLoading((prev) => ({ ...prev, [kind]: true }));
     let nextText = '';
@@ -3260,7 +3261,7 @@ function Dashboard() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = '比赛历史.csv';
+    link.download = '比赛管理.csv';
     link.click();
     URL.revokeObjectURL(url);
     message.success(`已导出 ${sortedMatches.length} 场赛事历史`);
@@ -3832,7 +3833,7 @@ function Dashboard() {
           {view === 'history' ? (
             <Space direction="vertical" size={18} className="page-stack">
               <Card
-                title="比赛历史"
+                title="比赛管理"
                 extra={(
                   <Space wrap>
                     <Button onClick={exportHistoryCsv} disabled={!filteredMatches.length}>导出 CSV</Button>
@@ -3947,7 +3948,12 @@ function Dashboard() {
                   pagination={{
                     defaultPageSize: 10,
                     pageSizeOptions: ['10', '20', '50', '100'],
-                    showSizeChanger: true,
+                    showSizeChanger: {
+                      // 下拉挂到 body：表格在卡片底部，触发器父链上的层叠上下文/包含块会让下拉算错位置或被裁掉
+                      getPopupContainer: () => document.body,
+                      // 下拉宽度按选项内容自适应：跟随「10 条/页」这个很窄的触发器会把选项文字裁没
+                      popupMatchSelectWidth: false,
+                    },
                     showTotal: (total, range) => `${range[0]}-${range[1]} / 共 ${total} 条`,
                   }}
                   rowSelection={{
@@ -5471,7 +5477,7 @@ function Dashboard() {
                   </Row>
                   {previewSlot === 'page6' || previewSlot === 'page7' || previewSlot === 'page8' ? (
                     <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                      对局选择与推送在「比赛历史」视图顶部的功能卡片中完成：点击对应卡片，在弹窗内勾选比赛、调整场序{previewSlot === 'page6' || previewSlot === 'page8' ? '与场序时间' : ''}后确认推送（最多 {PAGE8_MAX_MATCHES} 场）。
+                      对局选择与推送在「比赛管理」视图顶部的功能卡片中完成：点击对应卡片，在弹窗内勾选比赛、调整场序{previewSlot === 'page6' || previewSlot === 'page8' ? '与场序时间' : ''}后确认推送（最多 {PAGE8_MAX_MATCHES} 场）。
                     </Paragraph>
                   ) : null}
                   <div className="preview-frame-shell" ref={previewFrameShellRef}>

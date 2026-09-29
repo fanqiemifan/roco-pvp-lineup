@@ -1127,7 +1127,7 @@ export function onMatchUndo(paths: AppPaths, matchId: string): TournamentRecord 
         .flatMap((item) => item.nodes.map((trailingNode) => trailingNode.matchId))
         .filter((id): id is string => Boolean(id));
       if (trailingMatchIds.length) {
-        // 与 rollbackWave 同口径：软删（可在比赛历史「撤回最近删除」恢复）
+        // 与 rollbackWave 同口径：软删（可在比赛管理「撤回最近删除」恢复）
         deleteMatches(paths, trailingMatchIds);
       }
       record.waves = record.waves.slice(0, globalIndex + 1);
@@ -1421,7 +1421,7 @@ export function importPairings(
 
 export interface DeleteTournamentResult {
   tournamentId: string;
-  /** 受影响的比赛 id（已解绑；matchesDeleted=true 时已一并删除，可在比赛历史撤回） */
+  /** 受影响的比赛 id（已解绑；matchesDeleted=true 时已一并删除，可在比赛管理撤回） */
   matchIds: string[];
   /** true = 比赛连同系列赛一并删除（进撤销栈）；false = 比赛保留为普通对局 */
   matchesDeleted: boolean;

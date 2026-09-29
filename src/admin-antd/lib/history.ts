@@ -57,7 +57,7 @@ export function getVisibleGames(record: MatchRecord) {
 }
 
 /**
- * 比赛历史展开行的小局可见性：在 getVisibleGames 基础上，额外显示
+ * 比赛管理展开行的小局可见性：在 getVisibleGames 基础上，额外显示
  * 「未开赛场次的当前小局」（待开始且还没有任何阵容）——否则新比赛在历史里
  * 连第一局的卡片都不出现，无法通过历史录入阵容（必须先去赛事面板录一只精灵）。
  * 还没轮到的空小局仍然隐藏。
@@ -75,7 +75,7 @@ export function getHistoryVisibleGames(record: MatchRecord) {
   ));
 }
 
-/** 比赛历史「录入阵容」被锁定的原因；null = 可录入（当前小局且待开始） */
+/** 比赛管理「录入阵容」被锁定的原因；null = 可录入（当前小局且待开始） */
 export type LineupEntryBlockReason = 'match-completed' | 'game-not-current' | 'game-started' | 'game-completed';
 
 export const LINEUP_ENTRY_BLOCK_TEXT: Record<LineupEntryBlockReason, string> = {
@@ -86,7 +86,7 @@ export const LINEUP_ENTRY_BLOCK_TEXT: Record<LineupEntryBlockReason, string> = {
 };
 
 /**
- * 仅「当前小局」且「待开始」可从比赛历史录入阵容（提前录入，不影响推流）：
+ * 仅「当前小局」且「待开始」可从比赛管理录入阵容（提前录入，不影响推流）：
  * 进行中的局走赛事面板（改了会推流，是有意为之），已结束的局锁定保护战绩。
  */
 export function getLineupEntryBlockReason(match: MatchRecord, game: GameRecord): LineupEntryBlockReason | null {

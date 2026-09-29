@@ -124,7 +124,7 @@ export interface MatchRecord {
 export interface MatchStoreState {
   activeMatchId: string | null;
   matches: MatchRecord[];
-  /** 操作撤销能力（与页面上的「比赛历史」无关，纯 UI 撤销栈状态） */
+  /** 操作撤销能力（与页面上的「比赛管理」无关，纯 UI 撤销栈状态） */
   undo: {
     canUndo: boolean;
     canRedo: boolean;

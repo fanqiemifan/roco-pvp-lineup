@@ -1277,7 +1277,7 @@ export async function createLocalServer(
     }
   });
 
-  // 比赛历史「录入阵容」：只写指定赛事当前小局（待开始）的双方阵容记录，一次写入
+  // 比赛管理「录入阵容」：只写指定赛事当前小局（待开始）的双方阵容记录，一次写入
   // 单次广播 matchesUpdate（避免推流页因两次事件重渲染两遍产生闪烁），不触碰面板/比分栏
   app.post('/api/matches/:matchId/games/:gameNumber/lineup', (request, response) => {
     const selections = request.body?.selections;

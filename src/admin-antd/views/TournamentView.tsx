@@ -89,7 +89,7 @@ export function TournamentView({
   const { message } = App.useApp();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // 删除系列赛确认弹窗：deleteWithMatches=连同关联对局一起删（可在比赛历史撤回）
+  // 删除系列赛确认弹窗：deleteWithMatches=连同关联对局一起删（可在比赛管理撤回）
   const [deleteTarget, setDeleteTarget] = useState<TournamentRecord | null>(null);
   const [deleteWithMatches, setDeleteWithMatches] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
@@ -103,7 +103,7 @@ export function TournamentView({
       const result = await deleteTournamentApi(deleteTarget.id, deleteWithMatches);
       message.success(
         result.matchesDeleted
-          ? `已删除系列赛及其 ${result.matchIds.length} 场对局（可在比赛历史撤回）`
+          ? `已删除系列赛及其 ${result.matchIds.length} 场对局（可在比赛管理撤回）`
           : result.matchIds.length > 0
             ? `已删除系列赛，${result.matchIds.length} 场对局已转为普通对局`
             : '已删除系列赛',
@@ -268,7 +268,7 @@ export function TournamentView({
                       checked={deleteWithMatches}
                       onChange={(event) => setDeleteWithMatches(event.target.checked)}
                     >
-                      同时删除这 {summary.total} 场对局（之后仍可在比赛历史「撤回最近删除」恢复）
+                      同时删除这 {summary.total} 场对局（之后仍可在比赛管理「撤回最近删除」恢复）
                     </Checkbox>
                     {!deleteWithMatches ? (
                       <Text type="secondary">
@@ -436,7 +436,7 @@ function TournamentDetail({
             已淘汰
           </Text>
           <Text type="secondary">
-            比赛标签自动写入（赛事名 / 阶段名 / W波次），可在比赛历史筛选
+            比赛标签自动写入（赛事名 / 阶段名 / W波次），可在比赛管理筛选
           </Text>
         </Space>
       ) : null}
