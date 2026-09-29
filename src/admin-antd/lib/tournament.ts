@@ -375,7 +375,7 @@ export interface BracketColumn {
   stageName: string;
   /** 阶段赛制标签：双败 / 单败 */
   formatLabel: string;
-  /** 列标题：双败为轮次名（阶段首列附阶段名、决胜列附「决出N强」）；单败为阶段名 */
+  /** 列标题：双败为轮次名（决胜列附「决出N强」）；单败无轮次细分 → 空串（阶段名由分组头承载） */
   label: string;
   status: TournamentWave['status'];
   statusLabel: string;
@@ -432,20 +432,15 @@ function getRoundOrder(bucketKey: string): number {
   return DOUBLE_LIFE_ROUND_ORDER[bucketKey] ?? Number.MAX_SAFE_INTEGER;
 }
 
-/** 列标题：双败为轮次名（首列附阶段名、决胜列附决出人数），单败直接用阶段名 */
-function buildColumnLabel(
-  stage: StageRule,
-  waveIndex: number,
-  promotedCount: number,
-  bucketKey?: string,
-): string {
+/**
+ * 列标题：双败为轮次名（决胜列附决出人数）；单败一阶段一列、无轮次细分，返回空串。
+ * 阶段名不在这里重复 —— BracketBoard 把同一阶段的列包进带阶段横幅的区块，由横幅承载。
+ */
+function buildColumnLabel(waveIndex: number, promotedCount: number, bucketKey?: string): string {
   if (!bucketKey) {
-    return stage.name;
+    return '';
   }
   const parts = [DOUBLE_LIFE_ROUND_LABELS[bucketKey] ?? `第 ${waveIndex} 波`];
-  if (bucketKey === DOUBLE_LIFE_OPENING_BUCKET) {
-    parts.push(stage.name);
-  }
   if (bucketKey === DOUBLE_LIFE_DECIDER_BUCKET && promotedCount >= 2) {
     parts.push(`决出${promotedCount}强`);
   }
@@ -766,7 +761,7 @@ export function buildBracketGraph(
         bucketKey: seed.bucketKey,
         stageName: stage.name,
         formatLabel: stage.format === 'double-life' ? '双败' : '单败',
-        label: buildColumnLabel(stage, seed.waveIndex, promotedCount, seed.bucketKey),
+        label: buildColumnLabel(seed.waveIndex, promotedCount, seed.bucketKey),
         status: seed.wave.status,
         statusLabel: getWaveStatusLabel(seed.wave.status),
         pairingStatus: seed.wave.pairingStatus,

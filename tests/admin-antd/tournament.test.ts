@@ -494,7 +494,7 @@ describe('buildBracketGraph（晋级图数据源）', () => {
     ]);
     expect(graph.columns.map((column) => column.bucketKey)).toEqual(['0-0', '0-1', '1-0', '1-1']);
     expect(graph.columns.map((column) => column.label)).toEqual([
-      '胜者组 R1 · 8进4',
+      '胜者组 R1',
       '败者组 R1',
       '胜者组 R2',
       '败者组 R2 · 决出4强',
@@ -632,7 +632,8 @@ describe('buildBracketGraph（晋级图数据源）', () => {
     // waves 乱序输入 → 列按阶段/波次升序（单败一阶段一列，无桶）
     expect(graph.columns.map((column) => column.key)).toEqual(['0-1-0-0', '1-1-all']);
     expect(graph.columns[1].bucketKey).toBeUndefined();
-    expect(graph.columns[1].label).toBe('4进2');
+    // 单败无轮次细分：列标题留空，阶段名由晋级图的分组头承载
+    expect(graph.columns[1].label).toBe('');
     expect(graph.columns[1].formatLabel).toBe('单败');
     expect(graph.columns[1].cards[0].playerA.from).toEqual({ nodeId: 's0-w1-n00', kind: 'w' });
     expect(graph.columns[1].cards[0].playerB.from).toEqual({ nodeId: 's0-w1-n01', kind: 'w' });
@@ -754,7 +755,7 @@ describe('buildBracketGraph（晋级图数据源）', () => {
     const column = graph.columns[0];
     expect(column.pairingStatus).toBe('draft');
     expect(column.bucketKey).toBe('0-0');
-    expect(column.label).toBe('胜者组 R1 · 8进4');
+    expect(column.label).toBe('胜者组 R1');
     expect(column.cards).toEqual([]);
     expect(column.draftPairs).toEqual([
       { bucketKey: '0-0', a: '选手0', b: '选手1' },

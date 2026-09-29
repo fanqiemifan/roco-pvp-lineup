@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Empty, Modal, Space, Tag, Typography } from 'antd';
 import type { MatchRecord, TournamentNode, TournamentRecord } from '../../../shared/types';
-import { buildBracketGraph } from '../lib/tournament';
+import { buildBracketGraph, getStageState } from '../lib/tournament';
 import type { BracketCard, BracketColumn, BracketSlot } from '../lib/tournament';
 import { forfeitApi } from '../lib/tournament-api';
 import { TournamentNodeCard } from './TournamentNodeCard';
@@ -10,6 +10,16 @@ const { Text } = Typography;
 
 /** 拖动平移的启动阈值（px）：位移小于它按点击处理，避免点卡片时误触发平移 */
 const PAN_DRAG_THRESHOLD = 4;
+
+/** 阶段分组底色轮换数（与 styles.css 的 .bracket-stage-group-0..4 一一对应） */
+const STAGE_TINT_COUNT = 5;
+
+/** 阶段状态文案与配色（分组头右侧 Tag；口径与上方 Steps 的阶段进度一致） */
+const STAGE_STATE_META: Record<'done' | 'current' | 'pending', { label: string; color: string }> = {
+  done: { label: '已完成', color: 'success' },
+  current: { label: '进行中', color: 'processing' },
+  pending: { label: '未开始', color: 'default' },
+};
 
 /** 拖动平移过程状态（按住拖动 → 改滚动容器的 scrollLeft/scrollTop） */
 interface PanDragState {
@@ -47,6 +57,8 @@ function slotKey(nodeId: string, side: 'a' | 'b'): string {
  * 系列赛晋级图：双败按战绩桶拆列（胜者组/败者组 R1、R2），单败一阶段一列，节点即卡片，
  * 列间按「胜者实线 / 败者虚线」画晋级连线。槽位样式参照 bracket-reference：
  * 败者 = 左侧红条 + 文字置灰 + 半透明 + 比分块红底白字（无删除线）。
+ * 同一阶段的列包进一个带阶段横幅的淡色区块（相邻阶段轮换底色），
+ * 仅凭「胜者组 R2」这类各阶段重名的轮次文案也能定位所属阶段。
  * 连线坐标由真实 DOM 量测（getBoundingClientRect）后绘制，布局变化自动重算。
  */
 export function BracketBoard({
@@ -64,6 +76,23 @@ export function BracketBoard({
     const map = new Map<string, BracketCard>();
     graph.columns.forEach((column) => column.cards.forEach((card) => map.set(card.nodeId, card)));
     return map;
+  }, [graph]);
+
+  /**
+   * 按阶段把列分组：列已按阶段升序排列，同一阶段的相邻列（双败按桶拆出的
+   * 胜者组 R1 → 败者组 R1 → 胜者组 R2 → 败者组 R2）合成一个区块，单败一阶段一组。
+   */
+  const stageGroups = useMemo(() => {
+    const groups: Array<{ stageIndex: number; columns: BracketColumn[] }> = [];
+    graph.columns.forEach((column) => {
+      const last = groups[groups.length - 1];
+      if (last && last.stageIndex === column.stageIndex) {
+        last.columns.push(column);
+      } else {
+        groups.push({ stageIndex: column.stageIndex, columns: [column] });
+      }
+    });
+    return groups;
   }, [graph]);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -382,6 +411,49 @@ export function BracketBoard({
     );
   }
 
+  /** 一列 = 一波（双败再按桶细分）；列头只留轮次名与波状态，阶段信息统一由分组头承载 */
+  function renderColumn(column: BracketColumn): React.ReactElement {
+    return (
+      <div className="bracket-column" key={column.key}>
+        <div className="bracket-column-head">
+          {column.label ? <div className="bracket-column-title">{column.label}</div> : null}
+          <Space size={4} wrap>
+            <Tag color={
+              column.status === 'completed'
+                ? 'success'
+                : column.status === 'running'
+                  ? 'processing'
+                  : 'default'
+            }>
+              {column.statusLabel}
+            </Tag>
+          </Space>
+        </div>
+
+        <div className="bracket-column-body">
+          {column.pairingStatus === 'draft' ? (
+            <div className="bracket-draft">
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                配对草稿（未建场），请到「波次列表」完成配对确认
+              </Text>
+              {column.draftPairs.length === 0 ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>暂无候选配对</Text>
+              ) : column.draftPairs.map((pair, index) => (
+                <div className="bracket-draft-row" key={`${pair.a}-${pair.b}-${index}`}>
+                  <span>{pair.a || '待定'}</span>
+                  <Text type="secondary">vs</Text>
+                  <span>{pair.b || '待定'}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            column.cards.map((card) => renderCard(card, column))
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (graph.columns.length === 0) {
     return <Empty className="bracket-board-empty" description="尚未产生对阵（开赛后生成首波）" />;
   }
@@ -443,50 +515,31 @@ export function BracketBoard({
         </svg>
 
         <div className="bracket-board-columns" ref={columnsRef}>
-          {graph.columns.map((column) => (
-            <div className="bracket-column" key={column.key}>
-              <div className="bracket-column-head">
-                <div className="bracket-column-title">
-                  {column.label}
-                  <Text type="secondary" className="bracket-column-wave">
-                    {column.formatLabel}
+          {stageGroups.map((group) => {
+            const stage = record.stages[group.stageIndex];
+            const stageState = STAGE_STATE_META[getStageState(record, group.stageIndex)];
+            return (
+              <section
+                className={`bracket-stage-group bracket-stage-group-${group.stageIndex % STAGE_TINT_COUNT}`}
+                key={`stage-${group.stageIndex}`}
+              >
+                <div className="bracket-stage-head">
+                  <span className="bracket-stage-index">{group.stageIndex + 1}</span>
+                  <span className="bracket-stage-title">{group.columns[0].stageName}</span>
+                  <Text type="secondary" className="bracket-stage-meta">
+                    {group.columns[0].formatLabel}
+                    {stage ? ` · BO${stage.bestOf}` : ''}
                   </Text>
-                </div>
-                <Space size={4} wrap>
-                  <Tag color={
-                    column.status === 'completed'
-                      ? 'success'
-                      : column.status === 'running'
-                        ? 'processing'
-                        : 'default'
-                  }>
-                    {column.statusLabel}
+                  <Tag className="bracket-stage-status" color={stageState.color}>
+                    {stageState.label}
                   </Tag>
-                </Space>
-              </div>
-
-              <div className="bracket-column-body">
-                {column.pairingStatus === 'draft' ? (
-                  <div className="bracket-draft">
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      配对草稿（未建场），请到「波次列表」完成配对确认
-                    </Text>
-                    {column.draftPairs.length === 0 ? (
-                      <Text type="secondary" style={{ fontSize: 12 }}>暂无候选配对</Text>
-                    ) : column.draftPairs.map((pair, index) => (
-                      <div className="bracket-draft-row" key={`${pair.a}-${pair.b}-${index}`}>
-                        <span>{pair.a || '待定'}</span>
-                        <Text type="secondary">vs</Text>
-                        <span>{pair.b || '待定'}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  column.cards.map((card) => renderCard(card, column))
-                )}
-              </div>
-            </div>
-          ))}
+                </div>
+                <div className="bracket-stage-columns">
+                  {group.columns.map((column) => renderColumn(column))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       </div>
 

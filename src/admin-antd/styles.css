@@ -2340,10 +2340,100 @@ a {
   position: relative;
   z-index: 1;
   display: flex;
-  /* 各列等高：配合列体 space-around，卡片少的列垂直居中分布，形成扇形/三角趋势 */
+  /* 阶段区块等高：配合组内列体 space-around，卡片少的列垂直居中分布，形成扇形/三角趋势 */
+  align-items: stretch;
+  gap: 20px;
+  width: max-content;
+}
+
+/* 阶段分组区块：同一阶段的列（双败按桶拆出的胜者组 R1 → 败者组 R1 → 胜者组 R2 → 败者组 R2）
+   共处一个淡色区块，相邻阶段轮换底色（stageIndex % 5 → -0..-4），
+   仅凭「胜者组 R2」这类各阶段重名的轮次文案也能定位所属阶段 */
+.bracket-stage-group {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--stage-group-border, rgba(91, 67, 43, 0.16));
+  border-radius: 14px;
+  background: var(--stage-group-bg, rgba(91, 67, 43, 0.03));
+}
+
+.bracket-stage-group-0 {
+  --stage-group-bg: rgba(22, 119, 255, 0.05);
+  --stage-group-border: rgba(22, 119, 255, 0.22);
+  --stage-group-accent: #1677ff;
+}
+
+.bracket-stage-group-1 {
+  --stage-group-bg: rgba(45, 122, 88, 0.055);
+  --stage-group-border: rgba(45, 122, 88, 0.24);
+  --stage-group-accent: #2d7a58;
+}
+
+.bracket-stage-group-2 {
+  --stage-group-bg: rgba(212, 136, 6, 0.06);
+  --stage-group-border: rgba(212, 136, 6, 0.26);
+  --stage-group-accent: #d48806;
+}
+
+.bracket-stage-group-3 {
+  --stage-group-bg: rgba(114, 46, 209, 0.05);
+  --stage-group-border: rgba(114, 46, 209, 0.22);
+  --stage-group-accent: #722ed1;
+}
+
+.bracket-stage-group-4 {
+  --stage-group-bg: rgba(19, 194, 194, 0.055);
+  --stage-group-border: rgba(19, 194, 194, 0.24);
+  --stage-group-accent: #13c2c2;
+}
+
+/* 阶段横幅：左侧序号圆标 + 阶段名 + 赛制·BO，状态 Tag 靠右 */
+.bracket-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--stage-group-border, rgba(91, 67, 43, 0.16));
+}
+
+.bracket-stage-index {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--stage-group-accent, #8c6a4a);
+}
+
+.bracket-stage-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.bracket-stage-meta {
+  font-size: 12px;
+}
+
+/* 阶段状态 Tag 靠右，并去掉 antd Tag 默认的右外边距 */
+.bracket-stage-status {
+  margin-left: auto;
+  margin-inline-end: 0;
+}
+
+/* 阶段内的列：列间距即晋级连线穿越的空隙 */
+.bracket-stage-columns {
+  display: flex;
+  flex: 1;
   align-items: stretch;
   gap: 56px;
-  width: max-content;
 }
 
 .bracket-column {
@@ -2358,19 +2448,13 @@ a {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 10px;
-  /* 列头等高，保证各列卡片区起点一致 */
+  /* 列头等高，保证阶段内各列卡片区起点一致 */
   min-height: 48px;
 }
 
 .bracket-column-title {
   font-weight: 700;
   font-size: 13px;
-}
-
-.bracket-column-wave {
-  margin-left: 6px;
-  font-size: 12px;
-  font-weight: 400;
 }
 
 .bracket-column-body {
