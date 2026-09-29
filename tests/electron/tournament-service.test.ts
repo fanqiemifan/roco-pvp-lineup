@@ -206,6 +206,30 @@ describe('createTournament', () => {
     expect(firstMatch?.bestOf).toBe(7);
   });
 
+  it('总决赛阶段（只剩 2 人）必须为单败：双败末阶段拒绝', () => {
+    // 4 人两阶段：s0 有 4 人、s1 只剩 2 人 → s1 是总决赛，必须单败
+    const twoStages = (lastFormat: 'double-life' | 'single-elim') => ({
+      name: '决赛杯',
+      playerIds: seedPlayers(4),
+      seed: 42,
+      stages: [
+        { name: '4进2', format: 'single-elim' as const, bestOf: 1, pairing: 'bracket-seed' as const },
+        { name: '总决赛', format: lastFormat, bestOf: 3, pairing: lastFormat === 'double-life' ? 'random-bucket' as const : 'bracket-seed' as const },
+      ],
+    });
+    expect(() => createTournament(paths, twoStages('double-life'))).toThrow(/总决赛阶段必须为单败/);
+    expect(createTournament(paths, twoStages('single-elim')).stages).toHaveLength(2);
+
+    // 8 人只配一个双败阶段：该阶段是「最后一个」但有 8 人（不是总决赛），仍然允许
+    const single = createTournament(paths, {
+      name: '单阶段双败',
+      playerIds: seedPlayers(8),
+      seed: 42,
+      stages: [{ name: '8进4', format: 'double-life', bestOf: 1, pairing: 'random-bucket' }],
+    });
+    expect(single.stages[0].format).toBe('double-life');
+  });
+
   it('双败阶段误传单败配对方式时强制改回 random-bucket', () => {
     const playerIds = seedPlayers(4);
     const tournament = createTournament(paths, {

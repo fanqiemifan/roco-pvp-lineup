@@ -963,6 +963,14 @@ function expectedPairCount(
   return specs.reduce((sum, spec) => sum + spec.playerIds.length, 0) / 2;
 }
 
+/**
+ * 是否总决赛阶段：引擎每阶段晋级半额，人数逐阶段减半，只剩 2 人的那个阶段即总决赛。
+ * 与后端 createTournament 的校验同一判据（该阶段必须单败）。
+ */
+function isFinalStage(playerCount: number, stageIndex: number): boolean {
+  return playerCount / 2 ** stageIndex === 2;
+}
+
 /** 桶 key → 中文池名 */
 function bucketTitle(bucketKey: string): string {
   switch (bucketKey) {
@@ -1262,7 +1270,8 @@ function CreateTournamentModal({
                   size="small"
                   value={stages[index].format}
                   options={[
-                    { label: '双败', value: 'double-life' },
+                    // 只剩 2 人的阶段（总决赛）双败打不出冠军，且 2 人双败配不出 W2，故禁用
+                    { label: '双败', value: 'double-life', disabled: isFinalStage(playerIds.length, index) },
                     { label: '单败', value: 'single-elim' },
                   ]}
                   onChange={(value) => updateStage(index, { format: value as StageFormat })}
@@ -1340,6 +1349,11 @@ function CreateTournamentModal({
               ),
             },
           ]}
+          footer={() => (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              只剩 2 人的阶段（总决赛）固定为单败：该阶段双败既产出不了冠军，也配不出下一波
+            </Text>
+          )}
         />
       ) : null}
 

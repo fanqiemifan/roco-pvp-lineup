@@ -519,7 +519,7 @@ describe('buildBracketGraph（晋级图数据源）', () => {
     expect(first.playerB.score).toBe('1');
     expect(first.canForfeit).toBe(false);
     expect(first.isCrossBucket).toBe(false);
-    expect(first.playerA.stateText).toBe('0-0 存活');
+    expect(first.playerA.stateText).toBe('1-0 存活');
 
     // 未建场节点：状态按 winnerId 推断；败者组 R2 未开赛但已建场 → 可弃权
     const pending = graph.columns[3].cards[0];
@@ -644,24 +644,96 @@ describe('buildBracketGraph（晋级图数据源）', () => {
   });
 
   it('阶段内战绩写入槽位脚注（已晋级/已淘汰）', () => {
-    const record = makeRecord({ status: 'running' });
-    record.entries = [
-      { playerId: 'p0', stageWins: 2, stageLosses: 0, state: 'promoted' },
-      { playerId: 'p1', stageWins: 0, stageLosses: 2, state: 'eliminated' },
-    ];
-    record.waves = [
-      makeWave(0, 1, {
-        status: 'completed',
-        nodes: [makeNode('s0-w1-n00', 'p0', 'p1', { matchId: 'm1', winnerId: 'p0' })],
-      }),
-    ];
-    const graph = buildBracketGraph(record, names, [makeMatch('m1', { status: 'completed' })]);
+    // p0 连胜两场到 2-0 晋级、p1 两连败 0-2 淘汰；脚注按节点历史累计，不读 entries
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, {
+          status: 'completed',
+          nodes: [
+            makeNode('s0-w1-n00', 'p0', 'p1', { matchId: 'm1', winnerId: 'p0' }),
+            makeNode('s0-w1-n01', 'p2', 'p3', { matchId: 'm2', winnerId: 'p2' }),
+          ],
+        }),
+        makeWave(0, 2, {
+          status: 'completed',
+          nodes: [
+            makeNode('s0-w2-n00', 'p0', 'p2', { matchId: 'm3', winnerId: 'p0' }),
+            makeNode('s0-w2-n01', 'p1', 'p3', { matchId: 'm4', winnerId: 'p3' }),
+          ],
+        }),
+      ],
+    });
+    const graph = buildBracketGraph(record, names, [makeMatch('m3', { status: 'completed' })]);
 
-    const card = graph.columns[0].cards[0];
-    expect(card.playerA.stateText).toBe('2-0 已晋级');
-    expect(card.playerA.isWinner).toBe(true);
-    expect(card.playerB.stateText).toBe('0-2 已淘汰');
-    expect(card.playerB.isWinner).toBe(false);
+    const promoted = graph.columns.find((column) => column.key === '0-2-1-0')!.cards[0];
+    expect(promoted.playerA.stateText).toBe('2-0 已晋级');
+    expect(promoted.playerA.isWinner).toBe(true);
+
+    const eliminated = graph.columns.find((column) => column.key === '0-2-0-1')!.cards[0];
+    expect(eliminated.playerA.stateText).toBe('0-2 已淘汰');
+    expect(eliminated.playerA.isWinner).toBe(false);
+  });
+
+  it('阶段推进后回首看过往阶段：脚注仍是该阶段战绩，不显示新阶段的 0-0', () => {
+    // stage0（8进4 双败）三个阶段波全部打完 → stage1 已生成，entries 被换成 4 人 0-0/alive
+    const record = makeRecord({
+      status: 'running',
+      currentStageIndex: 1,
+      entries: ['p0', 'p4', 'p2', 'p6'].map((playerId): TournamentRecord['entries'][number] => ({
+        playerId,
+        stageWins: 0,
+        stageLosses: 0,
+        state: 'alive',
+      })),
+      waves: [
+        makeWave(0, 1, {
+          status: 'completed',
+          nodes: [
+            makeNode('s0-w1-n00', 'p0', 'p1', { matchId: 'm1', winnerId: 'p0' }),
+            makeNode('s0-w1-n01', 'p2', 'p3', { matchId: 'm2', winnerId: 'p2' }),
+            makeNode('s0-w1-n02', 'p4', 'p5', { matchId: 'm3', winnerId: 'p4' }),
+            makeNode('s0-w1-n03', 'p6', 'p7', { matchId: 'm4', winnerId: 'p6' }),
+          ],
+        }),
+        makeWave(0, 2, {
+          status: 'completed',
+          nodes: [
+            makeNode('s0-w2-n00', 'p0', 'p2', { matchId: 'm5', winnerId: 'p0' }),
+            makeNode('s0-w2-n01', 'p4', 'p6', { matchId: 'm6', winnerId: 'p4' }),
+            makeNode('s0-w2-n02', 'p1', 'p3', { matchId: 'm7', winnerId: 'p1' }),
+            makeNode('s0-w2-n03', 'p5', 'p7', { matchId: 'm8', winnerId: 'p5' }),
+          ],
+        }),
+        makeWave(0, 3, {
+          status: 'completed',
+          nodes: [
+            makeNode('s0-w3-n00', 'p2', 'p1', { matchId: 'm9', winnerId: 'p2' }),
+            makeNode('s0-w3-n01', 'p6', 'p5', { matchId: 'm10', winnerId: 'p6' }),
+          ],
+        }),
+        makeWave(1, 1, {
+          nodes: [
+            makeNode('s1-w1-n00', 'p0', 'p4', { matchId: 'm11', winnerId: 'p0' }),
+            makeNode('s1-w1-n01', 'p2', 'p6', { matchId: 'm12' }),
+          ],
+        }),
+      ],
+    });
+    const graph = buildBracketGraph(record, names, []);
+    const cardOf = (columnKey: string, nodeId: string) =>
+      graph.columns.find((column) => column.key === columnKey)?.cards.find((card) => card.nodeId === nodeId);
+
+    // 决胜波（败者组 R2）：胜者 2-1 已晋级、败者 1-2 已淘汰（此前会显示成 0-0 存活 / 空白）
+    expect(cardOf('0-3-1-1', 's0-w3-n00')?.playerA.stateText).toBe('2-1 已晋级');
+    expect(cardOf('0-3-1-1', 's0-w3-n00')?.playerB.stateText).toBe('1-2 已淘汰');
+    // 胜者组 R2 败者停在 1-1；败者组 R1 败者 0-2 淘汰
+    expect(cardOf('0-2-1-0', 's0-w2-n00')?.playerB.stateText).toBe('1-1 存活');
+    expect(cardOf('0-2-0-1', 's0-w2-n02')?.playerB.stateText).toBe('0-2 已淘汰');
+    // 下一阶段（单败）：已打完 1-0 已晋级 / 0-1 已淘汰，未开打 0-0 存活
+    expect(cardOf('1-1-all', 's1-w1-n00')?.playerA.stateText).toBe('1-0 已晋级');
+    expect(cardOf('1-1-all', 's1-w1-n00')?.playerB.stateText).toBe('0-1 已淘汰');
+    expect(cardOf('1-1-all', 's1-w1-n01')?.playerA.stateText).toBe('0-0 存活');
   });
 
   it('draft 波：候选配对解析成名字只读展示，节点为空', () => {
@@ -807,17 +879,14 @@ describe('buildWaveCards / getWaveRoundLabels（波次列表与晋级图同源�
 });
 
 describe('getPlayerStateText', () => {
-  it('按选手当前状态与战绩生成中文脚注；查不到/空 id 返回空串', () => {
-    const record = makeRecord({ status: 'running' });
-    record.entries = [
-      { playerId: 'p0', stageWins: 2, stageLosses: 0, state: 'promoted' },
-      { playerId: 'p1', stageWins: 0, stageLosses: 2, state: 'eliminated' },
-      { playerId: 'p2', stageWins: 1, stageLosses: 0, state: 'alive' },
-    ];
-    expect(getPlayerStateText(record, 'p0')).toBe('2-0 已晋级');
-    expect(getPlayerStateText(record, 'p1')).toBe('0-2 已淘汰');
-    expect(getPlayerStateText(record, 'p2')).toBe('1-0 存活');
-    expect(getPlayerStateText(record, 'p9')).toBe('');
-    expect(getPlayerStateText(record, null)).toBe('');
+  it('按赛制与阶段内战绩生成中文脚注；无战绩返回空串', () => {
+    expect(getPlayerStateText('double-life', { wins: 2, losses: 0 })).toBe('2-0 已晋级');
+    expect(getPlayerStateText('double-life', { wins: 0, losses: 2 })).toBe('0-2 已淘汰');
+    expect(getPlayerStateText('double-life', { wins: 1, losses: 0 })).toBe('1-0 存活');
+    expect(getPlayerStateText('double-life', { wins: 1, losses: 1 })).toBe('1-1 存活');
+    expect(getPlayerStateText('single-elim', { wins: 1, losses: 0 })).toBe('1-0 已晋级');
+    expect(getPlayerStateText('single-elim', { wins: 0, losses: 1 })).toBe('0-1 已淘汰');
+    expect(getPlayerStateText('single-elim', { wins: 0, losses: 0 })).toBe('0-0 存活');
+    expect(getPlayerStateText('double-life', undefined)).toBe('');
   });
 });

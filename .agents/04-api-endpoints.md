@@ -59,7 +59,7 @@
 |-------------|------|------|------|------|
 | 获取系列赛列表 | GET | /api/tournaments | 获取全部系列赛编排记录（公开 GET 未列入白名单——V1 仅管理端用，开启鉴权时需登录） | electron/socket-server.ts |
 | 获取系列赛详情 | GET | /api/tournaments/:tournamentId | 获取单个系列赛；不存在 404 | electron/socket-server.ts |
-| 创建系列赛 | POST | /api/tournaments | 创建 setup 草稿（body: name/playerIds/stages?/seed?）；playerIds 必须全部来自信息录入档案、人数 4/8/16/32；stages 省略时用 buildDefaultStages 默认模板；成功广播 tournament:update | electron/socket-server.ts |
+| 创建系列赛 | POST | /api/tournaments | 创建 setup 草稿（body: name/playerIds/stages?/seed?）；playerIds 必须全部来自信息录入档案、人数 4/8/16/32；stages 省略时用 buildDefaultStages 默认模板；**只剩 2 人的阶段（总决赛）必须为单败，否则 400「总决赛阶段必须为单败」**；成功广播 tournament:update | electron/socket-server.ts |
 | （重）抽签 | POST | /api/tournaments/:tournamentId/draw | 仅 setup 可用；按新 seed（body.seed 可传）重洗种子顺序、drawVersion +1；重抽结果只取决于 seed 与选手集合（从字典序做位置洗牌，可复现） | electron/socket-server.ts |
 | 首波对阵预览 | GET | /api/tournaments/:tournamentId/opening-wave | 只读：按当前 seed 走与 materializeWave 相同的 generateDraftPairs 返回首波配对（pairs），不落盘不建场；仅 setup 可用，开赛后/不存在 400。供抽签面板展示「重抽换了什么」 | electron/socket-server.ts |
 | 开赛 | POST | /api/tournaments/:tournamentId/start | setup → running，生成阶段 0 第 1 波：随机自动且无需确认 → 锁定并批量建场；手动配对/requireConfirm → 停在 draft。建场后另广播 matches:update | electron/socket-server.ts |

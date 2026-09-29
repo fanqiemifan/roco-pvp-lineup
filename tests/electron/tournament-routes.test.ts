@@ -158,6 +158,17 @@ describe('POST /api/tournaments', () => {
       name: '杯',
       playerIds: [ids[0], ids[0], ids[1], ids[2]],
     })).status).toBe(400);
+    // 总决赛（只剩 2 人的阶段）为双败：400 拒绝且不广播
+    const finalDoubleLife = await postJson('/api/tournaments', {
+      name: '杯',
+      playerIds: ids.slice(0, 4),
+      stages: [
+        { name: '4进2', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+        { name: '总决赛', format: 'double-life', bestOf: 3, pairing: 'random-bucket' },
+      ],
+    });
+    expect(finalDoubleLife.status).toBe(400);
+    expect(finalDoubleLife.data.error).toMatch(/总决赛阶段必须为单败/);
     await flushEvents();
     expect(tournamentUpdates).toBe(updatesBefore);
   });

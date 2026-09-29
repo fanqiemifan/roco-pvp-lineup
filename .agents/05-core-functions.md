@@ -43,7 +43,7 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 获取系列赛列表 | getTournamentStore | (paths: AppPaths) => TournamentRecord[] | 读 tournaments.json（逐条白名单规范化） |
-| 创建系列赛 | createTournament | (paths: AppPaths, payload: unknown) => TournamentRecord | body: name/playerIds/stages?/seed?；校验人数 4/8/16/32、无重复、全部来自档案；stages 省略用 buildDefaultStages；id = `T{日期}_{机器码}{NN}`；返回 setup 草稿 |
+| 创建系列赛 | createTournament | (paths: AppPaths, payload: unknown) => TournamentRecord | body: name/playerIds/stages?/seed?；校验人数 4/8/16/32、无重复、全部来自档案；stages 省略用 buildDefaultStages；**只剩 2 人的阶段（总决赛）必须为单败，否则抛「总决赛阶段必须为单败」**；id = `T{日期}_{机器码}{NN}`；返回 setup 草稿 |
 | （重）抽签 | redrawTournament | (paths: AppPaths, tournamentId: string, payload?: unknown) => TournamentRecord | 仅 setup；重洗种子顺序、drawVersion+1；从字典序做位置洗牌，同 seed 永远同结果 |
 | 首波对阵预览 | previewOpeningWave | (paths: AppPaths, tournamentId: string) => { pairs } | 只读：按当前 seed 调 generateDraftPairs 返回首波配对，不落盘不建场；仅 setup（否则抛错）。与开赛后实际 W1 节点逐场一致 |
 | 开赛 | startTournament | (paths: AppPaths, tournamentId: string) => TournamentRecord | setup→running，materialize 阶段0 W1（自动锁定或 draft） |

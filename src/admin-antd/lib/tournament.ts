@@ -1,7 +1,9 @@
+import { TOURNAMENT_TARGET_LOSSES, TOURNAMENT_TARGET_WINS } from '../../../shared/constants';
 import type {
   MatchRecord,
   PairingValidation,
   ProfileStoreState,
+  StageFormat,
   StageRule,
   TournamentNode,
   TournamentRecord,
@@ -521,6 +523,12 @@ function createBracketCardContext(
   // 取该场开打前的战绩入桶，与节点 id 序号无关；两侧战绩不等即跨桶
   const bucketByNode = new Map<string, string>();
   const crossBucketNodes = new Set<string>();
+  /**
+   * 节点结算后各选手的阶段内战绩（key = `节点id|选手id`），脚注文案用它。
+   * 不能读 record.entries：阶段推进时 entries 会被换成下一阶段的 0-0/alive，
+   * 回头看已完成阶段的卡片就会显示成「0-0 存活」（已淘汰者更是查不到、脚注空白）。
+   */
+  const recordAfterNode = new Map<string, { wins: number; losses: number }>();
   {
     let stageIndex = -1;
     let records = new Map<string, { wins: number; losses: number }>();
@@ -529,9 +537,6 @@ function createBracketCardContext(
         stageIndex = wave.stageIndex;
         records = new Map();
       }
-      if (record.stages[stageIndex]?.format !== 'double-life') {
-        return;
-      }
       const recordOf = (playerId: string | null): string | undefined => {
         if (!playerId) {
           return undefined;
@@ -539,28 +544,43 @@ function createBracketCardContext(
         const state = records.get(playerId);
         return `${state?.wins ?? 0}-${state?.losses ?? 0}`;
       };
+      if (record.stages[stageIndex]?.format === 'double-life') {
+        wave.nodes.forEach((node) => {
+          const keyA = recordOf(node.playerAId);
+          const keyB = recordOf(node.playerBId);
+          const key = keyA ?? keyB;
+          if (key) {
+            bucketByNode.set(node.id, key);
+          }
+          if (keyA && keyB && keyA !== keyB) {
+            crossBucketNodes.add(node.id);
+          }
+        });
+      }
+      // 本波结算：累计战绩供下一波推桶，同时记下每个节点结算后的战绩供脚注使用。
+      // 每人每波至多出场一次，因此在循环中读到的仍是各自的开打前战绩。
       wave.nodes.forEach((node) => {
-        const keyA = recordOf(node.playerAId);
-        const keyB = recordOf(node.playerBId);
-        const key = keyA ?? keyB;
-        if (key) {
-          bucketByNode.set(node.id, key);
-        }
-        if (keyA && keyB && keyA !== keyB) {
-          crossBucketNodes.add(node.id);
-        }
-      });
-      // 本波结算后再累计，供下一波推导桶
-      wave.nodes.forEach((node) => {
-        if (!node.winnerId) {
+        const before = (playerId: string): { wins: number; losses: number } =>
+          records.get(playerId) ?? { wins: 0, losses: 0 };
+        const winnerId = node.winnerId;
+        if (!winnerId) {
+          [node.playerAId, node.playerBId].forEach((playerId) => {
+            if (playerId) {
+              recordAfterNode.set(`${node.id}|${playerId}`, before(playerId));
+            }
+          });
           return;
         }
-        const loserId = node.playerAId === node.winnerId ? node.playerBId : node.playerAId;
-        const winner = records.get(node.winnerId) ?? { wins: 0, losses: 0 };
-        records.set(node.winnerId, { wins: winner.wins + 1, losses: winner.losses });
+        const loserId = node.playerAId === winnerId ? node.playerBId : node.playerAId;
+        const winner = before(winnerId);
+        const winnerAfter = { wins: winner.wins + 1, losses: winner.losses };
+        records.set(winnerId, winnerAfter);
+        recordAfterNode.set(`${node.id}|${winnerId}`, winnerAfter);
         if (loserId) {
-          const loser = records.get(loserId) ?? { wins: 0, losses: 0 };
-          records.set(loserId, { wins: loser.wins, losses: loser.losses + 1 });
+          const loser = before(loserId);
+          const loserAfter = { wins: loser.wins, losses: loser.losses + 1 };
+          records.set(loserId, loserAfter);
+          recordAfterNode.set(`${node.id}|${loserId}`, loserAfter);
         }
       });
     });
@@ -569,10 +589,14 @@ function createBracketCardContext(
   function buildCard(wave: TournamentWave, node: TournamentNode): BracketCard {
     const match = findNodeMatch(wave, matches, node);
     const status = getNodeStatus(node, match);
+    const format = record.stages[wave.stageIndex].format;
     const buildSlot = (playerId: string | null, score: number | undefined): BracketSlot => ({
       playerId,
       name: resolvePlayerName(names, playerId),
-      stateText: getPlayerStateText(record, playerId),
+      stateText: getPlayerStateText(
+        format,
+        playerId ? recordAfterNode.get(`${node.id}|${playerId}`) : undefined,
+      ),
       isWinner: Boolean(playerId) && node.winnerId === playerId,
       score: status === 'pending' || score === undefined ? '' : String(score),
       from: resolveFrom(playerId, node.id),
@@ -754,23 +778,20 @@ export function buildBracketGraph(
   return { columns, cardCount, completedCount };
 }
 
-/** 选手当前状态文案（节点脚注：已晋级/已淘汰/存活） */
+/**
+ * 节点脚注文案：该场结算后的阶段内战绩 + 状态（已晋级/已淘汰/存活）。
+ * 口径与后端 deriveState 一致（双败 2 胜晋级 / 2 负淘汰；单败一胜即晋级），
+ * 数据由 buildBracketCardContext 按节点历史累计得到（不读会随阶段切换重置的 entries）。
+ */
 export function getPlayerStateText(
-  record: TournamentRecord,
-  playerId: string | null,
+  format: StageFormat,
+  state: { wins: number; losses: number } | undefined,
 ): string {
-  if (!playerId) {
+  if (!state) {
     return '';
   }
-  const entry = record.entries.find((item) => item.playerId === playerId);
-  if (!entry) {
-    return '';
-  }
-  if (entry.state === 'promoted') {
-    return `${entry.stageWins}-${entry.stageLosses} 已晋级`;
-  }
-  if (entry.state === 'eliminated') {
-    return `${entry.stageWins}-${entry.stageLosses} 已淘汰`;
-  }
-  return `${entry.stageWins}-${entry.stageLosses} 存活`;
+  const promoted = format === 'single-elim' ? state.wins >= 1 : state.wins >= TOURNAMENT_TARGET_WINS;
+  const eliminated = format === 'single-elim' ? state.losses >= 1 : state.losses >= TOURNAMENT_TARGET_LOSSES;
+  const label = promoted ? '已晋级' : eliminated ? '已淘汰' : '存活';
+  return `${state.wins}-${state.losses} ${label}`;
 }

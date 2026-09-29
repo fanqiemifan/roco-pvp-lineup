@@ -399,6 +399,17 @@ export function createTournament(paths: AppPaths, payload: unknown): TournamentR
     }
   }
 
+  // 「总决赛」= 只剩 2 人的那个阶段（每阶段晋级半额，人数逐阶段减半）必须单败。
+  // 2 人双败跑不出来：打完 W1 后两人分别停在 1-0 / 0-1，谁都到不了 2 胜或 2 负，
+  // 接着生成的 W2 在两个「单人桶」里配不出任何一场，锁定校验会直接报「选手漏配」把系列赛卡死。
+  // 判据用阶段人数而不是「最后一个阶段」：自定义阶段列表的末阶段不一定是 2 人
+  // （例如只配一个 8 人双败阶段时末阶段是 8 人，那是能正常跑完的配置）。
+  stages.forEach((stage, index) => {
+    if (playerIds.length / 2 ** index === 2 && stage.format !== 'single-elim') {
+      throw new Error('总决赛阶段必须为单败');
+    }
+  });
+
   const now = new Date();
   const records = readRecords(paths);
   const id = allocateTournamentId(paths, records, now);
