@@ -524,11 +524,43 @@ describe('rollbackWave（波次回退）', () => {
     expect(getMatchStore(paths).matches).toHaveLength(4);
   });
 
-  it('波内比赛已有小局结果：拒绝回退', () => {
+  it('波内比赛部分进行（有完成有未打）：拒绝整体回退并提示逐场撤销', () => {
     const tournament = createSeries(8);
     const started = startTournament(paths, tournament.id);
     playMatchToEnd(started.waves[0].nodes[0].matchId ?? '', 'left');
-    expect(() => rollbackWave(paths, tournament.id)).toThrow(/已进行|结果/);
+    expect(() => rollbackWave(paths, tournament.id)).toThrow(/进行中|逐场/);
+  });
+
+  it('总决赛整波打完（系列赛已完赛）：回退复位决赛而非拒绝——比赛 pending、冠军撤销、波与系列赛重开', () => {
+    const tournament = createSeries(4);
+    const finalRecord = runWholeSeries(tournament.id);
+    expect(finalRecord.status).toBe('completed');
+    expect(finalRecord.result?.championId).toBeTruthy();
+
+    // 第一次回退：总决赛波复位（波保留）
+    let rolled = rollbackWave(paths, tournament.id);
+    const lastWave = rolled.waves[rolled.waves.length - 1];
+    expect(rolled.status).toBe('running');
+    expect(rolled.result).toBeUndefined();
+    expect(lastWave.status).toBe('running');
+    expect(lastWave.pairingStatus).toBe('locked');
+    expect(lastWave.nodes.every((node) => !node.winnerId)).toBe(true);
+    expect(rolled.currentStageIndex).toBe(1);
+    // entries = 决赛双方 alive 0-0
+    expect(rolled.entries).toHaveLength(2);
+    expect(rolled.entries.every((entry) =>
+      entry.state === 'alive' && entry.stageWins === 0 && entry.stageLosses === 0)).toBe(true);
+    // 决赛比赛已复位 pending
+    const finalMatchIds = new Set(lastWave.nodes.map((node) => node.matchId));
+    const finalMatches = getMatchStore(paths).matches.filter((match) => finalMatchIds.has(match.id));
+    expect(finalMatches).toHaveLength(1);
+    expect(finalMatches[0].status).toBe('pending');
+
+    // 第二次回退：pending 决赛波按原语义删除 → 跨阶段重开 4进2
+    rolled = rollbackWave(paths, rolled.id);
+    expect(rolled.currentStageIndex).toBe(0);
+    expect(rolled.waves).toHaveLength(1);
+    expect(rolled.waves[0].status).toBe('running');
   });
 
   it('跨阶段回退：新阶段 W1 撤销后 currentStageIndex 回落，entries 恢复上一阶段', () => {

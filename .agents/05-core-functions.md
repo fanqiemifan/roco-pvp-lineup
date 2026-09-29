@@ -49,9 +49,9 @@
 | 暂存配对草稿 | savePairingDraft | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 编辑中间态即存（白名单/范围校验，允许漏配重复），不建场 |
 | 锁定配对 | lockPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 校验通过后批量 createMatch（draft→nodes），自动标签（赛事名/阶段名/W波次，跨桶加标签） |
 | 导入外部对阵 | importPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => PairingImportResult | text（每行 A vs B）/pairs 名字数组；匹配池仅本波选手，精确→子串模糊，未唯一匹配进 unmatched，回填草稿不锁定 |
-| 回退上一波 | rollbackWave | (paths: AppPaths, tournamentId: string) => TournamentRecord | 仅最后波且比赛全 pending；删未打比赛、清节点胜者、recompute 战绩；跨阶段回落 currentStageIndex |
+| 回退上一波 | rollbackWave | (paths: AppPaths, tournamentId: string) => TournamentRecord | 最后波三情形：①整波刚打完（总决赛完赛）→ 波保留，比赛复位 pending、清节点胜者、撤销冠军、recompute 战绩；②波未打（pending/draft）→ 删未打比赛与波（可恢复）、重开前一波；③部分进行 → 拒绝并提示逐场撤销。跨阶段回落 currentStageIndex |
 | 比赛完成钩子 | onMatchCompleted | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 无 ref/未完成→null；节点写胜者+更新战绩（幂等）；波齐→completed 并自动生成下一波/下一阶段或冠军 |
-| 撤回小局钩子 | onMatchUndo | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 仅该波是最后一波；清节点胜者、回退战绩；已推进拒绝（提示回退上一波） |
+| 撤回小局钩子 | onMatchUndo | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 仅该波是最后一波；清节点胜者、回退战绩，系列赛因此退出完赛态时一并撤销冠军结果；已推进拒绝（提示回退上一波） |
 
 内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`bracketPositions`（标准种子位序列）、`generateDraftPairs`（生成配对草稿）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→换阶段，否则双败建下一波）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用）。
 

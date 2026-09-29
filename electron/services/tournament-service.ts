@@ -1058,6 +1058,11 @@ export function onMatchUndo(paths: AppPaths, matchId: string): TournamentRecord 
     if (wave.status === 'completed') {
       wave.status = 'running';
     }
+    // 系列赛因此退出完赛态：撤销冠军结果（与整体回退口径一致）
+    if (record.status === 'completed') {
+      record.status = 'running';
+      delete record.result;
+    }
     output = record;
   });
 
@@ -1112,9 +1117,10 @@ function recomputeStageEntries(record: TournamentRecord, stageIndex: number): vo
 }
 
 /**
- * 管理级波次回退：仅最后一波、且该波比赛全部未进行（pending 无小局结果）时可用。
- * 删除该波未打比赛（deleteMatches 进 deletedHistory 可恢复），重开上一波并复位其比赛与战绩；
- * 跨阶段时 currentStageIndex 回落。
+ * 管理级波次回退（最后波）：
+ * - 整波刚打完（总决赛完赛）：波保留，比赛复位 pending、清节点胜者、撤销冠军、重算战绩；
+ * - 波未打（pending/draft）：删除未打比赛与波（deleteMatches 可恢复），重开上一波；
+ * - 部分进行：拒绝，提示逐场撤销。跨阶段时 currentStageIndex 回落。
  */
 export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentRecord {
   return mutateRecord(paths, tournamentId, (record) => {
@@ -1124,22 +1130,55 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
 
     const globalIndex = record.waves.length - 1;
     const wave = record.waves[globalIndex];
+    const matches = getMatchStore(paths).matches;
+
+    let matchIds: string[] = [];
+    // 「干净未打」= pending 且无任何小局结果；「整波完成」= 波已完成且比赛全 completed
+    let wavePristine = true;
+    let waveFullyCompleted = wave.status === 'completed';
 
     if (wave.pairingStatus === 'locked') {
-      const matchIds = wave.nodes.map((node) => node.matchId).filter((id): id is string => Boolean(id));
-      const matches = getMatchStore(paths).matches;
+      matchIds = wave.nodes.map((node) => node.matchId).filter((id): id is string => Boolean(id));
       matchIds.forEach((matchId) => {
         const match = matches.find((item) => item.id === matchId);
-        if (
-          match && (match.status !== 'pending'
-            || match.games.some((game) => game.status !== 'pending' || game.winner !== null))
-        ) {
-          throw new Error('该波比赛已有小局结果（已进行），不能回退');
+        const pristine = Boolean(match)
+          && match!.status === 'pending'
+          && match!.games.every((game) => game.status === 'pending' && game.winner === null);
+        if (!pristine) {
+          wavePristine = false;
+        }
+        if (!match || match.status !== 'completed') {
+          waveFullyCompleted = false;
         }
       });
-      if (matchIds.length) {
-        deleteMatches(paths, matchIds);
-      }
+    }
+
+    /**
+     * 分支 A：整波刚打完（总决赛完赛、系列赛 completed）。
+     * 波本身保留：清节点胜者、比赛复位 pending、撤销冠军结果，重算该阶段 entries。
+     */
+    if (wave.pairingStatus === 'locked' && waveFullyCompleted) {
+      wave.nodes.forEach((node) => {
+        node.winnerId = null;
+      });
+      resetMatchesToPending(paths, matchIds);
+      wave.status = 'running';
+      record.status = 'running';
+      delete record.result;
+      recomputeStageEntries(record, wave.stageIndex);
+      return;
+    }
+
+    /** 分支 B：部分进行（有完成有未打）——不允许整体回退，提示逐场撤销 */
+    if (wave.pairingStatus === 'locked' && !wavePristine) {
+      throw new Error(
+        '该波比赛正在进行中（已有部分小局结果），不能整体回退；请先在赛事面板对已登记的场次逐场撤销',
+      );
+    }
+
+    /** 分支 C：最后波未打（locked pending 或 draft）——删除未打比赛与波，重开前一波 */
+    if (matchIds.length) {
+      deleteMatches(paths, matchIds);
     }
 
     record.waves = record.waves.slice(0, globalIndex);
