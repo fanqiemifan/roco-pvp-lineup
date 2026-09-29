@@ -427,8 +427,6 @@ function Dashboard() {
   const [page2EventTitleDraft, setPage2EventTitleDraft] = useState('');
   const [page8, setPage8] = useState<Page8State | null>(null);
   const [page7, setPage7] = useState<Page7State | null>(null);
-  const [page7TitleDraft, setPage7TitleDraft] = useState('');
-  const [page7NoticeDraft, setPage7NoticeDraft] = useState('');
   // 三个推流选场弹窗的推送中状态（key: page6/page7/page8）
   const [matchPushLoading, setMatchPushLoading] = useState<Record<string, boolean>>({});
   const [page9, setPage9] = useState<Page9State | null>(null);
@@ -2177,11 +2175,6 @@ function Dashboard() {
   }, [scoreboard?.eventTitle]);
 
   useEffect(() => {
-    setPage7TitleDraft(page7?.title ?? '');
-    setPage7NoticeDraft(page7?.notice ?? '');
-  }, [page7?.title, page7?.notice]);
-
-  useEffect(() => {
     setPage9TitleDraft(page9?.title ?? '');
     // 以服务端数据回填草稿行，不足 PAGE9_TEAM_COUNT 行则补空行
     const serverTeams = Array.isArray(page9?.teams) ? page9.teams : [];
@@ -2254,30 +2247,6 @@ function Dashboard() {
       setPage11Notice({ tone: 'error', text: error instanceof Error ? error.message : String(error) });
     } finally {
       setPage11Saving(false);
-    }
-  }
-
-  // 即时保存：推流页面7主标题与温馨提示（失焦触发，值未变化时跳过）
-  async function savePage7FieldNow() {
-    const serverTitle = page7?.title ?? '';
-    const serverNotice = page7?.notice ?? '';
-    if (page7TitleDraft === serverTitle && page7NoticeDraft === serverNotice) {
-      return;
-    }
-    try {
-      const data = await requestJson<{ success: boolean; state: Page7State }>('/api/page7', {
-        method: 'POST',
-        json: {
-          matchIds: page7?.matchIds ?? [],
-          title: page7TitleDraft,
-          notice: page7NoticeDraft,
-        },
-      });
-      applyServerState({ page7: data.state });
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-      setPage7TitleDraft(serverTitle);
-      setPage7NoticeDraft(serverNotice);
     }
   }
 
@@ -5360,36 +5329,6 @@ function Dashboard() {
                             {stage?.page11RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
                           </Space>
                         </SettingField>
-                      </Card>
-                    </Col>
-                    <Col xs={24} md={12} xl={8}>
-                      <Card size="small" className="subtle-card stage-settings-card" title="推流页面7标题文本设置">
-                        <Space direction="vertical" size={12} className="page-stack" style={{ width: '100%' }}>
-                          <Row gutter={[16, 16]}>
-                            <Col xs={24} md={12}>
-                              <SettingField label="主标题：">
-                                <Input
-                                  maxLength={40}
-                                  placeholder="例如：S2洛克联赛，留空显示默认「对局推送」"
-                                  value={page7TitleDraft}
-                                  onChange={(event) => setPage7TitleDraft(event.target.value)}
-                                  onBlur={() => { void savePage7FieldNow(); }}
-                                />
-                              </SettingField>
-                            </Col>
-                            <Col xs={24} md={12}>
-                              <SettingField label="温馨提示：">
-                                <Input
-                                  maxLength={60}
-                                  placeholder="页面底部提示文字，留空使用默认内容"
-                                  value={page7NoticeDraft}
-                                  onChange={(event) => setPage7NoticeDraft(event.target.value)}
-                                  onBlur={() => { void savePage7FieldNow(); }}
-                                />
-                              </SettingField>
-                            </Col>
-                          </Row>
-                        </Space>
                       </Card>
                     </Col>
                   </Row>

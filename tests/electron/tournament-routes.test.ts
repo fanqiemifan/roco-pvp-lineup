@@ -268,6 +268,48 @@ describe('rollback-wave（管理级回退）', () => {
   });
 });
 
+describe('POST /api/matches/:matchId/undo（系列赛对局撤回）', () => {
+  it('后续波已有赛果：400 拒绝，且比赛未被撤回（不留「比赛撤了、系列赛没撤」的半吊子状态）', async () => {
+    const playerIds = seedPlayers(4);
+    const created = (await postJson('/api/tournaments', {
+      name: '撤回一致性杯',
+      playerIds,
+      seed: 42,
+      stages: [
+        { name: '4进2', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+        { name: '总决赛', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+      ],
+    })).data.tournament;
+    await postJson(`/api/tournaments/${created.id}/start`);
+
+    const matchesOf = async (stageIndex?: number) =>
+      (await getJson('/api/matches')).data.matches.filter(
+        (match: { tournamentRef?: { tournamentId: string; stageIndex: number } }) =>
+          match.tournamentRef?.tournamentId === created.id
+          && (stageIndex === undefined || match.tournamentRef?.stageIndex === stageIndex),
+      );
+
+    const s0Matches = await matchesOf(0);
+    for (const match of s0Matches) {
+      await playMatchHttp(match.id, 'left');
+    }
+    // 打完总决赛 → 系列赛完赛（后续波已有赛果，不能再自动丢弃）
+    const finalMatch = (await matchesOf(1))[0];
+    await playMatchHttp(finalMatch.id, 'left');
+
+    const s0MatchId = s0Matches[0].id;
+    const { status, data } = await postJson(`/api/matches/${s0MatchId}/undo`);
+    expect(status).toBe(400);
+    expect(data.error).toMatch(/回退上一波/);
+
+    const after = (await getJson('/api/matches')).data.matches.find(
+      (match: { id: string }) => match.id === s0MatchId,
+    );
+    expect(after.status).toBe('completed');
+    expect((await getJson(`/api/tournaments/${created.id}`)).data.tournament.status).toBe('completed');
+  }, 30000);
+});
+
 describe('删除保护', () => {
   it('系列赛关联比赛 DELETE：400 拒绝', async () => {
     const playerIds = seedPlayers(4);

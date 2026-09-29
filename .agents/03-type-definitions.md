@@ -30,7 +30,7 @@
 | StageConfig | 推流载体配置（page, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit, mtime）。page3RankVisible 控制页面3排位排名图标显隐；page3TeamVisible 控制页面3左右两侧战队标识 div 显隐；page3RedLightMode 为页面3红光特效持久策略（off/auto）；page3RedLightInstant 为一次性「立即显示」（进入下一局自动清除，不影响策略）；page11RankVisible 控制选手介绍排位排名 div 显隐；page10Duration/page10DurationUnit 为胜负登记后自动切入 page10 的停留时长 | shared/types.ts |
 | Page6State | 比赛结果页配置（matchIds 最多 9 个已结束比赛且顺序即卡片场序, title 大标题（空=前端兜底「比赛结果」）, startTime 第一场开始时间 HH:mm, matchTimes 按比赛 id 的手动时间覆盖, mtime） | shared/types.ts |
 | Page7State | 对局推送页配置（matchIds 最多 9 场任意状态比赛, title 主标题留空用默认「对局推送」, notice 温馨提示留空用默认, mtime） | shared/types.ts |
-| Page8State | 比赛预告页配置（matchIds 最多 9 个待开始/进行中比赛且顺序即卡片场序, title 大标题（空=隐藏标题）, startTime, matchTimes, mtime）。背景固定蓝色渐变无背景类型字段 | shared/types.ts |
+| Page8State | 比赛预告页配置（matchIds 最多 9 个待开始/进行中比赛且顺序即卡片场序, title 大标题（空=兜底「比赛预告」）, startTime, matchTimes, mtime）。背景固定蓝色渐变无背景类型字段 | shared/types.ts |
 | 场序时间排期 | normalizeHHmm / addMinutesToHHmm / computeScheduleTimes / formatScheduleLabel / CHINESE_ORDINALS / MATCH_SLOT_MINUTES_PER_BO(30)：第一场=startTime，之后每场按 Σ(BO×30 分钟) 累加，手动覆盖只替换该场不影响后续；electron 下发与后台选场弹窗共用 | shared/match-schedule.ts |
 | Page9TeamEntry | 团队积分榜单支战队录入项（name 战队名称, r1/r2/r3 三轮积分仅数字字符串, 空字符串 = 未输入显示「-」） | shared/types.ts |
 | Page9State | 团队积分榜配置（title 主标题留空用默认「团队积分榜」, teams 最多 4 支战队, 排名与总积分由页面自动计算不落盘, mtime） | shared/types.ts |
@@ -110,7 +110,7 @@
 |---------|------|------|
 | StageFormat | 阶段晋级赛制：'double-life'（双败积分：2胜晋级/2败淘汰、最多 3 波）/ 'single-elim'（单败：1 波定胜负） | shared/types.ts |
 | PairingRule | 配对规则：'random-bucket'（双败同桶随机）/ 'manual-bucket'（双败同桶手动，配对确认台）/ 'bracket-seed'（单败种子位沿树推进）/ 'random-round'（单败每轮重新随机，备选） | shared/types.ts |
-| StageRule | 阶段规则（id, name 阶段名, format, bestOf 1/3, pairing, avoidRematch, requireConfirm）。requireConfirm = 下一波/下一阶段需手动确认（否则自动锁定建场） | shared/types.ts |
+| StageRule | 阶段规则（id, name 阶段名, format, bestOf 1/3/5/7, pairing, avoidRematch, requireConfirm）。requireConfirm = 下一波/下一阶段需手动确认（否则自动锁定建场） | shared/types.ts |
 | TournamentEntry | 选手当前阶段战绩（playerId, stageWins, stageLosses, state: alive/promoted/eliminated），换阶段清零 | shared/types.ts |
 | TournamentNode | 系列赛节点（id 形如 s0-w2-n03, matchId 关联比赛, playerAId/playerBId, winnerId, isBye, next? 单败树连线——V1 单败每阶段一波未用） | shared/types.ts |
 | TournamentWave | 波次（stageIndex, waveIndex 双败1..3/单败1, status: pending/running/completed, pairingStatus: draft/locked, pairingDraft? 草稿, nodes） | shared/types.ts |

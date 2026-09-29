@@ -95,13 +95,19 @@ function allocateTournamentId(paths: AppPaths, records: TournamentRecord[], now:
 
 /* ==================== 阶段规则规范化 ==================== */
 
+/** 阶段局数白名单（BO1/BO3/BO5/BO7）：缺省与非法值一律回退 BO1 */
+function normalizeStageBestOf(value: unknown): StageRule['bestOf'] {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return parsed === 3 || parsed === 5 || parsed === 7 ? parsed : 1;
+}
+
 function normalizeStageRule(value: unknown, index: number): StageRule | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
   const raw = value as Record<string, unknown>;
   const format: StageFormat = raw.format === 'single-elim' ? 'single-elim' : 'double-life';
-  const bestOf: 1 | 3 = raw.bestOf === 3 ? 3 : 1;
+  const bestOf = normalizeStageBestOf(raw.bestOf);
 
   // 配对方式必须与赛制兼容，不兼容强制改回默认
   let pairing: PairingRule;
@@ -1053,7 +1059,32 @@ export function onMatchCompleted(paths: AppPaths, matchId: string): TournamentRe
 }
 
 /**
- * 撤回小局反向钩子：仅该波是最后一波时可用（否则提示走波次回退）。
+ * 该波之后自动生成的波能否随本次撤回一并丢弃：必须全部是「自动锁定（非人工草稿）且一场未打」。
+ * - pairingStatus !== draft：人工配对/需确认的波停在草稿，是人工成果，不能静默删除；
+ * - 每场都没开打（pending 且无任何小局结果）：已有赛果的波删掉会丢数据，要求走「回退上一波」。
+ */
+function isDiscardableTrailingWaves(paths: AppPaths, waves: TournamentWave[]): boolean {
+  const matches = getMatchStore(paths).matches;
+  return waves.every((wave) => {
+    if (wave.pairingStatus !== 'locked') {
+      return false;
+    }
+    return wave.nodes.every((node) => {
+      if (node.winnerId) {
+        return false;
+      }
+      const match = matches.find((item) => item.id === node.matchId);
+      return Boolean(match)
+        && match!.status === 'pending'
+        && match!.games.every((game) => game.status === 'pending' && game.winner === null);
+    });
+  });
+}
+
+/**
+ * 撤回小局反向钩子：清节点胜者并重算该阶段战绩。
+ * 该波已推进（自动生成了下一波 / 进入下一阶段）时，只要后续波都是「自动锁定且一场未打」，
+ * 就一并丢弃它们回到「结果待定」；否则拒绝并提示走「回退上一波」。
  * 节点无胜者（撤回的是非决胜小局）→ 无变化。
  */
 export function onMatchUndo(paths: AppPaths, matchId: string): TournamentRecord | null {
@@ -1076,42 +1107,39 @@ export function onMatchUndo(paths: AppPaths, matchId: string): TournamentRecord 
     if (globalIndex === -1) {
       throw new Error('系列赛波次不存在');
     }
-    if (globalIndex < record.waves.length - 1) {
-      throw new Error('该波已推进，请使用「回退上一波」');
-    }
 
     const wave = record.waves[globalIndex];
     const node = wave.nodes.find((item) => item.id === ref.nodeId);
     if (!node || !node.winnerId) {
-      output = record;
+      // 撤回的是非决胜小局：系列赛无变化（返回 null，不广播）
       return;
     }
 
-    const winnerId = node.winnerId;
-    const loserId = winnerId === node.playerAId ? node.playerBId : node.playerAId;
+    // 该波可能因为这场的结果打完而自动推进（生成了下一波 / 已进入下一阶段）。
+    // 只要后续波全部是「自动锁定且一场未打」，就随这次撤回一并丢弃，回到「该波结果待定」；
+    // 手工草稿（draft）或已有赛果的后续波不能静默删掉，仍要求走「回退上一波」。
+    const trailingWaves = record.waves.slice(globalIndex + 1);
+    if (trailingWaves.length) {
+      if (!isDiscardableTrailingWaves(paths, trailingWaves)) {
+        throw new Error('该波已推进，且后续波已开打或为人工对阵，请使用「回退上一波」');
+      }
+      const trailingMatchIds = trailingWaves
+        .flatMap((item) => item.nodes.map((trailingNode) => trailingNode.matchId))
+        .filter((id): id is string => Boolean(id));
+      if (trailingMatchIds.length) {
+        // 与 rollbackWave 同口径：软删（可在比赛历史「撤回最近删除」恢复）
+        deleteMatches(paths, trailingMatchIds);
+      }
+      record.waves = record.waves.slice(0, globalIndex + 1);
+      record.currentStageIndex = wave.stageIndex;
+    }
+
     node.winnerId = null;
-
-    const revert = (id: string | null, isWinner: boolean): void => {
-      if (!id) {
-        return;
-      }
-      const entry = record.entries.find((item) => item.playerId === id);
-      if (!entry) {
-        return;
-      }
-      if (isWinner) {
-        entry.stageWins = Math.max(0, entry.stageWins - 1);
-      } else {
-        entry.stageLosses = Math.max(0, entry.stageLosses - 1);
-      }
-      entry.state = 'alive';
-    };
-    revert(winnerId, true);
-    revert(loserId, false);
-
     if (wave.status === 'completed') {
       wave.status = 'running';
     }
+    // 按该阶段现存节点重算战绩：同阶段撤回与跨阶段回退（entries 已换批清零）都能得到正确口径
+    recomputeStageEntries(record, wave.stageIndex);
     // 系列赛因此退出完赛态：撤销冠军结果（与整体回退口径一致）
     if (record.status === 'completed') {
       record.status = 'running';
@@ -1141,7 +1169,9 @@ function recomputeStageEntries(record: TournamentRecord, stageIndex: number): vo
         idSet.add(node.playerBId);
       }
     });
-    initialIds = Array.from(idSet).sort((a, b) => record.playerIds.indexOf(a) - record.playerIds.indexOf(b));
+    // 保持 wave1 节点里的出现顺序 = 上一阶段对阵树顺序（与 progressFromWave 写入 entries 的口径一致）；
+    // 若改回按全局种子排序，单败阶段重新配对时会退回「重新种子」，相邻两场胜者就不相遇了。
+    initialIds = Array.from(idSet);
   }
 
   const entries = initialEntries(initialIds);

@@ -1,4 +1,4 @@
-/* 推流页面8（比赛预告）：画面与 page6 共用 match-prediction.js，主标题留空时隐藏 */
+/* 推流页面8（比赛预告）：画面与 page6 共用 match-prediction.js，主标题空值兜底「比赛预告」 */
 (function () {
     'use strict';
 
@@ -6,6 +6,6 @@
         apiUrl: '/api/page8',
         role: 'page8',
         updateEvent: 'page8:update',
-        defaultTitle: '',
+        defaultTitle: '比赛预告',
     });
 })();

@@ -2296,10 +2296,18 @@ a {
   border-top: 2px dashed #c24635;
 }
 
+/* 拖动平移：空白处显示抓手光标（卡片自身是 pointer），拖动中禁选文本 */
 .bracket-board-scroller {
   position: relative;
   overflow-x: auto;
   padding-bottom: 4px;
+  cursor: grab;
+}
+
+.bracket-board-scroller.is-dragging,
+.bracket-board-scroller.is-dragging .bracket-card-hitbox {
+  cursor: grabbing;
+  user-select: none;
 }
 
 /* 连线层（在卡片下层，仅穿过列间空隙） */
@@ -2366,6 +2374,15 @@ a {
 .bracket-card.bracket-card-active {
   border-color: #d48806;
   box-shadow: 0 0 0 2px rgba(212, 136, 6, 0.28);
+}
+
+/* 选中某场链路时：不相关卡片压暗（仍可点击，点它即切换选中） */
+.bracket-board .bracket-card {
+  transition: opacity 0.15s ease;
+}
+
+.bracket-board .bracket-card.bracket-card-dimmed {
+  opacity: 0.4;
 }
 
 /* 图例提示文案 */

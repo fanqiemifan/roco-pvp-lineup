@@ -184,6 +184,27 @@ describe('createTournament', () => {
     expect(tournament.stages[1].id).toBe('s1');
   });
 
+  it('阶段局数支持 BO1/BO3/BO5/BO7：BO5/BO7 生效，越界值回退 BO1', () => {
+    const tournament = createTournament(paths, {
+      name: '局数白名单',
+      playerIds: seedPlayers(8),
+      seed: 1,
+      stages: [
+        { name: '八强', format: 'double-life', bestOf: 7, pairing: 'random-bucket' },
+        { name: '四强', format: 'single-elim', bestOf: 5, pairing: 'bracket-seed' },
+        { name: '决赛', format: 'single-elim', bestOf: 4, pairing: 'bracket-seed' },
+      ],
+    });
+    expect(tournament.stages.map((stage) => stage.bestOf)).toEqual([7, 5, 1]);
+
+    // BO7 阶段建场后，比赛赛制随阶段落库
+    const started = startTournament(paths, tournament.id);
+    const firstMatch = getMatchStore(paths).matches.find(
+      (match) => match.id === started.waves[0].nodes[0].matchId,
+    );
+    expect(firstMatch?.bestOf).toBe(7);
+  });
+
   it('双败阶段误传单败配对方式时强制改回 random-bucket', () => {
     const playerIds = seedPlayers(4);
     const tournament = createTournament(paths, {
@@ -533,22 +554,87 @@ describe('onMatchUndo（撤回小局反向钩子）', () => {
     expect(undone!.entries.find((entry) => entry.playerId === firstNode.playerAId)?.stageWins).toBe(0);
   });
 
-  it('该波已推进（存在后续波）时拒绝撤回，提示用回退上一波', () => {
-    const tournament = createSeries(4);
-    const started = startTournament(paths, tournament.id);
+  /** BO1 单败两阶段系列赛：打完 s0 两场即自动生成 s1（总决赛） */
+  function createUndoSeries(): TournamentRecord {
+    return createTournament(paths, {
+      name: '撤回级联杯',
+      playerIds: seedPlayers(4),
+      seed: 42,
+      stages: [
+        { name: '4进2', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+        { name: '总决赛', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+      ],
+    });
+  }
+
+  it('该波已推进但后续波一场未打：撤回时一并丢弃后续波，回到结果待定', () => {
+    const started = startTournament(paths, createUndoSeries().id);
     started.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId ?? '', 'left'));
-    const afterW1 = getTournamentStore(paths)[0];
-    // 下一阶段 W1 已建（4人模板 stage1 总决赛）
-    expect(afterW1.waves.length).toBeGreaterThan(1);
-    expect(() => onMatchUndo(paths, started.waves[0].nodes[0].matchId ?? '')).toThrow(/回退/);
+
+    const record = getTournamentStore(paths)[0];
+    expect(record.currentStageIndex).toBe(1);
+    expect(record.waves).toHaveLength(2);
+
+    const node = record.waves[0].nodes[0];
+    const matchId = node.matchId!;
+    const winnerId = node.playerAId!;
+    const loserId = node.playerBId!;
+
+    undoMatchAction(paths, matchId);
+    const undone = onMatchUndo(paths, matchId)!;
+    // 后续波被丢弃、阶段回落、该节点胜者清空、战绩回到「未打」
+    expect(undone.waves).toHaveLength(1);
+    expect(undone.currentStageIndex).toBe(0);
+    expect(undone.status).toBe('running');
+    expect(undone.waves[0].status).toBe('running');
+    expect(undone.waves[0].nodes[0].winnerId).toBeNull();
+    expect(undone.entries.find((entry) => entry.playerId === winnerId)?.stageWins).toBe(0);
+    expect(undone.entries.find((entry) => entry.playerId === loserId)?.stageLosses).toBe(0);
+
+    // 重新登记改成对手获胜：节点能被新结果覆盖（不再被「已有胜者」幂等吞掉）
+    recordMatchWinner(paths, matchId, 'right');
+    onMatchCompleted(paths, matchId);
+    const again = getTournamentStore(paths)[0];
+    expect(again.waves[0].nodes[0].winnerId).toBe(loserId);
+    expect(again.currentStageIndex).toBe(1);
+    expect(again.waves).toHaveLength(2);
   });
 
-  it('节点本无胜者（撤回的是非决胜小局）：无变化', () => {
-    const tournament = createSeries(4);
-    const started = startTournament(paths, tournament.id);
+  it('该波已推进且后续波已有赛果：拒绝撤回，提示用回退上一波', () => {
+    const started = startTournament(paths, createUndoSeries().id);
+    started.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId ?? '', 'left'));
+    // 打完总决赛 → 系列赛完赛：后续波已有赛果，不能再自动丢弃
+    const finalNode = getTournamentStore(paths)[0].waves[1].nodes[0];
+    playMatchToEnd(finalNode.matchId ?? '', 'left');
+
+    const s0MatchId = started.waves[0].nodes[0].matchId ?? '';
+    expect(() => onMatchUndo(paths, s0MatchId)).toThrow(/回退上一波/);
+    expect(getTournamentStore(paths)[0].status).toBe('completed');
+  });
+
+  it('后续波是人工草稿（draft）不自动丢弃：拒绝撤回', () => {
+    const created = createTournament(paths, {
+      name: '草稿阶段杯',
+      playerIds: seedPlayers(4),
+      seed: 42,
+      stages: [
+        { name: '4进2', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+        { name: '总决赛', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed', requireConfirm: true },
+      ],
+    });
+    const started = startTournament(paths, created.id);
+    started.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId ?? '', 'left'));
+    expect(getTournamentStore(paths)[0].waves[1].pairingStatus).toBe('draft');
+    expect(() => onMatchUndo(paths, started.waves[0].nodes[0].matchId ?? '')).toThrow(/回退上一波/);
+  });
+
+  it('节点本无胜者（撤回的是非决胜小局）：不产生系列赛变更', () => {
+    const started = startTournament(paths, createSeries(4).id);
     const node = started.waves[0].nodes[0];
-    const result = onMatchUndo(paths, node.matchId ?? '');
-    expect(result!.waves[0].nodes.find((item) => item.id === node.id)?.winnerId).toBeNull();
+    expect(onMatchUndo(paths, node.matchId ?? '')).toBeNull();
+    expect(
+      getTournamentStore(paths)[0].waves[0].nodes.find((item) => item.id === node.id)?.winnerId,
+    ).toBeNull();
   });
 });
 

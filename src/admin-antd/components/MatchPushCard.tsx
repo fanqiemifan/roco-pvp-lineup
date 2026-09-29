@@ -10,12 +10,13 @@ const { Text } = Typography;
 /** 推流页面选场类型：page6 比赛结果 / page7 对局推送 / page8 比赛预告 */
 export type MatchPushKind = 'page6' | 'page7' | 'page8';
 
-/** 确认推送时的请求体：page7 仅 matchIds；page6/8 另含标题与场序时间 */
+/** 确认推送时的请求体：page6/8 = matchIds + 大标题 + 场序时间；page7 = matchIds + 主标题 + 温馨提示 */
 export interface MatchPushPayload {
   matchIds: string[];
   title?: string;
   startTime?: string;
   matchTimes?: Record<string, string>;
+  notice?: string;
 }
 
 interface MatchPushCardProps {
@@ -51,10 +52,22 @@ const ELIGIBLE_HINT: Record<MatchPushKind, string> = {
   page8: '仅可选择待开始或进行中的比赛',
 };
 
+const TITLE_LABEL: Record<MatchPushKind, string> = {
+  page6: '大标题：',
+  page7: '主标题：',
+  page8: '大标题：',
+};
+
 const TITLE_PLACEHOLDER: Record<MatchPushKind, string> = {
   page6: '留空显示默认「比赛结果」',
-  page7: '',
-  page8: '例如：赛事预告，留空则隐藏标题',
+  page7: '例如：S2洛克联赛，留空显示默认「对局推送」',
+  page8: '留空显示默认「比赛预告」',
+};
+
+const NOTICE_PLACEHOLDER: Record<MatchPushKind, string> = {
+  page6: '',
+  page7: '页面底部提示文字，留空使用默认内容',
+  page8: '',
 };
 
 function versusText(match: MatchRecord): string {
@@ -70,11 +83,14 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
   const [open, setOpen] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>([]);
   const [titleDraft, setTitleDraft] = useState('');
+  const [noticeDraft, setNoticeDraft] = useState('');
   const [startTimeDraft, setStartTimeDraft] = useState('');
   const [matchTimesDraft, setMatchTimesDraft] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
 
+  /** page6/8 = 大标题 + 场序时间；page7 = 主标题 + 温馨提示 */
   const withSchedule = kind === 'page6' || kind === 'page8';
+  const withNotice = kind === 'page7';
 
   // 每次打开弹窗时以服务端状态初始化本地草稿
   useEffect(() => {
@@ -83,6 +99,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
     }
     setDraftIds(state.matchIds.slice(0, maxCount));
     setTitleDraft('title' in state ? state.title : '');
+    setNoticeDraft('notice' in state ? state.notice : '');
     setStartTimeDraft('startTime' in state ? state.startTime : '');
     setMatchTimesDraft('matchTimes' in state ? { ...state.matchTimes } : {});
     setSearch('');
@@ -198,11 +215,17 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
       }
     }
 
+    const payload: MatchPushPayload = { matchIds: draftIds, title: titleDraft.trim() };
+    if (withSchedule) {
+      payload.startTime = normalizeHHmm(startTimeDraft);
+      payload.matchTimes = matchTimes;
+    }
+    if (withNotice) {
+      payload.notice = noticeDraft.trim();
+    }
+
     try {
-      await onPush({
-        matchIds: draftIds,
-        ...(withSchedule ? { title: titleDraft.trim(), startTime: normalizeHHmm(startTimeDraft), matchTimes } : {}),
-      });
+      await onPush(payload);
       setOpen(false);
     } catch {
       // 错误提示由调用方负责，弹窗保持打开便于调整
@@ -300,19 +323,32 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
         )}
       >
         <Space direction="vertical" size={12} className="match-push-modal-body">
-          {withSchedule ? (
-            <Space wrap size={16}>
+          <Space wrap size={16} align="start">
+            <div>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>{TITLE_LABEL[kind]}</Text>
+              <Input
+                allowClear
+                maxLength={40}
+                style={{ width: 300 }}
+                placeholder={TITLE_PLACEHOLDER[kind]}
+                value={titleDraft}
+                onChange={(event) => setTitleDraft(event.target.value)}
+              />
+            </div>
+            {withNotice ? (
               <div>
-                <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>大标题：</Text>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>温馨提示：</Text>
                 <Input
                   allowClear
-                  maxLength={40}
-                  style={{ width: 300 }}
-                  placeholder={TITLE_PLACEHOLDER[kind]}
-                  value={titleDraft}
-                  onChange={(event) => setTitleDraft(event.target.value)}
+                  maxLength={60}
+                  style={{ width: 420 }}
+                  placeholder={NOTICE_PLACEHOLDER[kind]}
+                  value={noticeDraft}
+                  onChange={(event) => setNoticeDraft(event.target.value)}
                 />
               </div>
+            ) : null}
+            {withSchedule ? (
               <div>
                 <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
                   第一场开始时间（之后每场按 BO×30 分钟自动累加）：
@@ -326,8 +362,8 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, state, pushi
                   onChange={(event) => setStartTimeDraft(event.target.value)}
                 />
               </div>
-            </Space>
-          ) : null}
+            ) : null}
+          </Space>
 
           <Row2>
             <div className="match-push-candidates">

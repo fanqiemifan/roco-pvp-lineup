@@ -1305,6 +1305,12 @@ export async function createLocalServer(
 
   app.post('/api/matches/:matchId/undo', (request, response) => {
     try {
+      // 系列赛反向钩子必须先跑：无法回退时（后续波已开打/人工对阵）直接失败，
+      // 避免出现「比赛已撤回、系列赛仍显示晋级」的半吊子状态（后续登记还会被节点胜者幂等吞掉）
+      const undoneTournament = onMatchUndo(paths, request.params.matchId);
+      if (undoneTournament) {
+        emitTournamentUpdate();
+      }
       const matches = undoMatchAction(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
@@ -1312,11 +1318,6 @@ export async function createLocalServer(
       emitAvatarUpdate();
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
-      // 系列赛反向钩子：清除节点胜者、回退战绩（仅该波是最后一波时可用）
-      const undoneTournament = onMatchUndo(paths, request.params.matchId);
-      if (undoneTournament) {
-        emitTournamentUpdate();
-      }
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });

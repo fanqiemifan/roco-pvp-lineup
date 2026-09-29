@@ -8,6 +8,20 @@ import { TournamentNodeCard } from './TournamentNodeCard';
 
 const { Text } = Typography;
 
+/** 拖动平移的启动阈值（px）：位移小于它按点击处理，避免点卡片时误触发平移 */
+const PAN_DRAG_THRESHOLD = 4;
+
+/** 拖动平移过程状态（按住拖动 → 改滚动容器的 scrollLeft/scrollTop） */
+interface PanDragState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startScrollLeft: number;
+  startScrollTop: number;
+  /** 是否已越过阈值进入真正的拖动 */
+  moved: boolean;
+}
+
 /** 一根入场连线（从来源节点的对应槽位指向目标节点的对应槽位） */
 interface BracketWire {
   key: string;
@@ -61,6 +75,11 @@ export function BracketBoard({
   const [forfeitNode, setForfeitNode] = useState<TournamentNode | null>(null);
   /** 当前选中的卡片：仅显示与它相关的连线，避免整图连线交叉杂乱（null = 不显示任何连线） */
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  /** 拖动平移状态（用于切换 grab/grabbing 光标与拖动中禁选文本） */
+  const [panning, setPanning] = useState(false);
+  const panDragRef = useRef<PanDragState | null>(null);
+  /** 刚结束一次拖动 → 抑制紧随其后的 click，避免拖动被当成卡片点击 */
+  const suppressClickRef = useRef(false);
 
   const registerCard = useCallback((key: string, element: HTMLDivElement | null) => {
     if (element) {
@@ -114,6 +133,26 @@ export function BracketBoard({
     return edges;
   }, [activeNodeId, cardIndex, wires]);
 
+  /**
+   * 选中卡片时保持正常亮度的节点集合（选中卡片 + 全部祖先 + 其下游一场），其余卡片压暗。
+   * 直接由 activeEdges 的 `上游->下游` 两端推导，与连线高亮范围完全一致。
+   */
+  const relatedNodeIds = useMemo(() => {
+    if (!activeNodeId || !activeEdges) {
+      return null;
+    }
+    const ids = new Set<string>([activeNodeId]);
+    activeEdges.forEach((edge) => {
+      const separator = edge.indexOf('->');
+      if (separator === -1) {
+        return;
+      }
+      ids.add(edge.slice(0, separator));
+      ids.add(edge.slice(separator + 2));
+    });
+    return ids;
+  }, [activeEdges, activeNodeId]);
+
   /** 量测各节点/槽位真实位置，重算连线与画布尺寸 */
   const measure = useCallback(() => {
     const scroller = scrollerRef.current;
@@ -121,6 +160,11 @@ export function BracketBoard({
       return;
     }
     const base = scroller.getBoundingClientRect();
+    // 连线 SVG 绝对定位在滚动容器内、随内容一起滚动，因此要量到「内容坐标系」：
+    // 必须补上 scrollLeft/scrollTop，否则在横向滚动状态下重算（窗口 resize、数据更新、
+    // 点击卡片等）会让所有连线整体偏移一个 scrollLeft。
+    const offsetX = scroller.scrollLeft;
+    const offsetY = scroller.scrollTop;
     const next: BracketWire[] = [];
 
     graph.columns.forEach((column) => {
@@ -152,10 +196,10 @@ export function BracketBoard({
           const toCardRect = toCard.getBoundingClientRect();
           const toSlotRect = toSlot.getBoundingClientRect();
 
-          const x1 = Math.round(fromCardRect.right - base.left);
-          const y1 = Math.round(fromSlotRect.top + fromSlotRect.height / 2 - base.top);
-          const x2 = Math.round(toCardRect.left - base.left);
-          const y2 = Math.round(toSlotRect.top + toSlotRect.height / 2 - base.top);
+          const x1 = Math.round(fromCardRect.right - base.left + offsetX);
+          const y1 = Math.round(fromSlotRect.top + fromSlotRect.height / 2 - base.top + offsetY);
+          const x2 = Math.round(toCardRect.left - base.left + offsetX);
+          const y2 = Math.round(toSlotRect.top + toSlotRect.height / 2 - base.top + offsetY);
           const midX = Math.round((x1 + x2) / 2);
 
           next.push({
@@ -191,6 +235,102 @@ export function BracketBoard({
     return () => observer.disconnect();
   }, [measure]);
 
+  // 兜底重算：卡片里的 Tag / 文本换行、字体加载会让高度在首帧之后才稳定，
+  // 而 ResizeObserver 只在「尺寸变化」时触发（仅位置偏移不触发）。这里在首帧后
+  // 再补两帧、并在字体就绪后再各量一次，避免首帧量到中间态导致连线错位或缺失。
+  useEffect(() => {
+    let cancelled = false;
+    let raf = 0;
+    const remeasure = (): void => {
+      if (!cancelled) {
+        measure();
+      }
+    };
+    // 首帧后再连续补两帧
+    const remeasureAcrossFrames = (): void => {
+      remeasure();
+      raf = window.requestAnimationFrame(remeasure);
+    };
+    raf = window.requestAnimationFrame(remeasureAcrossFrames);
+    if (typeof document !== 'undefined' && document.fonts) {
+      void document.fonts.ready.then(remeasure);
+    }
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(raf);
+    };
+  }, [measure]);
+
+  /* ---------- 拖动平移（按住鼠标拖动移动晋级图位置） ---------- */
+
+  function handleScrollerPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
+    if (event.button !== 0) {
+      return;
+    }
+    const scroller = scrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+    // 新一轮交互开始：清掉上一次拖动遗留的点击抑制标记
+    suppressClickRef.current = false;
+    panDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: scroller.scrollLeft,
+      startScrollTop: scroller.scrollTop,
+      moved: false,
+    };
+  }
+
+  function handleScrollerPointerMove(event: React.PointerEvent<HTMLDivElement>): void {
+    const drag = panDragRef.current;
+    const scroller = scrollerRef.current;
+    if (!drag || !scroller || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) < PAN_DRAG_THRESHOLD) {
+        return;
+      }
+      drag.moved = true;
+      setPanning(true);
+      // 越过阈值后才捕获指针：普通点击不被捕获（捕获会把随后的 click 重定向到容器，卡片就选不中了）
+      event.currentTarget.setPointerCapture(event.pointerId);
+      window.getSelection()?.removeAllRanges();
+    }
+    event.preventDefault();
+    scroller.scrollLeft = drag.startScrollLeft - dx;
+    scroller.scrollTop = drag.startScrollTop - dy;
+  }
+
+  function handleScrollerPointerUp(event: React.PointerEvent<HTMLDivElement>): void {
+    const drag = panDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    panDragRef.current = null;
+    if (!drag.moved) {
+      return;
+    }
+    suppressClickRef.current = true;
+    setPanning(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  /** 拖动刚结束时的 click 直接吞掉（拖动手势不应改变卡片选中态） */
+  function consumeSuppressedClick(): boolean {
+    if (!suppressClickRef.current) {
+      return false;
+    }
+    suppressClickRef.current = false;
+    return true;
+  }
+
   async function handleForfeit(node: TournamentNode, loserSide: 'left' | 'right'): Promise<void> {
     if (!node.matchId) {
       return;
@@ -218,6 +358,10 @@ export function BracketBoard({
         className="bracket-card-hitbox"
         key={card.nodeId}
         onClick={(event) => {
+          // 拖动平移后的 click 不改变选中态
+          if (consumeSuppressedClick()) {
+            return;
+          }
           // 卡片内按钮（切换为当前比赛 / 弃权判负）不触发选中
           if ((event.target as HTMLElement).closest('button')) {
             return;
@@ -228,6 +372,7 @@ export function BracketBoard({
         <TournamentNodeCard
           card={card}
           isActive={activeNodeId === card.nodeId}
+          isDimmed={relatedNodeIds !== null && !relatedNodeIds.has(card.nodeId)}
           cardRef={(element) => registerCard(card.nodeId, element)}
           slotRef={(side, element) => registerSlot(slotKey(card.nodeId, side), element)}
           onSelectMatch={(matchId) => void onSelectMatch(matchId)}
@@ -245,6 +390,10 @@ export function BracketBoard({
     <div
       className="bracket-board"
       onClick={(event) => {
+        // 拖动平移后的 click 不改变选中态
+        if (consumeSuppressedClick()) {
+          return;
+        }
         // 点击卡片以外区域取消选中（隐藏全部连线）
         if ((event.target as HTMLElement).closest('.bracket-card-hitbox')) {
           return;
@@ -258,14 +407,21 @@ export function BracketBoard({
           胜者晋级
           <i className="bracket-wire-sample bracket-wire-sample-loser" />
           败者下沉
-          <span className="bracket-legend-hint">（点击卡片查看该场的晋级连线）</span>
+          <span className="bracket-legend-hint">（点击卡片查看该场的晋级连线；按住拖动可平移视图）</span>
         </Text>
         <Text type="secondary">
           已结束 {graph.completedCount} / 共 {graph.cardCount} 场
         </Text>
       </div>
 
-      <div className="bracket-board-scroller" ref={scrollerRef}>
+      <div
+        className={`bracket-board-scroller${panning ? ' is-dragging' : ''}`}
+        ref={scrollerRef}
+        onPointerDown={handleScrollerPointerDown}
+        onPointerMove={handleScrollerPointerMove}
+        onPointerUp={handleScrollerPointerUp}
+        onPointerCancel={handleScrollerPointerUp}
+      >
         <svg
           className="bracket-board-wires"
           width={canvas.width}

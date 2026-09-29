@@ -16,6 +16,8 @@ export interface TournamentNodeCardProps {
   onForfeit?(): void;
   /** 晋级图选中态（显示该场连线时高亮卡片） */
   isActive?: boolean;
+  /** 晋级图压暗态（选中某场链路时，其余不相关卡片弱化） */
+  isDimmed?: boolean;
   /** 卡片根元素 ref（晋级图量测连线用） */
   cardRef?: (element: HTMLDivElement | null) => void;
   /** 槽位行 ref（晋级图量测连线用） */
@@ -32,6 +34,7 @@ export function TournamentNodeCard({
   onSelectMatch,
   onForfeit,
   isActive,
+  isDimmed,
   cardRef,
   slotRef,
 }: TournamentNodeCardProps): React.ReactElement {
@@ -61,7 +64,7 @@ export function TournamentNodeCard({
 
   return (
     <div
-      className={`tournament-node-card bracket-card bracket-card-${card.status}${isActive ? ' bracket-card-active' : ''}`}
+      className={`tournament-node-card bracket-card bracket-card-${card.status}${isActive ? ' bracket-card-active' : ''}${isDimmed ? ' bracket-card-dimmed' : ''}`}
       ref={cardRef}
     >
       <div className="bracket-card-head">

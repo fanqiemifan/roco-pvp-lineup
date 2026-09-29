@@ -1217,7 +1217,7 @@ function CreateTournamentModal({
             },
             {
               title: '局数',
-              width: 100,
+              width: 180,
               render: (_value, _row, index) => (
                 <Segmented
                   size="small"
@@ -1225,8 +1225,10 @@ function CreateTournamentModal({
                   options={[
                     { label: 'BO1', value: 1 },
                     { label: 'BO3', value: 3 },
+                    { label: 'BO5', value: 5 },
+                    { label: 'BO7', value: 7 },
                   ]}
-                  onChange={(value) => updateStage(index, { bestOf: value as 1 | 3 })}
+                  onChange={(value) => updateStage(index, { bestOf: value as StageRule['bestOf'] })}
                 />
               ),
             },

@@ -244,7 +244,7 @@ export interface Page7State {
 export interface Page8State {
   /** 已选中的比赛 id（最多 9 个，顺序即展示顺序与卡片场序） */
   matchIds: string[];
-  /** 大标题内容（空字符串则隐藏标题行，仅显示副标题 Match Prediction） */
+  /** 大标题内容（空字符串时前端兜底显示「比赛预告」） */
   title: string;
   /** 第一场开始时间 HH:mm（空字符串 = 未配置，卡片只显示「第N场」） */
   startTime: string;
@@ -618,8 +618,8 @@ export interface StageRule {
   /** 阶段名：32进16 / 16进8 / 8进4 / 4进2 / 总决赛 */
   name: string;
   format: StageFormat;
-  /** 本阶段每场对决的局数（后台规则表只放出 BO1、BO3） */
-  bestOf: 1 | 3;
+  /** 本阶段每场对决的局数（后台规则表放出 BO1 / BO3 / BO5 / BO7） */
+  bestOf: 1 | 3 | 5 | 7;
   /** 配对方式：双败默认 random-bucket，单败默认 bracket-seed */
   pairing: PairingRule;
   /** 同阶段尽量避开已交手对手 */
