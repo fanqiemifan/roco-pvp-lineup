@@ -448,6 +448,24 @@ export function redrawTournament(
 }
 
 /**
+ * 只读预览首波对阵（不落盘、不建场）：按当前 seed 走与 materializeWave 完全相同的
+ * generateDraftPairs，供开赛前在抽签面板看到「重抽到底换成了什么」。仅 setup 可预览。
+ */
+export function previewOpeningWave(
+  paths: AppPaths,
+  tournamentId: string,
+): { pairs: NonNullable<TournamentWave['pairingDraft']> } {
+  const record = readRecords(paths).find((item) => item.id === tournamentId);
+  if (!record) {
+    throw new Error('系列赛不存在');
+  }
+  if (record.status !== 'setup') {
+    throw new Error('仅 setup 状态可预览首波对阵');
+  }
+  return { pairs: generateDraftPairs(record, record.stages[0], 0, 1) };
+}
+
+/**
  * 生成某波：先生成配对草稿；手动配对/需确认 → 停在 draft（不建场），
  * 否则自动锁定并批量建场。
  */
@@ -509,6 +527,19 @@ function doubleBucketSpecs(
   }];
 }
 
+/** 双败决胜波（W3）的 1-1 池 key */
+const DOUBLE_LIFE_DECIDER_BUCKET = '1-1';
+
+/**
+ * 该选手在本阶段第 1 波是否取胜。
+ * 决胜波 1-1 池里的两类人靠它区分：W1 取胜者是「胜者组掉落者」，W1 落败者是「败者组上扬者」。
+ */
+function wonOpeningRound(record: TournamentRecord, stageIndex: number, playerId: string): boolean {
+  const wave1 = record.waves.find((wave) => wave.stageIndex === stageIndex && wave.waveIndex === 1);
+  const node = wave1?.nodes.find((item) => item.playerAId === playerId || item.playerBId === playerId);
+  return node?.winnerId === playerId;
+}
+
 /** 本阶段已交手记录（含 winnerId 的节点） */
 function buildPlayedMap(record: TournamentRecord, stageIndex: number): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
@@ -553,6 +584,31 @@ function pairWithAvoidance(
     const second = pool.splice(pick, 1)[0];
     pairs.push([first, second]);
   }
+
+  return pairs;
+}
+
+/**
+ * 交叉配对：左侧每人依次从右侧剩余池中随机取一人（双败决胜波两类人互配用）。
+ * avoid=true 时优先跳过本阶段已交手对手；两侧人数相等时恰好一一配对。
+ */
+function crossPair(
+  left: string[],
+  right: string[],
+  rng: () => number,
+  played: Map<string, Set<string>>,
+  avoid: boolean,
+): Array<[string, string]> {
+  const pool = [...right];
+  const pairs: Array<[string, string]> = [];
+
+  left.forEach((first) => {
+    const indexes = pool.map((_player, index) => index);
+    const safeIndexes = indexes.filter((index) => !(avoid && played.get(first)?.has(pool[index])));
+    const options = safeIndexes.length ? safeIndexes : indexes;
+    const second = pool.splice(options[Math.floor(rng() * options.length)], 1)[0];
+    pairs.push([first, second]);
+  });
 
   return pairs;
 }
@@ -602,10 +658,24 @@ function generateDraftPairs(
 
   const specs = doubleBucketSpecs(record.entries, waveIndex);
   const played = buildPlayedMap(record, stageIndex);
+  // 避免重复对手只在随机模式生效；手动模式也给随机草稿起点
+  const avoid = stage.pairing === 'random-bucket' && stage.avoidRematch;
   const result: DraftPair[] = [];
   specs.forEach((spec) => {
-    // 手动模式也给随机草稿起点；避免重复对手只在随机模式生效
-    const pairs = pairWithAvoidance(spec.players, rng, played, stage.pairing === 'random-bucket' && stage.avoidRematch);
+    // 决胜波（W3）的 1-1 池由两类人构成：W1 取胜后掉落的（胜者组掉落者）与 W1 落败后上扬的（败者组胜者）。
+    // 按经典双败交叉配对，两类人互不相遇，而不是同池随机。
+    if (spec.key === DOUBLE_LIFE_DECIDER_BUCKET) {
+      const drops: string[] = [];
+      const rises: string[] = [];
+      spec.players.forEach((playerId) => {
+        (wonOpeningRound(record, stageIndex, playerId) ? drops : rises).push(playerId);
+      });
+      shuffleInPlace(drops, rng);
+      shuffleInPlace(rises, rng);
+      crossPair(drops, rises, rng, played, avoid).forEach((pair) => result.push({ bucketKey: spec.key, pair }));
+      return;
+    }
+    const pairs = pairWithAvoidance(spec.players, rng, played, avoid);
     pairs.forEach((pair) => result.push({ bucketKey: spec.key, pair }));
   });
   return result;

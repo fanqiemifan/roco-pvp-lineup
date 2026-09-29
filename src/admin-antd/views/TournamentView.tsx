@@ -36,6 +36,7 @@ import {
   buildPlayerNameMap,
   buildWaveCards,
   countCompletedMatches,
+  crossPairDeciderPool,
   getCurrentPositionText,
   getDraftBucketSpecs,
   getPairingLabel,
@@ -43,6 +44,7 @@ import {
   getTournamentStatusMeta,
   getWaveGlobalIndex,
   getWaveRoundLabels,
+  isDeciderBucket,
   resolvePlayerName,
   shuffleBucketPairs,
   summarizeTournamentMatches,
@@ -56,6 +58,7 @@ import {
   importPairingsApi,
   listTournamentsApi,
   lockPairingsApi,
+  previewOpeningWaveApi,
   rollbackWaveApi,
   savePairingDraftApi,
   selectMatchApi,
@@ -459,6 +462,33 @@ function SetupDraftPanel({
   const { message } = App.useApp();
   const [drawing, setDrawing] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [preview, setPreview] = useState<TournamentWave['pairingDraft']>();
+  const [previewLoading, setPreviewLoading] = useState(true);
+
+  // 首波对阵预览：按当前 seed 只读生成（重抽会改 seed/drawVersion，effect 随之刷新）
+  useEffect(() => {
+    let cancelled = false;
+    setPreviewLoading(true);
+    previewOpeningWaveApi(record.id)
+      .then((pairs) => {
+        if (!cancelled) {
+          setPreview(pairs);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreview(undefined);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreviewLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [record.id, record.seed, record.drawVersion]);
 
   async function handleDraw(): Promise<void> {
     setDrawing(true);
@@ -489,7 +519,7 @@ function SetupDraftPanel({
   return (
     <Card
       type="inner"
-      title="首波抽签（确认后开赛）"
+      title="抽签与首波对阵（确认后开赛）"
       style={{ margin: '16px 0' }}
       extra={(
         <Space>
@@ -503,7 +533,7 @@ function SetupDraftPanel({
       )}
     >
       <Text type="secondary">
-        种子 seed：{record.seed}（重抽第 {record.drawVersion} 次）；顺序即首波种子位
+        抽签 seed：{record.seed}（重抽第 {record.drawVersion} 次）；seed 是全部自动配对的随机数来源，重抽即整体换一套
       </Text>
       <div className="tournament-seed-order">
         {record.playerIds.map((id, index) => (
@@ -511,6 +541,27 @@ function SetupDraftPanel({
             {index + 1}. {resolvePlayerName(names, id)}
           </Tag>
         ))}
+      </div>
+      <Text type="secondary" style={{ fontSize: 12 }}>
+        以上顺序为配对基准顺序，随机生成、不含强弱种子
+      </Text>
+      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
+        首波对阵预览（按当前 seed 只读生成，确认开赛后才会建场）
+      </Text>
+      <div className="tournament-opening-preview">
+        {preview?.length ? (
+          preview.map((row, index) => (
+            <div className="tournament-opening-row" key={`${row.pair[0] ?? '?'}-${row.pair[1] ?? '?'}-${index}`}>
+              <Text>{resolvePlayerName(names, row.pair[0])}</Text>
+              <Text type="secondary">vs</Text>
+              <Text>{resolvePlayerName(names, row.pair[1])}</Text>
+            </div>
+          ))
+        ) : (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {previewLoading ? '预览生成中…' : '预览不可用'}
+          </Text>
+        )}
       </div>
       <Text type="secondary" style={{ fontSize: 12 }}>
         开赛后系统生成第 1 波全部比赛；手动配对/需确认的阶段会先进入配对确认台。
@@ -649,12 +700,15 @@ function PairingConsole({
     scheduleSave(next);
   }
 
-  /** 🎲 桶内随机重排：每个桶独立洗牌 */
+  /** 🎲 桶内随机重排：每个桶独立洗牌；决胜池（W3 的 1-1 池）走经典双败交叉配对 */
   function handleShuffle(): void {
     const rng = Math.random;
     const next: DraftPairList = [];
     specs.forEach((spec) => {
-      shuffleBucketPairs(spec.playerIds, rng).forEach((pair) => {
+      const bucketPairs = isDeciderBucket(spec.bucketKey)
+        ? crossPairDeciderPool(record, wave.stageIndex, spec.playerIds, rng)
+        : shuffleBucketPairs(spec.playerIds, rng);
+      bucketPairs.forEach((pair) => {
         next.push({ bucketKey: spec.bucketKey, pair });
       });
     });
@@ -1234,7 +1288,7 @@ function CreateTournamentModal({
             },
             {
               title: '配对',
-              width: 150,
+              width: 170,
               render: (_value, _row, index) => {
                 const stage = stages[index];
                 if (stage.format === 'double-life') {
@@ -1255,7 +1309,7 @@ function CreateTournamentModal({
                     size="small"
                     value={stage.pairing}
                     options={[
-                      { label: '种子位', value: 'bracket-seed' },
+                      { label: '沿对阵树', value: 'bracket-seed' },
                       { label: '每轮随机', value: 'random-round' },
                     ]}
                     onChange={(value) => updateStage(index, { pairing: value as StageRule['pairing'] })}

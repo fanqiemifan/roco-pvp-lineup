@@ -5,6 +5,7 @@ import {
   buildPlayerNameMap,
   buildWaveCards,
   countCompletedMatches,
+  crossPairDeciderPool,
   getCurrentPositionText,
   getDraftBucketSpecs,
   getNodeStatus,
@@ -251,6 +252,33 @@ describe('getDraftBucketSpecs（draft 期望选手桶）', () => {
     expect(getDraftBucketSpecs(record, wave)).toEqual([
       { bucketKey: '1-1', playerIds: ['p0', 'p1'] },
     ]);
+  });
+
+  it('决胜池交叉配对：W1 胜者只与 W1 败者配对，不出现同侧相遇', () => {
+    const record = recordWithEntries([
+      [1, 1, 'alive'],
+      [1, 1, 'alive'],
+      [1, 1, 'alive'],
+      [1, 1, 'alive'],
+    ]);
+    // W1：p0 胜 p2、p1 胜 p3 ⇒ p0/p1 = 胜者组掉落者，p2/p3 = 败者组上扬者
+    record.waves = [
+      makeWave(0, 1, {
+        nodes: [
+          { id: 's0-w1-n00', matchId: 'm1', playerAId: 'p0', playerBId: 'p2', winnerId: 'p0', isBye: false },
+          { id: 's0-w1-n01', matchId: 'm2', playerAId: 'p1', playerBId: 'p3', winnerId: 'p1', isBye: false },
+        ],
+      }),
+    ];
+
+    const pairs = crossPairDeciderPool(record, 0, ['p0', 'p1', 'p2', 'p3'], () => 0.5);
+    expect(pairs).toHaveLength(2);
+    const openingWinners = new Set(['p0', 'p1']);
+    pairs.forEach(([a, b]) => {
+      expect(openingWinners.has(a)).toBe(!openingWinners.has(b));
+    });
+    // 每人恰好出场一次
+    expect(pairs.flat().sort()).toEqual(['p0', 'p1', 'p2', 'p3']);
   });
 
   it('单败阶段：无 bucketKey 整池', () => {
@@ -734,7 +762,7 @@ describe('buildWaveCards / getWaveRoundLabels（波次列表与晋级图同源�
     expect(getPairingLabel('random-bucket')).toBe('随机配对');
     expect(getPairingLabel('manual-bucket')).toBe('手动配对');
     expect(getPairingLabel('random-round')).toBe('每轮随机');
-    expect(getPairingLabel('bracket-seed')).toBe('种子位配对');
+    expect(getPairingLabel('bracket-seed')).toBe('沿对阵树');
   });
 
   it('单波卡片与晋级图同源：按节点序号排序、带桶标记与每槽比分', () => {

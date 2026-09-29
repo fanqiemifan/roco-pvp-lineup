@@ -13,6 +13,7 @@ import {
   lockPairings,
   onMatchCompleted,
   onMatchUndo,
+  previewOpeningWave,
   redrawTournament,
   rollbackWave,
   savePairingDraft,
@@ -303,6 +304,49 @@ describe('startTournament', () => {
   });
 });
 
+describe('previewOpeningWave（只读首波预览）', () => {
+  it('不落盘、不建场，且与开赛后实际 W1 节点逐场一致', () => {
+    const tournament = createSeries(32);
+    const before = getTournamentStore(paths)[0];
+    const preview = previewOpeningWave(paths, tournament.id);
+    expect(preview.pairs).toHaveLength(16);
+    expect(preview.pairs.every((item) => item.pair[0] && item.pair[1])).toBe(true);
+
+    // 只读：记录与比赛库都没有变化
+    const afterPreview = getTournamentStore(paths)[0];
+    expect(afterPreview.waves).toEqual([]);
+    expect(afterPreview.status).toBe('setup');
+    expect(afterPreview.seed).toBe(before.seed);
+    expect(getMatchStore(paths).matches).toHaveLength(0);
+
+    // 开赛后 W1 节点顺序与预览完全一致
+    const started = startTournament(paths, tournament.id);
+    expect(started.waves[0].nodes.map((node) => [node.playerAId, node.playerBId])).toEqual(
+      preview.pairs.map((item) => item.pair),
+    );
+  });
+
+  it('重抽后预览随之变化，且与重抽后的实际 W1 一致', () => {
+    const tournament = createSeries(16);
+    const first = previewOpeningWave(paths, tournament.id).pairs;
+    redrawTournament(paths, tournament.id, { seed: 7 });
+    const second = previewOpeningWave(paths, tournament.id).pairs;
+    expect(second).not.toEqual(first);
+
+    const started = startTournament(paths, tournament.id);
+    expect(started.waves[0].nodes.map((node) => [node.playerAId, node.playerBId])).toEqual(
+      second.map((item) => item.pair),
+    );
+  });
+
+  it('非 setup 状态与不存在的系列赛均拒绝', () => {
+    const tournament = createSeries(4);
+    expect(() => previewOpeningWave(paths, 'T20260929_A99')).toThrow(/不存在/);
+    startTournament(paths, tournament.id);
+    expect(() => previewOpeningWave(paths, tournament.id)).toThrow(/setup/);
+  });
+});
+
 describe('配对确认台 draft / lock', () => {
   /** 创建 8 人手动杯并开赛至 W1 draft，返回记录 */
   function draftSeries(pairing: 'manual-bucket' | 'random-bucket' = 'manual-bucket'): TournamentRecord {
@@ -475,6 +519,45 @@ describe('onMatchCompleted（比赛完成钩子）', () => {
     // 决胜波 W3：1-1 池 2 场（8人时 W3 为 2 场）
     expect(afterW2.waves[2].nodes).toHaveLength(2);
   });
+
+  it('决胜波（W3）交叉配对：每场必为「胜者组掉落者 vs 败者组上扬者」，不出现同侧相遇', () => {
+    const load = (id: string): TournamentRecord => getTournamentStore(paths).find((item) => item.id === id)!;
+    // 该选手在 W1 是否取胜（W1 胜 = 胜者组掉下来；W1 负 = 败者组打上来）
+    const wonOpening = (
+      w1Nodes: TournamentRecord['waves'][number]['nodes'],
+      playerId: string | null,
+    ): boolean => {
+      if (!playerId) {
+        return false;
+      }
+      const node = w1Nodes.find((item) => item.playerAId === playerId || item.playerBId === playerId);
+      return node?.winnerId === playerId;
+    };
+
+    [
+      { size: 8, seeds: [1, 2, 3] },
+      { size: 16, seeds: [1, 2, 3] },
+      { size: 32, seeds: [1, 2] },
+    ].forEach(({ size, seeds }) => {
+      seeds.forEach((seed) => {
+        const tournament = createSeries(size, { seed });
+        startTournament(paths, tournament.id);
+        // 左侧连胜打完 W1、W2，自动生成 W3
+        load(tournament.id).waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId ?? '', 'left'));
+        load(tournament.id).waves[1].nodes.forEach((node) => playMatchToEnd(node.matchId ?? '', 'left'));
+
+        const record = load(tournament.id);
+        const w1Nodes = record.waves.find((wave) => wave.stageIndex === 0 && wave.waveIndex === 1)!.nodes;
+        const w3 = record.waves.find((wave) => wave.stageIndex === 0 && wave.waveIndex === 3)!;
+
+        expect(w3.nodes).toHaveLength(size / 4);
+        w3.nodes.forEach((node) => {
+          // 两侧必来自不同的来源池：一侧 W1 胜、另一侧 W1 负
+          expect(wonOpening(w1Nodes, node.playerAId)).toBe(!wonOpening(w1Nodes, node.playerBId));
+        });
+      });
+    });
+  }, 60000);
 
   it('阶段末：promoted 凑齐半额 → entries 换批清零并生成下一阶段 W1', () => {
     const tournament = createSeries(8);

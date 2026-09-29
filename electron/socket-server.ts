@@ -107,6 +107,7 @@ import {
   lockPairings,
   onMatchCompleted,
   onMatchUndo,
+  previewOpeningWave,
   redrawTournament,
   rollbackWave,
   savePairingDraft,
@@ -1368,6 +1369,15 @@ export async function createLocalServer(
       const tournament = redrawTournament(paths, request.params.tournamentId, request.body ?? {});
       emitTournamentUpdate();
       response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 只读：按当前 seed 预览首波对阵（不建场），供 setup 抽签面板展示
+  app.get('/api/tournaments/:tournamentId/opening-wave', (request, response) => {
+    try {
+      response.json(previewOpeningWave(paths, request.params.tournamentId));
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

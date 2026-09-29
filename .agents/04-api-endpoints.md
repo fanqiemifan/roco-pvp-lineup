@@ -61,6 +61,7 @@
 | 获取系列赛详情 | GET | /api/tournaments/:tournamentId | 获取单个系列赛；不存在 404 | electron/socket-server.ts |
 | 创建系列赛 | POST | /api/tournaments | 创建 setup 草稿（body: name/playerIds/stages?/seed?）；playerIds 必须全部来自信息录入档案、人数 4/8/16/32；stages 省略时用 buildDefaultStages 默认模板；成功广播 tournament:update | electron/socket-server.ts |
 | （重）抽签 | POST | /api/tournaments/:tournamentId/draw | 仅 setup 可用；按新 seed（body.seed 可传）重洗种子顺序、drawVersion +1；重抽结果只取决于 seed 与选手集合（从字典序做位置洗牌，可复现） | electron/socket-server.ts |
+| 首波对阵预览 | GET | /api/tournaments/:tournamentId/opening-wave | 只读：按当前 seed 走与 materializeWave 相同的 generateDraftPairs 返回首波配对（pairs），不落盘不建场；仅 setup 可用，开赛后/不存在 400。供抽签面板展示「重抽换了什么」 | electron/socket-server.ts |
 | 开赛 | POST | /api/tournaments/:tournamentId/start | setup → running，生成阶段 0 第 1 波：随机自动且无需确认 → 锁定并批量建场；手动配对/requireConfirm → 停在 draft。建场后另广播 matches:update | electron/socket-server.ts |
 | 确认推进 | POST | /api/tournaments/:tournamentId/advance | requireConfirm 的确认动作：对最后波 draft（随机配对）重新随机并锁定建场；手动配对波拒绝（请在配对确认台编辑后锁定） | electron/socket-server.ts |
 | 暂存配对草稿 | PUT | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings | 配对确认台编辑即存（body: pairings）；中间态允许漏配/重复，仅做字段白名单与选手范围校验，不建场 | electron/socket-server.ts |

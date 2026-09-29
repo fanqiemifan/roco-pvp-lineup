@@ -191,6 +191,34 @@ describe('开赛 + 完整届（事件驱动建场）', () => {
   }, 60000);
 });
 
+describe('GET /api/tournaments/:id/opening-wave（只读首波预览）', () => {
+  it('setup 返回首波配对且不建场；开赛后与 W1 节点一致；非 setup 返回 400', async () => {
+    const playerIds = seedPlayers(8);
+    const created = (await postJson('/api/tournaments', { name: '预览杯', playerIds, seed: 11 })).data.tournament;
+
+    const preview = await getJson(`/api/tournaments/${created.id}/opening-wave`);
+    expect(preview.status).toBe(200);
+    expect(preview.data.pairs).toHaveLength(4);
+    expect(preview.data.pairs.every((item: { pair: unknown[] }) => item.pair[0] && item.pair[1])).toBe(true);
+
+    // 只读：本系列赛未建场、未开赛（比赛库是文件级共享，只看本系列赛的对局）
+    await flushEvents();
+    const matchesAfter = (await getJson('/api/matches')).data.matches as
+      Array<{ tournamentRef?: { tournamentId: string } }>;
+    expect(matchesAfter.filter((match) => match.tournamentRef?.tournamentId === created.id)).toHaveLength(0);
+    expect((await getJson(`/api/tournaments/${created.id}`)).data.tournament.status).toBe('setup');
+
+    await postJson(`/api/tournaments/${created.id}/start`);
+    const detail = await getJson(`/api/tournaments/${created.id}`);
+    expect(detail.data.tournament.waves[0].nodes.map(
+      (node: { playerAId: string; playerBId: string }) => [node.playerAId, node.playerBId],
+    )).toEqual(preview.data.pairs.map((item: { pair: unknown[] }) => item.pair));
+
+    expect((await getJson(`/api/tournaments/${created.id}/opening-wave`)).status).toBe(400);
+    expect((await getJson('/api/tournaments/T20260929_A99/opening-wave')).status).toBe(400);
+  });
+});
+
 describe('配对确认台（手动配对 HTTP 流程）', () => {
   it('draft → PUT 暂存 → lock 锁定建场', async () => {
     const playerIds = seedPlayers(8);

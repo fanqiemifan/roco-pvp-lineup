@@ -45,6 +45,16 @@ export async function startTournamentApi(tournamentId: string): Promise<Tourname
   return data.tournament;
 }
 
+/** 只读预览首波对阵（按当前 seed 生成，不建场）：setup 抽签面板用 */
+export async function previewOpeningWaveApi(
+  tournamentId: string,
+): Promise<TournamentWave['pairingDraft']> {
+  const data = await requestJson<{ pairs: TournamentWave['pairingDraft'] }>(
+    `/api/tournaments/${tournamentId}/opening-wave`,
+  );
+  return data.pairs;
+}
+
 export async function savePairingDraftApi(
   tournamentId: string,
   waveGlobalIndex: number,

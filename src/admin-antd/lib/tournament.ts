@@ -255,22 +255,70 @@ export function validateDraftPairs(
   return { valid: errors.length === 0, errors, warnings };
 }
 
+/** 决胜池（双败 W3 的 1-1 池）key */
+const DECIDER_BUCKET = '1-1';
+
+/** 是否决胜池（双败 W3 的 1-1 池） */
+export function isDeciderBucket(bucketKey?: string): boolean {
+  return bucketKey === DECIDER_BUCKET;
+}
+
+/** 洗牌（Fisher–Yates，RNG 注入） */
+function shuffleInPlace<T>(items: T[], rng: () => number): T[] {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+/** 该选手在本阶段第 1 波是否取胜（与服务端口径一致） */
+function wonOpeningRound(record: TournamentRecord, stageIndex: number, playerId: string): boolean {
+  const wave1 = record.waves.find((wave) => wave.stageIndex === stageIndex && wave.waveIndex === 1);
+  const node = wave1?.nodes.find((item) => item.playerAId === playerId || item.playerBId === playerId);
+  return node?.winnerId === playerId;
+}
+
 /** 桶内随机重排：洗牌后两两配对（纯函数，RNG 注入便于测试） */
 export function shuffleBucketPairs(
   playerIds: string[],
   rng: () => number,
 ): Array<[string, string]> {
-  const ordered = [...playerIds];
-  for (let i = ordered.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rng() * (i + 1));
-    [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
-  }
+  const ordered = shuffleInPlace([...playerIds], rng);
   const pairs: Array<[string, string]> = [];
   for (let i = 0; i < ordered.length; i += 2) {
     if (ordered[i + 1] !== undefined) {
       pairs.push([ordered[i], ordered[i + 1]]);
     }
   }
+  return pairs;
+}
+
+/**
+ * 决胜池交叉配对：W1 取胜者（胜者组掉落者）对 W1 落败者（败者组上扬者），两类人互不相遇，
+ * 与后端 generateDraftPairs 同口径；两侧各自洗牌后按序一一对应。
+ */
+export function crossPairDeciderPool(
+  record: TournamentRecord,
+  stageIndex: number,
+  playerIds: string[],
+  rng: () => number,
+): Array<[string, string]> {
+  const drops: string[] = [];
+  const rises: string[] = [];
+  playerIds.forEach((id) => {
+    (wonOpeningRound(record, stageIndex, id) ? drops : rises).push(id);
+  });
+  shuffleInPlace(drops, rng);
+  shuffleInPlace(rises, rng);
+
+  const pairs: Array<[string, string]> = [];
+  drops.forEach((first, index) => {
+    const second = rises[index];
+    if (second !== undefined) {
+      pairs.push([first, second]);
+    }
+  });
   return pairs;
 }
 
@@ -577,7 +625,7 @@ export function getWaveRoundLabels(record: TournamentRecord, wave: TournamentWav
     .map((key) => DOUBLE_LIFE_ROUND_LABELS[key] ?? key);
 }
 
-/** 配对方式的中文表述（创建向导的同名字段：双败 随机/手动，单败 种子位/每轮随机） */
+/** 配对方式的中文表述（创建向导的同名字段：双败 随机/手动，单败 沿对阵树/每轮随机） */
 export function getPairingLabel(pairing: StageRule['pairing']): string {
   switch (pairing) {
     case 'random-bucket':
@@ -587,7 +635,7 @@ export function getPairingLabel(pairing: StageRule['pairing']): string {
     case 'random-round':
       return '每轮随机';
     default:
-      return '种子位配对';
+      return '沿对阵树';
   }
 }
 

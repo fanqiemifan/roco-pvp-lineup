@@ -45,6 +45,7 @@
 | 获取系列赛列表 | getTournamentStore | (paths: AppPaths) => TournamentRecord[] | 读 tournaments.json（逐条白名单规范化） |
 | 创建系列赛 | createTournament | (paths: AppPaths, payload: unknown) => TournamentRecord | body: name/playerIds/stages?/seed?；校验人数 4/8/16/32、无重复、全部来自档案；stages 省略用 buildDefaultStages；id = `T{日期}_{机器码}{NN}`；返回 setup 草稿 |
 | （重）抽签 | redrawTournament | (paths: AppPaths, tournamentId: string, payload?: unknown) => TournamentRecord | 仅 setup；重洗种子顺序、drawVersion+1；从字典序做位置洗牌，同 seed 永远同结果 |
+| 首波对阵预览 | previewOpeningWave | (paths: AppPaths, tournamentId: string) => { pairs } | 只读：按当前 seed 调 generateDraftPairs 返回首波配对，不落盘不建场；仅 setup（否则抛错）。与开赛后实际 W1 节点逐场一致 |
 | 开赛 | startTournament | (paths: AppPaths, tournamentId: string) => TournamentRecord | setup→running，materialize 阶段0 W1（自动锁定或 draft） |
 | 确认推进 | advanceTournament | (paths: AppPaths, tournamentId: string) => TournamentRecord | 最后波 draft 且随机配对 → 重新随机并锁定建场；手动配对/非 draft 拒绝 |
 | 暂存配对草稿 | savePairingDraft | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 编辑中间态即存（白名单/范围校验，允许漏配重复），不建场 |
@@ -55,7 +56,7 @@
 | 撤回小局钩子 | onMatchUndo | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 清节点胜者并用 recomputeStageEntries 重算该阶段战绩（同阶段撤回与跨阶段回退口径一致）；该波已自动推进时，若后续波全是「自动锁定（pairingStatus=locked）且一场未打」则级联丢弃（软删其比赛、回退 currentStageIndex、删冠军结果），否则抛错提示走「回退上一波」；节点无胜者（撤回非决胜小局）→null 不广播；孤儿引用同样 →null。调用方（undo 路由）须先跑本钩子再撤比赛 |
 | 删除系列赛 | deleteTournament | (paths: AppPaths, tournamentId: string, options?: { deleteMatches?: boolean }) => DeleteTournamentResult | 不存在抛错；关联比赛一律先 detachMatchesFromTournament 解绑：默认仅删 tournaments.json 记录（比赛保留为普通对局）；deleteMatches=true 再走 deleteMatches 连对局删除（可撤回，恢复后无关联）；返回 matchIds/matchesDeleted |
 
-内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`bracketPositions`（标准种子位序列，**仅 stageIndex=0 的首阶段使用**）、`generateDraftPairs`（生成配对草稿：单败 `bracket-seed` 从 stage 1 起按 `entries` 顺序两两相邻配对，**延续固定对阵树，不再每轮重新种子**）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`bracketOrderOfStage`（晋级选手在上一阶段的获胜节点位置 `(waveIndex, nodeIndex)`，单败即节点序、双败则胜者组出线在前）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→按 `bracketOrderOfStage` 的对阵树顺序换批进入下一阶段（而非全局种子序），否则双败建下一波）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用）。
+内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`wonOpeningRound`（该选手本阶段 W1 是否取胜——决胜池 1-1 池里「胜者组掉落者」与「败者组上扬者」的判据）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`crossPair`（左右两侧交叉配对：左侧每人从右侧剩余池随机取对手；决胜波 1-1 池两类人互不相遇，avoidRematch 优先避开已交手）、`bracketPositions`（标准种子位序列，**仅 stageIndex=0 的首阶段使用**）、`generateDraftPairs`（生成配对草稿：单败 `bracket-seed` 从 stage 1 起按 `entries` 顺序两两相邻配对，**延续固定对阵树，不再每轮重新种子**；双败 W3 的 1-1 池走 `crossPair` 经典交叉配对）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`bracketOrderOfStage`（晋级选手在上一阶段的获胜节点位置 `(waveIndex, nodeIndex)`，单败即节点序、双败则胜者组出线在前）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→按 `bracketOrderOfStage` 的对阵树顺序换批进入下一阶段（而非全局种子序），否则双败建下一波）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用）。
 
 ## 面板操作 (state-service.ts)
 

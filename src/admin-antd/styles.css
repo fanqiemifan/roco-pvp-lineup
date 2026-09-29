@@ -2159,6 +2159,23 @@ a {
   margin: 10px 0;
 }
 
+/* setup 首波对阵预览（只读，按当前 seed 生成） */
+.tournament-opening-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tournament-opening-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 1px solid rgba(91, 67, 43, 0.16);
+  border-radius: 8px;
+}
+
 /* 向导第 2 步选手勾选区（固定高度滚动） */
 .tournament-player-pick {
   max-height: 320px;
