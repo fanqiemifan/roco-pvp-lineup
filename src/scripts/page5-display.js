@@ -212,7 +212,7 @@
         if (typeof io !== 'function') {
             return;
         }
-        const socket = io({ transports: ['websocket', 'polling'] });
+        const socket = io({ transports: ['websocket', 'polling'], query: { role: 'page5' } });
 
         socket.on('snapshot', (payload) => {
             const stage = payload && payload.stage ? payload.stage : null;

@@ -8,7 +8,8 @@ import multer from 'multer';
 import { Server as SocketIOServer } from 'socket.io';
 
 import { SOCKET_EVENTS } from '../shared/events.js';
-import type { AvatarCollectionState, CountdownState, MatchStoreState, SnapshotPayload, StagePageKey } from '../shared/types.js';
+import { SYNC_BUNDLE_MAX_BYTES } from '../shared/constants.js';
+import type { AvatarCollectionState, CountdownState, MatchStoreState, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
 import { getSpriteRanking } from './services/stats-service.js';
 import {
@@ -31,6 +32,7 @@ import {
   deleteTeamProfile,
 } from './services/profile-service.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from './services/config-service.js';
+import { applySyncImport, exportSyncBundle, previewSyncImport } from './services/sync-service.js';
 import {
   getStageState,
   saveStageState,
@@ -117,6 +119,54 @@ declare module 'express-session' {
 }
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+// 双机数据同步：同步包为单个 JSON 文件（内嵌 base64 头像，可能几十 MB），单独限制单文件大小
+const syncUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: SYNC_BUNDLE_MAX_BYTES, files: 1 },
+});
+
+// ===== socket 角色分组：每个推流页/悬浮窗连接时声明 role，服务端只投递它需要的事件与快照字段 =====
+// 未声明或未知 role 一律按 admin 处理（收全量），旧版客户端行为完全不变。
+const ROLE_ADMIN = 'admin';
+const KNOWN_SOCKET_ROLES = new Set([
+  ROLE_ADMIN,
+  'page1', 'page2', 'page3', 'page4', 'page5', 'page6',
+  'page7', 'page8', 'page9', 'page10', 'page11',
+  'float', 'carrier', 'countdown',
+]);
+const ROLE_ROOM_PREFIX = 'role:';
+
+function normalizeSocketRole(value: unknown): string {
+  const role = String(Array.isArray(value) ? value[0] : value ?? '');
+  return KNOWN_SOCKET_ROLES.has(role) ? role : ROLE_ADMIN;
+}
+
+// 各角色首次连接需要的快照字段（依据各页面 snapshot 处理函数实际读取审计得出）；
+// page3 与 admin 收全量；page10/11 只把 snapshot 当刷新信号、不读载荷，给空对象即可。
+const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayload>>> = {
+  page1: ['panels'],
+  page2: ['panels', 'scoreboard'],
+  page4: ['mvp'],
+  page5: ['stage', 'scoreboard'],
+  page6: ['page6'],
+  page7: ['page7'],
+  page8: ['page8'],
+  page9: ['page9'],
+  page10: [],
+  page11: [],
+  float: ['panels'],
+  carrier: ['stage'],
+  countdown: [],
+};
+
+// 事件 → 需要该事件的角色（admin 房间始终收到全部）
+const ROLES_FOR_STAGE = ['page3', 'page5', 'page11', 'carrier'];
+const ROLES_FOR_AVATAR = ['page3', 'page4', 'page7', 'page8', 'page10', 'page11'];
+const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11'];
+const ROLES_FOR_SCOREBOARD = ['page2', 'page3', 'page5'];
+const ROLES_FOR_PANEL = ['page1', 'page2', 'page3', 'page11', 'float'];
+const ROLES_FOR_PROFILES = ['page3', 'page11'];
 
 function snapshotPayload(paths: AppPaths): SnapshotPayload {
   const activeMatchId = getMatchStore(paths).activeMatchId;
@@ -277,6 +327,38 @@ export async function createLocalServer(
     },
   });
 
+  // 定向广播：admin 房间始终收到全部事件；roles 之外的页面不再收到无关事件，
+  // 避免多 iframe/悬浮窗场景下每连接都全量扇出（未知角色默认加入 admin 房间，行为与旧版一致）。
+  const roleRoom = (role: string): string => `${ROLE_ROOM_PREFIX}${role}`;
+  const broadcast = (
+    event: string,
+    payload: unknown,
+    roles?: string[],
+  ): void => {
+    if (!roles) {
+      io.emit(event, payload);
+      return;
+    }
+    const rooms = Array.from(new Set([ROLE_ADMIN, ...roles])).map(roleRoom);
+    io.to(rooms).emit(event, payload);
+  };
+
+  // 按角色裁剪首连快照（全量快照只发给 admin 与 page3）
+  const snapshotForRole = (role: string): SnapshotPayload | Partial<SnapshotPayload> => {
+    const full = snapshotPayload(paths);
+    if (role === ROLE_ADMIN || role === 'page3' || !(role in SNAPSHOT_FIELDS_BY_ROLE)) {
+      return full;
+    }
+    const fields = SNAPSHOT_FIELDS_BY_ROLE[role] ?? [];
+    const subset: Partial<SnapshotPayload> = {};
+    const target = subset as Record<string, unknown>;
+    const source = full as unknown as Record<string, unknown>;
+    for (const field of fields) {
+      target[field] = source[field];
+    }
+    return subset;
+  };
+
   // === 胜者结算画面（page10）自动切回计时 ===
   // 赛事面板登记本局胜负时，若当前画面是推流页面1-3，先切入 page10，停留设定时长后自动切回原画面。
   let winnerStageReturnTimer: ReturnType<typeof setTimeout> | null = null;
@@ -298,7 +380,7 @@ export async function createLocalServer(
     }
 
     const stage = saveStageState(paths, { ...stageBefore, page: 'page10' });
-    io.emit(SOCKET_EVENTS.stageUpdate, { stage });
+    broadcast(SOCKET_EVENTS.stageUpdate, { stage }, ROLES_FOR_STAGE);
 
     const durationMs = stage.page10Duration * (stage.page10DurationUnit === 'minutes' ? 60 : 1) * 1000;
     clearWinnerStageReturnTimer();
@@ -309,7 +391,7 @@ export async function createLocalServer(
       // 仍停留在胜者结算画面才自动切回（期间被手动切走则不再处理）
       if (current.page === 'page10') {
         const restored = saveStageState(paths, { ...current, page: winnerStageReturnPage ?? 'page3' });
-        io.emit(SOCKET_EVENTS.stageUpdate, { stage: restored });
+        broadcast(SOCKET_EVENTS.stageUpdate, { stage: restored }, ROLES_FOR_STAGE);
       }
       winnerStageReturnPage = null;
     }, durationMs);
@@ -318,7 +400,7 @@ export async function createLocalServer(
   // 广播当前赛事对应的头像（活跃赛事变化时推流页等需要同步）
   const emitAvatarUpdate = (): void => {
     const matchId = getMatchStore(paths).activeMatchId;
-    io.emit(SOCKET_EVENTS.avatarUpdate, { matchId, avatars: getAvatarStates(paths, matchId) });
+    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatars: getAvatarStates(paths, matchId) }, ROLES_FOR_AVATAR);
   };
 
   // 红光特效「立即显示」为一次性触发：进入下一局（换比赛 / 新小局开始）时自动清除并广播，
@@ -355,12 +437,12 @@ export async function createLocalServer(
       return;
     }
     const saved = saveStageState(paths, { ...stage, page3RedLightInstant: false });
-    io.emit(SOCKET_EVENTS.stageUpdate, { stage: saved });
+    broadcast(SOCKET_EVENTS.stageUpdate, { stage: saved }, ROLES_FOR_STAGE);
   };
 
   // 比赛数据统一广播出口：广播后检查红光特效「立即显示」是否已进入下一局需清除
   const emitMatchesUpdate = (store: MatchStoreState): void => {
-    io.emit(SOCKET_EVENTS.matchesUpdate, { store });
+    broadcast(SOCKET_EVENTS.matchesUpdate, { store }, ROLES_FOR_MATCHES);
     clearRedLightInstantOnBoundary(store);
   };
 
@@ -390,17 +472,26 @@ export async function createLocalServer(
   io.engine.use(sessionMiddleware);
 
   // Static files (public, no auth)
+  // 打包随版本发布/内容不可变的素材：30 天长缓存 + immutable（精灵立绘/头像、字体、
+  // 带 hash 的后台 bundle、UI 图）；资源更新时文件名必变或随版本重启，不会读到旧缓存。
+  // 用户上传内容（/runtime）与页面脚本（/scripts、/styles）保持协商缓存，避免改名/升级后滞留。
+  const immutableStaticOptions = {
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    setHeaders: (response: Response) => {
+      response.setHeader('Cache-Control', 'public, max-age=2592000, immutable');
+    },
+  };
   app.use('/scripts', express.static(paths.scriptsDir));
   app.use('/styles', express.static(paths.stylesDir));
-  app.use('/assets', express.static(paths.assetsDir));
-  app.use('/antd-assets', express.static(path.join(paths.rendererDistDir, 'antd-assets')));
-  app.use('/resources', express.static(paths.resourcesDir));
+  app.use('/assets', express.static(paths.assetsDir, immutableStaticOptions));
+  app.use('/antd-assets', express.static(path.join(paths.rendererDistDir, 'antd-assets'), immutableStaticOptions));
+  app.use('/resources', express.static(paths.resourcesDir, immutableStaticOptions));
   app.use('/runtime', express.static(paths.cacheDir));
 
-  app.use('/img', express.static(paths.spritesDir));
+  app.use('/img', express.static(paths.spritesDir, immutableStaticOptions));
   app.use('/json', express.static(paths.dataDir));
-  app.use('/image', express.static(path.join(paths.assetsDir, 'ui')));
-  app.use('/font', express.static(path.join(paths.assetsDir, 'fonts')));
+  app.use('/image', express.static(path.join(paths.assetsDir, 'ui'), immutableStaticOptions));
+  app.use('/font', express.static(path.join(paths.assetsDir, 'fonts'), immutableStaticOptions));
 
   // === Public routes (no auth required) ===
   app.get('/', (_request, response) => sendPage(paths, response, 'index.html'));
@@ -518,7 +609,7 @@ export async function createLocalServer(
       if (stage.page !== 'page10') {
         clearWinnerStageReturnTimer();
       }
-      io.emit(SOCKET_EVENTS.stageUpdate, { stage });
+      broadcast(SOCKET_EVENTS.stageUpdate, { stage }, ROLES_FOR_STAGE);
       response.json({ success: true, stage });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -547,7 +638,7 @@ export async function createLocalServer(
   app.post('/api/page6', (request, response) => {
     try {
       const state = savePage6State(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.page6Update, { state });
+      broadcast(SOCKET_EVENTS.page6Update, { state }, ["page6"]);
       response.json({ success: true, state });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -572,7 +663,7 @@ export async function createLocalServer(
   app.post('/api/page7', (request, response) => {
     try {
       const state = savePage7State(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.page7Update, { state });
+      broadcast(SOCKET_EVENTS.page7Update, { state }, ["page7"]);
       response.json({ success: true, state });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -597,7 +688,7 @@ export async function createLocalServer(
   app.post('/api/page8', (request, response) => {
     try {
       const state = savePage8State(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.page8Update, { state });
+      broadcast(SOCKET_EVENTS.page8Update, { state }, ["page8"]);
       response.json({ success: true, state });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -613,7 +704,7 @@ export async function createLocalServer(
     try {
       await savePage8Wallpaper(paths, request.file.buffer);
       const state = savePage8State(paths, { background: 'custom', wallpaperUrl: '/runtime/page8-wallpaper.jpg' });
-      io.emit(SOCKET_EVENTS.page8Update, { state });
+      broadcast(SOCKET_EVENTS.page8Update, { state }, ["page8"]);
       response.json({ success: true, state, wallpaperUrl: '/runtime/page8-wallpaper.jpg' });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -627,7 +718,7 @@ export async function createLocalServer(
         fs.unlinkSync(paths.page8WallpaperFile);
       }
       const state = savePage8State(paths, { background: 'image', wallpaperUrl: '' });
-      io.emit(SOCKET_EVENTS.page8Update, { state });
+      broadcast(SOCKET_EVENTS.page8Update, { state }, ["page8"]);
       response.json({ success: true, state });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -641,7 +732,7 @@ export async function createLocalServer(
   app.post('/api/page9', (request, response) => {
     try {
       const state = savePage9State(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.page9Update, { state });
+      broadcast(SOCKET_EVENTS.page9Update, { state }, ["page9"]);
       response.json({ success: true, state });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -668,7 +759,7 @@ export async function createLocalServer(
   app.post('/api/page11', (request, response) => {
     try {
       const state = savePage11State(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.page11Update, { state });
+      broadcast(SOCKET_EVENTS.page11Update, { state }, ["page11"]);
       response.json({ success: true, state });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -684,7 +775,7 @@ export async function createLocalServer(
   app.post('/api/profiles/players', (request, response) => {
     try {
       const profiles = savePlayerProfile(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
+      broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -701,7 +792,7 @@ export async function createLocalServer(
           ? body.players
           : null;
       const result = importPlayerProfiles(paths, list);
-      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles });
+      broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
       response.json({ success: true, profiles: result.profiles, review: result.review });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -711,7 +802,7 @@ export async function createLocalServer(
   app.delete('/api/profiles/players/:playerId', (request, response) => {
     try {
       const profiles = deletePlayerProfile(paths, request.params.playerId ?? '');
-      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
+      broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -721,7 +812,7 @@ export async function createLocalServer(
   app.post('/api/profiles/teams', (request, response) => {
     try {
       const profiles = saveTeamProfile(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
+      broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -731,7 +822,7 @@ export async function createLocalServer(
   app.delete('/api/profiles/teams/:teamId', (request, response) => {
     try {
       const profiles = deleteTeamProfile(paths, request.params.teamId ?? '');
-      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
+      broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -753,7 +844,7 @@ export async function createLocalServer(
       // 基于文件魔数校验 + sharp 缩放压缩为 PNG，杜绝存储型同源 XSS
       await saveProfilePlayerAvatar(paths, playerId, request.file.buffer);
       const profiles = getProfileStore(paths);
-      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
+      broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -796,7 +887,7 @@ export async function createLocalServer(
           buffer: file.buffer,
         })),
       );
-      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles });
+      broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
       response.json({ success: true, ...result });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -822,7 +913,7 @@ export async function createLocalServer(
     try {
       await saveProfileTeamLogo(paths, teamId, request.file.buffer);
       const profiles = getProfileStore(paths);
-      io.emit(SOCKET_EVENTS.profilesUpdate, { profiles });
+      broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -839,7 +930,7 @@ export async function createLocalServer(
     try {
       const state = saveMvpState(paths, request.body ?? {});
       // 广播带 winner（胜方快照解析出的名字与头像）：后台「结算画面」直接据此展示，无需再拉一次
-      io.emit(SOCKET_EVENTS.mvpUpdate, { state, winner: getMvpWinnerInfo(paths) });
+      broadcast(SOCKET_EVENTS.mvpUpdate, { state, winner: getMvpWinnerInfo(paths) }, ['page4']);
       response.json({ success: true, state });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -854,8 +945,8 @@ export async function createLocalServer(
         ? getMvpState(paths)
         : saveMvpReturnPage(paths, stageBefore.page);
       const stage = saveStageState(paths, { ...stageBefore, page: 'page4' });
-      io.emit(SOCKET_EVENTS.mvpUpdate, { state: mvp, winner: getMvpWinnerInfo(paths) });
-      io.emit(SOCKET_EVENTS.stageUpdate, { stage });
+      broadcast(SOCKET_EVENTS.mvpUpdate, { state: mvp, winner: getMvpWinnerInfo(paths) }, ['page4']);
+      broadcast(SOCKET_EVENTS.stageUpdate, { stage }, ROLES_FOR_STAGE);
       response.json({ success: true, state: mvp, stage });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -868,7 +959,7 @@ export async function createLocalServer(
       const current = getStageState(paths);
       const mvp = getMvpState(paths);
       const stage = saveStageState(paths, { ...current, page: mvp.returnPage });
-      io.emit(SOCKET_EVENTS.stageUpdate, { stage });
+      broadcast(SOCKET_EVENTS.stageUpdate, { stage }, ROLES_FOR_STAGE);
       response.json({ success: true, state: mvp, stage });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -900,12 +991,12 @@ export async function createLocalServer(
     const remaining = durationMs - elapsed;
     if (remaining <= 0) {
       const next = hideNextGame(paths);
-      io.emit(SOCKET_EVENTS.nextgameUpdate, next);
+      broadcast(SOCKET_EVENTS.nextgameUpdate, next, ["page3"]);
       return;
     }
     nextgameTimer = setTimeout(() => {
       const next = hideNextGame(paths);
-      io.emit(SOCKET_EVENTS.nextgameUpdate, next);
+      broadcast(SOCKET_EVENTS.nextgameUpdate, next, ["page3"]);
     }, remaining);
   }
   scheduleNextGameAutoHide();
@@ -913,7 +1004,7 @@ export async function createLocalServer(
   app.post('/api/nextgame', (request, response) => {
     try {
       const payload = saveNextGameState(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.nextgameUpdate, payload);
+      broadcast(SOCKET_EVENTS.nextgameUpdate, payload, ["page3"]);
       scheduleNextGameAutoHide();
       response.json({ success: true, ...payload });
     } catch (error) {
@@ -924,7 +1015,7 @@ export async function createLocalServer(
   app.post('/api/nextgame/show', (request, response) => {
     try {
       const payload = showNextGame(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.nextgameUpdate, payload);
+      broadcast(SOCKET_EVENTS.nextgameUpdate, payload, ["page3"]);
       scheduleNextGameAutoHide();
       response.json({ success: true, ...payload });
     } catch (error) {
@@ -935,7 +1026,7 @@ export async function createLocalServer(
   app.post('/api/nextgame/hide', (_request, response) => {
     try {
       const payload = hideNextGame(paths);
-      io.emit(SOCKET_EVENTS.nextgameUpdate, payload);
+      broadcast(SOCKET_EVENTS.nextgameUpdate, payload, ["page3"]);
       scheduleNextGameAutoHide();
       response.json({ success: true, ...payload });
     } catch (error) {
@@ -960,12 +1051,12 @@ export async function createLocalServer(
     const remaining = state.endAt - Date.now();
     if (remaining <= 0) {
       const next = getCountdownState(paths); // 懒归一化已把状态落地为静止 00:00
-      io.emit(SOCKET_EVENTS.countdownUpdate, { state: next, serverNow: Date.now() });
+      broadcast(SOCKET_EVENTS.countdownUpdate, { state: next, serverNow: Date.now() }, ["countdown"]);
       return;
     }
     countdownZeroTimer = setTimeout(() => {
       const next = getCountdownState(paths);
-      io.emit(SOCKET_EVENTS.countdownUpdate, { state: next, serverNow: Date.now() });
+      broadcast(SOCKET_EVENTS.countdownUpdate, { state: next, serverNow: Date.now() }, ["countdown"]);
     }, remaining + 50);
   }
   scheduleCountdownZero();
@@ -992,7 +1083,7 @@ export async function createLocalServer(
   app.post('/api/countdown', (request, response) => {
     try {
       const state = saveCountdownState(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.countdownUpdate, { state, serverNow: Date.now() });
+      broadcast(SOCKET_EVENTS.countdownUpdate, { state, serverNow: Date.now() }, ["countdown"]);
       scheduleCountdownZero();
       response.json({ success: true, state, serverNow: Date.now() });
     } catch (error) {
@@ -1008,7 +1099,7 @@ export async function createLocalServer(
     }
     try {
       const state = applyCountdownAction(action);
-      io.emit(SOCKET_EVENTS.countdownUpdate, { state, serverNow: Date.now() });
+      broadcast(SOCKET_EVENTS.countdownUpdate, { state, serverNow: Date.now() }, ["countdown"]);
       scheduleCountdownZero();
       response.json({ success: true, state, serverNow: Date.now() });
     } catch (error) {
@@ -1023,8 +1114,8 @@ export async function createLocalServer(
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
       emitAvatarUpdate();
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
-      panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
+      panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1036,7 +1127,7 @@ export async function createLocalServer(
       const matches = updateMatch(paths, request.params.matchId, request.body ?? {});
       const scoreboard = getScoreboardState(paths);
       emitMatchesUpdate(matches);
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       response.json({ success: true, store: matches, scoreboard });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1071,8 +1162,8 @@ export async function createLocalServer(
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
       emitAvatarUpdate();
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
-      panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
+      panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1086,8 +1177,8 @@ export async function createLocalServer(
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
       emitAvatarUpdate();
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
-      panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
+      panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1101,8 +1192,8 @@ export async function createLocalServer(
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
       emitAvatarUpdate();
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
-      panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
+      panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1116,8 +1207,8 @@ export async function createLocalServer(
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
       emitAvatarUpdate();
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
-      panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
+      panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1134,8 +1225,8 @@ export async function createLocalServer(
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
-      panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
+      panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       // 登记本局胜负：当前画面是推流页面1-3 时自动切入胜者结算画面（page10）
       triggerWinnerStage();
       response.json({ success: true, store: matches, scoreboard, panels });
@@ -1150,8 +1241,8 @@ export async function createLocalServer(
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
-      panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
+      panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1191,8 +1282,8 @@ export async function createLocalServer(
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
       emitAvatarUpdate();
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
-      panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
+      panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1206,8 +1297,8 @@ export async function createLocalServer(
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
       emitAvatarUpdate();
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
-      panels.forEach((panel) => io.emit(SOCKET_EVENTS.panelUpdate, { panel }));
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
+      panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1217,7 +1308,7 @@ export async function createLocalServer(
   app.post('/api/scoreboard', (request, response) => {
     try {
       const scoreboard = saveScoreboardState(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       response.json({ success: true, scoreboard });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1227,7 +1318,7 @@ export async function createLocalServer(
   app.post('/api/scoreboard/best-of', (request, response) => {
     try {
       const scoreboard = saveScoreboardBestOf(paths, request.body ?? {});
-      io.emit(SOCKET_EVENTS.scoreboardUpdate, { scoreboard });
+      broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       response.json({ success: true, scoreboard });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1275,7 +1366,7 @@ export async function createLocalServer(
       if (activeMatch && activeGame?.status === 'in_progress') {
         const panel = savePanelState(paths, position, request.body?.selected ?? []);
         const matches = saveDraftPanelStateForActiveMatch(paths, position, request.body?.selected ?? []);
-        io.emit(SOCKET_EVENTS.panelUpdate, { panel });
+        broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL);
         emitMatchesUpdate(matches);
         response.json({ success: true, panel, matches });
         return;
@@ -1283,7 +1374,7 @@ export async function createLocalServer(
 
       const panel = savePanelState(paths, position, request.body?.selected ?? []);
       const matches = syncActiveMatchLineupsFromPanels(paths);
-      io.emit(SOCKET_EVENTS.panelUpdate, { panel });
+      broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL);
       emitMatchesUpdate(matches);
       response.json({ success: true, panel, matches });
     } catch (error) {
@@ -1326,7 +1417,7 @@ export async function createLocalServer(
       if (activeMatch && activeGame?.status === 'in_progress') {
         const panel = savePanelSlotState(paths, position, slotIndex, request.body?.slot ?? null);
         const matches = saveDraftPanelSlotStateForActiveMatch(paths, position, slotIndex, request.body?.slot ?? null);
-        io.emit(SOCKET_EVENTS.panelUpdate, { panel });
+        broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL);
         emitMatchesUpdate(matches);
         response.json({ success: true, panel, matches });
         return;
@@ -1334,7 +1425,7 @@ export async function createLocalServer(
 
       const panel = savePanelSlotState(paths, position, slotIndex, request.body?.slot ?? null);
       const matches = syncActiveMatchLineupsFromPanels(paths);
-      io.emit(SOCKET_EVENTS.panelUpdate, { panel });
+      broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL);
       emitMatchesUpdate(matches);
       response.json({ success: true, panel, matches });
     } catch (error) {
@@ -1373,7 +1464,7 @@ export async function createLocalServer(
         clearPanelState(paths, position);
         const panel = getPanelState(paths, position);
         const matches = saveDraftPanelStateForActiveMatch(paths, position, []);
-        io.emit(SOCKET_EVENTS.panelUpdate, { panel });
+        broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL);
         emitMatchesUpdate(matches);
         response.json({ success: true, position, panel, matches });
         return;
@@ -1382,7 +1473,7 @@ export async function createLocalServer(
       clearPanelState(paths, position);
       const panel = getPanelState(paths, position);
       const matches = syncActiveMatchLineupsFromPanels(paths);
-      io.emit(SOCKET_EVENTS.panelUpdate, { panel });
+      broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL);
       emitMatchesUpdate(matches);
       response.json({ success: true, position, panel, matches });
     } catch (error) {
@@ -1421,7 +1512,7 @@ export async function createLocalServer(
       // HTML/etc. payloads are rejected before storage. Avatars are scoped
       // to the active match (cache/avatars/{matchId}).
       const avatar = await saveAvatar(paths, side, matchId, request.file.buffer);
-      io.emit(SOCKET_EVENTS.avatarUpdate, { matchId, avatar, avatars: getAvatarStates(paths, matchId) });
+      broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatar, avatars: getAvatarStates(paths, matchId) }, ROLES_FOR_AVATAR);
       response.json({ success: true, side, matchId, avatar });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1441,7 +1532,7 @@ export async function createLocalServer(
     }
 
     const avatar = deleteAvatar(paths, side, matchId);
-    io.emit(SOCKET_EVENTS.avatarUpdate, { matchId, side, avatar, avatars: getAvatarStates(paths, matchId) });
+    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, side, avatar, avatars: getAvatarStates(paths, matchId) }, ROLES_FOR_AVATAR);
     response.json({ success: true, side, matchId, avatar });
   });
 
@@ -1450,10 +1541,101 @@ export async function createLocalServer(
   });
 
   app.post('/api/runtime-config', (request, response) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    // 合并语义：只覆盖传入字段（单传 machineCode 不会把 port 重置为默认）
     const config = saveRuntimeConfig(paths, {
-      port: Number(request.body?.port),
+      port: body.port === undefined ? undefined : Number(body.port),
+      machineCode: body.machineCode === undefined ? undefined : String(body.machineCode),
     });
     response.json({ success: true, config });
+  });
+
+  // === 双机数据同步：导出 / 预览 / 导入（同步包为单个 JSON 文件，导入走 multipart 上传） ===
+
+  // 解析上传的同步包文件（multipart 字段：file + 可选 mode）
+  const readSyncRequest = (request: Request): { raw: unknown; mode: SyncConflictMode } => {
+    const file = request.file;
+    if (!file?.buffer?.length) {
+      throw new Error('未收到同步包文件');
+    }
+
+    let raw: unknown;
+    try {
+      raw = JSON.parse(file.buffer.toString('utf-8'));
+    } catch {
+      throw new Error('同步包不是有效的 JSON 文件');
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const mode: SyncConflictMode = body.mode === 'bundle' ? 'bundle' : 'newer';
+    return { raw, mode };
+  };
+
+  // 导出同步包：比赛（全部场次）+ 可选档案与头像，由前端落盘为 JSON 文件
+  app.post('/api/sync/export', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const bundle = exportSyncBundle(paths, {
+        includeProfiles: body.includeProfiles !== false,
+        includeAvatars: body.includeAvatars === true,
+      });
+      response.json({ success: true, bundle });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 导入预览：只读解析并逐条列出 新增 / 更新 / 跳过，不写入任何数据
+  app.post('/api/sync/preview', syncUpload.single('file'), (request, response) => {
+    try {
+      const { raw, mode } = readSyncRequest(request);
+      response.json({ success: true, preview: previewSyncImport(paths, raw, mode) });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 应用导入：服务端重新分类，按勾选条目合并比赛与档案、按需补缺头像，并广播刷新
+  app.post('/api/sync/import', syncUpload.single('file'), async (request, response) => {
+    try {
+      const { raw, mode } = readSyncRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+
+      let accepted: string[] = [];
+      if (typeof body.accepted === 'string' && body.accepted.trim()) {
+        try {
+          const parsed: unknown = JSON.parse(body.accepted);
+          if (Array.isArray(parsed)) {
+            accepted = parsed.map((item) => String(item ?? ''));
+          }
+        } catch {
+          accepted = [];
+        }
+      }
+
+      const result = await applySyncImport(paths, raw, {
+        mode,
+        acceptedKeys: accepted,
+        includeAvatars: String(body.includeAvatars ?? 'true') !== 'false',
+      });
+
+      emitMatchesUpdate(result.store);
+      if (result.profiles) {
+        broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
+      }
+      response.json({ success: true, result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // multer 中间件错误（如文件超过上限）统一转 400 JSON 提示
+  app.use(['/api/sync/preview', '/api/sync/import'], (error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+    const message = error instanceof Error ? error.message : '同步包上传失败';
+    response.status(400).json({
+      success: false,
+      error: /too large/i.test(message) ? '同步包超过大小上限（可关闭头像后重试）' : message,
+    });
   });
 
   app.get('/api/avatar/left-avatar.png', (_request, response) => {
@@ -1496,7 +1678,11 @@ export async function createLocalServer(
   });
 
   io.on('connection', (socket) => {
-    socket.emit(SOCKET_EVENTS.snapshot, snapshotPayload(paths));
+    // 客户端通过 query.role 声明身份（pageN / float / carrier / countdown / admin）；
+    // 缺省或无法识别时按 admin 收全量，保证未升级的旧客户端行为不变。
+    const role = normalizeSocketRole(socket.handshake.query.role);
+    socket.join(roleRoom(role));
+    socket.emit(SOCKET_EVENTS.snapshot, snapshotForRole(role));
   });
 
   await new Promise<void>((resolve, reject) => {

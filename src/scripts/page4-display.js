@@ -306,7 +306,7 @@
             return;
         }
 
-        const socket = io({ transports: ['websocket', 'polling'] });
+        const socket = io({ transports: ['websocket', 'polling'], query: { role: 'page4' } });
 
         socket.on('snapshot', (payload) => {
             applyState(payload ? payload.mvp : null);

@@ -28,12 +28,16 @@
 | DEFAULT_COUNTDOWN_DURATION / DEFAULT_COUNTDOWN_THEME | 5 / dark | 倒计时默认时长（分钟）与配色（SUPPORTED_COUNTDOWN_THEMES = dark/light，COUNTDOWN_DURATION_MAX = 60） | shared/constants.ts |
 | RANK_TEXT_MAX_LENGTH | 10 | 排位排名存储最大位数（超过 10000 显示 10000+） | shared/constants.ts |
 | MVP_MAX_ITEMS / MVP_TAG_MAX_LENGTH / DEFAULT_MVP_RETURN_PAGE | 6 / 4 / page3 | MVP 结算（page4）精灵项上限、标签最大字数、关闭结算后切回的默认画面 | shared/constants.ts |
+| SYNC_APP_ID / SYNC_BUNDLE_SCHEMA / SYNC_BUNDLE_MAX_BYTES | roco-pvp-lineup / 1 / 64MB | 双机同步包的应用标识、结构版本与文件大小上限（导入上传限制 + 前端预检） | shared/constants.ts |
+| MACHINE_CODE_REGEX / MATCH_ID_REGEX | ^[A-Z]{1,2}$ / ^(\d{8})_([A-Za-z]{0,2})(\d+)$ | 本机标识（1-2 位大写字母，空 = 未设置）与比赛 id（日期 + 机器码 + 序号；解析端容忍小写，机器码只允许字母避免与序号歧义） | shared/constants.ts |
 
 > 页面8（比赛预告）的比赛上限常量 PAGE8_MAX_MATCHES = 4 位于 electron/services/page8-service.ts，前台同值常量 PAGE8_MAX_MATCHES 位于 src/admin-antd/App.tsx。
 >
 > 页面9（团队积分榜）在 SUPPORTED_STAGE_PAGES 中；战队上限常量 PAGE9_MAX_TEAMS = 4 位于 electron/services/page9-service.ts，后台表单行数常量 PAGE9_TEAM_COUNT = 4 位于 src/admin-antd/App.tsx；单项积分最长 3 位数字（0-999）。
 >
 > 信息录入（profile-service.ts 内部常量）：选手上限 MAX_PLAYERS = 200、战队上限 MAX_TEAMS = 100、名字最长 32 字、宣言/常用精灵最长 120 字、排名最长 10 位数字；战队 id/选手 id 仅保留字母数字与 `-_`。
+>
+> 双机数据同步：`runtime/config.json` 含 `machineCode`（本机标识，1-2 位大写字母），参与新比赛 id 前缀与同步包来源标识；同步包为单个 JSON（头像 base64 内嵌），导入上限 SYNC_BUNDLE_MAX_BYTES = 64MB。
 
 ## 悬浮窗尺寸（electron/float-window.ts）
 

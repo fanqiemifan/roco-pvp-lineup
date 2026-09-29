@@ -58,7 +58,7 @@ roco-pvp-lineup/
 | electron/services/state-service.ts | 面板（panels）与记分牌状态管理 |
 | electron/services/sprite-service.ts | 精灵数据加载、搜索、快速填充 |
 | electron/services/image-service.ts | 头像上传/删除/读取（含魔数校验） |
-| electron/services/config-service.ts | 运行时配置（端口）管理 |
+| electron/services/config-service.ts | 运行时配置（端口、本机标识 machineCode）管理 |
 | electron/services/path-service.ts | 文件路径管理和路径工厂 |
 | electron/services/page6-service.ts | 比赛结果页（page6）状态管理 |
 | electron/services/page7-service.ts | 对局推送页（page7）状态管理 |
@@ -70,6 +70,7 @@ roco-pvp-lineup/
 | electron/services/stage-service.ts | 直播推流载体配置管理 |
 | electron/services/profile-service.ts | 选手/战队信息录入（增删改、JSON 批量导入 importPlayerProfiles、常用精灵命中判定 matchSpriteToken） |
 | electron/services/stats-service.ts | 精灵精灵登场/胜率排行统计（/api/stats/ranking） |
+| electron/services/sync-service.ts | 双机数据同步（导出同步包 exportSyncBundle / 导入预览 previewSyncImport / 合并应用 applySyncImport） |
 
 ### 共享模块
 

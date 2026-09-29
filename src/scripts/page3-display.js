@@ -14,6 +14,12 @@
     const RED_LIGHT_DEAD_THRESHOLD = 3;
     const RED_LIGHT_SPECIAL_DEAD_THRESHOLD = 4;
 
+    // 比分栏选手名字号阶梯自适应：以配置字号为起点（封顶 36px），名字超长按 2px 逐级缩小，
+    // 下限 28px；28px 仍放不下时保留 CSS 的省略号截断（text-overflow: ellipsis）
+    const PLAYER_NAME_FONT_MAX = 36;
+    const PLAYER_NAME_FONT_MIN = 28;
+    const PLAYER_NAME_FONT_STEP = 2;
+
     const panelStates = {
         left: { signatures: new Array(MAX_SLOTS).fill(null) },
         right: { signatures: new Array(MAX_SLOTS).fill(null) }
@@ -568,6 +574,34 @@
         return Math.round(clamp(value, 12, 160, 64) * 0.75);
     }
 
+    // 比分栏选手名字号基准值（后台配置，未配置时默认 36px）
+    function getScoreboardNameBaseSize(data) {
+        return clamp(scaleNameFont(data && data.nameFontSize), 24, 42, PLAYER_NAME_FONT_MAX);
+    }
+
+    // 按实际渲染宽度阶梯缩小选手名字号：名字元素为 nowrap + overflow:hidden，
+    // scrollWidth 超出 clientWidth 即放不下，逐级降字号直到完整显示或触底 28px；
+    // 触底仍超出时不再处理，由 text-overflow:ellipsis 截断显示省略号
+    function fitPlayerName(el, baseSize) {
+        if (!el) {
+            return;
+        }
+        const startSize = Math.min(baseSize, PLAYER_NAME_FONT_MAX);
+        let size = startSize;
+        el.style.fontSize = `${size}px`;
+        while (size > PLAYER_NAME_FONT_MIN && el.scrollWidth > el.clientWidth) {
+            size = Math.max(PLAYER_NAME_FONT_MIN, size - PLAYER_NAME_FONT_STEP);
+            el.style.fontSize = `${size}px`;
+        }
+    }
+
+    // 字体异步加载完成等场景下，用当前缓存数据重新适配两侧名字号
+    function refitPlayerNames() {
+        const baseSize = getScoreboardNameBaseSize(scoreboardDataCache || {});
+        fitPlayerName(document.getElementById('page3LeftName'), baseSize);
+        fitPlayerName(document.getElementById('page3RightName'), baseSize);
+    }
+
     function formatRankText(value) {
         const digits = String(value || '').replace(/\D/g, '');
         if (!digits) {
@@ -735,14 +769,20 @@
 
         const scoreboardEl = document.getElementById('page3Scoreboard');
         scoreboardEl.classList.toggle('is-hidden', data.scoreboardEnabled === false);
-        scoreboardEl.style.setProperty('--page3-name-size', `${clamp(scaleNameFont(data.nameFontSize), 24, 42, 36)}px`);
+        const nameFontBase = getScoreboardNameBaseSize(data);
+        scoreboardEl.style.setProperty('--page3-name-size', `${nameFontBase}px`);
         scoreboardEl.style.setProperty('--page3-score-size', `${clamp(scaleScoreFont(data.scoreFontSize), 32, 60, 48)}px`);
 
         const leftName = data.leftName || '';
         const rightName = data.rightName || '';
 
-        document.getElementById('page3LeftName').textContent = leftName;
-        document.getElementById('page3RightName').textContent = rightName;
+        const leftNameEl = document.getElementById('page3LeftName');
+        const rightNameEl = document.getElementById('page3RightName');
+        leftNameEl.textContent = leftName;
+        rightNameEl.textContent = rightName;
+        // 超长名字阶梯缩小字号（36→28px），28px 仍放不下则保留省略号截断
+        fitPlayerName(leftNameEl, nameFontBase);
+        fitPlayerName(rightNameEl, nameFontBase);
         document.getElementById('page3LeftScore').textContent = data.leftScore || '0';
         document.getElementById('page3RightScore').textContent = data.rightScore || '0';
         document.getElementById('page3BestOf').textContent = `BO${normalizeBestOf(data.bestOf)}`;
@@ -992,7 +1032,8 @@
         }
 
         const socket = io({
-            transports: ['websocket', 'polling']
+            transports: ['websocket', 'polling'],
+            query: { role: 'page3' }
         });
 
         socket.on('snapshot', payload => {
@@ -1055,6 +1096,10 @@
 
     document.addEventListener('DOMContentLoaded', async () => {
         prepareRedLightLayer();
+        // MiSans 为异步加载的 @font-face，首帧可能按降级字体度量，字体就绪后重新适配名字号
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(() => refitPlayerNames());
+        }
         try {
             await loadInitialState();
             connectSocket();

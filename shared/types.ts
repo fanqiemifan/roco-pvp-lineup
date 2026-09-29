@@ -481,3 +481,121 @@ export interface QuickFillPreview {
   ignoredCount: number;
   unmatched: string[];
 }
+
+/* ==================== 双机数据同步（导出 / 导入同步包） ==================== */
+
+/** 同步包内嵌的选手档案（不含本地派生字段 avatarExists/avatarMtime） */
+export type SyncBundlePlayerProfile = Pick<PlayerProfile, 'id' | 'name' | 'pets' | 'declaration' | 'rank'>;
+
+/** 同步包内嵌的战队档案（不含本地派生字段 logoExists/logoMtime） */
+export type SyncBundleTeamProfile = Pick<TeamProfile, 'id' | 'name' | 'captain' | 'declaration'>;
+
+/** 同步包：单个 JSON 文件，含比赛、可选档案与头像（base64） */
+export interface SyncBundle {
+  app: string;
+  schema: number;
+  /** 导出机标识（机器码，空字符串 = 未设置） */
+  machine: string;
+  exportedAt: string;
+  matches: MatchRecord[];
+  profiles?: {
+    players: SyncBundlePlayerProfile[];
+    teams: SyncBundleTeamProfile[];
+  };
+  /** 头像 / logo：档案 id -> base64（无 data: 前缀） */
+  avatars?: {
+    players: Record<string, string>;
+    teams: Record<string, string>;
+  };
+}
+
+/** 导入冲突策略：newer = 较新覆盖（默认，看 updatedAt）；bundle = 以包为准（内容有差异即覆盖） */
+export type SyncConflictMode = 'newer' | 'bundle';
+
+export type SyncImportAction = 'add' | 'update' | 'skip';
+export type SyncImportItemKind = 'match' | 'player' | 'team';
+
+/** 导入预览的字段级差异项（本机 vs 包内） */
+export interface SyncImportDiffField {
+  label: string;
+  /** 本机值（本机无该记录时为空字符串） */
+  local: string;
+  /** 包内值 */
+  incoming: string;
+}
+
+/** 导入预览：头像 / logo 的左右对照（仅档案项、且包内带头像或本机已有头像时提供） */
+export interface SyncImportAvatarCompare {
+  /** 本机头像访问地址（本机无头像 = null） */
+  localUrl: string | null;
+  /** 包内头像 data URL（包内无头像 = null） */
+  incomingDataUrl: string | null;
+  /** 处理说明（如「导入后将补缺到本机」） */
+  note: string;
+}
+
+/** 导入预览明细项：key 为 `${kind}:${id}`，前端勾选后原样回传 */
+export interface SyncImportItem {
+  key: string;
+  kind: SyncImportItemKind;
+  id: string;
+  label: string;
+  action: SyncImportAction;
+  /** 跳过/覆盖原因（空字符串 = 无） */
+  reason: string;
+  /** 仅比赛项：本地版本更新时间（无本地记录 = null） */
+  localUpdatedAt: string | null;
+  /** 仅比赛项：包内版本更新时间 */
+  incomingUpdatedAt: string | null;
+  /** 双方都已登记且内容不同（疑似两台机器都录过这场，需要人工确认是否覆盖） */
+  conflict: boolean;
+  /** 字段级差异（只列出不同的字段；本机无该记录时为空数组） */
+  diff: SyncImportDiffField[];
+  /** 仅档案项：头像 / logo 的左右对照（无差异或包内不含头像时不提供） */
+  avatarCompare?: SyncImportAvatarCompare;
+}
+
+export interface SyncImportCounts {
+  add: number;
+  update: number;
+  skip: number;
+}
+
+/** 头像 / logo 处理统计 */
+export interface SyncAvatarCounts {
+  /** 本地缺失、可从包内补缺的数量 */
+  fill: number;
+  /** 本地已有（保持不动） */
+  existing: number;
+  /** 包内头像找不到对应档案（含同名匹配失败） */
+  unmatched: number;
+}
+
+export interface SyncImportPreview {
+  meta: { app: string; schema: number; machine: string; exportedAt: string };
+  /** 源包与本机机器码相同（提示可能覆盖本机数据） */
+  sameMachine: boolean;
+  mode: SyncConflictMode;
+  matchItems: SyncImportItem[];
+  playerItems: SyncImportItem[];
+  teamItems: SyncImportItem[];
+  summary: {
+    match: SyncImportCounts;
+    player: SyncImportCounts;
+    team: SyncImportCounts;
+  };
+  avatars: {
+    players: SyncAvatarCounts;
+    teams: SyncAvatarCounts;
+  };
+}
+
+/** 导入应用结果 */
+export interface SyncImportResult {
+  store: MatchStoreState;
+  /** 包内不含档案时为 null */
+  profiles: ProfileStoreState | null;
+  applied: SyncImportPreview['summary'];
+  avatarsWritten: { players: number; teams: number };
+  warnings: string[];
+}

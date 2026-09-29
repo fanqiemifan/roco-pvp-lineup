@@ -103,3 +103,20 @@ export const MVP_MAX_ITEMS = 6;
 export const MVP_TAG_MAX_LENGTH = 4;
 /** 关闭 MVP 结算时切回的默认推流画面 */
 export const DEFAULT_MVP_RETURN_PAGE = 'page3';
+
+/**
+ * 双机数据同步：
+ * - 同步包为单个 JSON 文件（比赛 + 档案 + 头像 base64），导入前先预览、逐条勾选、确认后合并
+ * - 比赛 id 带本机标识（机器码）前缀：YYYYMMDD_A001；未设置机器码时沿用旧格式 YYYYMMDD_001
+ */
+export const SYNC_APP_ID = 'roco-pvp-lineup';
+export const SYNC_BUNDLE_SCHEMA = 1;
+/** 同步包文件大小上限（导入上传限制 + 前端预检） */
+export const SYNC_BUNDLE_MAX_BYTES = 64 * 1024 * 1024;
+/** 本机标识：1-2 位大写字母（空字符串 = 未设置） */
+export const MACHINE_CODE_REGEX = /^[A-Z]{1,2}$/;
+/**
+ * 比赛 id：8 位日期 + 「_」+ 机器码（0-2 位字母，旧格式为空）+ 序号。
+ * 解析端容忍小写，生成端只出大写；机器码只允许字母，避免与序号数字产生歧义。
+ */
+export const MATCH_ID_REGEX = /^(\d{8})_([A-Za-z]{0,2})(\d+)$/;

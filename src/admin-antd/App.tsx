@@ -23,6 +23,7 @@ import {
   Menu,
   Modal,
   Popconfirm,
+  Radio,
   Row,
   Segmented,
   Select,
@@ -44,7 +45,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { io } from 'socket.io-client';
 
 import { SOCKET_EVENTS } from '../../shared/events';
-import { MVP_MAX_ITEMS, MVP_TAG_MAX_LENGTH } from '../../shared/constants';
+import { MVP_MAX_ITEMS, MVP_TAG_MAX_LENGTH, SYNC_BUNDLE_MAX_BYTES } from '../../shared/constants';
 import type {
   AvatarCollectionState,
   CountdownPayload,
@@ -75,6 +76,11 @@ import type {
   StageConfig,
   StagePageKey,
   StageTransitionType,
+  SyncBundle,
+  SyncConflictMode,
+  SyncImportItem,
+  SyncImportPreview,
+  SyncImportResult,
   TeamProfile,
 } from '../../shared/types';
 
@@ -292,6 +298,36 @@ function HistorySortHeader({ text, sortKey, activeOrder, onSort }: {
   );
 }
 
+/**
+ * 倒计时剩余时间显示：把 running 时的 500ms 节拍下沉在这个小组件内部，
+ * 避免节拍每 0.5 秒触发整个 Dashboard（6000+ 行单组件）协调一遍。
+ */
+function CountdownRemainingText({ state, clockOffsetMs }: { state: CountdownState; clockOffsetMs: number }) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!state.running) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setTick((value) => value + 1);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [state.running]);
+
+  const totalSeconds = !state.running || state.endAt === null
+    ? Math.max(0, Math.round(state.remainingSeconds))
+    : Math.max(0, Math.ceil((state.endAt - (Date.now() + clockOffsetMs)) / 1000));
+  const mm = Math.floor(totalSeconds / 60);
+  const ss = totalSeconds % 60;
+
+  return (
+    <Text strong style={{ fontSize: 16 }}>
+      剩余 {String(mm).padStart(2, '0')}:{String(ss).padStart(2, '0')}
+    </Text>
+  );
+}
+
 function Dashboard() {
   const { message, modal } = App.useApp();
   const [view, setView] = useState<ViewKey>('roster');
@@ -368,8 +404,6 @@ function Dashboard() {
   const [countdown, setCountdown] = useState<CountdownState | null>(null);
   const [countdownSaving, setCountdownSaving] = useState(false);
   const countdownClockRef = useRef({ offset: 0 });
-  // running 时每秒强制刷新以更新剩余时间显示
-  const [, setCountdownTick] = useState(0);
   // MVP 结算（推流页面4）：精灵项（最多 6 个，顺序即页面从左到右）、标签与 MVP 标记
   const [mvp, setMvp] = useState<MvpState | null>(null);
   // 已载入胜方的选手信息（名字 + 头像，由快照 matchId+side 解析，展示在「结算画面」面板）
@@ -460,6 +494,23 @@ function Dashboard() {
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
   // 比赛历史「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
+  // === 数据同步（双机同步包导出 / 导入） ===
+  const [machineCodeInput, setMachineCodeInput] = useState('');
+  const [machineCodeSaving, setMachineCodeSaving] = useState(false);
+  const [syncExportInclProfiles, setSyncExportInclProfiles] = useState(true);
+  const [syncExportInclAvatars, setSyncExportInclAvatars] = useState(true);
+  const [syncExporting, setSyncExporting] = useState(false);
+  // 选中的同步包文件与解析出的预览；确认导入前不写入任何数据
+  const [syncFile, setSyncFile] = useState<File | null>(null);
+  const [syncFileName, setSyncFileName] = useState('');
+  const [syncPreview, setSyncPreview] = useState<SyncImportPreview | null>(null);
+  const [syncPreviewLoading, setSyncPreviewLoading] = useState(false);
+  const [syncMode, setSyncMode] = useState<SyncConflictMode>('newer');
+  const [syncSelectedKeys, setSyncSelectedKeys] = useState<string[]>([]);
+  // 预览弹窗右侧差异面板当前查看的条目 key
+  const [syncActiveKey, setSyncActiveKey] = useState<string | null>(null);
+  const [syncIncludeAvatars, setSyncIncludeAvatars] = useState(true);
+  const [syncImporting, setSyncImporting] = useState(false);
   // 比赛列表懒加载游标：先渲染 6 条，滚动到底部再追加 6 条
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
@@ -521,6 +572,8 @@ function Dashboard() {
   const mvpWinnerPetIds = mvpWinnerLineup.petIds.filter((petId) => spriteMap.get(petId)?.isFinalForm === true);
   const mvpAssignedCount = mvpSlotsDraft.filter((slot) => slot.petId).length;
   const mvpTagsComplete = mvpAssignedCount > 0 && mvpSlotsDraft.every((slot) => !slot.petId || slot.tag.trim().length > 0);
+  // 显示 MVP 结算的门槛：只要标记了 MVP（标签可选，不要求填写完整）
+  const mvpMarked = mvpSlotsDraft.some((slot) => slot.petId && slot.isMvp);
   const mvpVisible = stage?.page === 'page4';
   // 当前对局胜方与已载入快照不一致：推流画面不会自动更新，需重新「载入当前对局胜方」
   const mvpWinnerOutdated = Boolean(mvpWinnerLineup.side) && (
@@ -677,7 +730,7 @@ function Dashboard() {
     setPageError('');
 
     try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp] = await Promise.all([
+      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig] = await Promise.all([
         requestJson<{ authenticated: boolean }>('/api/auth/check'),
         requestJson<ScoreboardState>('/api/scoreboard'),
         requestJson<MatchStoreState>('/api/matches'),
@@ -694,6 +747,7 @@ function Dashboard() {
         requestJson<ProfileStoreState>('/api/profiles'),
         requestJson<CountdownPayload>('/api/countdown'),
         requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp'),
+        requestJson<{ port: number; machineCode: string }>('/api/runtime-config'),
       ]);
 
       if (!auth.authenticated) {
@@ -720,6 +774,7 @@ function Dashboard() {
         setNextgameMatch(nextNextgame.match ?? null);
         setMvp(nextMvp.state);
         setMvpWinner(nextMvp.winner ?? null);
+        setMachineCodeInput(nextRuntimeConfig.machineCode ?? '');
         // 与 applyServerState 一致：先维护草稿上下文再同步面板，避免 pending 时全局面板覆写编辑器
         pendingDraftRef.current = getPendingDraftContext(nextMatches);
         syncPanelFromApi('left', nextPanels.panels[0]);
@@ -746,16 +801,7 @@ function Dashboard() {
     void loadInitialData();
   }, []);
 
-  // 倒计时进行中：本地节拍刷新后台的剩余时间显示
-  useEffect(() => {
-    if (!countdown?.running) {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      setCountdownTick((value) => value + 1);
-    }, 500);
-    return () => window.clearInterval(timer);
-  }, [countdown?.running]);
+  // 倒计时剩余时间的 500ms 节拍已下沉到 CountdownRemainingText 小组件，不再触发整个 Dashboard 协调
 
   // 切换/回显到待开始小局时，用赛事草稿槽位回填阵容编辑器：
   // pending 状态下全局面板被服务端清空（未开局阵容不上推流页），此前编辑器直接显示空面板，
@@ -802,6 +848,7 @@ function Dashboard() {
   useEffect(() => {
     const socket = io({
       transports: ['websocket', 'polling'],
+      query: { role: 'admin' },
     });
 
     socket.on(SOCKET_EVENTS.snapshot, (payload) => {
@@ -2640,21 +2687,6 @@ function Dashboard() {
     }
   }
 
-  /** 倒计时当前剩余秒数：running 用 endAt 实时计算（按服务端时钟偏差校准） */
-  function countdownRemainingSeconds(state: CountdownState): number {
-    if (!state.running || state.endAt === null) {
-      return Math.max(0, Math.round(state.remainingSeconds));
-    }
-    return Math.max(0, Math.ceil((state.endAt - (Date.now() + countdownClockRef.current.offset)) / 1000));
-  }
-
-  function formatCountdownText(state: CountdownState): string {
-    const seconds = countdownRemainingSeconds(state);
-    const mm = Math.floor(seconds / 60);
-    const ss = seconds % 60;
-    return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-  }
-
   async function saveMatchTags(matchId: string, tags: string[]) {
     const nextTags = Array.from(new Set(tags.map((item) => item.trim()).filter(Boolean))).slice(0, 10);
 
@@ -3431,6 +3463,213 @@ function Dashboard() {
     message.success(`已导出 ${sortedMatches.length} 场赛事历史`);
   }
 
+  // === 数据同步（双机同步包导出 / 导入） ===
+
+  async function saveMachineCode() {
+    setMachineCodeSaving(true);
+    try {
+      const result = await requestJson<{ success: boolean; config: { port: number; machineCode: string } }>('/api/runtime-config', {
+        method: 'POST',
+        json: { machineCode: machineCodeInput },
+      });
+      setMachineCodeInput(result.config.machineCode);
+      message.success(
+        result.config.machineCode
+          ? `本机标识已设为 ${result.config.machineCode}，新比赛编号将带该前缀`
+          : '已清空本机标识：新比赛沿用旧编号格式（两机同跑请分别设置 A / B）',
+      );
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMachineCodeSaving(false);
+    }
+  }
+
+  async function exportSyncBundle() {
+    setSyncExporting(true);
+    try {
+      const result = await requestJson<{ success: boolean; bundle: SyncBundle }>('/api/sync/export', {
+        method: 'POST',
+        json: {
+          includeProfiles: syncExportInclProfiles,
+          includeAvatars: syncExportInclProfiles && syncExportInclAvatars,
+        },
+      });
+
+      const blob = new Blob([JSON.stringify(result.bundle, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const stamp = new Date();
+      const pad = (value: number) => String(value).padStart(2, '0');
+      link.href = url;
+      link.download = `roco-sync-${result.bundle.machine || 'X'}-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      message.success(`已导出同步包（${result.bundle.matches.length} 场比赛）`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSyncExporting(false);
+    }
+  }
+
+  function defaultSyncSelection(preview: SyncImportPreview): string[] {
+    return [...preview.matchItems, ...preview.playerItems, ...preview.teamItems]
+      .filter((item) => item.action !== 'skip')
+      .map((item) => item.key);
+  }
+
+  /** 预览弹窗默认查看的条目：优先第一处冲突，否则第一条 */
+  function defaultSyncActiveKey(preview: SyncImportPreview): string | null {
+    const items = [...preview.matchItems, ...preview.playerItems, ...preview.teamItems];
+    return (items.find((item) => item.conflict) ?? items[0])?.key ?? null;
+  }
+
+  /** 冲突批量处理：accept = true 全部用包内覆盖（勾选），false 全部保留本机（取消勾选） */
+  function resolveSyncConflicts(accept: boolean) {
+    if (!syncPreview) {
+      return;
+    }
+    const conflictKeys = syncPreview.matchItems.filter((item) => item.conflict).map((item) => item.key);
+    setSyncSelectedKeys((prev) => (accept
+      ? Array.from(new Set([...prev, ...conflictKeys]))
+      : prev.filter((key) => !conflictKeys.includes(key))));
+  }
+
+  async function loadSyncPreview(file: File, mode: SyncConflictMode) {
+    setSyncPreviewLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('mode', mode);
+      const result = await requestJson<{ success: boolean; preview: SyncImportPreview }>('/api/sync/preview', {
+        method: 'POST',
+        body: formData,
+      });
+      setSyncPreview(result.preview);
+      setSyncSelectedKeys(defaultSyncSelection(result.preview));
+      setSyncActiveKey(defaultSyncActiveKey(result.preview));
+      setSyncIncludeAvatars(true);
+    } catch (error) {
+      setSyncPreview(null);
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSyncPreviewLoading(false);
+    }
+  }
+
+  function handleSyncFile(file: File) {
+    if (file.size > SYNC_BUNDLE_MAX_BYTES) {
+      message.error('同步包超过大小上限（64MB），请在导出时关闭「包含头像与 logo」后重试');
+      return;
+    }
+    setSyncFile(file);
+    setSyncFileName(file.name);
+    void loadSyncPreview(file, syncMode);
+  }
+
+  function closeSyncPreview() {
+    setSyncPreview(null);
+    setSyncFile(null);
+    setSyncFileName('');
+    setSyncSelectedKeys([]);
+    setSyncActiveKey(null);
+  }
+
+  async function applySyncPreview() {
+    if (!syncFile) {
+      return;
+    }
+    setSyncImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', syncFile);
+      formData.append('mode', syncMode);
+      formData.append('accepted', JSON.stringify(syncSelectedKeys));
+      formData.append('includeAvatars', syncIncludeAvatars ? 'true' : 'false');
+
+      const result = await requestJson<{ success: boolean; result: SyncImportResult }>('/api/sync/import', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (result.result.profiles) {
+        applyServerState({ store: result.result.store, profiles: result.result.profiles });
+      } else {
+        applyServerState({ store: result.result.store });
+      }
+
+      const applied = result.result.applied;
+      const avatarCount = result.result.avatarsWritten.players + result.result.avatarsWritten.teams;
+      const summary = `比赛 新增 ${applied.match.add} / 更新 ${applied.match.update} / 跳过 ${applied.match.skip}；`
+        + `档案 新增 ${applied.player.add + applied.team.add} / 更新 ${applied.player.update + applied.team.update}；`
+        + `头像补缺 ${avatarCount} 张`;
+      setHistoryNotice({ tone: 'success', text: `同步包导入完成：${summary}` });
+      message.success('同步包导入完成');
+      result.result.warnings.forEach((warning) => message.warning(warning));
+      closeSyncPreview();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSyncImporting(false);
+    }
+  }
+
+  const SYNC_KIND_LABELS: Record<SyncImportItem['kind'], string> = { match: '比赛', player: '选手档案', team: '战队档案' };
+  const SYNC_ACTION_LABELS: Record<SyncImportItem['action'], string> = { add: '新增', update: '更新', skip: '跳过' };
+  // 列表排序权重：更新排最前，其次新增，最后跳过
+  const SYNC_ACTION_ORDER: Record<SyncImportItem['action'], number> = { update: 0, add: 1, skip: 2 };
+
+  const syncPreviewColumns: ColumnsType<SyncImportItem> = [
+    {
+      title: '类型',
+      dataIndex: 'kind',
+      width: 72,
+      render: (kind: SyncImportItem['kind']) => SYNC_KIND_LABELS[kind],
+    },
+    {
+      title: '对象',
+      dataIndex: 'label',
+      render: (_value, record) => (
+        <Space direction="vertical" size={0}>
+          <Text>{record.label}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '处理',
+      dataIndex: 'action',
+      width: 108,
+      render: (action: SyncImportItem['action'], record) => (
+        <Space size={4}>
+          <Tag color={action === 'add' ? 'green' : action === 'update' ? 'gold' : 'default'}>
+            {SYNC_ACTION_LABELS[action]}
+          </Tag>
+          {record.conflict ? <Tag color="red">冲突</Tag> : null}
+        </Space>
+      ),
+    },
+    {
+      title: '说明',
+      dataIndex: 'reason',
+      width: 148,
+      ellipsis: true,
+      render: (_value, record) => <Text type="secondary">{record.reason || '—'}</Text>,
+    },
+  ];
+
+  // 排序：处理 = 更新 的优先显示（其次新增、跳过）；同一组内冲突优先
+  const syncPreviewItems = syncPreview
+    ? [...syncPreview.matchItems, ...syncPreview.playerItems, ...syncPreview.teamItems]
+      .sort((a, b) => {
+        const orderDiff = SYNC_ACTION_ORDER[a.action] - SYNC_ACTION_ORDER[b.action];
+        return orderDiff !== 0 ? orderDiff : Number(b.conflict) - Number(a.conflict);
+      })
+    : [];
+  const syncActiveItem = syncPreviewItems.find((item) => item.key === syncActiveKey) ?? null;
+  const syncConflictCount = syncPreview ? syncPreview.matchItems.filter((item) => item.conflict).length : 0;
+
   return (
     <Layout className="admin-shell">
       <Sider
@@ -3949,13 +4188,300 @@ function Dashboard() {
                       </Space>
                     ),
                     expandedRowKeys: expandedHistoryKeys,
-                    onExpand: (expanded, record) => {
-                      setExpandedHistoryKeys(expanded ? [record.id] : []);
-                    },
+                    // 不显示左侧 + 号展开列，改为点击整行展开（见 Table onRow）
+                    showExpandColumn: false,
                   }}
+                  onRow={(record) => ({
+                    style: { cursor: 'pointer' },
+                    onClick: (event: React.MouseEvent<HTMLElement>) => {
+                      // 点行内交互控件（勾选框 / 标签 / 按钮 / 行内编辑等）时不触发展开
+                      if ((event.target as HTMLElement).closest(
+                        'button, a, input, label, .ant-select, .ant-tag, .history-tag-cell',
+                      )) {
+                        return;
+                      }
+                      setExpandedHistoryKeys((prev) => (prev.includes(record.id) ? [] : [record.id]));
+                    },
+                  })}
                   locale={{ emptyText: '暂无历史赛事' }}
                 />
               </Card>
+              <Card
+                size="small"
+                className="sync-card"
+                title={(
+                  <Space size={8} align="center">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="#c7632f" aria-hidden="true">
+                      <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+                    </svg>
+                    <span>数据同步</span>
+                  </Space>
+                )}
+              >
+                <div className="sync-card-row">
+                  <div className="sync-card-label">本机标识</div>
+                  <div className="sync-card-content">
+                    <Space size={10} align="center">
+                      <Input
+                        value={machineCodeInput}
+                        onChange={(event) => setMachineCodeInput(event.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))}
+                        placeholder="A"
+                        maxLength={2}
+                        style={{ width: 96 }}
+                      />
+                      <Button onClick={() => void saveMachineCode()} loading={machineCodeSaving}>保存标识</Button>
+                    </Space>
+                    <div className="sync-card-hint">
+                      新比赛编号形如 <Text code>20260928_A001</Text>；两台请分别设为 <Text strong>A / B</Text>，未设置则沿用旧编号
+                    </div>
+                  </div>
+                </div>
+
+                <Divider className="sync-card-divider" />
+
+                <div className="sync-card-row">
+                  <div className="sync-card-label">导出同步包</div>
+                  <div className="sync-card-content">
+                    <div className="sync-export-bar">
+                      <Space size={12} align="center">
+                        <Checkbox
+                          className="sync-check-card"
+                          checked={syncExportInclProfiles}
+                          onChange={(event) => setSyncExportInclProfiles(event.target.checked)}
+                        >
+                          包含选手 / 战队档案
+                        </Checkbox>
+                        <Checkbox
+                          className="sync-check-card"
+                          checked={syncExportInclAvatars}
+                          disabled={!syncExportInclProfiles}
+                          onChange={(event) => setSyncExportInclAvatars(event.target.checked)}
+                        >
+                          包含头像与 logo
+                        </Checkbox>
+                      </Space>
+                      <Button type="primary" onClick={() => void exportSyncBundle()} loading={syncExporting}>导出同步包</Button>
+                    </div>
+                    <div className="sync-card-hint">赛前可把包发给另一台机器导入，做「基线分发」；同一场比赛不要在两台机器分别创建</div>
+                  </div>
+                </div>
+
+                <Divider className="sync-card-divider" />
+
+                <div className="sync-card-row">
+                  <div className="sync-card-label">导入同步包</div>
+                  <div className="sync-card-content">
+                    <Upload
+                      accept=".json,application/json"
+                      showUploadList={false}
+                      beforeUpload={(file) => {
+                        handleSyncFile(file as File);
+                        return false;
+                      }}
+                    >
+                      <Button loading={syncPreviewLoading}>选择同步包并预览</Button>
+                    </Upload>
+                    <div className="sync-card-hint">
+                      先预览
+                      <Tag color="success" bordered={false}>新增</Tag>
+                      <Tag color="warning" bordered={false}>更新</Tag>
+                      <Tag bordered={false}>跳过</Tag>
+                      ，确认后才写入；重复导入同一包不会有副作用
+                    </div>
+                  </div>
+                </div>
+              </Card>
+
+              <Modal
+                title="导入同步包预览"
+                open={Boolean(syncPreview)}
+                width={1160}
+                style={{ top: 24 }}
+                className="sync-preview-modal"
+                onCancel={closeSyncPreview}
+                okText={`确认导入（${syncSelectedKeys.length} 项）`}
+                okButtonProps={{ disabled: !syncPreview || syncSelectedKeys.length === 0 }}
+                confirmLoading={syncImporting}
+                onOk={() => void applySyncPreview()}
+              >
+                {syncPreview ? (
+                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    {syncPreview.sameMachine ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={syncPreview.meta.machine
+                          ? `源包与本机标识（${syncPreview.meta.machine}）相同，可能覆盖本机数据，请核对后再导入`
+                          : '源包与本机都未设置机器码，比赛编号可能相撞，建议两台机器分别设置 A / B'}
+                      />
+                    ) : null}
+
+                    <Space wrap align="center">
+                      <Text>冲突处理</Text>
+                      <Radio.Group
+                        value={syncMode}
+                        optionType="button"
+                        buttonStyle="solid"
+                        options={[
+                          { label: '较新覆盖', value: 'newer' },
+                          { label: '以包为准', value: 'bundle' },
+                        ]}
+                        onChange={(event) => {
+                          const nextMode = event.target.value as SyncConflictMode;
+                          setSyncMode(nextMode);
+                          if (syncFile) {
+                            void loadSyncPreview(syncFile, nextMode);
+                          }
+                        }}
+                      />
+                      <Text type="secondary">较新覆盖 = 按更新时间取最新；以包为准 = 不看时间，内容有差异即用包内版本</Text>
+                    </Space>
+
+                    {syncConflictCount > 0 ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={`检测到 ${syncConflictCount} 场比赛两台机器都登记过（内容不同），请逐条确认保留哪一边`}
+                        action={(
+                          <Space>
+                            <Button size="small" onClick={() => resolveSyncConflicts(false)}>冲突全部保留本机</Button>
+                            <Button size="small" type="primary" onClick={() => resolveSyncConflicts(true)}>冲突全部用包内覆盖</Button>
+                          </Space>
+                        )}
+                      />
+                    ) : null}
+
+                    <Space wrap align="center">
+                      <Checkbox checked={syncIncludeAvatars} onChange={(event) => setSyncIncludeAvatars(event.target.checked)}>
+                        缺失头像 / logo 一并补缺（{syncPreview.avatars.players.fill + syncPreview.avatars.teams.fill} 张，只补缺不覆盖）
+                      </Checkbox>
+                      <Text type="secondary">
+                        已有头像保持不动 {syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张 · 无法对应档案 {syncPreview.avatars.players.unmatched + syncPreview.avatars.teams.unmatched} 张
+                      </Text>
+                    </Space>
+
+                    <div className="sync-preview-layout">
+                      <div className="sync-preview-list">
+                        <Table<SyncImportItem>
+                          rowKey="key"
+                          size="small"
+                          dataSource={syncPreviewItems}
+                          columns={syncPreviewColumns}
+                          pagination={false}
+                          scroll={{ y: 380 }}
+                          onRow={(record) => ({
+                            onClick: () => setSyncActiveKey(record.key),
+                            style: { cursor: 'pointer' },
+                          })}
+                          rowClassName={(record) => (record.key === syncActiveKey ? 'sync-preview-row-active' : '')}
+                          rowSelection={{
+                            selectedRowKeys: syncSelectedKeys,
+                            onChange: (keys) => setSyncSelectedKeys(keys.map(String)),
+                            getCheckboxProps: (record) => ({ disabled: record.action === 'skip' }),
+                          }}
+                        />
+                      </div>
+                      <div className="sync-preview-detail">
+                        {syncActiveItem ? (
+                          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                            <Space wrap size={8} align="center">
+                              <Tag>{SYNC_KIND_LABELS[syncActiveItem.kind]}</Tag>
+                              <Text strong>{syncActiveItem.label}</Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>{syncActiveItem.id}</Text>
+                            </Space>
+
+                            {syncActiveItem.conflict ? (
+                              <Alert
+                                type="error"
+                                showIcon
+                                message="冲突：两台机器都登记过这场比赛"
+                                description="下方为「本机版本 vs 包内版本」的差异，请确认保留哪一边。"
+                              />
+                            ) : null}
+
+                            <Space wrap size={12}>
+                              <Text type="secondary">处理结果：{SYNC_ACTION_LABELS[syncActiveItem.action]}</Text>
+                              <Text type="secondary">
+                                本机 {formatDateTime(syncActiveItem.localUpdatedAt)} → 包内 {formatDateTime(syncActiveItem.incomingUpdatedAt)}
+                              </Text>
+                            </Space>
+
+                            {syncActiveItem.reason ? <Text type="secondary">原因：{syncActiveItem.reason}</Text> : null}
+
+                            {syncActiveItem.diff.length ? (
+                              <table className="sync-diff-table">
+                                <thead>
+                                  <tr>
+                                    <th>字段</th>
+                                    <th>本机版本</th>
+                                    <th>包内版本</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {syncActiveItem.diff.map((field) => (
+                                    <tr key={field.label}>
+                                      <td className="sync-diff-label">{field.label}</td>
+                                      <td className="sync-diff-local">{field.local}</td>
+                                      <td className="sync-diff-incoming">{field.incoming}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <Text type="secondary">
+                                {syncActiveItem.action === 'add' ? '本机没有这条记录，导入后新增。' : '本机与包内没有字段差异。'}
+                              </Text>
+                            )}
+
+                            {syncActiveItem.avatarCompare ? (
+                              <Space align="start" size={14} wrap>
+                                <div className="sync-avatar-compare">
+                                  <Text type="secondary" style={{ fontSize: 12 }}>本机</Text>
+                                  {syncActiveItem.avatarCompare.localUrl ? (
+                                    <img src={syncActiveItem.avatarCompare.localUrl} alt="本机头像" />
+                                  ) : (
+                                    <div className="sync-avatar-empty">无</div>
+                                  )}
+                                </div>
+                                <div className="sync-avatar-compare">
+                                  <Text type="secondary" style={{ fontSize: 12 }}>包内</Text>
+                                  {syncActiveItem.avatarCompare.incomingDataUrl ? (
+                                    <img src={syncActiveItem.avatarCompare.incomingDataUrl} alt="包内头像" />
+                                  ) : (
+                                    <div className="sync-avatar-empty">无</div>
+                                  )}
+                                </div>
+                                <Text type="secondary" style={{ alignSelf: 'center' }}>{syncActiveItem.avatarCompare.note}</Text>
+                              </Space>
+                            ) : null}
+
+                            {syncActiveItem.action === 'skip' ? null : (
+                              <Radio.Group
+                                value={syncSelectedKeys.includes(syncActiveItem.key) ? 'bundle' : 'local'}
+                                optionType="button"
+                                buttonStyle="solid"
+                                options={syncActiveItem.action === 'add'
+                                  ? [{ label: '不导入此条', value: 'local' }, { label: '新增此条', value: 'bundle' }]
+                                  : [{ label: '保留本机', value: 'local' }, { label: '用包内覆盖', value: 'bundle' }]}
+                                onChange={(event) => {
+                                  const accept = event.target.value === 'bundle';
+                                  const activeKey = syncActiveItem.key;
+                                  setSyncSelectedKeys((prev) => (accept
+                                    ? Array.from(new Set([...prev, activeKey]))
+                                    : prev.filter((key) => key !== activeKey)));
+                                }}
+                              />
+                            )}
+                          </Space>
+                        ) : (
+                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="点击左侧条目查看左右差异" />
+                        )}
+                      </div>
+                    </div>
+                  </Space>
+                ) : null}
+              </Modal>
+
               <Modal
                 title="批量添加标签"
                 open={batchTagOpen}
@@ -4450,14 +4976,14 @@ function Dashboard() {
                   <Paragraph type="secondary" style={{ marginBottom: 0 }}>
                     点「载入当前对局胜方」把当前对局胜者的选手名字与阵容（仅最终形态精灵，最多 {MVP_MAX_ITEMS} 个）快照保存进结算画面；
                     保存后推流画面即时更新，之后切换对局不会改变，需重新载入保存才会更新；
-                    为每个精灵项填写标签（最多四个字，可选）并标记 MVP，标记完整后点击「显示 MVP 结算」把推流画面切到本页，关闭时切回开启前的画面。
+                    为每个精灵项填写标签（最多四个字，可选）并标记 MVP，标记 MVP 后点击「显示 MVP 结算」把推流画面切到本页，关闭时切回开启前的画面。
                   </Paragraph>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} xl={10}>
                       <Card size="small" className="subtle-card" title="显示控制">
                         <Space direction="vertical" size={12} className="control-stack">
                           <Space wrap>
-                            <Button type="primary" loading={mvpSaving} disabled={!mvpTagsComplete} onClick={() => void showMvpSettlement()}>
+                            <Button type="primary" loading={mvpSaving} disabled={!mvpMarked} onClick={() => void showMvpSettlement()}>
                               显示 MVP 结算
                             </Button>
                             <Button danger loading={mvpSaving} disabled={!mvpVisible} onClick={() => void hideMvpSettlement()}>
@@ -4470,7 +4996,7 @@ function Dashboard() {
                               已标记精灵 {mvpAssignedCount}/{MVP_MAX_ITEMS}
                             </Tag>
                             {mvpTagsComplete ? <Tag color="green">标签已完整</Tag> : <Tag color="orange">标签未完整</Tag>}
-                            {mvpSlotsDraft.some((slot) => slot.petId && slot.isMvp)
+                            {mvpMarked
                               ? <Tag color="red">已标记 MVP</Tag>
                               : <Tag>未标记 MVP</Tag>}
                           </Space>
@@ -4491,7 +5017,7 @@ function Dashboard() {
                             </Space>
                           </Space>
                           <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
-                            尚未标记精灵或标签未填写完整时不能显示结算画面。
+                            尚未标记精灵或未标记 MVP 时不能显示结算画面（标签可留空）。
                           </Paragraph>
                         </Space>
                       </Card>
@@ -4746,7 +5272,7 @@ function Dashboard() {
                           <Space size={8} wrap>
                             {countdown?.visible ? <Tag color="green">显示中</Tag> : <Tag>已关闭</Tag>}
                             {countdown?.running ? <Tag color="blue">倒计时中</Tag> : <Tag>时间静止</Tag>}
-                            {countdown ? <Text strong style={{ fontSize: 16 }}>剩余 {formatCountdownText(countdown)}</Text> : null}
+                            {countdown ? <CountdownRemainingText state={countdown} clockOffsetMs={countdownClockRef.current.offset} /> : null}
                           </Space>
                         </Space>
                       </Card>

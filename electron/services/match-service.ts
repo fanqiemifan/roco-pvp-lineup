@@ -1,13 +1,16 @@
 import fs from 'node:fs';
-import { DEFAULT_BEST_OF, SUPPORTED_BEST_OF } from '../../shared/constants.js';
+import { DEFAULT_BEST_OF, MATCH_ID_REGEX, SUPPORTED_BEST_OF } from '../../shared/constants.js';
 import type {
   GameRecord,
   MatchRecord,
   MatchSlotSnapshot,
   MatchStoreState,
   SpriteRecord,
+  SyncConflictMode,
+  SyncImportDiffField,
 } from '../../shared/types.js';
 import type { AppPaths } from './path-service.js';
+import { loadRuntimeConfig } from './config-service.js';
 import { ensureRuntimeDirs } from './image-service.js';
 import { spriteLookup } from './sprite-service.js';
 import {
@@ -23,6 +26,12 @@ const TEAM_NAME_MAX_LENGTH = 40;
 const MAX_GAME_SLOTS = 6;
 const FLOW_HISTORY_LIMIT = 50;
 const DELETE_HISTORY_LIMIT = 3;
+// 撤销/重做快照保留期：7 天，过期在读取与写入时自动清理，避免 matches.json 无限膨胀
+const FLOW_HISTORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// 已落盘数据结构版本：命中当前版本时跳过「全量序列化比对」迁移检测
+const MATCH_STORE_VERSION = 1;
+// 长跑不重启时，缓存命中路径上的过期清理节流间隔
+const STORE_CACHE_PRUNE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 interface MatchFlowSnapshot {
   matchId: string;
@@ -33,6 +42,8 @@ interface MatchFlowSnapshot {
   rightScore: number;
   winner: MatchRecord['winner'];
   completedAt: string | null;
+  // 快照入栈时间（ISO），用于 7 天过期清理；旧数据缺少该字段时在迁移时补当前时间
+  savedAt: string;
 }
 
 interface MatchFlowHistory {
@@ -52,11 +63,28 @@ interface DeletedMatchBatch {
 }
 
 interface MatchStoreFile {
+  // 仅用于落盘迁移检测，不参与对外状态（toPublicStore 不透出）
+  __version?: number;
   activeMatchId: string | null;
   matches: MatchRecord[];
   flowHistory: Record<string, MatchFlowHistory>;
   deletedHistory: DeletedMatchBatch[];
 }
+
+/**
+ * matches.json 进程内缓存（按 AppPaths 实例隔离）：
+ * 所有写操作都经本模块、单进程独占数据文件，因此文件 mtime 未变即可直接复用内存态，
+ * 把每次读取代价从「读盘 + 全量规范化 + 全量序列化比对」降为一次 stat。
+ */
+interface MatchStoreCacheEntry {
+  fileMtime: number | null;
+  store: MatchStoreFile;
+  mtime: number | null;
+  lastPruneAt: number;
+}
+
+const matchStoreCache = new WeakMap<AppPaths, MatchStoreCacheEntry>();
+let storeTmpCounter = 0;
 
 function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -295,41 +323,62 @@ function getDatePrefix(date = new Date()): string {
   return `${year}${month}${day}`;
 }
 
-function resolveMatchDatePrefix(matchId: string, createdAt?: string): string {
-  const idMatch = matchId.match(/^(\d{8})_\d+$/);
-  if (idMatch) {
-    return idMatch[1];
+interface ParsedMatchId {
+  date: string;
+  /** 机器码（解析端容忍小写，统一转大写；旧格式为空字符串） */
+  machine: string;
+  index: number;
+}
+
+function parseMatchId(matchId: string): ParsedMatchId | null {
+  const idMatch = String(matchId ?? '').match(MATCH_ID_REGEX);
+  if (!idMatch) {
+    return null;
+  }
+
+  const index = Number.parseInt(idMatch[3], 10);
+  if (!Number.isFinite(index)) {
+    return null;
+  }
+
+  return { date: idMatch[1], machine: idMatch[2].toUpperCase(), index };
+}
+
+/** 簇键：同一日期 + 同一机器码的比赛共享一个序号序列（旧格式机器码为空，即 `20260928_`） */
+function matchClusterKey(date: string, machine: string): string {
+  return `${date}_${machine}`;
+}
+
+/** id 所属簇键；id 无法解析时回退 createdAt（或当天）日期 + 空机器码 */
+function resolveMatchClusterKey(matchId: string, createdAt?: string): string {
+  const parsed = parseMatchId(matchId);
+  if (parsed) {
+    return matchClusterKey(parsed.date, parsed.machine);
   }
 
   if (createdAt) {
     const createdDate = new Date(createdAt);
     if (!Number.isNaN(createdDate.getTime())) {
-      return getDatePrefix(createdDate);
+      return matchClusterKey(getDatePrefix(createdDate), '');
     }
   }
 
-  return getDatePrefix();
+  return matchClusterKey(getDatePrefix(), '');
 }
 
 function resolveMatchNumericIndex(matchId: string): number | null {
-  const idMatch = matchId.match(/^\d{8}_(\d+)$/);
-  if (!idMatch) {
-    return null;
-  }
-
-  const nextIndex = Number.parseInt(idMatch[1], 10);
-  return Number.isFinite(nextIndex) ? nextIndex : null;
+  return parseMatchId(matchId)?.index ?? null;
 }
 
 function collectNextMatchIndexes(store: MatchStoreFile): Map<string, number> {
-  const nextIndexByDate = new Map<string, number>();
+  const nextIndexByCluster = new Map<string, number>();
 
   const register = (match: MatchRecord) => {
-    const datePrefix = resolveMatchDatePrefix(match.id, match.createdAt);
+    const clusterKey = resolveMatchClusterKey(match.id, match.createdAt);
     const numericIndex = resolveMatchNumericIndex(match.id);
     const nextValue = numericIndex ? numericIndex + 1 : 1;
-    const currentValue = nextIndexByDate.get(datePrefix) ?? 1;
-    nextIndexByDate.set(datePrefix, Math.max(currentValue, nextValue));
+    const currentValue = nextIndexByCluster.get(clusterKey) ?? 1;
+    nextIndexByCluster.set(clusterKey, Math.max(currentValue, nextValue));
   };
 
   store.matches.forEach(register);
@@ -337,23 +386,23 @@ function collectNextMatchIndexes(store: MatchStoreFile): Map<string, number> {
     batch.entries.forEach((entry) => register(entry.match));
   });
 
-  return nextIndexByDate;
+  return nextIndexByCluster;
 }
 
 function allocateUniqueMatchId(
   usedIds: Set<string>,
-  nextIndexByDate: Map<string, number>,
-  preferredDatePrefix: string,
+  nextIndexByCluster: Map<string, number>,
+  clusterKey: string,
 ): string {
-  let nextIndex = nextIndexByDate.get(preferredDatePrefix) ?? 1;
-  let candidate = `${preferredDatePrefix}_${String(nextIndex).padStart(3, '0')}`;
+  let nextIndex = nextIndexByCluster.get(clusterKey) ?? 1;
+  let candidate = `${clusterKey}${String(nextIndex).padStart(3, '0')}`;
 
   while (usedIds.has(candidate)) {
     nextIndex += 1;
-    candidate = `${preferredDatePrefix}_${String(nextIndex).padStart(3, '0')}`;
+    candidate = `${clusterKey}${String(nextIndex).padStart(3, '0')}`;
   }
 
-  nextIndexByDate.set(preferredDatePrefix, nextIndex + 1);
+  nextIndexByCluster.set(clusterKey, nextIndex + 1);
   usedIds.add(candidate);
   return candidate;
 }
@@ -410,12 +459,18 @@ function normalizeMatchRecord(match: unknown, lookup?: Map<string, SpriteRecord>
   }
 
   const raw = match as Record<string, unknown>;
+  const id = String(raw.id || '').trim();
+  // id 白名单：只接受 YYYYMMDD_[机器码]NNN 形态（match id 会被拼进头像目录，外部导入数据必须先过这里）
+  if (!MATCH_ID_REGEX.test(id)) {
+    return null;
+  }
+
   const bestOf = normalizeBestOf(raw.bestOf);
   const games = Array.isArray(raw.games) ? raw.games.map((game, index) => normalizeGameRecord(game, index, lookup)) : [];
   const normalizedGames = games.length ? games : [createEmptyGameRecord(1)];
 
   return computeMatchProgress({
-    id: String(raw.id || '').trim(),
+    id,
     createdAt: String(raw.createdAt || new Date().toISOString()),
     updatedAt: String(raw.updatedAt || new Date().toISOString()),
     status: raw.status === 'completed' || raw.status === 'in_progress' ? raw.status : 'pending',
@@ -439,6 +494,7 @@ function normalizeMatchRecord(match: unknown, lookup?: Map<string, SpriteRecord>
 
 function defaultStoreFile(): MatchStoreFile {
   return {
+    __version: MATCH_STORE_VERSION,
     activeMatchId: null,
     matches: [],
     flowHistory: {},
@@ -456,6 +512,7 @@ function flowSnapshotFromMatch(match: MatchRecord): MatchFlowSnapshot {
     rightScore: match.rightScore,
     winner: match.winner,
     completedAt: match.completedAt,
+    savedAt: new Date().toISOString(),
   };
 }
 
@@ -463,6 +520,7 @@ function normalizeFlowSnapshot(
   snapshot: unknown,
   fallbackMatchId: string,
   lookup?: Map<string, SpriteRecord>,
+  legacySavedAt?: string,
 ): MatchFlowSnapshot | null {
   if (!snapshot || typeof snapshot !== 'object') {
     return null;
@@ -512,6 +570,8 @@ function normalizeFlowSnapshot(
     rightScore: normalized.rightScore,
     winner: normalized.winner,
     completedAt: normalized.completedAt,
+    // 旧版数据无 savedAt：迁移时补入参给定的时间戳，给予一次完整 7 天保留期
+    savedAt: typeof raw.savedAt === 'string' && raw.savedAt.trim() ? raw.savedAt.trim() : (legacySavedAt ?? new Date().toISOString()),
   };
 }
 
@@ -519,6 +579,7 @@ function normalizeFlowHistoryEntry(
   value: unknown,
   matchId: string,
   lookup?: Map<string, SpriteRecord>,
+  legacySavedAt?: string,
 ): MatchFlowHistory {
   if (!value || typeof value !== 'object') {
     return { undoStack: [], redoStack: [] };
@@ -531,7 +592,7 @@ function normalizeFlowHistoryEntry(
     }
 
     return stack
-      .map((item) => normalizeFlowSnapshot(item, matchId, lookup))
+      .map((item) => normalizeFlowSnapshot(item, matchId, lookup, legacySavedAt))
       .filter((item): item is MatchFlowSnapshot => Boolean(item));
   };
 
@@ -544,6 +605,7 @@ function normalizeFlowHistoryEntry(
 function normalizeFlowHistoryMap(
   value: unknown,
   lookup?: Map<string, SpriteRecord>,
+  legacySavedAt?: string,
 ): Record<string, MatchFlowHistory> {
   if (!value || typeof value !== 'object') {
     return {};
@@ -551,13 +613,17 @@ function normalizeFlowHistoryMap(
 
   const raw = value as Record<string, unknown>;
   const normalizedEntries = Object.entries(raw)
-    .map(([matchId, history]) => [matchId, normalizeFlowHistoryEntry(history, matchId, lookup)] as const)
+    .map(([matchId, history]) => [matchId, normalizeFlowHistoryEntry(history, matchId, lookup, legacySavedAt)] as const)
     .filter(([matchId]) => Boolean(matchId.trim()));
 
   return Object.fromEntries(normalizedEntries);
 }
 
-function normalizeDeletedHistory(value: unknown, lookup?: Map<string, SpriteRecord>): DeletedMatchBatch[] {
+function normalizeDeletedHistory(
+  value: unknown,
+  lookup?: Map<string, SpriteRecord>,
+  legacySavedAt?: string,
+): DeletedMatchBatch[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -584,7 +650,7 @@ function normalizeDeletedHistory(value: unknown, lookup?: Map<string, SpriteReco
           return {
             match,
             index: Number.isFinite(Number(source.index)) ? Math.max(0, Number(source.index)) : 0,
-            flowHistory: normalizeFlowHistoryEntry(source.flowHistory, match.id, lookup),
+            flowHistory: normalizeFlowHistoryEntry(source.flowHistory, match.id, lookup, legacySavedAt),
           } satisfies DeletedMatchEntry;
         }).filter((entry): entry is DeletedMatchEntry => Boolean(entry))
         : [];
@@ -604,11 +670,11 @@ function normalizeDeletedHistory(value: unknown, lookup?: Map<string, SpriteReco
 
 function normalizeStoreIdentifiers(store: MatchStoreFile): MatchStoreFile {
   const usedIds = new Set<string>();
-  const nextIndexByDate = new Map<string, number>();
+  const nextIndexByCluster = new Map<string, number>();
   const renamedIds = new Map<string, string>();
 
   const normalizeMatch = (match: MatchRecord): MatchRecord => {
-    const preferredDatePrefix = resolveMatchDatePrefix(match.id, match.createdAt);
+    const clusterKey = resolveMatchClusterKey(match.id, match.createdAt);
     const desiredId = typeof match.id === 'string' ? match.id.trim() : '';
     const canReuseDesiredId = desiredId && !usedIds.has(desiredId);
     const nextId = canReuseDesiredId
@@ -616,11 +682,11 @@ function normalizeStoreIdentifiers(store: MatchStoreFile): MatchStoreFile {
         usedIds.add(desiredId);
         const numericIndex = resolveMatchNumericIndex(desiredId);
         const nextValue = numericIndex ? numericIndex + 1 : 1;
-        const currentValue = nextIndexByDate.get(preferredDatePrefix) ?? 1;
-        nextIndexByDate.set(preferredDatePrefix, Math.max(currentValue, nextValue));
+        const currentValue = nextIndexByCluster.get(clusterKey) ?? 1;
+        nextIndexByCluster.set(clusterKey, Math.max(currentValue, nextValue));
         return desiredId;
       })()
-      : allocateUniqueMatchId(usedIds, nextIndexByDate, preferredDatePrefix);
+      : allocateUniqueMatchId(usedIds, nextIndexByCluster, clusterKey);
 
     if (desiredId && desiredId !== nextId) {
       renamedIds.set(desiredId, nextId);
@@ -735,16 +801,88 @@ function toPublicStore(store: MatchStoreFile, mtime: number | null): MatchStoreS
   };
 }
 
+// 删除超过 7 天的撤销/重做快照（按 savedAt 判定），返回是否发生了清理
+function pruneExpiredFlowHistory(store: MatchStoreFile, nowMs: number): boolean {
+  const cutoffMs = nowMs - FLOW_HISTORY_TTL_MS;
+  let changed = false;
+
+  const isFresh = (snapshot: MatchFlowSnapshot): boolean => {
+    const savedAtMs = Date.parse(snapshot.savedAt);
+    return Number.isFinite(savedAtMs) && savedAtMs >= cutoffMs;
+  };
+
+  for (const history of Object.values(store.flowHistory)) {
+    if (history.undoStack.some((snapshot) => !isFresh(snapshot))) {
+      history.undoStack = history.undoStack.filter(isFresh);
+      changed = true;
+    }
+    if (history.redoStack.some((snapshot) => !isFresh(snapshot))) {
+      history.redoStack = history.redoStack.filter(isFresh);
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+// 原子写：同目录临时文件 + rename，避免写一半崩溃导致 matches.json 截断损坏
+function persistStoreFile(paths: AppPaths, store: MatchStoreFile): number {
+  ensureRuntimeDirs(paths);
+  const targetFile = paths.matchesFile;
+  storeTmpCounter += 1;
+  const tmpFile = `${targetFile}.tmp-${process.pid}-${storeTmpCounter}`;
+  const payload: MatchStoreFile = { __version: MATCH_STORE_VERSION, ...store };
+  fs.writeFileSync(tmpFile, JSON.stringify(payload, null, 2), 'utf-8');
+  fs.renameSync(tmpFile, targetFile);
+  return fs.statSync(targetFile).mtimeMs;
+}
+
+// 更新内存缓存（写盘成功后调用），后续读取零 IO
+function rememberStore(paths: AppPaths, entry: MatchStoreCacheEntry): void {
+  matchStoreCache.set(paths, entry);
+}
+
 function readStoreFile(paths: AppPaths): { store: MatchStoreFile; mtime: number | null } {
-  if (!fs.existsSync(paths.matchesFile)) {
-    return { store: defaultStoreFile(), mtime: null };
+  let fileMtime: number | null = null;
+  try {
+    fileMtime = fs.statSync(paths.matchesFile).mtimeMs;
+  } catch {
+    fileMtime = null;
+  }
+
+  const cached = matchStoreCache.get(paths);
+  if (cached && cached.fileMtime === fileMtime) {
+    // 长跑不重启兜底：节流检查 7 天过期快照，有清理才落盘
+    const nowMs = Date.now();
+    if (nowMs - cached.lastPruneAt >= STORE_CACHE_PRUNE_CHECK_INTERVAL_MS) {
+      cached.lastPruneAt = nowMs;
+      if (pruneExpiredFlowHistory(cached.store, nowMs)) {
+        const nextMtime = persistStoreFile(paths, cached.store);
+        cached.fileMtime = nextMtime;
+        cached.mtime = nextMtime;
+      }
+    }
+    return { store: cached.store, mtime: cached.mtime };
+  }
+
+  if (fileMtime === null) {
+    const entry: MatchStoreCacheEntry = {
+      fileMtime: null,
+      store: defaultStoreFile(),
+      mtime: null,
+      lastPruneAt: Date.now(),
+    };
+    rememberStore(paths, entry);
+    return { store: entry.store, mtime: null };
   }
 
   try {
     const rawText = fs.readFileSync(paths.matchesFile, 'utf-8');
     const raw = JSON.parse(rawText) as Record<string, unknown>;
-    const stat = fs.statSync(paths.matchesFile);
     const lookup = spriteLookup(paths);
+    const version = typeof raw.__version === 'number' ? raw.__version : 0;
+    // 旧版数据（无 savedAt）迁移时统一补当前时间，给予完整 7 天保留期
+    const legacySavedAt = new Date().toISOString();
     const matches = Array.isArray(raw.matches)
       ? raw.matches
         .map((match) => normalizeMatchRecord(match, lookup))
@@ -755,35 +893,44 @@ function readStoreFile(paths: AppPaths): { store: MatchStoreFile; mtime: number 
       : null;
 
     const store = normalizeStoreIdentifiers({
+      __version: version >= MATCH_STORE_VERSION ? MATCH_STORE_VERSION : version,
       activeMatchId: activeMatchId && matches.some((match) => match.id === activeMatchId) ? activeMatchId : null,
       matches,
-      flowHistory: normalizeFlowHistoryMap(raw.flowHistory, lookup),
-      deletedHistory: normalizeDeletedHistory(raw.deletedHistory, lookup),
+      flowHistory: normalizeFlowHistoryMap(raw.flowHistory, lookup, legacySavedAt),
+      deletedHistory: normalizeDeletedHistory(raw.deletedHistory, lookup, legacySavedAt),
     });
-    const normalizedText = JSON.stringify(store, null, 2);
 
-    if (rawText !== normalizedText) {
-      fs.writeFileSync(paths.matchesFile, normalizedText, 'utf-8');
-      return {
-        mtime: fs.statSync(paths.matchesFile).mtimeMs,
-        store,
-      };
+    let needsWriteBack = version < MATCH_STORE_VERSION;
+    if (pruneExpiredFlowHistory(store, Date.now())) {
+      needsWriteBack = true;
     }
 
-    return {
-      mtime: stat.mtimeMs,
-      store,
-    };
+    let mtime = fileMtime;
+    if (needsWriteBack) {
+      mtime = persistStoreFile(paths, store);
+    }
+
+    rememberStore(paths, { fileMtime: mtime, store, mtime, lastPruneAt: Date.now() });
+    return { store, mtime };
   } catch {
-    return { store: defaultStoreFile(), mtime: null };
+    const entry: MatchStoreCacheEntry = {
+      fileMtime,
+      store: defaultStoreFile(),
+      mtime: null,
+      lastPruneAt: Date.now(),
+    };
+    rememberStore(paths, entry);
+    return { store: entry.store, mtime: null };
   }
 }
 
 function writeStoreFile(paths: AppPaths, store: MatchStoreFile): MatchStoreState {
-  ensureRuntimeDirs(paths);
   const normalizedStore = normalizeStoreIdentifiers(store);
-  fs.writeFileSync(paths.matchesFile, JSON.stringify(normalizedStore, null, 2), 'utf-8');
-  return getMatchStore(paths);
+  pruneExpiredFlowHistory(normalizedStore, Date.now());
+  const mtime = persistStoreFile(paths, normalizedStore);
+  // 直接以内存态构建返回值，不再写后重读
+  rememberStore(paths, { fileMtime: mtime, store: normalizedStore, mtime, lastPruneAt: Date.now() });
+  return toPublicStore(normalizedStore, mtime);
 }
 
 function restorePanelFromSlots(paths: AppPaths, position: 'left' | 'right', slots: MatchSlotSnapshot[]): void {
@@ -966,11 +1113,13 @@ export function createMatch(paths: AppPaths, payload: unknown): MatchStoreState 
 
   const { store } = readStoreFile(paths);
   const now = new Date().toISOString();
-  const datePrefix = getDatePrefix(new Date(now));
+  const machineCode = loadRuntimeConfig(paths).machineCode;
+  const clusterKey = matchClusterKey(getDatePrefix(new Date(now)), machineCode);
+  // usedIds 传入全部现存 id：即使簇键序号不规则也保证不产生重复 id
   const nextMatchId = allocateUniqueMatchId(
-    new Set<string>(),
+    new Set<string>(store.matches.map((match) => match.id)),
     collectNextMatchIndexes(store),
-    datePrefix,
+    clusterKey,
   );
   const match: MatchRecord = {
     id: nextMatchId,
@@ -1564,4 +1713,236 @@ export function syncActiveMatchLineupsFromPanels(paths: AppPaths): MatchStoreSta
   };
 
   return writeStoreFile(paths, store);
+}
+
+/* ==================== 双机数据同步：比赛导入合并 ==================== */
+
+/** 规范化包内比赛的结果：逐条过 normalizeMatchRecord，非法 id / 结构不符被拒并给出原因 */
+export interface NormalizedMatchImport {
+  records: MatchRecord[];
+  rejected: Array<{ index: number; id: string; reason: string }>;
+}
+
+export function normalizeImportedMatches(paths: AppPaths, incoming: unknown[]): NormalizedMatchImport {
+  const lookup = spriteLookup(paths);
+  const records: MatchRecord[] = [];
+  const rejected: NormalizedMatchImport['rejected'] = [];
+
+  incoming.forEach((item, index) => {
+    const normalized = normalizeMatchRecord(item, lookup);
+    if (normalized) {
+      records.push(normalized);
+      return;
+    }
+    const rawId = item && typeof item === 'object'
+      ? String((item as Record<string, unknown>).id ?? '').slice(0, 40)
+      : '';
+    rejected.push({ index, id: rawId, reason: 'id 不合法或结构不符，已忽略' });
+  });
+
+  return { records, rejected };
+}
+
+/** 单条比赛的导入判定结果（预览与合并共用同一判定逻辑） */
+export interface MatchImportDecision {
+  id: string;
+  action: 'add' | 'update' | 'skip';
+  reason: string;
+  localUpdatedAt: string | null;
+  incomingUpdatedAt: string | null;
+  /** 双方都已登记且内容不同（疑似两台机器都录过这场，需要人工确认是否覆盖） */
+  conflict: boolean;
+  /** 字段级差异（只列出不同的字段；本机无该记录时为空数组） */
+  diff: SyncImportDiffField[];
+}
+
+function matchStatusLabel(match: MatchRecord): string {
+  if (match.status === 'completed') {
+    return '已结束';
+  }
+  if (match.status === 'in_progress') {
+    return '进行中';
+  }
+  return '未开始';
+}
+
+function gameWinnerLabel(winner: 'left' | 'right' | null): string {
+  if (winner === 'left') {
+    return '左侧胜';
+  }
+  if (winner === 'right') {
+    return '右侧胜';
+  }
+  return '未分胜负';
+}
+
+function gameSummary(game: GameRecord): string {
+  const statusLabel = game.status === 'completed' ? '已结束' : game.status === 'in_progress' ? '进行中' : '未开始';
+  return `${statusLabel} · ${gameWinnerLabel(game.winner)}`;
+}
+
+/** 阵容快照的可读文本：优先名称快照，缺失时回退 pet_id；空阵容显示「（空）」 */
+function lineupText(slots: MatchSlotSnapshot[]): string {
+  const names = slots.filter((slot) => slot.pet_id).map((slot) => slot.name || slot.pet_id || '');
+  return names.length ? names.join('、') : '（空）';
+}
+
+function pushDiffField(fields: SyncImportDiffField[], label: string, local: string, incoming: string): void {
+  if (local !== incoming) {
+    fields.push({ label, local, incoming });
+  }
+}
+
+/** 比赛「已登记」判定：任一小局已开始/已分胜负/已录入阵容（用于识别两台机器都录过的冲突） */
+function matchHasRecordedContent(match: MatchRecord): boolean {
+  return match.games.some((game) => game.status !== 'pending'
+    || game.winner === 'left' || game.winner === 'right'
+    || game.leftLineup.length > 0 || game.rightLineup.length > 0);
+}
+
+/**
+ * 字段级差异（本机 vs 包内）：基础信息 + 逐小局状态/双方阵容，只列出不同的行，最多 20 条。
+ * 导出供前端预览弹窗做左右 diff 展示。
+ */
+export function buildMatchDiffFields(local: MatchRecord, incoming: MatchRecord): SyncImportDiffField[] {
+  const fields: SyncImportDiffField[] = [];
+  pushDiffField(fields, '状态', matchStatusLabel(local), matchStatusLabel(incoming));
+  pushDiffField(
+    fields,
+    '比分',
+    `${local.leftScore} : ${local.rightScore}`,
+    `${incoming.leftScore} : ${incoming.rightScore}`,
+  );
+  pushDiffField(
+    fields,
+    '选手',
+    `${local.leftPlayer} vs ${local.rightPlayer}`,
+    `${incoming.leftPlayer} vs ${incoming.rightPlayer}`,
+  );
+  pushDiffField(fields, '赛制', `BO${local.bestOf}`, `BO${incoming.bestOf}`);
+  pushDiffField(fields, '标签', local.tags.join('、') || '（无）', incoming.tags.join('、') || '（无）');
+
+  const gameCount = Math.max(local.games.length, incoming.games.length);
+  for (let index = 0; index < gameCount; index += 1) {
+    const localGame = local.games[index];
+    const incomingGame = incoming.games[index];
+    const label = `第 ${index + 1} 局`;
+    pushDiffField(
+      fields,
+      label,
+      localGame ? gameSummary(localGame) : '（无）',
+      incomingGame ? gameSummary(incomingGame) : '（无）',
+    );
+    pushDiffField(
+      fields,
+      `${label}左侧阵容`,
+      localGame ? lineupText(localGame.leftSlots) : '（无）',
+      incomingGame ? lineupText(incomingGame.leftSlots) : '（无）',
+    );
+    pushDiffField(
+      fields,
+      `${label}右侧阵容`,
+      localGame ? lineupText(localGame.rightSlots) : '（无）',
+      incomingGame ? lineupText(incomingGame.rightSlots) : '（无）',
+    );
+  }
+
+  return fields.slice(0, 20);
+}
+
+function classifyMatchImport(
+  local: MatchRecord | null,
+  incoming: MatchRecord,
+  mode: SyncConflictMode,
+): MatchImportDecision {
+  const base = {
+    id: incoming.id,
+    localUpdatedAt: local ? local.updatedAt : null,
+    incomingUpdatedAt: incoming.updatedAt,
+  };
+
+  if (!local) {
+    return { ...base, action: 'add', reason: '', conflict: false, diff: [] };
+  }
+
+  const diff = buildMatchDiffFields(local, incoming);
+  // 冲突 = 本机与包内都「已登记」且有内容差异（只登记过一边属于正常同步，不提示）
+  const conflict = diff.length > 0 && matchHasRecordedContent(local) && matchHasRecordedContent(incoming);
+
+  if (mode === 'bundle') {
+    return diff.length === 0
+      ? { ...base, action: 'skip', reason: '与包内内容相同', conflict, diff }
+      : { ...base, action: 'update', reason: '以包为准覆盖本机版本', conflict, diff };
+  }
+
+  const localMs = Date.parse(local.updatedAt);
+  const incomingMs = Date.parse(incoming.updatedAt);
+  const newer = Number.isFinite(localMs) && Number.isFinite(incomingMs)
+    ? incomingMs > localMs
+    : String(incoming.updatedAt) > String(local.updatedAt);
+  return newer
+    ? { ...base, action: 'update', reason: '包内版本更新', conflict, diff }
+    : { ...base, action: 'skip', reason: '本机版本不早于包内（保持本机）', conflict, diff };
+}
+
+/** 只读：按 id 对比包内比赛与本机 store（供导入预览） */
+export function diffMatchRecords(
+  paths: AppPaths,
+  incoming: MatchRecord[],
+  mode: SyncConflictMode,
+): MatchImportDecision[] {
+  const { store } = readStoreFile(paths);
+  const localById = new Map(store.matches.map((match) => [match.id, match]));
+  return incoming.map((record) => classifyMatchImport(localById.get(record.id) ?? null, record, mode));
+}
+
+export interface MergeMatchRecordsReport {
+  store: MatchStoreState;
+  added: string[];
+  updated: string[];
+  skipped: Array<{ id: string; reason: string }>;
+}
+
+/**
+ * 合并包内比赛：不存在 → 追加；已存在 → 按冲突模式覆盖或跳过。
+ * 走 readStoreFile/writeStoreFile 既有管线（内存缓存 + 原子写 + 标识规范化）；
+ * 不修改 activeMatchId、不写撤销栈（导入不是本机操作，不参与撤销/重做）。
+ */
+export function mergeMatchRecords(
+  paths: AppPaths,
+  incoming: MatchRecord[],
+  mode: SyncConflictMode,
+): MergeMatchRecordsReport {
+  const { store } = readStoreFile(paths);
+  const matches = [...store.matches];
+  const indexById = new Map(matches.map((match, index) => [match.id, index]));
+
+  const added: string[] = [];
+  const updated: string[] = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+
+  incoming.forEach((record) => {
+    const localIndex = indexById.get(record.id);
+    const decision = classifyMatchImport(
+      localIndex === undefined ? null : matches[localIndex],
+      record,
+      mode,
+    );
+
+    if (decision.action === 'add') {
+      indexById.set(record.id, matches.length);
+      matches.push(record);
+      added.push(record.id);
+      return;
+    }
+    if (decision.action === 'update') {
+      matches[localIndex as number] = record;
+      updated.push(record.id);
+      return;
+    }
+    skipped.push({ id: record.id, reason: decision.reason });
+  });
+
+  const nextState = writeStoreFile(paths, { ...store, matches });
+  return { store: nextState, added, updated, skipped };
 }

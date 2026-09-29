@@ -170,6 +170,7 @@
 
         const socket = io({
             transports: ['websocket', 'polling'],
+            query: { role: 'page1' },
         });
 
         socket.on('snapshot', (payload) => {

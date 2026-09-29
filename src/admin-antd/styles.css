@@ -1912,3 +1912,216 @@ a {
 .select-match-confirm .ant-checkbox-wrapper {
   margin-top: 2px;
 }
+
+/* ===== 数据同步卡片：标题下分隔线 + 三行分区（左标签列 / 右控件+提示，行间分隔线） ===== */
+.sync-card .ant-card-head {
+  min-height: auto;
+  padding: 12px 24px;
+  border-bottom: 1px solid #EDE4D8;
+}
+
+.sync-card .ant-card-body {
+  padding: 2px 24px 6px;
+}
+
+.sync-card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 18px 0;
+}
+
+.sync-card-label {
+  flex: 0 0 96px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #2f2418;
+}
+
+.sync-card-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sync-card-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.sync-card-hint .ant-tag {
+  margin-inline: 3px;
+  padding-inline: 8px;
+  transform: translateY(-1px);
+}
+
+.sync-card-hint code {
+  margin: 0 2px;
+  padding: 1px 8px;
+  border: none;
+  border-radius: 6px;
+  background: #F1E8DC;
+  color: #6B5944;
+  font-size: 12px;
+}
+
+.sync-card-divider.ant-divider {
+  margin: 0;
+  border-color: #EDE4D8;
+}
+
+/* 导出行：勾选项靠左、导出按钮靠右 */
+.sync-export-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* 胶囊样式的勾选项：选中时奶油底 + 主题橙描边（对勾框沿用 colorPrimary） */
+.sync-check-card.ant-checkbox-wrapper {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  margin-inline-end: 0;
+  padding: 0 18px;
+  border: 1px solid #E6D9C8;
+  border-radius: 12px;
+  background: #FFFDF9;
+  color: #4A3B2B;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.sync-check-card.ant-checkbox-wrapper:hover {
+  border-color: rgba(199, 99, 47, 0.45);
+}
+
+.sync-check-card.ant-checkbox-wrapper-checked {
+  border-color: rgba(199, 99, 47, 0.55);
+  background: #FDF2E6;
+}
+
+.sync-check-card.ant-checkbox-wrapper-disabled {
+  background: #F6EFE6;
+}
+
+/* ===== 数据同步：导入预览弹窗（左列表 + 右差异面板） ===== */
+.sync-preview-modal .ant-modal-body {
+  max-height: min(760px, calc(100vh - 200px));
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sync-preview-layout {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.sync-preview-list {
+  flex: 0 0 560px;
+  min-width: 0;
+}
+
+.sync-preview-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 424px;
+  overflow-y: auto;
+  padding-left: 14px;
+  border-left: 1px solid #EBE2D7;
+}
+
+@media (max-width: 1200px) {
+  .sync-preview-layout {
+    flex-direction: column;
+  }
+  .sync-preview-list {
+    flex: 1 1 auto;
+  }
+  .sync-preview-detail {
+    max-height: none;
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid #EBE2D7;
+    padding-top: 12px;
+  }
+}
+
+.sync-preview-list .ant-table-row.sync-preview-row-active > .ant-table-cell {
+  background: #FBEDE4;
+}
+
+/* 左右差异表：本机值暖色、包内值绿色，便于一眼分辨 */
+.sync-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  table-layout: fixed;
+}
+
+.sync-diff-table th {
+  text-align: left;
+  font-weight: 600;
+  color: #7C6C5F;
+  padding: 6px 8px;
+  border-bottom: 1px solid #EBE2D7;
+  background: #FBF8F3;
+}
+
+.sync-diff-table td {
+  padding: 7px 8px;
+  border-bottom: 1px dashed #EBE2D7;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.sync-diff-table th:nth-child(1),
+.sync-diff-table td:nth-child(1) {
+  width: 108px;
+}
+
+.sync-diff-label {
+  color: #4A3E34;
+  white-space: nowrap;
+}
+
+.sync-diff-local {
+  color: #B8451F;
+  background: #FDF1EA;
+}
+
+.sync-diff-incoming {
+  color: #2E6A4A;
+  background: #EDF6F0;
+}
+
+/* 头像 / logo 左右对照（导入预览详情面板） */
+.sync-avatar-compare {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.sync-avatar-compare img,
+.sync-avatar-empty {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  border: 1px solid #EBE2D7;
+  object-fit: cover;
+  background: #FBF8F3;
+}
+
+.sync-avatar-empty {
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #7C6C5F;
+}
