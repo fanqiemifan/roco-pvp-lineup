@@ -6,7 +6,7 @@
 
 - App.tsx — 主组件：Layout（Header/Sider/Content）、视图分发、工具栏按钮（阵容悬浮窗/打开预览/复制链接/刷新）、「开一局」创建赛事弹窗（选手名/排位排名/头像/赛制/标签）
 - views/ — 各视图独立页面（RosterPanelEditor、StatsView、TournamentView、HistoryLineupEntryModal）
-- components/ — 可复用小组件（SettingField、SpritePetCard、StageThumb、AttributeFilterChips）
+- components/ — 可复用小组件（SettingField、SpritePetCard、StageThumb、AttributeFilterChips、BracketBoard、TournamentNodeCard）
 - lib/ — 无状态纯函数（请求、统计、格式化等）
 - constants.ts / types.ts — 本地常量与类型
 - env.d.ts — `*.svg?raw` 模块声明（导航图标按原样字符串引入）
@@ -52,9 +52,10 @@
 - tournament - 系列赛（TournamentView：列表 + 4 步创建向导 + 详情；导航图标 系列赛.svg）
   - 「系列赛列表」表格：名称（点击打开详情）、人数、当前位置（阶段名·波次）、已完成/已建场次、状态标签、操作（打开详情 + 红色「删除」）；头部「＋ 创建系列赛」开导向导。删除走统一确认弹窗（summarizeTournamentMatches 给出关联对局总数与已完成/进行中/未开始分布）：默认仅删编排记录、对局保留转普通；勾选「同时删除 N 场对局」则连对局删除（比赛历史可撤回最近删除），DELETE /api/tournaments/:id。
   - 创建向导 4 步：①名称 → ②选手勾选（搜索 + 固定高度滚动 Checkbox 列表，实时校验人数 ∈ 4/8/16/32）→ ③阶段规则可编辑表（阶段名/双败单败分段/BO1-BO3/配对方式/避重复/需确认；人数变化时重填 buildDefaultStages 默认模板）点「创建草稿」POST → ④首波抽签面板（seed 与种子顺序标签流，「重新抽签」/「确认开赛」；开赛后提示已生成第 1 波）。setup 记录可随时在列表「继续配置」。
-  - 详情：阶段进度 Steps（finish/process/wait）+ setup 时复用抽签面板 + 波次卡片（最新在前）：draft → 配对确认台；locked → 节点卡片网格。头部 Popconfirm「回退上一波」与红色「删除系列赛」（复用列表的删除确认弹窗）；冠军结果显示冠亚军标签。
+  - 详情：阶段进度 Steps（finish/process/wait）+ setup 时复用抽签面板 + 视图切换 Segmented「晋级图 / 波次列表」（**默认晋级图**，仅非 setup 显示；setup 固定走抽签面板）。波次列表视图：波次卡片（最新在前）：draft → 配对确认台；locked → 节点卡片网格，卡片由 **TournamentNodeCard** 渲染（与晋级图同一组件，内容与色调完全一致）。波次标题以「第 N 波」为主标题（保留原有表述），其后追加标注：轮次名（`getWaveRoundLabels`，双败 W1 = `胜者组 R1`、W2 = `败者组 R1 / 胜者组 R2`、W3 = `败者组 R2`，单败阶段为空）+ `阶段名 · 双败/单败` Tag + `配对方式 · 配对草稿/已锁定` Tag（配对方式用 `getPairingLabel`：随机配对/手动配对/每轮随机/种子位配对）+ 波状态 Tag。头部 Popconfirm「回退上一波」与红色「删除系列赛」（复用列表的删除确认弹窗）；冠军结果显示冠亚军标签。
+  - 晋级图（BracketBoard，components/）：**双败按战绩桶拆列**（同一波的 1-0 / 0-1 拆成两列），列序 胜者组 R1 → 败者组 R1 → 胜者组 R2 → 败者组 R2，**单败一阶段一列**，横向可滚动。列头显示轮次标签（首列附阶段名 `胜者组 R1 · 8进4`，决胜列附晋级人数 `败者组 R2 · 决出4强`；单败直接用阶段名）+ 双败/单败 + 波状态。列内每个节点一张卡片（状态 Tag、「跨桶」Tag、节点 id、双方槽位行、复用「切换为当前比赛」与「弃权判负」）。**槽位样式参照 bracket-reference**：整行左侧 3px 状态色条 + 名称省略号（title 完整名）+ 战绩脚注 + 右侧比分块；`.bracket-row-won` = 绿条/绿字加粗/绿底比分，`.bracket-row-lost` = 红条 + 文字置灰 + 半透明 + 红底白字比分（**无删除线**），`.bracket-row-tbd` = 名称置灰。**列间晋级连线由 buildBracketGraph 推导的槽位关系（上一次出战赢=胜者实线 #2d7a58 / 输=败者虚线 #c24635，首轮登场无连线）经 getBoundingClientRect 量测后画正交折线 SVG**，布局变化由 ResizeObserver 重算；draft 波渲染为只读候选配对 + 提示去波次列表完成配对确认。数据源纯函数 buildBracketGraph 在 lib/tournament.ts（跳过 setup 无波次 → Empty 占位；节点所属桶由「按波次顺序累计的阶段内战绩」推导，跨桶配对取左位战绩入列并打标记）。
   - 配对确认台：桶结构固定按 getDraftBucketSpecs 渲染（初始池/胜者池/败者池/决胜池，空桶也显示），每场两个 Select（严格模式仅本桶选项；勾选「允许跨桶」后列出全部选手并带桶后缀），编辑 500ms 防抖自动 PUT 暂存；「🎲 桶内随机重排」（RNG 洗牌）、「📋 导入对阵表」（TextArea 每行 A vs B，未匹配行弹窗列出）、实时校验信息（错误红/警告橙，已交手仅提醒）、「🔒 锁定并创建 N 场」（跨桶二次确认 modal）。
-  - 节点卡片：状态 Tag（待开始/进行中/已结束）、双方名字（胜者加粗、负者删除线）、比分、每人战绩状态脚注（如 2-0 已晋级）、「切换为当前比赛」（POST select 后经 onJumpToRoster 跳赛事面板）；pending 比赛可「弃权判负」（选左右侧 → forfeit）。
+  - 对局卡片（TournamentNodeCard，components/）：晋级图与波次列表**共用同一组件**——头部状态 Tag + 「跨桶」Tag + 节点 id，两行槽位（左侧 3px 状态色条、名称省略、阶段战绩脚注、右侧比分块），底部「切换为当前比赛」（无 matchId 时禁用）+ pending 已建场时的「弃权判负」。卡片数据由 `buildWaveCards`（波次列表）/ `buildBracketGraph`（晋级图）产出，两者共用 `createBracketCardContext`，保证内容与色调一致。
 - about - 关于项目（项目链接、作者与许可、字体说明、数据来源）
 
 ### 核心状态（App.tsx）
@@ -66,7 +67,7 @@
 ### 核心逻辑（lib/）
 
 - request.ts - fetch 封装
-- tournament.ts - 系列赛纯函数（状态文案/阶段与波次定位/桶规格 getDraftBucketSpecs/草稿校验 validateDraftPairs/桶内洗牌 shuffleBucketPairs/关联对局状态统计 summarizeTournamentMatches 等，不依赖 DOM 可在 node 环境单测）
+- tournament.ts - 系列赛纯函数（状态文案/阶段与波次定位/桶规格 getDraftBucketSpecs/草稿校验 validateDraftPairs/桶内洗牌 shuffleBucketPairs/关联对局状态统计 summarizeTournamentMatches/晋级图数据源 buildBracketGraph + 波次列表卡片 buildWaveCards（同源 createBracketCardContext）/轮次表述 getWaveRoundLabels + 配对方式表述 getPairingLabel + BracketSlot·BracketCard·BracketColumn·BracketGraph 类型等，不依赖 DOM 可在 node 环境单测）
 - tournament-api.ts - 系列赛 API 层（12 个端点封装，含 deleteTournamentApi 删除系列赛，依赖 request）
 - sprite.ts - 精灵数据辅助（buildSpriteLookup：id/文件名/别名多键查找）
 - match.ts - 比赛操作辅助（getPendingDraftContext：当前小局 pending 且赛事未完赛时返回该局草稿槽位上下文）

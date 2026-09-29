@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildBracketGraph,
   buildPlayerNameMap,
+  buildWaveCards,
   countCompletedMatches,
   getCurrentPositionText,
   getDraftBucketSpecs,
   getNodeStatus,
+  getPairingLabel,
   getPlayerStateText,
   getStageState,
   getTournamentStatusMeta,
   getWaveGlobalIndex,
+  getWaveRoundLabels,
   resolvePlayerName,
   shuffleBucketPairs,
   validateDraftPairs,
@@ -381,6 +385,396 @@ describe('shuffleBucketPairs', () => {
     const expected = shuffleBucketPairs(ids, () => 0);
     expect(shuffleBucketPairs(ids, () => 0)).toEqual(expected);
     expect(expected.flat().sort()).toEqual([...ids].sort());
+  });
+});
+
+describe('buildBracketGraph（晋级图数据源）', () => {
+  const names = new Map(
+    Array.from({ length: 8 }, (_unused, index) => [`p${index}`, `选手${index}`] as [string, string]),
+  );
+
+  /** 构造节点（默认未建场、无胜者） */
+  function makeNode(
+    id: string,
+    a: string | null,
+    b: string | null,
+    patch: Partial<TournamentRecord['waves'][number]['nodes'][number]> = {},
+  ): TournamentRecord['waves'][number]['nodes'][number] {
+    return { id, matchId: null, playerAId: a, playerBId: b, winnerId: null, isBye: false, ...patch };
+  }
+
+  it('setup 无波次 → 空图', () => {
+    const graph = buildBracketGraph(makeRecord(), names, []);
+    expect(graph.columns).toEqual([]);
+    expect(graph.cardCount).toBe(0);
+    expect(graph.completedCount).toBe(0);
+  });
+
+  it('双败一阶段按桶拆四列（胜者组 R1 → 败者组 R1 → 胜者组 R2 → 败者组 R2），列内节点按序号排序', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, {
+          status: 'completed',
+          nodes: [
+            makeNode('s0-w1-n00', 'p0', 'p1', { matchId: 'm1', winnerId: 'p0' }),
+            makeNode('s0-w1-n01', 'p2', 'p3', { matchId: 'm2', winnerId: 'p2' }),
+            makeNode('s0-w1-n02', 'p4', 'p5', { matchId: 'm3', winnerId: 'p4' }),
+            makeNode('s0-w1-n03', 'p6', 'p7', { matchId: 'm4', winnerId: 'p6' }),
+          ],
+        }),
+        makeWave(0, 2, {
+          status: 'completed',
+          nodes: [
+            // 1-0 桶（胜者组 R2）：胜者 2-0 晋级，败者落到 1-1
+            makeNode('s0-w2-n00', 'p0', 'p2', { matchId: 'm5', winnerId: 'p0' }),
+            makeNode('s0-w2-n01', 'p4', 'p6', { matchId: 'm6', winnerId: 'p4' }),
+            // 0-1 桶（败者组 R1）：胜者升到 1-1，败者 0-2 淘汰
+            makeNode('s0-w2-n02', 'p1', 'p3', { matchId: 'm7', winnerId: 'p1' }),
+            makeNode('s0-w2-n03', 'p5', 'p7', { matchId: 'm8', winnerId: 'p5' }),
+          ],
+        }),
+        makeWave(0, 3, {
+          nodes: [
+            // 1-1 桶（败者组 R2）
+            makeNode('s0-w3-n00', 'p2', 'p1', { matchId: 'm9' }),
+            makeNode('s0-w3-n01', 'p6', 'p5', { matchId: 'm10' }),
+          ],
+        }),
+      ],
+    });
+    const matches = [
+      makeMatch('m1', { status: 'completed', leftScore: 2, rightScore: 1 }),
+      makeMatch('m2', { status: 'completed' }),
+      makeMatch('m3', { status: 'completed' }),
+      makeMatch('m4', { status: 'completed' }),
+      makeMatch('m5', { status: 'completed', leftScore: 2, rightScore: 0 }),
+      makeMatch('m6', { status: 'completed' }),
+      makeMatch('m7', { status: 'completed' }),
+      makeMatch('m8', { status: 'completed' }),
+      makeMatch('m9', { status: 'pending' }),
+      makeMatch('m10', { status: 'pending' }),
+    ];
+    const graph = buildBracketGraph(record, names, matches);
+
+    // 同一波（W2）的 1-0 / 0-1 拆成两列，列序按 胜者组 R1 → 败者组 R1 → 胜者组 R2 → 败者组 R2
+    expect(graph.columns.map((column) => column.key)).toEqual([
+      '0-1-0-0',
+      '0-2-0-1',
+      '0-2-1-0',
+      '0-3-1-1',
+    ]);
+    expect(graph.columns.map((column) => column.bucketKey)).toEqual(['0-0', '0-1', '1-0', '1-1']);
+    expect(graph.columns.map((column) => column.label)).toEqual([
+      '胜者组 R1 · 8进4',
+      '败者组 R1',
+      '胜者组 R2',
+      '败者组 R2 · 决出4强',
+    ]);
+    expect(graph.columns.map((column) => column.stageName)).toEqual(['8进4', '8进4', '8进4', '8进4']);
+    expect(graph.columns[0].formatLabel).toBe('双败');
+    expect(graph.columns.map((column) => column.cards.length)).toEqual([4, 2, 2, 2]);
+
+    // 列内按节点序号排序，槽位带名字与阶段内战绩脚注
+    expect(graph.columns[0].cards.map((card) => card.nodeId)).toEqual([
+      's0-w1-n00',
+      's0-w1-n01',
+      's0-w1-n02',
+      's0-w1-n03',
+    ]);
+    const first = graph.columns[0].cards[0];
+    expect(first.playerA.name).toBe('选手0');
+    expect(first.playerA.isWinner).toBe(true);
+    expect(first.playerB.isWinner).toBe(false);
+    expect(first.statusLabel).toBe('已结束');
+    expect(first.playerA.score).toBe('2');
+    expect(first.playerB.score).toBe('1');
+    expect(first.canForfeit).toBe(false);
+    expect(first.isCrossBucket).toBe(false);
+    expect(first.playerA.stateText).toBe('0-0 存活');
+
+    // 未建场节点：状态按 winnerId 推断；败者组 R2 未开赛但已建场 → 可弃权
+    const pending = graph.columns[3].cards[0];
+    expect(pending.status).toBe('pending');
+    expect(pending.statusLabel).toBe('待开始');
+    expect(pending.playerA.score).toBe('');
+    expect(pending.canForfeit).toBe(true);
+
+    expect(graph.cardCount).toBe(10);
+    expect(graph.completedCount).toBe(8);
+  });
+
+  it('双败：W1 胜者实线进胜者组 R2、败者虚线进败者组 R1', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, {
+          status: 'completed',
+          nodes: [
+            makeNode('s0-w1-n00', 'p0', 'p1', { matchId: 'm1', winnerId: 'p0' }),
+            makeNode('s0-w1-n01', 'p2', 'p3', { matchId: 'm2', winnerId: 'p2' }),
+          ],
+        }),
+        makeWave(0, 2, {
+          nodes: [
+            makeNode('s0-w2-n00', 'p0', 'p2', { matchId: 'm3' }),
+            makeNode('s0-w2-n01', 'p1', 'p3', { matchId: 'm4' }),
+          ],
+        }),
+      ],
+    });
+    const graph = buildBracketGraph(record, names, [
+      makeMatch('m1', { status: 'completed' }),
+      makeMatch('m2', { status: 'completed' }),
+      makeMatch('m3', { status: 'pending' }),
+      makeMatch('m4', { status: 'pending' }),
+    ]);
+
+    const fallingPool = graph.columns.find((column) => column.bucketKey === '0-1');
+    const risingPool = graph.columns.find((column) => column.bucketKey === '1-0');
+    expect(risingPool?.label).toBe('胜者组 R2');
+    expect(fallingPool?.label).toBe('败者组 R1');
+    expect(risingPool?.cards[0].playerA.name).toBe('选手0');
+    expect(risingPool?.cards[0].playerA.from).toEqual({ nodeId: 's0-w1-n00', kind: 'w' });
+    expect(fallingPool?.cards[0].playerA.name).toBe('选手1');
+    expect(fallingPool?.cards[0].playerA.from).toEqual({ nodeId: 's0-w1-n00', kind: 'l' });
+  });
+
+  it('双败：跨桶配对取左位战绩入列并打跨桶标记', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, {
+          status: 'completed',
+          nodes: [
+            makeNode('s0-w1-n00', 'p0', 'p1', { matchId: 'm1', winnerId: 'p0' }),
+            makeNode('s0-w1-n01', 'p2', 'p3', { matchId: 'm2', winnerId: 'p2' }),
+          ],
+        }),
+        makeWave(0, 2, {
+          nodes: [
+            // 1-0 的 p0 对 0-1 的 p1（战绩不对等）
+            makeNode('s0-w2-n00', 'p0', 'p1', { matchId: 'm3' }),
+            makeNode('s0-w2-n01', 'p2', 'p3', { matchId: 'm4' }),
+          ],
+        }),
+      ],
+    });
+    const graph = buildBracketGraph(record, names, [
+      makeMatch('m1', { status: 'completed' }),
+      makeMatch('m2', { status: 'completed' }),
+      makeMatch('m3', { status: 'pending' }),
+      makeMatch('m4', { status: 'pending' }),
+    ]);
+
+    const crossCard = graph.columns
+      .flatMap((column) => column.cards)
+      .find((card) => card.nodeId === 's0-w2-n00');
+    // 两场都是跨桶且左位均为 1-0 → 一并归入胜者组 R2 列
+    expect(crossCard?.isCrossBucket).toBe(true);
+    const column = graph.columns.find((item) => item.key === '0-2-1-0');
+    expect(column?.cards.map((card) => card.nodeId)).toEqual(['s0-w2-n00', 's0-w2-n01']);
+    expect(graph.columns.some((item) => item.key === '0-2-0-1')).toBe(false);
+  });
+
+  it('单败跨阶段：胜者实线连到下一阶段出现的节点；首轮登场无连线', () => {
+    const record = makeRecord({
+      status: 'running',
+      currentStageIndex: 1,
+      waves: [
+        makeWave(1, 1, {
+          nodes: [makeNode('s1-w1-n00', 'p0', 'p2', { matchId: 'm3' })],
+        }),
+        makeWave(0, 1, {
+          status: 'completed',
+          nodes: [
+            makeNode('s0-w1-n00', 'p0', 'p1', { matchId: 'm1', winnerId: 'p0' }),
+            makeNode('s0-w1-n01', 'p2', 'p3', { matchId: 'm2', winnerId: 'p2' }),
+          ],
+        }),
+      ],
+    });
+    const matches = [
+      makeMatch('m1', { status: 'completed' }),
+      makeMatch('m2', { status: 'completed' }),
+      makeMatch('m3', { status: 'pending' }),
+    ];
+    const graph = buildBracketGraph(record, names, matches);
+
+    // waves 乱序输入 → 列按阶段/波次升序（单败一阶段一列，无桶）
+    expect(graph.columns.map((column) => column.key)).toEqual(['0-1-0-0', '1-1-all']);
+    expect(graph.columns[1].bucketKey).toBeUndefined();
+    expect(graph.columns[1].label).toBe('4进2');
+    expect(graph.columns[1].formatLabel).toBe('单败');
+    expect(graph.columns[1].cards[0].playerA.from).toEqual({ nodeId: 's0-w1-n00', kind: 'w' });
+    expect(graph.columns[1].cards[0].playerB.from).toEqual({ nodeId: 's0-w1-n01', kind: 'w' });
+    // 首轮登场：无入场连线
+    expect(graph.columns[0].cards[0].playerA.from).toBeNull();
+    expect(graph.columns[0].cards[1].playerB.from).toBeNull();
+    // 未开始但已建场 → 可弃权
+    expect(graph.columns[1].cards[0].canForfeit).toBe(true);
+  });
+
+  it('阶段内战绩写入槽位脚注（已晋级/已淘汰）', () => {
+    const record = makeRecord({ status: 'running' });
+    record.entries = [
+      { playerId: 'p0', stageWins: 2, stageLosses: 0, state: 'promoted' },
+      { playerId: 'p1', stageWins: 0, stageLosses: 2, state: 'eliminated' },
+    ];
+    record.waves = [
+      makeWave(0, 1, {
+        status: 'completed',
+        nodes: [makeNode('s0-w1-n00', 'p0', 'p1', { matchId: 'm1', winnerId: 'p0' })],
+      }),
+    ];
+    const graph = buildBracketGraph(record, names, [makeMatch('m1', { status: 'completed' })]);
+
+    const card = graph.columns[0].cards[0];
+    expect(card.playerA.stateText).toBe('2-0 已晋级');
+    expect(card.playerA.isWinner).toBe(true);
+    expect(card.playerB.stateText).toBe('0-2 已淘汰');
+    expect(card.playerB.isWinner).toBe(false);
+  });
+
+  it('draft 波：候选配对解析成名字只读展示，节点为空', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, {
+          pairingStatus: 'draft',
+          pairingDraft: [
+            { bucketKey: '0-0', pair: ['p0', 'p1'] },
+            { bucketKey: '0-0', pair: ['p2', null] },
+          ],
+        }),
+      ],
+    });
+    const graph = buildBracketGraph(record, names, []);
+
+    const column = graph.columns[0];
+    expect(column.pairingStatus).toBe('draft');
+    expect(column.bucketKey).toBe('0-0');
+    expect(column.label).toBe('胜者组 R1 · 8进4');
+    expect(column.cards).toEqual([]);
+    expect(column.draftPairs).toEqual([
+      { bucketKey: '0-0', a: '选手0', b: '选手1' },
+      { bucketKey: '0-0', a: '选手2', b: '' },
+    ]);
+  });
+
+  it('draft 波：草稿按各自桶 key 拆到对应轮次列', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 2, {
+          pairingStatus: 'draft',
+          pairingDraft: [
+            { bucketKey: '1-0', pair: ['p0', 'p1'] },
+            { bucketKey: '0-1', pair: ['p2', 'p3'] },
+          ],
+        }),
+      ],
+    });
+    const graph = buildBracketGraph(record, names, []);
+
+    expect(graph.columns.map((column) => column.bucketKey)).toEqual(['0-1', '1-0']);
+    expect(graph.columns.map((column) => column.label)).toEqual(['败者组 R1', '胜者组 R2']);
+    expect(graph.columns[0].draftPairs).toEqual([{ bucketKey: '0-1', a: '选手2', b: '选手3' }]);
+    expect(graph.columns[1].draftPairs).toEqual([{ bucketKey: '1-0', a: '选手0', b: '选手1' }]);
+  });
+
+  it('无关联比赛的节点按 winnerId 推断状态，比分留空', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, {
+          nodes: [
+            makeNode('s0-w1-n00', 'p0', 'p1', { winnerId: 'p1' }),
+            makeNode('s0-w1-n01', 'p2', 'p3'),
+          ],
+        }),
+      ],
+    });
+    const graph = buildBracketGraph(record, names, []);
+    const [settled, pending] = graph.columns[0].cards;
+    expect(settled.status).toBe('completed');
+    expect(settled.playerB.isWinner).toBe(true);
+    expect(settled.playerA.score).toBe('');
+    expect(pending.statusLabel).toBe('待开始');
+    expect(pending.playerA.score).toBe('');
+    expect(pending.canForfeit).toBe(false);
+    expect(graph.completedCount).toBe(1);
+  });
+});
+
+describe('buildWaveCards / getWaveRoundLabels（波次列表与晋级图同源）', () => {
+  const names = new Map(
+    Array.from({ length: 8 }, (_unused, index) => [`p${index}`, `选手${index}`] as [string, string]),
+  );
+
+  function node(
+    id: string,
+    a: string | null,
+    b: string | null,
+    patch: Partial<TournamentWave['nodes'][number]> = {},
+  ): TournamentWave['nodes'][number] {
+    return { id, matchId: null, playerAId: a, playerBId: b, winnerId: null, isBye: false, ...patch };
+  }
+
+  it('轮次表述：双败按战绩桶给胜者组/败者组 R1·R2，单败返回空数组', () => {
+    const record = makeRecord({ status: 'running' });
+    expect(getWaveRoundLabels(record, makeWave(0, 1))).toEqual(['胜者组 R1']);
+    expect(getWaveRoundLabels(record, makeWave(0, 2))).toEqual(['败者组 R1', '胜者组 R2']);
+    expect(getWaveRoundLabels(record, makeWave(0, 3))).toEqual(['败者组 R2']);
+    // 8 人模板 stage1 = 4进2（单败），无轮次名，直接用阶段名
+    expect(getWaveRoundLabels(record, makeWave(1, 1))).toEqual([]);
+  });
+
+  it('配对方式中文表述：与创建向导一致', () => {
+    expect(getPairingLabel('random-bucket')).toBe('随机配对');
+    expect(getPairingLabel('manual-bucket')).toBe('手动配对');
+    expect(getPairingLabel('random-round')).toBe('每轮随机');
+    expect(getPairingLabel('bracket-seed')).toBe('种子位配对');
+  });
+
+  it('单波卡片与晋级图同源：按节点序号排序、带桶标记与每槽比分', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, {
+          status: 'completed',
+          nodes: [
+            node('s0-w1-n00', 'p0', 'p1', { matchId: 'm1', winnerId: 'p0' }),
+            node('s0-w1-n01', 'p2', 'p3', { matchId: 'm2', winnerId: 'p2' }),
+          ],
+        }),
+        makeWave(0, 2, {
+          nodes: [
+            node('s0-w2-n01', 'p2', 'p3', { matchId: 'm4' }),
+            node('s0-w2-n00', 'p0', 'p1', { matchId: 'm3' }),
+          ],
+        }),
+      ],
+    });
+    const matches = [
+      makeMatch('m1', { status: 'completed', leftScore: 2, rightScore: 1 }),
+      makeMatch('m2', { status: 'completed' }),
+      makeMatch('m3', { status: 'pending' }),
+      makeMatch('m4', { status: 'pending' }),
+    ];
+
+    const cards = buildWaveCards(record, record.waves[1], names, matches);
+    // 乱序输入 → 按节点序号排序
+    expect(cards.map((card) => card.nodeId)).toEqual(['s0-w2-n00', 's0-w2-n01']);
+    // p0（1-0）对 p1（0-1）为跨桶
+    expect(cards[0].isCrossBucket).toBe(true);
+    expect(cards[0].playerA.from).toEqual({ nodeId: 's0-w1-n00', kind: 'w' });
+    expect(cards[0].playerA.score).toBe('');
+    expect(cards[0].canForfeit).toBe(true);
+
+    // 同一波经晋级图渲染出的卡片与之完全一致（内容与样式同源）
+    const graph = buildBracketGraph(record, names, matches);
+    expect(buildWaveCards(record, record.waves[0], names, matches)).toEqual(graph.columns[0].cards);
   });
 });
 

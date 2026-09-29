@@ -34,15 +34,15 @@ import type {
 } from '../../../shared/types';
 import {
   buildPlayerNameMap,
+  buildWaveCards,
   countCompletedMatches,
-  findNodeMatch,
   getCurrentPositionText,
   getDraftBucketSpecs,
-  getNodeStatus,
-  getPlayerStateText,
+  getPairingLabel,
   getStageState,
   getTournamentStatusMeta,
   getWaveGlobalIndex,
+  getWaveRoundLabels,
   resolvePlayerName,
   shuffleBucketPairs,
   summarizeTournamentMatches,
@@ -61,6 +61,8 @@ import {
   selectMatchApi,
   startTournamentApi,
 } from '../lib/tournament-api';
+import { BracketBoard } from '../components/BracketBoard';
+import { TournamentNodeCard } from '../components/TournamentNodeCard';
 
 const { Text, Paragraph } = Typography;
 
@@ -319,6 +321,8 @@ function TournamentDetail({
   onDelete,
 }: DetailProps): React.ReactElement {
   const { message, modal } = App.useApp();
+  // 详情视图：晋级图（默认）/ 波次列表；setup 阶段固定走抽签面板
+  const [detailView, setDetailView] = useState<'bracket' | 'waves'>('bracket');
 
   async function handleRollback(): Promise<void> {
     try {
@@ -383,20 +387,39 @@ function TournamentDetail({
 
       {record.status === 'setup' ? (
         <SetupDraftPanel record={record} names={names} />
-      ) : null}
+      ) : (
+        <Segmented
+          className="tournament-view-switch"
+          value={detailView}
+          onChange={(value) => setDetailView(value as 'bracket' | 'waves')}
+          options={[
+            { label: '晋级图', value: 'bracket' },
+            { label: '波次列表', value: 'waves' },
+          ]}
+        />
+      )}
 
-      <div className="tournament-waves">
-        {reversedWaves.map((wave) => (
-          <WavePanel
-            key={`${wave.stageIndex}-${wave.waveIndex}`}
-            record={record}
-            wave={wave}
-            names={names}
-            matches={matches}
-            onSelectMatch={onSelectMatch}
-          />
-        ))}
-      </div>
+      {record.status !== 'setup' && detailView === 'bracket' ? (
+        <BracketBoard
+          record={record}
+          names={names}
+          matches={matches}
+          onSelectMatch={onSelectMatch}
+        />
+      ) : (
+        <div className="tournament-waves">
+          {reversedWaves.map((wave) => (
+            <WavePanel
+              key={`${wave.stageIndex}-${wave.waveIndex}`}
+              record={record}
+              wave={wave}
+              names={names}
+              matches={matches}
+              onSelectMatch={onSelectMatch}
+            />
+          ))}
+        </div>
+      )}
 
       {record.status !== 'setup' ? (
         <Space size={18} wrap style={{ marginTop: 12 }}>
@@ -514,6 +537,8 @@ function WavePanel({
   onSelectMatch,
 }: WavePanelProps): React.ReactElement {
   const stage = record.stages[wave.stageIndex];
+  // 轮次表述与晋级图同一套术语：双败给「败者组 R1 / 胜者组 R2」，单败直接用阶段名
+  const rounds = getWaveRoundLabels(record, wave);
 
   return (
     <Card
@@ -521,13 +546,15 @@ function WavePanel({
       style={{ marginTop: 12 }}
       title={(
         <Space size={8} wrap>
-          <b>{stage.name}</b>
-          <Text type="secondary">第 {wave.waveIndex} 波</Text>
+          <b>第 {wave.waveIndex} 波</b>
+          {/* 轮次名作追加标注（双败才有），阶段名 + 赛制、配对方式 + 配对状态各用一个 Tag */}
+          {rounds.length ? <Text type="secondary">{rounds.join(' / ')}</Text> : null}
+          <Tag>{stage.name} · {stage.format === 'double-life' ? '双败' : '单败'}</Tag>
+          <Tag color={wave.pairingStatus === 'draft' ? 'warning' : 'default'}>
+            {getPairingLabel(stage.pairing)} · {wave.pairingStatus === 'draft' ? '配对草稿' : '已锁定'}
+          </Tag>
           <Tag color={wave.status === 'completed' ? 'success' : 'processing'}>
             {wave.status === 'completed' ? '已完成' : wave.status === 'running' ? '进行中' : '待开始'}
-          </Tag>
-          <Tag color={wave.pairingStatus === 'draft' ? 'warning' : 'default'}>
-            {wave.pairingStatus === 'draft' ? '配对草稿' : '已锁定'}
           </Tag>
         </Space>
       )}
@@ -915,6 +942,11 @@ function NodeGrid({
 }): React.ReactElement {
   const { message } = App.useApp();
   const [forfeitNode, setForfeitNode] = useState<TournamentNode | null>(null);
+  // 卡片与晋级图同源（buildWaveCards），两处内容、色调与状态样式一致
+  const cards = useMemo(
+    () => buildWaveCards(record, wave, names, matches),
+    [record, wave, names, matches],
+  );
 
   async function handleForfeit(
     node: TournamentNode,
@@ -935,73 +967,17 @@ function NodeGrid({
   return (
     <div>
       <Row gutter={[12, 12]}>
-        {wave.nodes.map((node) => {
-          const match = findNodeMatch(wave, matches, node);
-          const status = getNodeStatus(node, match);
-          const leftName = match?.leftPlayer
-            ?? resolvePlayerName(names, node.playerAId);
-          const rightName = match?.rightPlayer
-            ?? resolvePlayerName(names, node.playerBId);
-          const winnerSide = match?.winner ?? null;
-          const canForfeit = status === 'pending' && Boolean(node.matchId);
-
-          return (
-            <Col xs={24} md={12} xl={8} key={node.id}>
-              <div className={`tournament-node-card tournament-node-${status}`}>
-                <div className="tournament-node-head">
-                  <Tag color={
-                    status === 'completed'
-                      ? 'success'
-                      : status === 'in_progress'
-                        ? 'processing'
-                        : 'default'
-                  }>
-                    {status === 'completed'
-                      ? '已结束'
-                      : status === 'in_progress'
-                        ? '进行中'
-                        : '待开始'}
-                  </Tag>
-                </div>
-                <div className="tournament-node-players">
-                  <Text
-                    strong={winnerSide === 'left'}
-                    delete={winnerSide === 'right'}
-                  >
-                    {leftName}
-                  </Text>
-                  <Text type="secondary">
-                    {status === 'pending' ? 'vs' : `${match?.leftScore ?? 0} : ${match?.rightScore ?? 0}`}
-                  </Text>
-                  <Text
-                    strong={winnerSide === 'right'}
-                    delete={winnerSide === 'left'}
-                  >
-                    {rightName}
-                  </Text>
-                </div>
-                <div className="tournament-node-states">
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    {getPlayerStateText(record, node.playerAId)}
-                  </Text>
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    {getPlayerStateText(record, node.playerBId)}
-                  </Text>
-                </div>
-                <Space className="tournament-node-actions">
-                  <Button size="small" onClick={() => node.matchId && onSelectMatch(node.matchId)}>
-                    切换为当前比赛
-                  </Button>
-                  {canForfeit ? (
-                    <Button size="small" danger onClick={() => setForfeitNode(node)}>
-                      弃权判负
-                    </Button>
-                  ) : null}
-                </Space>
-              </div>
-            </Col>
-          );
-        })}
+        {cards.map((card) => (
+          <Col xs={24} md={12} xl={8} key={card.nodeId}>
+            <TournamentNodeCard
+              card={card}
+              onSelectMatch={(matchId) => void onSelectMatch(matchId)}
+              onForfeit={() => setForfeitNode(
+                wave.nodes.find((node) => node.id === card.nodeId) ?? null,
+              )}
+            />
+          </Col>
+        ))}
       </Row>
 
       <Modal

@@ -2214,7 +2214,7 @@ a {
   color: #d48806;
 }
 
-/* 已锁定波：节点卡片 */
+/* 对局卡片基座（晋级图与波次列表共用 TournamentNodeCard；内部槽位样式见 .bracket-row） */
 .tournament-node-card {
   border: 1px solid rgba(91, 67, 43, 0.16);
   border-radius: 10px;
@@ -2223,29 +2223,6 @@ a {
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.tournament-node-in_progress {
-  border-color: rgba(22, 119, 255, 0.45);
-  background: rgba(22, 119, 255, 0.03);
-}
-
-.tournament-node-head {
-  display: flex;
-  justify-content: flex-start;
-}
-
-.tournament-node-players {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.tournament-node-states {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .tournament-node-actions {
@@ -2272,6 +2249,223 @@ a {
 
 .tournament-dot-eliminated {
   background: #bfbfbf;
+}
+
+/* 系列赛详情：晋级图 / 波次列表 视图切换 */
+.tournament-view-switch {
+  margin-top: 12px;
+}
+
+/* 晋级图：双败按战绩桶拆列（胜者组/败者组 R1、R2），单败一阶段一列，列间画晋级连线 */
+.bracket-board {
+  margin-top: 12px;
+}
+
+.bracket-board-empty {
+  margin-top: 24px;
+}
+
+.bracket-board-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+/* 图例：连线样式样例（实线 = 胜者晋级，虚线 = 败者下沉） */
+.bracket-wire-sample {
+  display: inline-block;
+  width: 24px;
+  height: 0;
+  margin: 0 6px 3px 12px;
+  border-top: 2.4px solid #2d7a58;
+}
+
+.bracket-wire-sample-loser {
+  border-top: 2px dashed #c24635;
+}
+
+.bracket-board-scroller {
+  position: relative;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+/* 连线层（在卡片下层，仅穿过列间空隙） */
+.bracket-board-wires {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.bracket-board-columns {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 56px;
+  width: max-content;
+}
+
+.bracket-column {
+  width: 248px;
+  flex-shrink: 0;
+}
+
+.bracket-column-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.bracket-column-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.bracket-column-wave {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.bracket-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 卡片需有不透明底色，避免连线从卡片下透出；左右不设内边距，让槽位色条贴到卡片边缘 */
+.bracket-card {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #fbf5ec;
+}
+
+/* 卡框状态与参考实现一致：已结束 = 主题橙、进行中 = 胜者绿 */
+.bracket-card-completed {
+  border-color: rgba(199, 99, 47, 0.45);
+}
+
+.bracket-card-in_progress {
+  border-color: rgba(45, 122, 88, 0.55);
+}
+
+.bracket-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(91, 67, 43, 0.12);
+}
+
+.bracket-card-id {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.bracket-card-slots {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 槽位行：左侧 3px 状态色条 + 名称省略 + 比分块（参照 bracket-reference 的 .row） */
+.bracket-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  border-left: 3px solid transparent;
+}
+
+.bracket-row + .bracket-row {
+  border-top: 1px solid rgba(91, 67, 43, 0.12);
+}
+
+.bracket-row-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bracket-row-state {
+  flex: none;
+  font-size: 11px;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.bracket-row-score {
+  flex: none;
+  min-width: 22px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(91, 67, 43, 0.08);
+}
+
+/* 待定：名称置灰 */
+.bracket-row-tbd .bracket-row-name {
+  color: rgba(47, 36, 24, 0.4);
+}
+
+/* 胜者：绿色左条 + 绿字加粗 + 绿底深字比分 */
+.bracket-row-won {
+  border-left-color: #2d7a58;
+  color: #2d7a58;
+  font-weight: 700;
+}
+
+.bracket-row-won .bracket-row-score {
+  background: #2d7a58;
+  color: #f4fbf7;
+}
+
+/* 败者（输掉比赛）：红色左条 + 文字置灰 + 半透明 + 红底白字比分（与参考一致，无删除线） */
+.bracket-row-lost {
+  border-left-color: #c24635;
+  color: rgba(47, 36, 24, 0.5);
+  opacity: 0.5;
+}
+
+.bracket-row-lost .bracket-row-score {
+  background: #c24635;
+  color: #fff;
+}
+
+/* 卡片内操作区：卡片本身 padding 归零，这里补回内边距 */
+.bracket-card .tournament-node-actions {
+  margin-top: auto;
+  padding: 6px 10px;
+}
+
+/* 配对草稿波：只读候选配对（操作去波次列表的配对确认台） */
+.bracket-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(91, 67, 43, 0.3);
+  border-radius: 10px;
+}
+
+.bracket-draft-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
 }
 
 /* 向底部操作区 */
