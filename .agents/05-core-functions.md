@@ -13,7 +13,7 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 获取比赛列表 | getMatchStore | (paths: AppPaths) => MatchStoreState | 获取比赛存储状态 |
-| 创建比赛 | createMatch | (paths: AppPaths, payload: unknown) => MatchStoreState | 创建新比赛，payload 包含 leftPlayer, rightPlayer, leftRank, rightRank, leftTeamId/leftTeamName/rightTeamId/rightTeamName（所属战队，选填）, bestOf, tags；比赛 id = `YYYYMMDD_{机器码}{NNN}`（机器码取 runtime config 的 machineCode，1-2 位大写字母；未设置则沿用旧格式 `YYYYMMDD_NNN`），同日按「日期 + 机器码」簇独立递增 |
+| 创建比赛 | createMatch | (paths: AppPaths, payload: unknown) => MatchStoreState | 创建新比赛，payload 包含 leftPlayer, rightPlayer, leftRank, rightRank, leftTeamId/leftTeamName/rightTeamId/rightTeamName（所属战队，选填）, bestOf, tags, 可选 tournamentRef（系列赛内部锁定用：tournamentId/nodeId/stageIndex/waveIndex，公开入口已剥离）；比赛 id = `YYYYMMDD_{机器码}{NNN}`（机器码取 runtime config 的 machineCode，1-2 位大写字母；未设置则沿用旧格式 `YYYYMMDD_NNN`），同日按「日期 + 机器码」簇独立递增 |
 | 更新比赛信息 | updateMatch | (paths: AppPaths, matchId: string, payload: unknown) => MatchStoreState | 更新比赛信息（含排位排名与所属战队 leftTeamId/leftTeamName/rightTeamId/rightTeamName，未传时保留原值；syncScoreboardFromMatch 会把选手名与排名同步到记分牌） |
 | 更新比赛标签 | updateMatchTags | (paths: AppPaths, matchId: string, payload: unknown) => MatchStoreState | 更新比赛标签 |
 | 批量添加标签 | updateMatchesTags | (paths: AppPaths, matchIds: unknown, payload: unknown) => MatchStoreState | 为多场比赛追加标签（合并保留原有） |
@@ -32,6 +32,28 @@
 | 比赛导入分类 | diffMatchRecords | (paths: AppPaths, incoming: MatchRecord[], mode: SyncConflictMode) => MatchImportDecision[] | 只读：按 id 对比本机 store 逐条给出 add/update/skip 与原因（newer = 包内 updatedAt 较新才覆盖；bundle = 内容有差异即覆盖、相同跳过），并附带 conflict（两边都登记过且不一致）与字段级 diff |
 | 比赛字段级差异 | buildMatchDiffFields | (local: MatchRecord, incoming: MatchRecord) => SyncImportDiffField[] | 只列出不同的字段（状态/比分/选手/赛制/标签 + 逐小局状态与双方阵容名称快照），最多 20 条；供导入预览弹窗做左右 diff 展示 |
 | 合并导入比赛 | mergeMatchRecords | (paths: AppPaths, incoming: MatchRecord[], mode: SyncConflictMode) => MergeMatchRecordsReport | 双机同步落盘：不存在追加、已存在按冲突模式覆盖或跳过；复用 readStoreFile/writeStoreFile 缓存与原子写管线，不改 activeMatchId 与撤销栈 |
+| 弃权判负 | forfeitMatch | (paths: AppPaths, matchId: string, loserSide: 'left' \| 'right') => MatchStoreState | 仅 pending 无结果比赛可用；补决胜小局（BO1=1:0、BO3=2:0，空阵容）+「弃权」标签，completed，入 undo 栈 |
+| 批量复位未开始 | resetMatchesToPending | (paths: AppPaths, matchIds: string[]) => MatchStoreState | 系列赛回退专用：比赛直接置 pending（单空小局/0:0/无胜者），清 flowHistory；不进删除/撤销栈 |
+
+## 系列赛管理 (tournament-service.ts)
+
+编排层「搭在比赛系统之上」：赛程/战绩/晋级落 cache/tournaments.json；每场对决仍是普通 MatchRecord，经 createMatch 创建并打 tournamentRef。RNG = mulberry32（同 seed 可复现），波次 RNG 由 series seed 与 stage/wave 位置混合。
+
+| 自然语言描述 | 函数名 | 签名 | 说明 |
+|-------------|-------|------|------|
+| 获取系列赛列表 | getTournamentStore | (paths: AppPaths) => TournamentRecord[] | 读 tournaments.json（逐条白名单规范化） |
+| 创建系列赛 | createTournament | (paths: AppPaths, payload: unknown) => TournamentRecord | body: name/playerIds/stages?/seed?；校验人数 4/8/16/32、无重复、全部来自档案；stages 省略用 buildDefaultStages；id = `T{日期}_{机器码}{NN}`；返回 setup 草稿 |
+| （重）抽签 | redrawTournament | (paths: AppPaths, tournamentId: string, payload?: unknown) => TournamentRecord | 仅 setup；重洗种子顺序、drawVersion+1；从字典序做位置洗牌，同 seed 永远同结果 |
+| 开赛 | startTournament | (paths: AppPaths, tournamentId: string) => TournamentRecord | setup→running，materialize 阶段0 W1（自动锁定或 draft） |
+| 确认推进 | advanceTournament | (paths: AppPaths, tournamentId: string) => TournamentRecord | 最后波 draft 且随机配对 → 重新随机并锁定建场；手动配对/非 draft 拒绝 |
+| 暂存配对草稿 | savePairingDraft | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 编辑中间态即存（白名单/范围校验，允许漏配重复），不建场 |
+| 锁定配对 | lockPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 校验通过后批量 createMatch（draft→nodes），自动标签（赛事名/阶段名/W波次，跨桶加标签） |
+| 导入外部对阵 | importPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => PairingImportResult | text（每行 A vs B）/pairs 名字数组；匹配池仅本波选手，精确→子串模糊，未唯一匹配进 unmatched，回填草稿不锁定 |
+| 回退上一波 | rollbackWave | (paths: AppPaths, tournamentId: string) => TournamentRecord | 仅最后波且比赛全 pending；删未打比赛、清节点胜者、recompute 战绩；跨阶段回落 currentStageIndex |
+| 比赛完成钩子 | onMatchCompleted | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 无 ref/未完成→null；节点写胜者+更新战绩（幂等）；波齐→completed 并自动生成下一波/下一阶段或冠军 |
+| 撤回小局钩子 | onMatchUndo | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 仅该波是最后一波；清节点胜者、回退战绩；已推进拒绝（提示回退上一波） |
+
+内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`bracketPositions`（标准种子位序列）、`generateDraftPairs`（生成配对草稿）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→换阶段，否则双败建下一波）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用）。
 
 ## 面板操作 (state-service.ts)
 

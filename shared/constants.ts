@@ -1,3 +1,5 @@
+import type { StageRule } from './types.js';
+
 export const DEFAULT_PORT = 9988;
 export const APP_DATA_DIRNAME = 'LuokePVPWebui';
 export const MAX_SELECTION_COUNT = 6;
@@ -120,3 +122,76 @@ export const MACHINE_CODE_REGEX = /^[A-Z]{1,2}$/;
  * 解析端容忍小写，生成端只出大写；机器码只允许字母，避免与序号数字产生歧义。
  */
 export const MATCH_ID_REGEX = /^(\d{8})_([A-Za-z]{0,2})(\d+)$/;
+
+/* ==================== 系列赛自动化管理 ==================== */
+
+/** 双败阶段晋级线 / 淘汰线：阶段内 2 胜晋级、2 败淘汰 */
+export const TOURNAMENT_TARGET_WINS = 2;
+export const TOURNAMENT_TARGET_LOSSES = 2;
+/** V1 仅支持 2 的幂人数（双败桶恒偶，零轮空分支） */
+export const SUPPORTED_TOURNAMENT_SIZES = new Set([4, 8, 16, 32]);
+/**
+ * 系列赛 id：T 前缀 + 8 位日期 + 「_」+ 机器码（0-2 位字母）+ 序号，如 T20260928_A01。
+ * 外部导入数据只接受该形态，防止路径穿越与字段注入。
+ */
+export const TOURNAMENT_ID_REGEX = /^T(\d{8})_([A-Za-z]{0,2})(\d+)$/;
+/** 系列赛标签：跨桶配对 / 弃权场次标注 */
+export const TOURNAMENT_CROSS_BUCKET_TAG = '跨桶';
+export const TOURNAMENT_FORFEIT_TAG = '弃权';
+
+/**
+ * 按参赛人数生成默认阶段规则（创建系列赛时 stages 可省略）：
+ * - 32 人：32进16 双败BO1 → 16进8 双败BO1 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛 单败BO3
+ * - 16 人：16进8 双败BO1 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛
+ * - 8 人：8进4 双败BO1 → 4进2 单败BO3 → 总决赛
+ * - 4 人：4进2 单败BO3 → 总决赛
+ * 全部默认同桶/种子配对、避免重复对手、自动推进（requireConfirm=false）。
+ */
+export function buildDefaultStages(playerCount: number): StageRule[] {
+  const stage = (
+    index: number,
+    name: string,
+    format: 'double-life' | 'single-elim',
+    bestOf: 1 | 3,
+    pairing: 'random-bucket' | 'bracket-seed',
+  ): StageRule => ({
+    id: `s${index}`,
+    name,
+    format,
+    bestOf,
+    pairing,
+    avoidRematch: true,
+    requireConfirm: false,
+  });
+
+  switch (playerCount) {
+    case 32:
+      return [
+        stage(0, '32进16', 'double-life', 1, 'random-bucket'),
+        stage(1, '16进8', 'double-life', 1, 'random-bucket'),
+        stage(2, '8进4', 'single-elim', 3, 'bracket-seed'),
+        stage(3, '4进2', 'single-elim', 3, 'bracket-seed'),
+        stage(4, '总决赛', 'single-elim', 3, 'bracket-seed'),
+      ];
+    case 16:
+      return [
+        stage(0, '16进8', 'double-life', 1, 'random-bucket'),
+        stage(1, '8进4', 'single-elim', 3, 'bracket-seed'),
+        stage(2, '4进2', 'single-elim', 3, 'bracket-seed'),
+        stage(3, '总决赛', 'single-elim', 3, 'bracket-seed'),
+      ];
+    case 8:
+      return [
+        stage(0, '8进4', 'double-life', 1, 'random-bucket'),
+        stage(1, '4进2', 'single-elim', 3, 'bracket-seed'),
+        stage(2, '总决赛', 'single-elim', 3, 'bracket-seed'),
+      ];
+    case 4:
+      return [
+        stage(0, '4进2', 'single-elim', 3, 'bracket-seed'),
+        stage(1, '总决赛', 'single-elim', 3, 'bracket-seed'),
+      ];
+    default:
+      return [];
+  }
+}

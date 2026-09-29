@@ -82,6 +82,7 @@ import type {
   SyncImportPreview,
   SyncImportResult,
   TeamProfile,
+  TournamentRecord,
 } from '../../shared/types';
 
 import {
@@ -144,6 +145,7 @@ import { buildSpriteLookup } from './lib/sprite';
 import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
+import { TournamentView } from './views/TournamentView';
 
 import { type StatsMetricKey } from './lib/stats';
 
@@ -157,6 +159,7 @@ import introIcon from '../assets/ui/选手介绍.svg?raw';
 import statsIcon from '../assets/ui/数据统计.svg?raw';
 import previewIcon from '../assets/ui/页面预览.svg?raw';
 import aboutIcon from '../assets/ui/关于项目.svg?raw';
+import tournamentIcon from '../assets/ui/系列赛.svg?raw';
 import brandLogoRaw from '../assets/ui/logo.svg?raw';
 import type {
   CreateMatchValues,
@@ -204,7 +207,7 @@ function setSelectMatchConfirmSuppressed(suppressed: boolean): void {
 }
 
 /** 导航栏各视图对应的 SVG 图标（Assets 里提供的自定义图标），使用当前上下文颜色自适应 */
-type NavIconName = 'roster' | 'stage' | 'live' | 'mvp' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'about';
+type NavIconName = 'roster' | 'stage' | 'live' | 'mvp' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'tournament' | 'about';
 
 /** 各导航视图对应的标题文案（与导航栏标签一致），顶部栏按当前视图显示 */
 const VIEW_LABEL: Record<NavIconName, string> = {
@@ -217,6 +220,7 @@ const VIEW_LABEL: Record<NavIconName, string> = {
   page11: '选手介绍',
   stats: '数据统计',
   preview: '页面预览',
+  tournament: '系列赛',
   about: '关于项目',
 };
 
@@ -230,6 +234,7 @@ const NAV_ICONS: Record<NavIconName, string> = {
   page11: introIcon,
   stats: statsIcon,
   preview: previewIcon,
+  tournament: tournamentIcon,
   about: aboutIcon,
 };
 
@@ -445,6 +450,8 @@ function Dashboard() {
   const [page9SettingsNotice, setPage9SettingsNotice] = useState<NoticeState>(null);
   // === 信息录入（选手 / 战队） ===
   const [profiles, setProfiles] = useState<ProfileStoreState | null>(null);
+  // === 系列赛编排 ===
+  const [tournaments, setTournaments] = useState<TournamentRecord[]>([]);
   // 快速创建弹窗选手列表：按信息录入添加时间排序（档案 id 内嵌 base36 创建时间戳，先录者在前；
   // 数组顺序可能被手动编辑/导入/删后重录打乱，id 解析失败的按原数组顺序兜底排在末尾）
   const quickCreatePlayerList = useMemo(() => {
@@ -664,6 +671,7 @@ function Dashboard() {
     page11?: Page11State;
     nextgame?: NextGamePayload;
     profiles?: ProfileStoreState;
+    tournaments?: TournamentRecord[];
     countdown?: CountdownPayload;
     mvp?: MvpState;
   }) {
@@ -719,6 +727,9 @@ function Dashboard() {
       if (payload.profiles) {
         setProfiles(payload.profiles);
       }
+      if (payload.tournaments) {
+        setTournaments(payload.tournaments);
+      }
       if (payload.mvp) {
         setMvp(payload.mvp);
       }
@@ -730,7 +741,7 @@ function Dashboard() {
     setPageError('');
 
     try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig] = await Promise.all([
+      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig, nextTournaments] = await Promise.all([
         requestJson<{ authenticated: boolean }>('/api/auth/check'),
         requestJson<ScoreboardState>('/api/scoreboard'),
         requestJson<MatchStoreState>('/api/matches'),
@@ -748,6 +759,7 @@ function Dashboard() {
         requestJson<CountdownPayload>('/api/countdown'),
         requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp'),
         requestJson<{ port: number; machineCode: string }>('/api/runtime-config'),
+        requestJson<{ tournaments: TournamentRecord[] }>('/api/tournaments'),
       ]);
 
       if (!auth.authenticated) {
@@ -770,6 +782,7 @@ function Dashboard() {
         setPage9(nextPage9.state);
         setPage11(nextPage11.state);
         setProfiles(nextProfiles);
+        setTournaments(nextTournaments.tournaments);
         setNextgame(nextNextgame.state);
         setNextgameMatch(nextNextgame.match ?? null);
         setMvp(nextMvp.state);
@@ -941,6 +954,12 @@ function Dashboard() {
       }
       if (payload?.winner !== undefined) {
         setMvpWinner(payload.winner ?? null);
+      }
+    });
+
+    socket.on(SOCKET_EVENTS.tournamentUpdate, (payload) => {
+      if (Array.isArray(payload?.tournaments)) {
+        applyServerState({ tournaments: payload.tournaments });
       }
     });
 
@@ -3206,6 +3225,7 @@ function Dashboard() {
       { key: 'page11', icon: <NavIcon name="page11" />, label: VIEW_LABEL.page11 },
       { key: 'stats', icon: <NavIcon name="stats" />, label: VIEW_LABEL.stats },
       { key: 'preview', icon: <NavIcon name="preview" />, label: VIEW_LABEL.preview },
+      { key: 'tournament', icon: <NavIcon name="tournament" />, label: VIEW_LABEL.tournament },
       { key: 'about', icon: <NavIcon name="about" />, label: VIEW_LABEL.about },
     ],
     []
@@ -5774,6 +5794,15 @@ function Dashboard() {
                 </Space>
               </Card>
             </Space>
+          ) : null}
+
+          {view === 'tournament' ? (
+            <TournamentView
+              tournaments={tournaments}
+              profiles={profiles}
+              matches={matchStore.matches}
+              onJumpToRoster={() => setView('roster')}
+            />
           ) : null}
 
           {view === 'about' ? (

@@ -54,7 +54,7 @@
 |---------|------|------|
 | MatchSlotSnapshot | 比赛格子快照（slot, pet_id, name, form 及外观/血量字段） | shared/types.ts |
 | GameRecord | 单局比赛记录（gameNumber, status, leftLineup, rightLineup, winner） | shared/types.ts |
-| MatchRecord | 完整比赛记录（id, createdAt, updatedAt, status, leftPlayer, rightPlayer, leftRank, rightRank, leftTeamId, leftTeamName, rightTeamId, rightTeamName, bestOf, games, leftScore, rightScore, winner, completedAt, tags）。leftRank/rightRank 为左右选手排位排名（仅数字字符串，空 = 未输入）；leftTeamId/rightTeamId 为所属战队 id（命中「信息录入」战队时有值），leftTeamName/rightTeamName 为战队名称（空 = 未填写） | shared/types.ts |
+| MatchRecord | 完整比赛记录（id, createdAt, updatedAt, status, leftPlayer, rightPlayer, leftRank, rightRank, leftTeamId, leftTeamName, rightTeamId, rightTeamName, bestOf, games, leftScore, rightScore, winner, completedAt, tags, 可选 tournamentRef）。leftRank/rightRank 为左右选手排位排名（仅数字字符串，空 = 未输入）；leftTeamId/rightTeamId 为所属战队 id（命中「信息录入」战队时有值），leftTeamName/rightTeamName 为战队名称（空 = 未填写）；tournamentRef 为系列赛关联（tournamentId/nodeId/stageIndex/waveIndex），普通手建比赛无此字段 | shared/types.ts |
 | MatchStoreState | 比赛存储状态（matches, activeMatchId, mtime） | shared/types.ts |
 
 ## 头像
@@ -93,7 +93,7 @@
 
 | 类型名称 | 说明 | 文件 |
 |---------|------|------|
-| SnapshotPayload | Socket 快照负载（panels, scoreboard, avatars, store 即 MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown）。注意字段名是 `store` 不是 `matches` | shared/types.ts |
+| SnapshotPayload | Socket 快照负载（panels, scoreboard, avatars, store 即 MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown, mvp, tournaments）。注意字段名是 `store` 不是 `matches`；tournaments 为系列赛编排记录列表 | shared/types.ts |
 | SOCKET_EVENTS | Socket 事件名称常量对象 | shared/events.ts |
 
 ## 数据统计（管理后台本地）
@@ -103,3 +103,18 @@
 | SpriteUsageRow | 精灵统计行（name, usagePercent, appearancePercent, winRate, attributes, dailyGames, key 等） | src/admin-antd/lib/stats.ts |
 | StatsMetricKey | 统计口径：pickRate / appearanceRate | src/admin-antd/lib/stats.ts |
 | StatsRangeKey | 统计范围：today / 7d / 30d / all | src/admin-antd/lib/stats.ts |
+
+## 系列赛自动化管理
+
+| 类型名称 | 说明 | 文件 |
+|---------|------|------|
+| StageFormat | 阶段晋级赛制：'double-life'（双败积分：2胜晋级/2败淘汰、最多 3 波）/ 'single-elim'（单败：1 波定胜负） | shared/types.ts |
+| PairingRule | 配对规则：'random-bucket'（双败同桶随机）/ 'manual-bucket'（双败同桶手动，配对确认台）/ 'bracket-seed'（单败种子位沿树推进）/ 'random-round'（单败每轮重新随机，备选） | shared/types.ts |
+| StageRule | 阶段规则（id, name 阶段名, format, bestOf 1/3, pairing, avoidRematch, requireConfirm）。requireConfirm = 下一波/下一阶段需手动确认（否则自动锁定建场） | shared/types.ts |
+| TournamentEntry | 选手当前阶段战绩（playerId, stageWins, stageLosses, state: alive/promoted/eliminated），换阶段清零 | shared/types.ts |
+| TournamentNode | 系列赛节点（id 形如 s0-w2-n03, matchId 关联比赛, playerAId/playerBId, winnerId, isBye, next? 单败树连线——V1 单败每阶段一波未用） | shared/types.ts |
+| TournamentWave | 波次（stageIndex, waveIndex 双败1..3/单败1, status: pending/running/completed, pairingStatus: draft/locked, pairingDraft? 草稿, nodes） | shared/types.ts |
+| PairingSlot | 配对确认台槽位（bucketKey? 桶 key，单败 undefined, playerId 可空） | shared/types.ts |
+| TournamentRecord | 系列赛记录（id 形如 T20260928_A01, name, createdAt/updatedAt, status: setup/running/completed, seed, drawVersion, playerIds, stages, currentStageIndex, entries, waves, result? championId/runnerUpId） | shared/types.ts |
+| PairingValidation | 配对校验结果（valid, errors, warnings——已交手仅提醒不阻断） | shared/types.ts |
+| PairingImportResult | 外部对阵导入结果（tournament, unmatched 未能唯一匹配档案的行） | shared/types.ts |

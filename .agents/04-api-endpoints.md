@@ -53,6 +53,24 @@
 
 > 数据同步上传走独立 multer 实例（单文件，上限 SYNC_BUNDLE_MAX_BYTES = 64MB），不经过全局 express.json（2mb），避免大包被拦；超限/坏包统一 400 中文提示。
 
+## 系列赛接口
+
+| 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
+|-------------|------|------|------|------|
+| 获取系列赛列表 | GET | /api/tournaments | 获取全部系列赛编排记录（公开 GET 未列入白名单——V1 仅管理端用，开启鉴权时需登录） | electron/socket-server.ts |
+| 获取系列赛详情 | GET | /api/tournaments/:tournamentId | 获取单个系列赛；不存在 404 | electron/socket-server.ts |
+| 创建系列赛 | POST | /api/tournaments | 创建 setup 草稿（body: name/playerIds/stages?/seed?）；playerIds 必须全部来自信息录入档案、人数 4/8/16/32；stages 省略时用 buildDefaultStages 默认模板；成功广播 tournament:update | electron/socket-server.ts |
+| （重）抽签 | POST | /api/tournaments/:tournamentId/draw | 仅 setup 可用；按新 seed（body.seed 可传）重洗种子顺序、drawVersion +1；重抽结果只取决于 seed 与选手集合（从字典序做位置洗牌，可复现） | electron/socket-server.ts |
+| 开赛 | POST | /api/tournaments/:tournamentId/start | setup → running，生成阶段 0 第 1 波：随机自动且无需确认 → 锁定并批量建场；手动配对/requireConfirm → 停在 draft。建场后另广播 matches:update | electron/socket-server.ts |
+| 确认推进 | POST | /api/tournaments/:tournamentId/advance | requireConfirm 的确认动作：对最后波 draft（随机配对）重新随机并锁定建场；手动配对波拒绝（请在配对确认台编辑后锁定） | electron/socket-server.ts |
+| 暂存配对草稿 | PUT | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings | 配对确认台编辑即存（body: pairings）；中间态允许漏配/重复，仅做字段白名单与选手范围校验，不建场 | electron/socket-server.ts |
+| 锁定配对 | POST | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/lock | 校验（每人恰好一次/同桶严格/跨桶需 body.allowCrossBucket）通过后批量 createMatch，比赛带 tournamentRef 与自动标签（赛事名+阶段名+W波次，跨桶加「跨桶」）；广播 matches:update + tournament:update | electron/socket-server.ts |
+| 导入外部对阵 | POST | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/import | body.text（每行 `A vs B`）或 body.pairs（名字数组）；匹配池仅本波选手，先精确后子串模糊，未唯一匹配的行进入 unmatched，已匹配的回填草稿（不锁定） | electron/socket-server.ts |
+| 回退上一波 | POST | /api/tournaments/:tournamentId/rollback-wave | 管理级回退：仅最后波、且该波比赛全部 pending 无小局结果；删除未打比赛（deleteMatches 可恢复）、清节点胜者并复位战绩；跨阶段时 currentStageIndex 回落。广播 matches:update + tournament:update | electron/socket-server.ts |
+| 弃权判负 | POST | /api/tournaments/:tournamentId/forfeit | body: matchId + loserSide(left/right)；校验比赛属于本系列赛且 pending，补决胜小局（BO1=1:0、BO3=2:0）+「弃权」标签，completed 后走完成钩子写回节点 | electron/socket-server.ts |
+
+> 系列赛关联保护：DELETE /api/matches/:matchId 与批量删除遇 tournamentRef 一律 400（提示用回退上一波）；POST /api/matches 公开入口会剥离 body.tournamentRef（系列赛比赛只能由引擎锁定时内部创建）。
+
 ## 直播推流（stage）接口
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |

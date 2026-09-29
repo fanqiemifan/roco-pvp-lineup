@@ -113,6 +113,14 @@ export interface MatchRecord {
   winner: 'left' | 'right' | null;
   completedAt: string | null;
   tags: string[];
+  /** 系列赛关联（普通比赛无此字段；编排引擎经它把赛果写回 tournaments.json） */
+  tournamentRef?: {
+    tournamentId: string;
+    /** 关联的 TournamentNode.id（形如 s0-w2-n03） */
+    nodeId: string;
+    stageIndex: number;
+    waveIndex: number;
+  };
 }
 
 export interface MatchStoreState {
@@ -420,6 +428,7 @@ export interface SnapshotPayload {
   profiles: ProfileStoreState;
   countdown: CountdownState;
   mvp: MvpState;
+  tournaments: TournamentRecord[];
 }
 
 /**
@@ -598,4 +607,105 @@ export interface SyncImportResult {
   applied: SyncImportPreview['summary'];
   avatarsWritten: { players: number; teams: number };
   warnings: string[];
+}
+
+/* ==================== 系列赛自动化管理（cache/tournaments.json） ==================== */
+
+/** 阶段晋级赛制：双败积分制 / 单败淘汰制 */
+export type StageFormat = 'double-life' | 'single-elim';
+
+export type PairingRule =
+  | 'random-bucket'   // 双败：同战绩桶内随机配对
+  | 'manual-bucket'   // 双败：同桶内手动配对（配对确认台）
+  | 'bracket-seed'    // 单败：种子位手动/随机落位后沿树推进
+  | 'random-round';   // 单败：每轮重新随机（备选）
+
+export interface StageRule {
+  id: string;
+  /** 阶段名：32进16 / 16进8 / 8进4 / 4进2 / 总决赛 */
+  name: string;
+  format: StageFormat;
+  /** 本阶段每场对决的局数（后台规则表只放出 BO1、BO3） */
+  bestOf: 1 | 3;
+  /** 配对方式：双败默认 random-bucket，单败默认 bracket-seed */
+  pairing: PairingRule;
+  /** 同阶段尽量避开已交手对手 */
+  avoidRematch: boolean;
+  /** 下一波/下一阶段生成是否需要手动确认 */
+  requireConfirm: boolean;
+}
+
+/** 选手在「当前阶段内」的战绩（换阶段清零） */
+export interface TournamentEntry {
+  playerId: string;
+  stageWins: number;
+  stageLosses: number;
+  state: 'alive' | 'promoted' | 'eliminated';
+}
+
+export interface TournamentNode {
+  /** 节点 id：s{stageIndex}-w{waveIndex}-n{序号}，如 s0-w2-n03 */
+  id: string;
+  /** 关联 MatchRecord.id；轮空节点为 null（V1 不产生轮空） */
+  matchId: string | null;
+  playerAId: string | null;
+  playerBId: string | null;
+  winnerId: string | null;
+  isBye: boolean;
+  /** 单败对阵树连线：本节点胜者进入哪个节点的哪个槽位（双败不用，V1 单败每阶段仅一波亦不用） */
+  next?: { nodeId: string; slot: 'a' | 'b' };
+}
+
+/** 配对确认台中的一个选手槽位 */
+export interface PairingSlot {
+  /** 双败战绩桶 key（"1-0"），单败为 undefined */
+  bucketKey?: string;
+  playerId: string | null;
+}
+
+export interface TournamentWave {
+  stageIndex: number;
+  /** 双败阶段 1..3，单败阶段 1 */
+  waveIndex: number;
+  status: 'pending' | 'running' | 'completed';
+  /** draft = 配对草稿中（手动模式/需确认），未建任何比赛；locked = 已建场不可改 */
+  pairingStatus: 'draft' | 'locked';
+  /** draft 阶段暂存的候选配对；锁定后清空并落到 nodes */
+  pairingDraft?: { bucketKey?: string; pair: [string | null, string | null] }[];
+  nodes: TournamentNode[];
+}
+
+export interface TournamentRecord {
+  /** 系列赛 id：T + 日期 + 机器码 + 序号，如 T20260928_A01 */
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  status: 'setup' | 'running' | 'completed';
+  /** 抽签随机种子，洗牌过程可复现（测试可断言） */
+  seed: number;
+  /** 重抽次数 */
+  drawVersion: number;
+  /** 参赛选手 profile id，长度必须为 4/8/16/32，顺序即种子顺序 */
+  playerIds: string[];
+  stages: StageRule[];
+  currentStageIndex: number;
+  entries: TournamentEntry[];
+  waves: TournamentWave[];
+  result?: { championId: string; runnerUpId: string; thirdIds?: string[] };
+}
+
+/** 配对草稿校验结果（配对确认台锁定前） */
+export interface PairingValidation {
+  valid: boolean;
+  errors: string[];
+  /** 已交手提醒等不阻断信息 */
+  warnings: string[];
+}
+
+/** 外部对阵表导入结果 */
+export interface PairingImportResult {
+  tournament: TournamentRecord;
+  /** 未能唯一匹配到档案的行（原文 + 行号） */
+  unmatched: Array<{ line: number; text: string }>;
 }

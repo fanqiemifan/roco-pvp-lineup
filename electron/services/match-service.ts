@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { DEFAULT_BEST_OF, MATCH_ID_REGEX, SUPPORTED_BEST_OF } from '../../shared/constants.js';
+import { DEFAULT_BEST_OF, MATCH_ID_REGEX, SUPPORTED_BEST_OF, TOURNAMENT_FORFEIT_TAG, TOURNAMENT_ID_REGEX } from '../../shared/constants.js';
 import type {
   GameRecord,
   MatchRecord,
@@ -117,6 +117,34 @@ function normalizeTags(value: unknown): string[] {
     .map((item) => (typeof item === 'string' ? item.trim() : ''))
     .filter(Boolean)
     .slice(0, 10);
+}
+
+/**
+ * 系列赛关联透传字段：tournamentId 必须为 T 前缀白名单形态，nodeId 只允许安全字符，
+ * stageIndex/waveIndex 必须为非负整数（waveIndex ≥1）；不合法即丢弃（普通比赛）。
+ */
+function normalizeTournamentRef(value: unknown): MatchRecord['tournamentRef'] {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const raw = value as Record<string, unknown>;
+  const tournamentId = String(raw.tournamentId ?? '').trim();
+  const nodeId = String(raw.nodeId ?? '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  const stageIndex = Number(raw.stageIndex);
+  const waveIndex = Number(raw.waveIndex);
+
+  if (!TOURNAMENT_ID_REGEX.test(tournamentId) || !nodeId) {
+    return undefined;
+  }
+  if (!Number.isInteger(stageIndex) || stageIndex < 0) {
+    return undefined;
+  }
+  if (!Number.isInteger(waveIndex) || waveIndex < 1) {
+    return undefined;
+  }
+
+  return { tournamentId, nodeId, stageIndex, waveIndex };
 }
 
 function winsNeeded(bestOf: number): number {
@@ -489,6 +517,7 @@ function normalizeMatchRecord(match: unknown, lookup?: Map<string, SpriteRecord>
     winner: raw.winner === 'left' || raw.winner === 'right' ? raw.winner : null,
     completedAt: raw.completedAt ? String(raw.completedAt) : null,
     tags: normalizeTags(raw.tags),
+    tournamentRef: normalizeTournamentRef(raw.tournamentRef),
   });
 }
 
@@ -1106,6 +1135,7 @@ export function createMatch(paths: AppPaths, payload: unknown): MatchStoreState 
   const rightTeamName = normalizeTeamName(raw.rightTeamName);
   const bestOf = normalizeBestOf(raw.bestOf);
   const tags = normalizeTags(raw.tags);
+  const tournamentRef = normalizeTournamentRef(raw.tournamentRef);
 
   if (!leftPlayer || !rightPlayer) {
     throw new Error('请输入左右两侧选手名称');
@@ -1141,6 +1171,7 @@ export function createMatch(paths: AppPaths, payload: unknown): MatchStoreState 
     winner: null,
     completedAt: null,
     tags,
+    tournamentRef,
   };
 
   store.activeMatchId = match.id;
@@ -1625,6 +1656,100 @@ export function recordMatchWinner(
   }
 
   store.matches[index] = nextMatch;
+  const publicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, publicStore);
+  return getMatchStore(paths);
+}
+
+/**
+ * 弃权判负：仅未开始（pending、无任何小局结果）的比赛可用。
+ * 按决胜局数补已完成空阵容小局（BO1=1:0、BO3=2:0、BO5=3:0），负方为 loserSide，
+ * 加「弃权」标签后比赛即为 completed；入 undo 栈，当前波内仍可撤回。
+ */
+export function forfeitMatch(
+  paths: AppPaths,
+  matchId: string,
+  loserSide: 'left' | 'right',
+): MatchStoreState {
+  if (loserSide !== 'left' && loserSide !== 'right') {
+    throw new Error('loserSide must be left or right');
+  }
+
+  const { store } = readStoreFile(paths);
+  const index = store.matches.findIndex((match) => match.id === matchId);
+  if (index === -1) {
+    throw new Error('比赛不存在');
+  }
+
+  const current = store.matches[index];
+  if (current.status !== 'pending') {
+    throw new Error('仅未开始的比赛可弃权判负');
+  }
+  if (current.games.some((game) => game.status !== 'pending' || game.winner !== null)) {
+    throw new Error('该比赛已有小局结果，不能弃权判负');
+  }
+
+  pushMatchFlowUndo(store, current);
+  const winnerSide = loserSide === 'left' ? 'right' : 'left';
+  const neededWins = winsNeeded(current.bestOf);
+  const games: GameRecord[] = Array.from({ length: neededWins }, (_unused, gameIndex) => ({
+    ...createEmptyGameRecord(gameIndex + 1),
+    winner: winnerSide,
+    status: 'completed',
+  }));
+  const tags = Array.from(new Set([...current.tags, TOURNAMENT_FORFEIT_TAG]));
+
+  store.matches[index] = computeMatchProgress({
+    ...current,
+    games,
+    tags,
+    updatedAt: new Date().toISOString(),
+  });
+
+  const nextPublicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, nextPublicStore);
+  return getMatchStore(paths);
+}
+
+/**
+ * 系列赛波次回退专用：把一批比赛直接复位为未开始
+ * （pending、单个空小局、0:0、无胜者、completedAt 清空），并清空其 undo/redo 历史。
+ * 不进 deletedHistory/undo 栈——管理级动作，语义由调用方（tournament-service）保证。
+ */
+export function resetMatchesToPending(paths: AppPaths, matchIds: string[]): MatchStoreState {
+  if (!Array.isArray(matchIds) || !matchIds.length) {
+    return getMatchStore(paths);
+  }
+
+  const { store } = readStoreFile(paths);
+  const idSet = new Set(matchIds);
+  let changed = false;
+  const now = new Date().toISOString();
+
+  store.matches = store.matches.map((match) => {
+    if (!idSet.has(match.id)) {
+      return match;
+    }
+    changed = true;
+    return {
+      ...match,
+      status: 'pending' as const,
+      games: [createEmptyGameRecord(1)],
+      leftScore: 0,
+      rightScore: 0,
+      winner: null,
+      completedAt: null,
+      updatedAt: now,
+    };
+  });
+  matchIds.forEach((matchId) => {
+    delete store.flowHistory[matchId];
+  });
+
+  if (!changed) {
+    return getMatchStore(paths);
+  }
+
   const publicStore = writeStoreFile(paths, store);
   syncAfterStoreChange(paths, publicStore);
   return getMatchStore(paths);

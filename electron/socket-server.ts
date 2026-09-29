@@ -82,6 +82,7 @@ import {
   createMatch,
   deleteMatch,
   deleteMatches,
+  forfeitMatch,
   getMatchStore,
   recordMatchWinner,
   redoMatchAction,
@@ -97,6 +98,19 @@ import {
   updateMatchTags,
   updateMatchesTags,
 } from './services/match-service.js';
+import {
+  advanceTournament,
+  createTournament,
+  getTournamentStore,
+  importPairings,
+  lockPairings,
+  onMatchCompleted,
+  onMatchUndo,
+  redrawTournament,
+  rollbackWave,
+  savePairingDraft,
+  startTournament,
+} from './services/tournament-service.js';
 import {
   clearPanelState,
   getPanelState,
@@ -169,12 +183,12 @@ const ROLES_FOR_PANEL = ['page1', 'page2', 'page3', 'page11', 'float'];
 const ROLES_FOR_PROFILES = ['page3', 'page11'];
 
 function snapshotPayload(paths: AppPaths): SnapshotPayload {
-  const activeMatchId = getMatchStore(paths).activeMatchId;
+  const store = getMatchStore(paths);
   return {
     panels: [getPanelState(paths, 'left'), getPanelState(paths, 'right')],
     scoreboard: getScoreboardState(paths),
-    avatars: getAvatarStates(paths, activeMatchId),
-    store: getMatchStore(paths),
+    avatars: getAvatarStates(paths, store.activeMatchId),
+    store,
     stage: getStageState(paths),
     page6: getPage6State(paths),
     page7: getPage7State(paths),
@@ -185,6 +199,7 @@ function snapshotPayload(paths: AppPaths): SnapshotPayload {
     profiles: getProfileStore(paths),
     countdown: getCountdownState(paths),
     mvp: getMvpState(paths),
+    tournaments: getTournamentStore(paths),
   };
 }
 
@@ -444,6 +459,11 @@ export async function createLocalServer(
   const emitMatchesUpdate = (store: MatchStoreState): void => {
     broadcast(SOCKET_EVENTS.matchesUpdate, { store }, ROLES_FOR_MATCHES);
     clearRedLightInstantOnBoundary(store);
+  };
+
+  // 系列赛数据广播：V1 消费端仅 admin（第 11 视图下轮接入），传空角色列表即只投 admin 房间
+  const emitTournamentUpdate = (): void => {
+    broadcast(SOCKET_EVENTS.tournamentUpdate, { tournaments: getTournamentStore(paths) }, []);
   };
 
   // 记录启动基线，保证服务启动后首次进入下一局也能被识别
@@ -1109,7 +1129,10 @@ export async function createLocalServer(
 
   app.post('/api/matches', (request, response) => {
     try {
-      const matches = createMatch(paths, request.body ?? {});
+      // 公开入口不接受 tournamentRef：系列赛比赛只能由引擎锁定配对时内部创建，
+      // 剥离它防止普通手建比赛伪造关联
+      const { tournamentRef: _stripped, ...sanitizedBody } = (request.body ?? {}) as Record<string, unknown>;
+      const matches = createMatch(paths, sanitizedBody);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
@@ -1155,9 +1178,13 @@ export async function createLocalServer(
     }
   });
 
-  app.delete('/api/matches/:matchId', (_request, response) => {
+  app.delete('/api/matches/:matchId', (request, response) => {
     try {
-      const matches = deleteMatch(paths, _request.params.matchId);
+      const target = getMatchStore(paths).matches.find((match) => match.id === request.params.matchId);
+      if (target?.tournamentRef) {
+        throw new Error('系列赛关联比赛不能直接删除，请使用「回退上一波」');
+      }
+      const matches = deleteMatch(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
@@ -1172,6 +1199,12 @@ export async function createLocalServer(
 
   app.post('/api/matches/batch-delete', (request, response) => {
     try {
+      const guarded = getMatchStore(paths).matches.filter((match) =>
+        (request.body?.matchIds ?? []).includes(match.id) && match.tournamentRef,
+      );
+      if (guarded.length) {
+        throw new Error('选中的比赛含系列赛关联场次，不能直接删除，请使用「回退上一波」');
+      }
       const matches = deleteMatches(paths, request.body?.matchIds ?? []);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
@@ -1227,6 +1260,13 @@ export async function createLocalServer(
       emitMatchesUpdate(matches);
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
+      // 系列赛完成钩子：带 ref 且刚完成的比赛写回节点，可能触发下一波/下一阶段
+      const updatedTournament = onMatchCompleted(paths, request.params.matchId);
+      if (updatedTournament) {
+        // 钩子可能批量建场：再广播一次 matches，并广播 tournament:update
+        emitMatchesUpdate(getMatchStore(paths));
+        emitTournamentUpdate();
+      }
       // 登记本局胜负：当前画面是推流页面1-3 时自动切入胜者结算画面（page10）
       triggerWinnerStage();
       response.json({ success: true, store: matches, scoreboard, panels });
@@ -1275,15 +1315,20 @@ export async function createLocalServer(
     }
   });
 
-  app.post('/api/matches/:matchId/undo', (_request, response) => {
+  app.post('/api/matches/:matchId/undo', (request, response) => {
     try {
-      const matches = undoMatchAction(paths, _request.params.matchId);
+      const matches = undoMatchAction(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
       emitAvatarUpdate();
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
+      // 系列赛反向钩子：清除节点胜者、回退战绩（仅该波是最后一波时可用）
+      const undoneTournament = onMatchUndo(paths, request.params.matchId);
+      if (undoneTournament) {
+        emitTournamentUpdate();
+      }
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1300,6 +1345,150 @@ export async function createLocalServer(
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // ==================== 系列赛自动化管理（管理端，受鉴权保护） ====================
+  app.get('/api/tournaments', (_request, response) => {
+    response.json({ tournaments: getTournamentStore(paths) });
+  });
+
+  app.get('/api/tournaments/:tournamentId', (request, response) => {
+    const tournament = getTournamentStore(paths).find((item) => item.id === request.params.tournamentId);
+    if (!tournament) {
+      response.status(404).json({ success: false, error: '系列赛不存在' });
+      return;
+    }
+    response.json({ tournament });
+  });
+
+  app.post('/api/tournaments', (request, response) => {
+    try {
+      const tournament = createTournament(paths, request.body ?? {});
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/draw', (request, response) => {
+    try {
+      const tournament = redrawTournament(paths, request.params.tournamentId, request.body ?? {});
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/start', (request, response) => {
+    try {
+      const tournament = startTournament(paths, request.params.tournamentId);
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/advance', (request, response) => {
+    try {
+      const tournament = advanceTournament(paths, request.params.tournamentId);
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.put('/api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings', (request, response) => {
+    try {
+      const tournament = savePairingDraft(
+        paths,
+        request.params.tournamentId,
+        request.params.waveGlobalIndex,
+        request.body ?? {},
+      );
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/lock', (request, response) => {
+    try {
+      const tournament = lockPairings(
+        paths,
+        request.params.tournamentId,
+        request.params.waveGlobalIndex,
+        request.body ?? {},
+      );
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/import', (request, response) => {
+    try {
+      const result = importPairings(
+        paths,
+        request.params.tournamentId,
+        request.params.waveGlobalIndex,
+        request.body ?? {},
+      );
+      emitTournamentUpdate();
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/rollback-wave', (request, response) => {
+    try {
+      const tournament = rollbackWave(paths, request.params.tournamentId);
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/forfeit', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as { matchId?: unknown; loserSide?: unknown };
+      const matchId = String(body.matchId ?? '').trim();
+      if (!matchId) {
+        throw new Error('请指定弃权比赛 matchId');
+      }
+      if (body.loserSide !== 'left' && body.loserSide !== 'right') {
+        throw new Error('loserSide must be left or right');
+      }
+      const target = getMatchStore(paths).matches.find((match) => match.id === matchId);
+      if (!target) {
+        throw new Error('比赛不存在');
+      }
+      if (!target.tournamentRef || target.tournamentRef.tournamentId !== request.params.tournamentId) {
+        throw new Error('该比赛不属于本系列赛');
+      }
+
+      forfeitMatch(paths, matchId, body.loserSide);
+      const updated = onMatchCompleted(paths, matchId);
+      emitMatchesUpdate(getMatchStore(paths));
+      if (updated) {
+        emitTournamentUpdate();
+      }
+      const tournament = getTournamentStore(paths).find((item) => item.id === request.params.tournamentId);
+      response.json({ success: true, tournament });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
