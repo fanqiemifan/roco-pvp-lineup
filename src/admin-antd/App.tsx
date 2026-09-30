@@ -4224,25 +4224,81 @@ function Dashboard() {
       + (main ? ` · 来自主控电脑 ${cloudMachineText(main)}` : '')
       + (status.lastContact.pulledAt ? ` · 上次获取 ${formatDateTime(status.lastContact.pulledAt)}` : '');
   })();
-  const cloudRecentEntries = (() => {
+
+  // === 云同步状态卡的展示数据（版本对比 / 待办 / 本机动作时间线） ===
+  /** 本机相对「云端最新版本」的同步状态：分控端用已处理版本判断，主控端本身没有可拉取的副本 */
+  const cloudSyncState = (() => {
+    const status = cloudStatus;
+    if (!status) {
+      return { tone: 'idle' as const, label: '未配置', hint: '' };
+    }
+    if (status.config.role === 'main') {
+      return {
+        tone: 'main' as const,
+        label: '主控电脑',
+        hint: '负责上传数据与确认其他电脑交回的赛果',
+      };
+    }
+    if (!status.version) {
+      return { tone: 'idle' as const, label: '云端暂无内容', hint: '等主控电脑上传后再获取' };
+    }
+    if (status.version.v > status.appliedVersion) {
+      return {
+        tone: 'warn' as const,
+        label: '本机不是最新',
+        hint: `本机已处理到第 ${status.appliedVersion} 版，点「从云端获取最新」`,
+      };
+    }
+    return {
+      tone: 'ok' as const,
+      label: '本机已是最新',
+      hint: status.appliedVersion ? `已处理第 ${status.appliedVersion} 版` : '',
+    };
+  })();
+  /** 本机待办（分控＝待交回/等确认，主控＝待确认其他电脑的赛果） */
+  const cloudTodo = (() => {
     const status = cloudStatus;
     if (!status?.configured) {
-      return [] as string[];
+      return { count: 0, label: '未启用', hint: '填好设置即可使用' };
     }
-    const entries: string[] = [];
+    if (status.config.role === 'main') {
+      return cloudInboxCount
+        ? { count: cloudInboxCount, label: `${cloudInboxCount} 场待确认`, hint: '点「查看其他电脑交回的赛果」' }
+        : { count: 0, label: '没有待确认', hint: '其他电脑交回赛果后会出现在这里' };
+    }
+    const pending = status.pending.count;
+    if (pending > 0) {
+      const unconfirmed = status.pending.unconfirmedCount;
+      return unconfirmed > 0
+        ? {
+          count: pending,
+          label: `${unconfirmed} 场已交回，等主控确认`,
+          hint: pending > unconfirmed ? `另有 ${pending - unconfirmed} 场待交回` : '等主控电脑确认后会自动清除',
+        }
+        : { count: pending, label: `${pending} 场待交回`, hint: '点「交回赛果」把登记结果发给主控' };
+    }
+    return { count: 0, label: '没有待办', hint: '本机登记并交回后会自动出现在这里' };
+  })();
+  /** 本机动作时间线（按时间倒序，只保留有记录的项） */
+  const cloudTimeline = (() => {
+    const status = cloudStatus;
+    if (!status?.configured) {
+      return [] as Array<{ key: string; label: string; at: string }>;
+    }
+    const items: Array<{ key: string; label: string; at: string }> = [];
     if (status.lastContact.pushedAt) {
-      entries.push(`上次上传：${formatDateTime(status.lastContact.pushedAt)}`);
+      items.push({ key: 'push', label: '上传给其他电脑', at: status.lastContact.pushedAt });
     }
     if (status.lastContact.uploadedAt) {
-      entries.push(`上次交回赛果：${formatDateTime(status.lastContact.uploadedAt)}`);
+      items.push({ key: 'upload', label: '交回赛果', at: status.lastContact.uploadedAt });
+    }
+    if (status.lastContact.pulledAt) {
+      items.push({ key: 'pull', label: '从云端获取最新', at: status.lastContact.pulledAt });
     }
     if (status.lastContact.ackedAt) {
-      entries.push(`上次确认对方赛果：${formatDateTime(status.lastContact.ackedAt)}`);
+      items.push({ key: 'ack', label: '确认对方的赛果', at: status.lastContact.ackedAt });
     }
-    if (!status.config.pollEnabled) {
-      entries.push('已关闭自动检查新内容（不影响手动操作，也可以随时点「刷新同步状态」）');
-    }
-    return entries;
+    return items.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0)).slice(0, 4);
   })();
   // 指派工作台：只列出未结束的比赛（已完赛的指派没有意义），分控端码取自名册
   const cloudAssignPeers = (cloudStatus?.roster ?? []).filter((entry) => entry.code !== cloudStatus?.config.machineCode);
@@ -5081,22 +5137,90 @@ function Dashboard() {
                       <span className="cloud-sync-tech">（技术名：服务地址 = workerUrl，房间号 = syncKey，通行证 = SYNC_TOKEN）</span>
                     </div>
 
-                    <div className="cloud-sync-hints">
-                      {cloudStatus?.version ? (
-                        <Text type="secondary">
-                          云端最新：第 {cloudStatus.version.v} 版 · {formatDateTime(cloudStatus.version.at)}
-                          {cloudStatus.version.from ? ` · 由 ${cloudStatus.version.from} 号机上传` : ''}
-                        </Text>
-                      ) : (
-                        <Text type="secondary">云端还没有数据：等主控电脑点过「上传给其他电脑」后，点「刷新同步状态」看看</Text>
-                      )}
-                      {cloudRecentEntries.map((entry) => (
-                        <Text type="secondary" key={entry}>{entry}</Text>
-                      ))}
-                      <Text type="secondary">
-                        云端有半分钟左右的延迟是正常的：刚上传完，另一台电脑可能要等 30 秒才能拉到新内容，等一会儿再点，别连续点。
-                      </Text>
-                    </div>
+                    {/* 同步状态卡：一眼看清「云端是哪一版 / 本机是不是最新 / 有没有待办 / 本机都做过什么」 */}
+                    {cloudStatus?.configured ? (
+                      <div className="cloud-sync-status">
+                        <div className="cloud-sync-status-head">
+                          <Space size={8} align="center">
+                            <span className={`cloud-sync-dot cloud-sync-dot-${cloudSyncState.tone}`} />
+                            <Text strong>{cloudSyncState.label}</Text>
+                            {cloudSyncState.hint ? (
+                              <Text type="secondary" className="cloud-sync-status-note">{cloudSyncState.hint}</Text>
+                            ) : null}
+                          </Space>
+                          {cloudTodo.count > 0 ? <Tag color="orange">{cloudTodo.label}</Tag> : <Tag>{cloudTodo.label}</Tag>}
+                        </div>
+
+                        <div className="cloud-sync-status-grid">
+                          <div className="cloud-sync-tile">
+                            <div className="cloud-sync-tile-label">云端最新</div>
+                            {cloudStatus.version ? (
+                              <>
+                                <div className="cloud-sync-tile-value">
+                                  第 {cloudStatus.version.v} 版
+                                  <span className="cloud-sync-tile-sub">{formatDateTime(cloudStatus.version.at)}</span>
+                                </div>
+                                <div className="cloud-sync-tile-hint">
+                                  {cloudStatus.version.from
+                                    ? `由 ${cloudMachineText(
+                                      cloudStatus.roster.find((entry) => entry.code === cloudStatus.version!.from)
+                                      ?? { code: cloudStatus.version.from, label: '' },
+                                    )} 上传`
+                                    : ''}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="cloud-sync-tile-value">暂无内容</div>
+                                <div className="cloud-sync-tile-hint">等主控电脑点「上传给其他电脑」</div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="cloud-sync-tile">
+                            <div className="cloud-sync-tile-label">本机进度</div>
+                            <div className="cloud-sync-tile-value">
+                              {cloudStatus.appliedVersion ? `已处理第 ${cloudStatus.appliedVersion} 版` : '尚未获取'}
+                            </div>
+                            <div className="cloud-sync-tile-hint">
+                              {cloudStatus.config.role === 'main'
+                                ? '主控电脑不需要拉取'
+                                : cloudSyncState.tone === 'ok' ? '已是最新' : '有新内容时点「从云端获取最新」'}
+                            </div>
+                          </div>
+
+                          <div className="cloud-sync-tile">
+                            <div className="cloud-sync-tile-label">本机待办</div>
+                            <div className="cloud-sync-tile-value">{cloudTodo.label}</div>
+                            <div className="cloud-sync-tile-hint">{cloudTodo.hint}</div>
+                          </div>
+                        </div>
+
+                        <div className="cloud-sync-status-foot">
+                          {cloudTimeline.length ? (
+                            <>
+                              <Text type="secondary" className="cloud-sync-foot-title">本机记录</Text>
+                              <Space size={14} wrap>
+                                {cloudTimeline.map((item) => (
+                                  <span key={item.key} className="cloud-sync-foot-item">
+                                    <span className="cloud-sync-foot-label">{item.label}</span>
+                                    <span className="cloud-sync-foot-time">{formatDateTime(item.at)}</span>
+                                  </span>
+                                ))}
+                              </Space>
+                            </>
+                          ) : (
+                            <Text type="secondary">还没有同步记录：主控点「上传给其他电脑」、分控点「从云端获取最新」都会记在这里</Text>
+                          )}
+                          {cloudStatus.config.pollEnabled === false ? (
+                            <Text type="secondary">· 已关闭自动检查新内容（手动点「刷新同步状态」不受影响）</Text>
+                          ) : null}
+                        </div>
+                        <div className="cloud-sync-status-tip">
+                          云端有半分钟左右的延迟是正常的：刚上传完，另一台电脑可能要等 30 秒才能拉到新内容，等一会儿再点，别连续点。
+                        </div>
+                      </div>
+                    ) : null}
 
                     {cloudStatus?.lastError ? (
                       <Alert

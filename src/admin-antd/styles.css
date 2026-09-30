@@ -2009,6 +2009,131 @@ a {
   line-height: 1.7;
 }
 
+/* ===== 云同步状态卡：头部状态 + 三格信息 + 本机记录时间线 ===== */
+.cloud-sync-status {
+  margin-top: 12px;
+  border: 1px solid #EDE4D8;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #FFFDF9 0%, #FBF6EE 100%);
+  padding: 12px 14px 10px;
+}
+
+.cloud-sync-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed #EDE4D8;
+}
+
+.cloud-sync-status-note {
+  font-size: 12px;
+}
+
+.cloud-sync-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.cloud-sync-dot-ok {
+  background: #3fb950;
+  box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.16);
+}
+
+.cloud-sync-dot-warn {
+  background: #f0883e;
+  box-shadow: 0 0 0 3px rgba(240, 136, 62, 0.16);
+}
+
+.cloud-sync-dot-main {
+  background: #bc8cff;
+  box-shadow: 0 0 0 3px rgba(188, 140, 255, 0.16);
+}
+
+.cloud-sync-dot-idle {
+  background: #c9c0b4;
+  box-shadow: 0 0 0 3px rgba(201, 192, 180, 0.18);
+}
+
+.cloud-sync-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.cloud-sync-tile {
+  min-width: 0;
+}
+
+.cloud-sync-tile-label {
+  font-size: 12px;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.cloud-sync-tile-value {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #2f2418;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cloud-sync-tile-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.cloud-sync-tile-hint {
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.cloud-sync-status-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px dashed #EDE4D8;
+  font-size: 12px;
+}
+
+.cloud-sync-foot-title {
+  flex-shrink: 0;
+}
+
+.cloud-sync-foot-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.cloud-sync-foot-label {
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.cloud-sync-foot-time {
+  color: #2f2418;
+}
+
+.cloud-sync-status-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(47, 36, 24, 0.38);
+}
+
 .cloud-sync-actions {
   margin-top: 12px;
 }

@@ -93,6 +93,7 @@
 - **同一张预览弹窗复用三种流程**：`syncPreview` 状态配 `cloudPreviewFlow`（null = U 盘导入 / 'pull' = 分控「同步最新」/ 'ack' = 主控确认台）。确认台流程下弹窗标题带分控端码、页脚换成「稍后再看 / ✗ 驳回 / ✓ 确认并推进」（隐藏 antd 默认 ok/cancel），顶部一个 Select 切换分控端（`switchCloudAckSource`，纯前端换条目，不重打接口）。
 - **确认台的「内容一致」也要能勾**：对方交回的内容与本机完全相同时条目是 `action='skip'`，但勾选并确认它 = 给对方一个回执（不写任何数据）。因此确认台流程下这类行的勾选框**不禁用**（U 盘导入流程仍按原样禁用跳过项），标签显示「内容一致」，确认后的提示区分「写入 N 场」与「本机本来就一致，只回了收到」。**别把这里改回 disabled**：否则主控点不了确认，对方永远显示「等主控确认」。
 - **状态自动轮询**：`GET /api/cloud-sync/status` 只读本机（不产生云端请求），红点轮询 `POST /api/cloud-sync/poll` 按 `cloudPollIntervalSeconds` 起 `setInterval`，`document.visibilityState !== 'visible'` 时跳过（后台标签页不刷云端）。轮询只更新提示，**绝不自动合并数据**；新版本提示按版本号去重（`cloudPollNotified`）。
+- **同步状态卡**（`cloud-sync-status`，位于云同步设置区下方、操作按钮上方）：头部 = 状态圆点（`ok` 绿＝本机已最新 / `warn` 橙＝本机不是最新 / `main` 紫＝主控电脑 / `idle` 灰＝未配置或云端暂无内容）+ 状态文案 + 本机待办 Tag；中间三格 = 云端最新（版本 + 时间 + 上传者）/ 本机进度（已处理到第几版）/ 本机待办（待确认 / 待交回 / 等确认 + 下一步提示）；底部「本机记录」= 上传、交回、获取、确认四类动作按时间倒序取最近 4 条 + 半分钟延迟说明。数据来自 `cloudSyncState` / `cloudTodo` / `cloudTimeline` 三段派生，口径与红点 `cloudLiveBadge` 一致（**「已交回等确认」不等于「云端有新内容」**）。未配置时不渲染这块。
 - **登记/撤回闸门是纯前端镜像**：`cloudRegisterGate(matchId)` / `cloudUndoGate(matchId)` 由 `cloudStatus.assignment` + `role` + `cloudAckedMatchIds` 现算，禁用按钮并挂 Tooltip（服务端在 winner/start/undo 路由上另有一道同口径校验，前端只是提前告知）。未配置云同步时两个闸门一律放行（保持单机行为）。
 - **指派工作台**：`cloudAssignDraft` = 比赛 id -> 机器码（空串 = 主控端），按波次批量按钮只改当前列表里该波次的比赛；保存走 `POST /api/cloud-sync/assignment`，随下次「同步分发」生效。
 - **`/api/runtime-config` 顺带回带 `syncConfig`（完整 CloudSyncStatus）**：初始加载一次请求即可渲染设置区；「检测 Worker 在线」复用该接口回执里的 status。
