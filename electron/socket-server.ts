@@ -47,6 +47,7 @@ import {
   rejectCloudSync,
   saveCloudAssignment,
   saveCloudSyncConfig,
+  skipCloudPull,
   testCloudConnection,
   uploadCloudSync,
 } from './services/cloud-sync-service.js';
@@ -1941,6 +1942,19 @@ export async function createLocalServer(
     Array.isArray(value) ? value.map((item) => String(item ?? '')) : []
   );
 
+  /** multipart 表单里的字符串化 JSON 数组（accepted / excludeTournamentIds 都走这个） */
+  const readJsonArrayField = (value: unknown): string[] => {
+    if (typeof value !== 'string' || !value.trim()) {
+      return [];
+    }
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.map((item) => String(item ?? '')) : [];
+    } catch {
+      return [];
+    }
+  };
+
   /** 云同步状态（轮询用；只读本机状态，不产生任何云端请求） */
   app.get('/api/cloud-sync/status', (_request, response) => {
     response.json({ success: true, status: getCloudSyncStatus(paths) });
@@ -2030,9 +2044,24 @@ export async function createLocalServer(
         paths,
         readStringArray(body.accepted),
         body.mode === 'bundle' ? 'bundle' : 'newer',
+        readStringArray(body.excludeTournamentIds),
       );
       emitMatchesUpdate(getMatchStore(paths));
       emitTournamentUpdate();
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /**
+   * 分控「无需改动，标记为已处理」：预览里全是「不用改」的条目时收尾状态用。
+   * 只推进本机记录的云端版本，不写入任何比赛/系列赛数据。
+   */
+  app.post('/api/cloud-sync/skip', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await skipCloudPull(paths);
       response.json({ success: true, ...result });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -2185,22 +2214,16 @@ export async function createLocalServer(
       const { raw, mode } = readSyncRequest(request);
       const body = (request.body ?? {}) as Record<string, unknown>;
 
-      let accepted: string[] = [];
-      if (typeof body.accepted === 'string' && body.accepted.trim()) {
-        try {
-          const parsed: unknown = JSON.parse(body.accepted);
-          if (Array.isArray(parsed)) {
-            accepted = parsed.map((item) => String(item ?? ''));
-          }
-        } catch {
-          accepted = [];
-        }
-      }
+      let accepted: string[] = readJsonArrayField(body.accepted);
+
+      // 预览里被取消勾选的系列赛：整条不导入（编排不合并 + 其比赛不写入）
+      const excludeTournamentIds = readJsonArrayField(body.excludeTournamentIds);
 
       const result = await applySyncImport(paths, raw, {
         mode,
         acceptedKeys: accepted,
         includeAvatars: String(body.includeAvatars ?? 'true') !== 'false',
+        excludeTournamentIds,
       });
 
       emitMatchesUpdate(result.store);

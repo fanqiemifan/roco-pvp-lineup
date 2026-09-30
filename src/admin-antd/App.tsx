@@ -61,6 +61,7 @@ import type {
   CloudSyncStatus,
   CloudSyncVersion,
   MachineCodeGuardResult,
+  SyncImportTournamentGroup,
   CountdownPayload,
   CountdownState,
   MatchRecord,
@@ -549,8 +550,11 @@ function Dashboard() {
   // 指派工作台（按比赛勾选 / 按波次批量）
   const [cloudAssignOpen, setCloudAssignOpen] = useState(false);
   const [cloudAssignDraft, setCloudAssignDraft] = useState<Record<string, string>>({});
-  // 分控端本地「已 ack 禁撤回」集合（登记入口判定接口回传，避免逐行算）
+  // 分控电脑本地「已被主控确认」的赛果集合（登记入口判定接口回传，避免逐行算）
   const [cloudAckedMatchIds, setCloudAckedMatchIds] = useState<string[]>([]);
+  // 预览里被取消勾选的系列赛 id（随导入一起提交：整条不导入，含它名下的比赛）
+  const [syncExcludedTournamentIds, setSyncExcludedTournamentIds] = useState<string[]>([]);
+  const [syncCollapsedGroupKeys, setSyncCollapsedGroupKeys] = useState<string[]>([]);
   const cloudPollTimerRef = useRef<number | null>(null);
   // 比赛列表懒加载游标：先渲染 6 条，滚动到底部再追加 6 条
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
@@ -660,6 +664,27 @@ function Dashboard() {
     ].some((value) => value.toLowerCase().includes(normalizedHistorySearch));
   });
   const sortedMatches = [...filteredMatches].sort(compareHistoryMatches);
+  /** 筛选状态提示：被筛掉多少场、当前按什么筛（避免「同步来的比赛看不见」被误判成丢数据） */
+  const historyFilterSummary = (() => {
+    const parts: string[] = [];
+    if (historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER) {
+      parts.push('只看普通对局');
+    } else if (historyTournamentFilter) {
+      parts.push(`只看系列赛「${tournamentNameMap.get(historyTournamentFilter) ?? historyTournamentFilter}」`);
+    }
+    if (historyTagFilter) {
+      parts.push(historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? '只看未分类赛事' : `只看标签「${historyTagFilter}」`);
+    }
+    if (normalizedHistorySearch) {
+      parts.push(`搜索「${historySearch.trim()}」`);
+    }
+    if (!parts.length) {
+      return '';
+    }
+    const hidden = matchStore.matches.length - filteredMatches.length;
+    return `当前${parts.join(' + ')}：显示 ${filteredMatches.length} / 共 ${matchStore.matches.length} 场`
+      + (hidden > 0 ? `（有 ${hidden} 场被筛选条件隐藏，刚同步来的比赛可能在其中）` : '');
+  })();
   // 「录入阵容」弹窗的当前上下文：从最新 store 里解析比赛与小局（socket 更新后自动跟随）
   const lineupEntryMatch = lineupEntry ? matchStore.matches.find((match) => match.id === lineupEntry.matchId) ?? null : null;
   const lineupEntryGame = lineupEntryMatch && lineupEntry
@@ -3480,6 +3505,8 @@ function Dashboard() {
     setSyncFileName('');
     setSyncSelectedKeys([]);
     setSyncActiveKey(null);
+    setSyncExcludedTournamentIds([]);
+    setSyncCollapsedGroupKeys([]);
   }
 
   async function applySyncPreview() {
@@ -3493,6 +3520,7 @@ function Dashboard() {
       formData.append('mode', syncMode);
       formData.append('accepted', JSON.stringify(syncSelectedKeys));
       formData.append('includeAvatars', syncIncludeAvatars ? 'true' : 'false');
+      formData.append('excludeTournamentIds', JSON.stringify(syncExcludedTournamentIds));
 
       const result = await requestJson<{ success: boolean; result: SyncImportResult }>('/api/sync/import', {
         method: 'POST',
@@ -3705,6 +3733,8 @@ function Dashboard() {
     try {
       const result = await postCloud<{ preview: SyncImportPreview; data: { dist: string } }>('/api/cloud-sync/pull');
       setCloudPreviewFlow('pull');
+      setSyncExcludedTournamentIds([]);
+      setSyncCollapsedGroupKeys([]);
       setSyncPreview(result.preview);
       setSyncSelectedKeys(defaultSyncSelection(result.preview));
       setSyncActiveKey(defaultSyncActiveKey(result.preview));
@@ -3766,6 +3796,8 @@ function Dashboard() {
         },
       };
       setCloudPreviewFlow('incoming');
+      setSyncExcludedTournamentIds([]);
+      setSyncCollapsedGroupKeys([]);
       setSyncPreview(preview);
       setSyncSelectedKeys(source.selectableKeys);
       setSyncActiveKey(defaultSyncActiveKey(preview));
@@ -3812,7 +3844,7 @@ function Dashboard() {
       if (cloudPreviewFlow === 'pull') {
         const result = await postCloud<{ data: { applied: SyncImportPreview['summary']; warnings: string[] } }>(
           '/api/cloud-sync/apply',
-          { accepted: syncSelectedKeys, mode: syncMode },
+          { accepted: syncSelectedKeys, mode: syncMode, excludeTournamentIds: syncExcludedTournamentIds },
         );
         const applied = result.data.applied;
         message.success(`已更新本机数据：新增 ${applied.match.add} 场 / 更新 ${applied.match.update} 场 / 无变化 ${applied.match.skip} 场`);
@@ -3852,6 +3884,20 @@ function Dashboard() {
       message.info(`已退回 ${cloudAckCode} 号机交回的赛果：本机数据没有任何改动，请对方改正后重新「交回赛果」`);
       closeCloudPreview();
       await checkCloudInbox(cloudAckCode);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy('');
+    }
+  }
+
+  /** 分控「无需改动，标记为已处理」：预览里没有可写入内容时收尾状态，避免「有新内容」一直挂着 */
+  async function markCloudPullReviewed() {
+    setCloudBusy('apply');
+    try {
+      const result = await postCloud<{ data: { appliedVersion: number } }>('/api/cloud-sync/skip');
+      message.success(`已把这版云端内容标记为已处理（本机无需改动，当前第 ${result.data.appliedVersion} 版）`);
+      closeCloudPreview();
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -3986,6 +4032,67 @@ function Dashboard() {
   const syncActiveItem = syncPreviewItems.find((item) => item.key === syncActiveKey) ?? null;
   const syncConflictCount = syncPreview ? syncPreview.matchItems.filter((item) => item.conflict).length : 0;
 
+  // === 预览弹窗里的系列赛分组：让「这条系列赛包含哪些比赛」一眼可见，并可整条选择导不导入 ===
+  const syncTournamentGroups = syncPreview?.tournamentGroups ?? [];
+  const syncMatchRows = syncPreview?.matchItems ?? [];
+  /** 系列赛 id -> 该组（含普通对局组 id = ''） */
+  const syncGroupOfMatchKey = new Map<string, SyncImportTournamentGroup>();
+  syncTournamentGroups.forEach((group) => {
+    group.matchKeys.forEach((key) => syncGroupOfMatchKey.set(key, group));
+  });
+  /** 已取消勾选系列赛名下的比赛 key（这些行置灰、不可勾选） */
+  const syncExcludedMatchKeys = new Set<string>();
+  syncTournamentGroups.forEach((group) => {
+    if (group.id && syncExcludedTournamentIds.includes(group.id)) {
+      group.matchKeys.forEach((key) => syncExcludedMatchKeys.add(key));
+    }
+  });
+  /** 可勾选比赛的 key 集合（排除已取消勾选系列赛名下的比赛） */
+  const syncAvailableKeys = new Set(
+    [...syncMatchRows, ...(syncPreview?.playerItems ?? []), ...(syncPreview?.teamItems ?? [])]
+      .filter((item) => item.action !== 'skip' && !syncExcludedMatchKeys.has(item.key))
+      .map((item) => item.key),
+  );
+  /** 分控「从云端获取最新」但勾选后没有任何需要写入的条目（点过确认合并 / 云端与本机一致） */
+  const cloudPullNothingToMerge = cloudPreviewFlow === 'pull' && Boolean(syncPreview)
+    && syncSelectedKeys.every((key) => !syncAvailableKeys.has(key));
+
+  /** 取消/恢复整条系列赛：勾掉时不写入它的编排，也不写入它名下的比赛 */
+  function toggleSyncTournamentGroup(group: SyncImportTournamentGroup) {
+    const excluded = syncExcludedTournamentIds.includes(group.id);
+    if (excluded) {
+      setSyncExcludedTournamentIds((prev) => prev.filter((id) => id !== group.id));
+      setSyncSelectedKeys((prev) => Array.from(new Set([...prev, ...group.matchKeys])));
+      return;
+    }
+    setSyncExcludedTournamentIds((prev) => [...prev, group.id]);
+    setSyncSelectedKeys((prev) => prev.filter((key) => !group.matchKeys.includes(key)));
+  }
+
+  type SyncPreviewRow = SyncImportItem | (SyncImportTournamentGroup & { isGroup: true; rowKey: string });
+  /** 表格数据：系列赛分组标题行 + 组内比赛行（普通对局单独一组放最后），便于一眼区分归属 */
+  const syncPreviewRows: SyncPreviewRow[] = [];
+  const matchItemByKey = new Map(syncMatchRows.map((item) => [item.key, item]));
+  syncTournamentGroups.forEach((group) => {
+    const collapsed = syncCollapsedGroupKeys.includes(group.key);
+    syncPreviewRows.push({ ...group, isGroup: true, rowKey: group.key });
+    if (collapsed) {
+      return;
+    }
+    group.matchKeys.forEach((key) => {
+      const item = matchItemByKey.get(key);
+      if (item) {
+        syncPreviewRows.push(item);
+      }
+    });
+  });
+  // 兜底：没被任何分组收录的比赛条目（异常包）直接平铺，避免「预览里有却看不见」
+  const groupedKeys = new Set(syncTournamentGroups.flatMap((group) => group.matchKeys));
+  syncMatchRows.forEach((item) => {
+    if (!groupedKeys.has(item.key)) {
+      syncPreviewRows.push(item);
+    }
+  });
   // === 云同步派生展示（红点 / 版本对比 / 最后通信时间） ===
   const cloudInboxCount = cloudStatus?.inbox.reduce((sum, entry) => sum + entry.pending.length, 0) ?? 0;
   const cloudLiveBadge = (() => {
@@ -4001,7 +4108,12 @@ function Dashboard() {
     if (hasNew) {
       return '云端有新内容';
     }
-    return pending ? `${pending} 场待交回` : '';
+    // 「已交回等确认」不是「新内容」：不要用同一句话，否则用户会以为红点清不掉
+    if (pending > 0) {
+      const unconfirmed = status.pending.unconfirmedCount;
+      return unconfirmed > 0 ? `${unconfirmed} 场已交回，等主控确认` : `${pending} 场待交回`;
+    }
+    return '';
   })();
   const cloudVersionText = (() => {
     const status = cloudStatus;
@@ -4553,6 +4665,27 @@ function Dashboard() {
                     </Tag>
                   ))}
                 </Space>
+                {/* 筛选状态要让用户看见：否则「刚同步过来的比赛没出现在列表里」会被当成丢失 */}
+                {historyFilterSummary ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    className="history-filter-hint"
+                    message={historyFilterSummary}
+                    action={(
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setHistoryTournamentFilter(null);
+                          setHistoryTagFilter(null);
+                          setHistorySearch('');
+                        }}
+                      >
+                        清除筛选
+                      </Button>
+                    )}
+                  />
+                ) : null}
                 <Table
                   rowKey={(record) => record.id}
                   columns={historyColumns}
@@ -4955,13 +5088,21 @@ function Dashboard() {
                       确认这 {syncSelectedKeys.length} 场
                     </Button>
                   </Space>
+                ) : cloudPullNothingToMerge ? (
+                  <Button
+                    type="primary"
+                    onClick={() => void markCloudPullReviewed()}
+                    loading={cloudBusy === 'apply'}
+                  >
+                    知道了，标记为已处理
+                  </Button>
                 ) : undefined}
                 okText={cloudPreviewFlow === 'pull'
                   ? `确认写入本机（${syncSelectedKeys.length} 项）`
                   : `确认导入（${syncSelectedKeys.length} 项）`}
                 okButtonProps={{
                   disabled: !syncPreview || syncSelectedKeys.length === 0,
-                  style: cloudPreviewFlow === 'incoming' ? { display: 'none' } : undefined,
+                  style: cloudPreviewFlow === 'incoming' || cloudPullNothingToMerge ? { display: 'none' } : undefined,
                 }}
                 cancelButtonProps={{ style: cloudPreviewFlow === 'incoming' ? { display: 'none' } : undefined }}
                 confirmLoading={cloudPreviewFlow ? cloudBusy === 'apply' : syncImporting}
@@ -4993,6 +5134,15 @@ function Dashboard() {
                           </Text>
                         ) : null}
                       </Space>
+                    ) : null}
+
+                    {cloudPullNothingToMerge ? (
+                      <Alert
+                        type="success"
+                        showIcon
+                        message="云端这一版的内容本机已经是最新的，没有需要写入的东西"
+                        description="点下面的「知道了，标记为已处理」清掉红点即可；如果确实期待有新内容，等半分钟后再点一次「从云端获取最新」。"
+                      />
                     ) : null}
 
                     {cloudPreviewFlow === 'pull' && cloudDistInfo ? (
@@ -5072,24 +5222,126 @@ function Dashboard() {
                       </Space>
                     )}
 
+                    {syncTournamentGroups.some((group) => group.id) ? (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="带 🏆 的是系列赛：勾掉整条就不导入它（编排和它名下的比赛都不会写入本机）"
+                        description="系列赛编排会随比赛一起自动合并，不需要单独勾选；只想导其中几场时，直接勾比赛行即可。"
+                      />
+                    ) : null}
+
                     <div className="sync-preview-layout">
                       <div className="sync-preview-list">
-                        <Table<SyncImportItem>
-                          rowKey="key"
+                        <Table<SyncPreviewRow>
+                          rowKey={(record) => ('isGroup' in record ? record.rowKey : record.key)}
                           size="small"
-                          dataSource={syncPreviewItems}
-                          columns={syncPreviewColumns}
+                          dataSource={syncPreviewRows}
+                          columns={[
+                            {
+                              title: '类型',
+                              width: 88,
+                              render: (_value, record) => ('isGroup' in record
+                                ? (record.id ? '🏆 系列赛' : '普通对局')
+                                : SYNC_KIND_LABELS[record.kind]),
+                            },
+                            {
+                              title: '对象',
+                              render: (_value, record) => ('isGroup' in record ? (
+                                <Space size={6} wrap>
+                                  <Text strong>{record.id ? (record.name || record.id) : '不属于任何系列赛的比赛'}</Text>
+                                  {record.id ? <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text> : null}
+                                  {record.playerCount ? <Tag>{record.playerCount} 人</Tag> : null}
+                                  <Tag color={record.incoming ? 'purple' : 'default'}>
+                                    {record.incoming ? '包含系列赛编排' : '仅比赛，无编排'}
+                                  </Tag>
+                                  <Tag color={record.existsLocally ? 'blue' : 'green'}>
+                                    {record.existsLocally ? '本机已有' : '本机没有，将新建'}
+                                  </Tag>
+                                  {record.stageSummary ? <Tag>{record.stageSummary}</Tag> : null}
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    共 {record.matchKeys.length} 场（{record.selectableCount} 场待写入）
+                                  </Text>
+                                </Space>
+                              ) : (
+                                <Space direction="vertical" size={0}>
+                                  <Text>{record.label}</Text>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+                                </Space>
+                              )),
+                            },
+                            {
+                              title: '处理',
+                              width: 168,
+                              render: (_value, record) => ('isGroup' in record ? (
+                                record.id ? (
+                                  <Checkbox
+                                    checked={!syncExcludedTournamentIds.includes(record.id)}
+                                    onChange={() => toggleSyncTournamentGroup(record)}
+                                  >
+                                    一起导入
+                                  </Checkbox>
+                                ) : null
+                              ) : (() => {
+                                const group = syncGroupOfMatchKey.get(record.key);
+                                const excluded = Boolean(group?.id && syncExcludedTournamentIds.includes(group.id));
+                                return (
+                                  <Space size={4}>
+                                    <Tag color={record.action === 'add' ? 'green' : record.action === 'update' ? 'gold' : 'default'}>
+                                      {excluded ? '随系列赛跳过' : SYNC_ACTION_LABELS[record.action]}
+                                    </Tag>
+                                    {record.conflict ? <Tag color="red">冲突</Tag> : null}
+                                  </Space>
+                                );
+                              })()),
+                            },
+                            {
+                              title: '说明',
+                              width: 148,
+                              ellipsis: true,
+                              render: (_value, record) => ('isGroup' in record
+                                ? (record.id && syncCollapsedGroupKeys.includes(record.key) ? '已折叠' : '')
+                                : <Text type="secondary">{record.reason || '—'}</Text>),
+                            },
+                          ]}
                           pagination={false}
                           scroll={{ y: 380 }}
                           onRow={(record) => ({
-                            onClick: () => setSyncActiveKey(record.key),
+                            onClick: () => {
+                              if ('isGroup' in record) {
+                                if (record.matchKeys.length) {
+                                  setSyncCollapsedGroupKeys((prev) => (
+                                    prev.includes(record.key)
+                                      ? prev.filter((key) => key !== record.key)
+                                      : [...prev, record.key]
+                                  ));
+                                }
+                                return;
+                              }
+                              setSyncActiveKey(record.key);
+                            },
                             style: { cursor: 'pointer' },
                           })}
-                          rowClassName={(record) => (record.key === syncActiveKey ? 'sync-preview-row-active' : '')}
+                          rowClassName={(record) => {
+                            if ('isGroup' in record) {
+                              return 'sync-preview-group-row';
+                            }
+                            if (syncExcludedMatchKeys.has(record.key)) {
+                              return 'sync-preview-row-excluded';
+                            }
+                            return record.key === syncActiveKey ? 'sync-preview-row-active' : '';
+                          }}
                           rowSelection={{
                             selectedRowKeys: syncSelectedKeys,
                             onChange: (keys) => setSyncSelectedKeys(keys.map(String)),
-                            getCheckboxProps: (record) => ({ disabled: record.action === 'skip' }),
+                            getCheckboxProps: (record) => {
+                              if ('isGroup' in record) {
+                                return { disabled: true, style: { display: 'none' } };
+                              }
+                              const group = syncGroupOfMatchKey.get(record.key);
+                              const excluded = Boolean(group?.id && syncExcludedTournamentIds.includes(group.id));
+                              return { disabled: record.action === 'skip' || excluded };
+                            },
                           }}
                         />
                       </div>

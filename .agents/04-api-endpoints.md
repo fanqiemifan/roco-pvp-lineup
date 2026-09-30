@@ -48,8 +48,8 @@
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
 | 导出同步包 | POST | /api/sync/export | 导出同步包（body: includeProfiles / includeAvatars）；比赛含全部场次（含空白/进行中，基线分发需要）+ 系列赛编排全量，头像 base64 内嵌且仅在包含档案时附带 | electron/socket-server.ts |
-| 导入预览 | POST | /api/sync/preview | 只读解析同步包并返回逐条「新增/更新/跳过」（multipart: file + mode，mode = newer/bundle），不写入任何数据 | electron/socket-server.ts |
-| 应用导入 | POST | /api/sync/import | 按勾选条目合并比赛与档案、按需补缺头像；系列赛编排自动合并（不参与勾选）并补跑写回（幂等，波打齐自动推进）（multipart: file + mode + accepted（JSON 数组）+ includeAvatars），成功后广播 matches:update（含档案变更时另广播 profiles:update；系列赛有新增/更新/推进时另广播 tournament:update） | electron/socket-server.ts |
+| 导入预览 | POST | /api/sync/preview | 只读解析同步包并返回逐条「新增/更新/跳过」（multipart: file + mode，mode = newer/bundle），不写入任何数据；另返回 `tournamentGroups`（按系列赛分组的比赛，含「普通对局」组）与 `hasTournaments`，供预览弹窗区分系列赛及其比赛 | electron/socket-server.ts |
+| 应用导入 | POST | /api/sync/import | 按勾选条目合并比赛与档案、按需补缺头像；系列赛编排自动合并（不参与勾选）并补跑写回（幂等，波打齐自动推进）（multipart: file + mode + accepted（JSON 数组）+ excludeTournamentIds（JSON 数组，取消勾选的系列赛整条不导入：编排不合并且其名下比赛不写入）+ includeAvatars），成功后广播 matches:update（含档案变更时另广播 profiles:update；系列赛有新增/更新/推进时另广播 tournament:update） | electron/socket-server.ts |
 
 > 数据同步上传走独立 multer 实例（单文件，上限 SYNC_BUNDLE_MAX_BYTES = 64MB），不经过全局 express.json（2mb），避免大包被拦；超限/坏包统一 400 中文提示。
 
@@ -66,7 +66,8 @@
 | 检测 Worker 在线 | POST | /api/cloud-sync/test | body 可带 workerUrl/syncKey/syncToken（先按当前草稿存下来，省一步「保存设置」；`undefined` = 保持已保存值，空串 = 主动清空）。打 Worker `/health`：**不需要令牌也不碰 KV**，避免为测通白扣读写额度；返回 `ok` + 中文原因 + `health.tokenConfigured`（Worker 没配 SYNC_TOKEN 时明确提示去 `wrangler secret put`） | electron/socket-server.ts |
 | 主控「同步分发」 | POST | /api/cloud-sync/push | 组包（matches + tournaments + profiles，**不带头像**）+ 指派规则 + 名册 → 写 downlink，再写 version（小键）。每次覆盖（幂等全量）；版本号 = 本机记录的版本 + 1 | electron/socket-server.ts |
 | 分控「同步最新」（拉取 + 预览） | POST | /api/cloud-sync/pull | 读 downlink → 配对校验（本机码不能等于分发机码，否则 400）→ 落盘 cache/cloud-pending.json 并返回与「导入同步包」完全一致的预览（字段级 diff、逐条勾选），**不写入任何数据** | electron/socket-server.ts |
-| 分控「确认合并」 | POST | /api/cloud-sync/apply | body: accepted（勾选 key 数组）+ mode（默认 newer：分控本地较新的登记不会被压掉）→ 走现有 applySyncImport 合并 → 重算待回传集 → 广播 matches:update + tournament:update | electron/socket-server.ts |
+| 分控「确认合并」 | POST | /api/cloud-sync/apply | body: accepted（勾选 key 数组）+ mode（默认 newer：分控本地较新的登记不会被压掉）+ excludeTournamentIds（预览里取消勾选的系列赛：整条不导入，含其名下比赛）→ 走现有 applySyncImport 合并 → 重算待回传集 → 广播 matches:update + tournament:update | electron/socket-server.ts |
+| 分控「无需改动，标记为已处理」 | POST | /api/cloud-sync/skip | 预览里全是「不用改」的条目时收尾状态（只推进 appliedVersion，不写入任何数据），避免红点一直挂着 | electron/socket-server.ts |
 | 分控「回传」 | POST | /api/cloud-sync/upload | **现算**所有未 ack 比赛的累计集合（不是增量）→ 写 uplink:{本机码}，seq + 1；无待回传 400「无待回传」 | electron/socket-server.ts |
 | 主控「检查回传」 | POST | /api/cloud-sync/check | body.code 可空（空取最近提交的分控端）；逐分控端读 uplink → 包装成 SyncBundle → 复用现有预览（matchItems）+ 每条附 impact 写回影响说明；**不写入任何数据** | electron/socket-server.ts |
 | 主控确认（确认台） | POST | /api/cloud-sync/confirm | body: code + accepted。服务端重分类（不盲信分控端勾选）→ 只合并被确认的比赛（skipTournaments：编排结构绝不用分控副本覆盖）→ runTournamentWriteBack 推进波次 → 写回执 ack:{code} → 从收件箱移除已确认条目；广播 matches:update + tournament:update | electron/socket-server.ts |

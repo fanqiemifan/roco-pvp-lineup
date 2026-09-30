@@ -2023,6 +2023,24 @@ a {
   color: rgba(47, 36, 24, 0.32);
 }
 
+/* 预览弹窗里的系列赛分组标题行：与比赛行在视觉上分开，点行可折叠 */
+.sync-preview-group-row td {
+  background: #FBF5EC !important;
+  border-top: 1px solid #EDE4D8;
+  border-bottom: 1px solid #EDE4D8;
+}
+
+/* 已取消勾选的系列赛名下的比赛行：置灰表示本次不会导入 */
+.sync-preview-row-excluded td {
+  opacity: 0.45;
+}
+
+/* 比赛管理的筛选状态提示：提示被隐藏的场次，避免误判成「同步来的比赛丢了」 */
+.history-filter-hint.ant-alert {
+  margin-bottom: 12px;
+}
+
+
 .cloud-sync-alert {
   margin-top: 10px;
 }

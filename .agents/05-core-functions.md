@@ -140,8 +140,8 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 导出同步包 | exportSyncBundle | (paths: AppPaths, options: SyncExportOptions) => SyncBundle | 打包全部比赛（含空白/进行中）+ 系列赛编排全量 + 可选档案与头像（base64，仅在包含档案时附带；缺失头像文件不产生键） |
-| 导入预览 | previewSyncImport | (paths: AppPaths, raw: unknown, mode: SyncConflictMode) => SyncImportPreview | 校验 app/schema（不符抛中文错误）后组合比赛与档案 diff，统计头像 补缺/已有/无法对应；只读不写入（系列赛不进预览，导入时自动合并） |
-| 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，系列赛编排自动合并（不参与勾选）后补跑写回（runTournamentWriteBack，幂等，波打齐自动推进），按 includeAvatars 只补缺头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标 id 支持「同名匹配」）；返回 store（写回后最新、可能含新生成的下一波比赛）/profiles/avatarsWritten/tournaments/warnings。`options.skipTournaments`（云同步主控确认台用）= 不合并包内系列赛编排（编排结构由本机自己持有），只合并比赛并照跑写回 |
+| 导入预览 | previewSyncImport | (paths: AppPaths, raw: unknown, mode: SyncConflictMode) => SyncImportPreview | 校验 app/schema（不符抛中文错误）后组合比赛与档案 diff，统计头像 补缺/已有/无法对应；只读不写入（系列赛不进预览的勾选列表，导入时自动合并）。另产出 `tournamentGroups`（按 `match.tournamentRef.tournamentId` 把比赛归到各系列赛 + 「普通对局」组，带 name/playerCount/incoming/existsLocally/stageSummary/matchKeys）与 `hasTournaments`，供预览弹窗显示「这条系列赛包含哪些比赛」 |
+| 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，系列赛编排自动合并（不参与勾选）后补跑写回（runTournamentWriteBack，幂等，波打齐自动推进），按 includeAvatars 只补缺头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标 id 支持「同名匹配」）；返回 store（写回后最新、可能含新生成的下一波比赛）/profiles/avatarsWritten/tournaments/warnings。`options.skipTournaments`（云同步主控确认台用）= 不合并包内系列赛编排（编排结构由本机自己持有），只合并比赛并照跑写回；`options.excludeTournamentIds`（预览里被取消勾选的系列赛）= 该系列赛编排不合并且**其名下比赛一律不写入**（从 acceptedKeys 里剔除并统计 warning） |
 | 解析同步包（供云同步复用） | parseSyncBundle | (raw: unknown) => SyncBundlePayload | 校验 app/schema/结构并产出 {machine, exportedAt, matches, tournaments, profiles, avatars}，不合法抛中文错误（云同步服务与路由共用同一校验口径） |
 
 ## 云同步 (cloud-sync-service.ts)
@@ -161,7 +161,8 @@
 | 分控「同步最新」 | previewCloudPull | (paths: AppPaths) => Promise<CloudSyncPullResult> | 读 downlink → 配对校验（分发机码 == 本机码 → 400）→ 落盘 pending 文件 + 返回现有预览；同时把名册与指派规则并入本机状态（指派随分发下发） |
 | 分控「确认合并」 | finalizeCloudPull | (paths: AppPaths, acceptedKeys: string[], mode?: SyncConflictMode) => Promise<CloudSyncActionResult<{applied, warnings}>> | 用落盘包走 applySyncImport（默认 newer），记 appliedVersion（「已同步」判据）后删除 pending 文件。**回退防复活**：本机把某场系列赛对局登记为 completed，而包内同一场仍是 pending（无胜者）且本机该节点已无 winnerId → 判定主控回退过这一波，先 `resetMatchRegistrations` 撤回本机登记再合并（并把它从 ackedMatchIds 移除，否则该场永远不会再进待回传集），附中文 warning。只对系列赛对局生效（普通对局的 pending 分发不是回退信号） |
 | 分控「回传」 | uploadCloudSync | (paths: AppPaths) => Promise<CloudSyncUploadResult> | 现算**累计**未 ack 集（不是增量，否则两次回传之间未确认会覆盖丢失）→ 写 uplink:{本机码}，seq + 1；空集 400 |
-| 红点轮询 | pollCloudSync | (paths: AppPaths) => Promise<CloudSyncPollResult> | 只读小键：version（两端）、ack:{本机码}（分控端合并 ackedMatchIds，序号不小于已回传 seq 才认）、uplink:{各分控码}（主控端刷新收件箱）。**不读大包、不合并数据** |
+| 分控「标记为已处理」 | skipCloudPull | (paths: AppPaths) => Promise<CloudSyncActionResult<{appliedVersion}>> | 预览里没有可写入条目时收尾状态：只把「拉取到的那一版」记进 appliedVersion，不写入任何数据（配合前端「知道了，标记为已处理」按钮） |
+| 红点轮询 | pollCloudSync | (paths: AppPaths) => Promise<CloudSyncPollResult> | 只读小键：version（两端）、ack:{本机码}（分控端合并 ackedMatchIds，序号不小于已回传 seq 才认）、uplink:{各分控码}（主控端刷新收件箱，**带 ackedInboxSeq 水位：序号 ≤ 已确认水位的旧值一律忽略**，否则 KV 最终一致会让「刚确认完的数量」又冒出来）。**不读大包、不合并数据** |
 | 主控「检查回传」 | checkCloudSync | (paths: AppPaths, code?: string \| null) => Promise<CloudSyncCheckResult> | 逐分控端读 uplink → 包装成 SyncBundle → previewSyncImport 复用现有 diff → 每条附 impact 写回影响（写哪个节点、是否推进）；不写入任何数据 |
 | 主控确认 | confirmCloudSync | (paths: AppPaths, code: string, acceptedKeys: string[]) => Promise<CloudSyncConfirmResult> | 服务端重分类取交集 → applySyncImport（mode:'bundle' + `skipTournaments:true`，编排结构绝不用分控副本覆盖）→ 内部 runTournamentWriteBack 推进波次 → 写 ack:{code} → 从收件箱移除已确认条目 |
 | 主控驳回 | rejectCloudSync | (paths: AppPaths, code: string) => Promise<CloudSyncRejectResult> | 不写本地、不写回执；分控端保持「待回传」，修正后重新点「回传」 |

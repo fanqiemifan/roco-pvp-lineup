@@ -15,6 +15,7 @@ import type {
   SyncImportItem,
   SyncImportPreview,
   SyncImportResult,
+  SyncImportTournamentGroup,
   TeamProfile,
 } from '../../shared/types.js';
 import { loadRuntimeConfig } from './config-service.js';
@@ -57,6 +58,11 @@ export interface SyncApplyOptions {
    * 确认赛果只合并比赛记录，编排结构由本机（编排机）自己持有，绝不能用分控端回传的副本覆盖。
    */
   skipTournaments?: boolean;
+  /**
+   * 用户在预览里取消勾选的系列赛 id：**其编排不合并，且它包含的比赛一律不写入**
+   * （不是过滤已勾选的比赛，而是「这整条系列赛本次不导入」）。
+   */
+  excludeTournamentIds?: string[];
 }
 
 function toBundlePlayer(player: PlayerProfile): SyncBundlePlayerProfile {
@@ -342,6 +348,98 @@ function buildAvatarDiffInfo(
   };
 }
 
+/**
+ * 按系列赛给预览里的比赛分组（供预览弹窗展示「这条系列赛包含哪些比赛」）：
+ * 包内编排 + 本机已有编排两边都看，保证「包内没带编排、只有比赛挂了引用」的情况也能分组显示。
+ */
+function buildTournamentGroups(
+  paths: AppPaths,
+  payload: SyncBundlePayload,
+  matchItems: SyncImportItem[],
+): { groups: SyncImportTournamentGroup[]; hasTournaments: boolean } {
+  const localById = new Map(getTournamentStore(paths).map((record) => [record.id, record]));
+  const incomingById = new Map<string, Record<string, unknown>>();
+  payload.tournaments.forEach((raw) => {
+    const record = (raw ?? {}) as Record<string, unknown>;
+    const id = String(record.id ?? '').trim();
+    if (id) {
+      incomingById.set(id, record);
+    }
+  });
+
+  // 比赛 key -> 系列赛 id（来自包内的 tournamentRef；没有引用的归「普通对局」）
+  const matchItemById = new Map(matchItems.map((item) => [item.id, item]));
+  const tournamentIdOfMatch = new Map<string, string>();
+  payload.matches.forEach((raw) => {
+    const record = (raw ?? {}) as Record<string, unknown>;
+    const id = String(record.id ?? '').trim();
+    const ref = record.tournamentRef as { tournamentId?: unknown } | undefined;
+    const tournamentId = ref && typeof ref.tournamentId === 'string' ? ref.tournamentId.trim() : '';
+    if (id && tournamentId) {
+      tournamentIdOfMatch.set(id, tournamentId);
+    }
+  });
+
+  const groups = new Map<string, SyncImportTournamentGroup>();
+  const ensureGroup = (id: string): SyncImportTournamentGroup => {
+    const key = id ? `tournament:${id}` : 'plain';
+    const existing = groups.get(key);
+    if (existing) {
+      return existing;
+    }
+    const incoming = id ? incomingById.get(id) : undefined;
+    const local = id ? localById.get(id) : undefined;
+    const created: SyncImportTournamentGroup = {
+      key,
+      id,
+      name: String(incoming?.name ?? local?.name ?? '').trim(),
+      incoming: Boolean(incoming),
+      existsLocally: Boolean(local),
+      playerCount: Array.isArray(incoming?.playerIds)
+        ? (incoming!.playerIds as unknown[]).length
+        : (local?.playerIds.length ?? null),
+      stageSummary: local
+        ? `${local.stages[local.currentStageIndex]?.name ?? '阶段'} · 第 ${local.waves.filter((wave) => wave.stageIndex === local.currentStageIndex).length} 波`
+        : '',
+      matchKeys: [],
+      selectableCount: 0,
+    };
+    groups.set(key, created);
+    return created;
+  };
+
+  matchItems.forEach((item) => {
+    if (item.kind !== 'match') {
+      return;
+    }
+    const tournamentId = tournamentIdOfMatch.get(item.id) ?? '';
+    const group = ensureGroup(tournamentId);
+    group.matchKeys.push(item.key);
+    if (item.action !== 'skip' && matchItemById.has(item.id)) {
+      group.selectableCount += 1;
+    }
+  });
+
+  // 包内带了编排、但一场相关比赛都没进预览的系列赛也要显示（用户可以自己决定导不导）
+  incomingById.forEach((record, id) => {
+    const group = ensureGroup(id);
+    if (!group.name) {
+      group.name = String(record.name ?? '').trim();
+    }
+  });
+
+  const list = Array.from(groups.values()).filter((group) => group.id || group.matchKeys.length);
+  // 系列赛组在前（按名称），普通对局最后
+  list.sort((a, b) => {
+    if (!a.id !== !b.id) {
+      return a.id ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name, 'zh-CN');
+  });
+
+  return { groups: list, hasTournaments: payload.tournaments.length > 0 };
+}
+
 /** 组合预览：比赛 diff + 档案 diff + 头像统计（预览与应用共用，保证判定一致） */
 function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncConflictMode): SyncImportPreview {
   const normalized = normalizeImportedMatches(paths, payload.matches);
@@ -433,6 +531,7 @@ function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncCon
   });
 
   const localMachine = loadRuntimeConfig(paths).machineCode;
+  const tournamentGrouping = buildTournamentGroups(paths, payload, matchItems);
 
   return {
     meta: {
@@ -446,6 +545,8 @@ function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncCon
     matchItems,
     playerItems,
     teamItems,
+    tournamentGroups: tournamentGrouping.groups,
+    hasTournaments: tournamentGrouping.hasTournaments,
     summary: {
       match: countActions(matchItems),
       player: countActions(playerItems),
@@ -534,7 +635,30 @@ export async function applySyncImport(
   const accepted = new Set(options.acceptedKeys);
   const warnings: string[] = [];
 
-  // 比赛：只合并「被勾选且非跳过」的条目
+  // 用户在预览里取消勾选的系列赛：整条本次不导入（编排不合并 + 它包含的比赛不写入）
+  const excludedTournamentIds = new Set(
+    (options.excludeTournamentIds ?? []).map((id) => String(id ?? '').trim()).filter(Boolean),
+  );
+  const excludedMatchIds = new Set<string>();
+  if (excludedTournamentIds.size) {
+    (preview.tournamentGroups ?? []).forEach((group) => {
+      if (group.id && excludedTournamentIds.has(group.id)) {
+        group.matchKeys.forEach((key) => accepted.delete(key));
+        payload.matches.forEach((raw) => {
+          const record = (raw ?? {}) as Record<string, unknown>;
+          const ref = record.tournamentRef as { tournamentId?: unknown } | undefined;
+          if (ref && typeof ref.tournamentId === 'string' && ref.tournamentId === group.id) {
+            excludedMatchIds.add(String(record.id ?? ''));
+          }
+        });
+      }
+    });
+    if (excludedMatchIds.size) {
+      warnings.push(`已按你的选择跳过 ${excludedTournamentIds.size} 个系列赛（含其 ${excludedMatchIds.size} 场比赛）`);
+    }
+  }
+
+  // 比赛：只合并「被勾选且非跳过」的条目，且排除被取消勾选系列赛名下的比赛
   const normalized = normalizeImportedMatches(paths, payload.matches);
   const acceptedMatchIds = new Set(
     preview.matchItems
@@ -543,7 +667,7 @@ export async function applySyncImport(
   );
   mergeMatchRecords(
     paths,
-    normalized.records.filter((record) => acceptedMatchIds.has(record.id)),
+    normalized.records.filter((record) => acceptedMatchIds.has(record.id) && !excludedMatchIds.has(record.id)),
     options.mode,
   );
   if (normalized.rejected.length) {
@@ -552,15 +676,17 @@ export async function applySyncImport(
 
   // 系列赛：编排数据随包流转（自动合并，不进勾选列表）。
   // 只有编排机会修改系列赛，只读副本的本地版本不会反向覆盖编排机（见 tournament-service 所有权校验）。
-  const tournamentReport = mergeTournamentRecords(
-    paths,
-    options.skipTournaments ? [] : payload.tournaments,
-    options.mode,
-  );
+  const incomingTournaments = options.skipTournaments
+    ? []
+    : payload.tournaments.filter((raw) => {
+      const id = String(((raw ?? {}) as Record<string, unknown>).id ?? '').trim();
+      return !id || !excludedTournamentIds.has(id);
+    });
+  const tournamentReport = mergeTournamentRecords(paths, incomingTournaments, options.mode);
   if (tournamentReport.rejected) {
     warnings.push(`包内有 ${tournamentReport.rejected} 条系列赛记录不合法被忽略`);
   }
-  if (!options.skipTournaments && payload.tournaments.length && !loadRuntimeConfig(paths).machineCode) {
+  if (!options.skipTournaments && incomingTournaments.length && !loadRuntimeConfig(paths).machineCode) {
     warnings.push('本机未设置机器标识（machineCode），系列赛所有权无法区分，双机编排可能冲突');
   }
 

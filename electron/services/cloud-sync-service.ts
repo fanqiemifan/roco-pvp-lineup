@@ -177,8 +177,14 @@ interface CloudSyncLocalState {
   /** 指派规则：比赛 id -> 登记机器码（空字符串 = 主控端自己登记），分控端来自最近一次拉取 */
   assignment: Record<string, string>;
   assignmentUpdatedAt: string | null;
+  /** 主控端：已确认过的分控端回传序号（水位）。KV 是最终一致的，旧 uplink 还能被读到，
+   *  没有这道水位就会出现「刚确认完，轮询又把旧值读回来 → 界面上待确认数量又冒出来」的假象 */
+  ackedInboxSeq: Record<string, number>;
   /** 收件箱快照：分控端机器码 -> 最近一次读到的回传内容（主控端） */
   inbox: Record<string, CloudSyncUplinkPayload>;
+  /** 分控端：本次拉取到的云端版本号（确认合并时写进 appliedVersion；用「拉取时」的版本而不是当前版本，
+   *  否则主控在拉取后又上传了新版本，会把本机误标成「已是最新」） */
+  pendingVersion: number | null;
 }
 
 const DEFAULT_LOCAL_STATE: CloudSyncLocalState = {
@@ -196,11 +202,13 @@ const DEFAULT_LOCAL_STATE: CloudSyncLocalState = {
   roster: [],
   assignment: {},
   assignmentUpdatedAt: null,
+  ackedInboxSeq: {},
   inbox: {},
+  pendingVersion: null,
 };
 
 function emptyLocalState(): CloudSyncLocalState {
-  return { ...DEFAULT_LOCAL_STATE, roster: [], assignment: {}, ackedMatchIds: [], inbox: {} };
+  return { ...DEFAULT_LOCAL_STATE, roster: [], assignment: {}, ackedMatchIds: [], ackedInboxSeq: {}, inbox: {} };
 }
 
 function normalizeVersion(value: unknown): CloudSyncVersion | null {
@@ -244,11 +252,30 @@ function loadLocalState(paths: AppPaths): CloudSyncLocalState {
       roster: normalizeRoster(raw.roster),
       assignment: normalizeAssignment(raw.assignment),
       assignmentUpdatedAt: typeof raw.assignmentUpdatedAt === 'string' ? raw.assignmentUpdatedAt : null,
+      ackedInboxSeq: normalizeSeqMap(raw.ackedInboxSeq),
       inbox: normalizeInbox(raw.inbox),
+      pendingVersion: Number.isFinite(Number(raw.pendingVersion))
+        ? Math.max(0, Math.floor(Number(raw.pendingVersion)))
+        : null,
     };
   } catch {
     return emptyLocalState();
   }
+}
+
+/** 机器码 -> 序号 的水位表规范化（只保留合法序号） */
+function normalizeSeqMap(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const result: Record<string, number> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([code, seq]) => {
+    const parsed = Number(seq);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      result[code] = Math.floor(parsed);
+    }
+  });
+  return result;
 }
 
 function normalizeInbox(value: unknown): Record<string, CloudSyncUplinkPayload> {
@@ -396,6 +423,7 @@ function toPendingMatch(match: MatchRecord, tournamentLabel: string): CloudSyncP
 const EMPTY_PENDING: CloudSyncPendingQueue = {
   matches: [],
   count: 0,
+  unconfirmedCount: 0,
   seq: 0,
   submittedAt: null,
   ackedMatchIds: [],
@@ -414,11 +442,22 @@ export function computePendingQueue(paths: AppPaths): CloudSyncPendingQueue {
     .filter((match) => match.status === 'completed' && match.winner && !acked.has(match.id))
     .filter((match) => code !== '' && assignmentScopeOf(paths, match.id) === code);
   const labels = resolveTournamentLabels(paths, matches);
+  const submittedAt = state.submittedAt;
+  // 上次交回时间之后没再改过的比赛 = 已经交回、还在等确认（用时间判断，不额外存提交快照）
+  const submittedMs = submittedAt ? Date.parse(submittedAt) : Number.NaN;
+  const unconfirmedCount = Number.isFinite(submittedMs)
+    ? matches.filter((match) => {
+      const updatedMs = Date.parse(match.updatedAt);
+      return Number.isFinite(updatedMs) && updatedMs <= submittedMs;
+    }).length
+    : 0;
+
   return {
     matches: matches.map((match) => toPendingMatch(match, labels[match.id] ?? '')),
     count: matches.length,
+    unconfirmedCount,
     seq: state.seq,
-    submittedAt: state.submittedAt,
+    submittedAt,
     ackedMatchIds: state.ackedMatchIds,
     ackedAt: state.ackedAt,
   };
@@ -430,6 +469,48 @@ export function ackedMatchIdSet(paths: AppPaths): Set<string> {
 }
 
 /* ==================== 主控收件箱 ==================== */
+
+/**
+ * 读取各分控端回传（主控端）：逐分控端读一次信箱。
+ * **staleness 守卫**：KV 是最终一致的，刚确认完可能还读到确认前的旧值——序号不大于已确认水位的
+ * 一律忽略（保留本地已清空的状态），否则界面上「待确认」数量会刚清完又冒出来。
+ * 返回 { inbox, seqs }：seqs 是本次实际采纳的序号，用于刷新水位。
+ */
+async function readInbox(
+  paths: AppPaths,
+  config: RuntimeConfig,
+  previous: CloudSyncLocalState,
+): Promise<{ inbox: Record<string, CloudSyncUplinkPayload>; ackedInboxSeq: Record<string, number> }> {
+  const inbox: Record<string, CloudSyncUplinkPayload> = { ...previous.inbox };
+  const ackedInboxSeq: Record<string, number> = { ...previous.ackedInboxSeq };
+
+  for (const entry of previous.roster) {
+    if (!entry.code || entry.code === config.machineCode) {
+      continue;
+    }
+    const code = entry.code;
+    const mail = await readBox<CloudSyncUplinkPayload>(config, `uplink/${code}`);
+    if (!mail.value || !Array.isArray(mail.value.matches)) {
+      continue;
+    }
+    const uplink: CloudSyncUplinkPayload = {
+      ...mail.value,
+      from: normalizeMachineCode(mail.value.from) || code,
+      seq: Number.isFinite(Number(mail.value.seq)) ? Math.max(0, Math.floor(Number(mail.value.seq))) : 0,
+    };
+    const watermark = ackedInboxSeq[code] ?? 0;
+    if (uplink.seq > 0 && uplink.seq <= watermark) {
+      continue;
+    }
+    if (uplink.matches.length) {
+      inbox[code] = uplink;
+    } else {
+      delete inbox[code];
+    }
+  }
+
+  return { inbox, ackedInboxSeq };
+}
 
 function inboxEntriesOf(paths: AppPaths): CloudSyncInboxEntry[] {
   const state = loadLocalState(paths);
@@ -732,7 +813,12 @@ export async function previewCloudPull(paths: AppPaths): Promise<CloudSyncPullRe
     fs.writeFileSync(paths.cloudPendingFile, JSON.stringify(mail.value), 'utf-8');
 
     const version = await fetchVersion(paths);
-    const patch: Partial<CloudSyncLocalState> = { lastPulledAt: new Date().toISOString() };
+    const patch: Partial<CloudSyncLocalState> = {
+      lastPulledAt: new Date().toISOString(),
+      // 记下「拉取到的是哪一版」：确认合并时写进 appliedVersion 用它，而不是合并那一刻的云端版本
+      // （否则主控在拉取后又上传新版本时，本机会被误标成「已是最新」）
+      pendingVersion: version ? version.v : null,
+    };
     if (version) {
       patch.version = version;
     }
@@ -806,6 +892,7 @@ export async function finalizeCloudPull(
   paths: AppPaths,
   acceptedKeys: string[],
   mode: SyncConflictMode = 'newer',
+  excludeTournamentIds: string[] = [],
 ): Promise<CloudSyncActionResult<{ applied: SyncImportPreview['summary']; warnings: string[] }>> {
   try {
     if (!fs.existsSync(paths.cloudPendingFile)) {
@@ -825,6 +912,7 @@ export async function finalizeCloudPull(
       mode,
       acceptedKeys,
       includeAvatars: false,
+      excludeTournamentIds,
     });
     if (discarded.size) {
       // 丢弃本机陈旧赛果等于撤回：主控回执里的 id 也要清掉，否则该场永远不会重新进入待回传集
@@ -838,8 +926,14 @@ export async function finalizeCloudPull(
     }
 
     const state = loadLocalState(paths);
+    const changed = result.applied.match.add + result.applied.match.update
+      + result.applied.player.add + result.applied.player.update
+      + result.applied.team.add + result.applied.team.update > 0;
     finish(paths, {
-      appliedVersion: state.version ? state.version.v : state.appliedVersion,
+      // 用「拉取时记下的版本」而不是当前云端版本：拉取后主控又发了新版时，本机不能被标成已最新。
+      // 全部跳过（什么都没写入）时不推进 appliedVersion——否则会掩盖真正待处理的新内容。
+      appliedVersion: changed ? Math.max(state.appliedVersion, state.pendingVersion ?? 0) : state.appliedVersion,
+      pendingVersion: changed ? null : state.pendingVersion,
       lastPulledAt: new Date().toISOString(),
       // 丢弃本机陈旧赛果等于撤回：主控回执里的 id 也要清掉，否则该场永远不会重新进入待回传集
       ackedMatchIds: discarded.size
@@ -856,6 +950,31 @@ export async function finalizeCloudPull(
       status: getCloudSyncStatus(paths),
       data: { applied: result.applied, warnings: result.warnings },
     };
+  } catch (error) {
+    finish(paths, {}, error);
+    throw error;
+  }
+}
+
+/* ==================== 分控端：把云端版本标记为已处理（无需合并时） ==================== */
+
+/**
+ * 分控端：把「当前已读到的那一版」标记为已处理，但不写入任何数据。
+ *
+ * 场景：预览里全部是「不用改」的条目（点过确认合并、或云端内容与本机一致），
+ * 此时「确认」按钮没有可勾选项 → 界面会卡在「有新内容」的假象里。这个动作让状态收尾：
+ * 只更新 appliedVersion，不碰比赛/系列排。
+ */
+export async function skipCloudPull(paths: AppPaths): Promise<CloudSyncActionResult<{ appliedVersion: number }>> {
+  try {
+    const config = loadRuntimeConfig(paths);
+    if (config.syncRole !== 'sub') {
+      throw new Error('只有分控端需要这个动作');
+    }
+    const state = loadLocalState(paths);
+    const appliedVersion = Math.max(state.appliedVersion, state.pendingVersion ?? state.version?.v ?? 0);
+    finish(paths, { appliedVersion, pendingVersion: null, lastPulledAt: new Date().toISOString() });
+    return { status: getCloudSyncStatus(paths), data: { appliedVersion } };
   } catch (error) {
     finish(paths, {}, error);
     throw error;
@@ -941,17 +1060,9 @@ export async function pollCloudSync(paths: AppPaths): Promise<CloudSyncPollResul
   }
 
   if (config.syncRole === 'main') {
-    const inbox: Record<string, CloudSyncUplinkPayload> = { ...before.inbox };
-    for (const entry of before.roster) {
-      if (!entry.code || entry.code === config.machineCode) {
-        continue;
-      }
-      const mail = await readBox<CloudSyncUplinkPayload>(config, `uplink/${entry.code}`);
-      if (mail.value && Array.isArray(mail.value.matches)) {
-        inbox[entry.code] = mail.value;
-      }
-    }
+    const { inbox, ackedInboxSeq: seqs } = await readInbox(paths, config, before);
     patch.inbox = inbox;
+    patch.ackedInboxSeq = seqs;
   }
 
   finish(paths, patch);
@@ -1039,14 +1150,8 @@ export async function checkCloudSync(paths: AppPaths, code?: string | null): Pro
 
     const state = loadLocalState(paths);
     const peers = state.roster.filter((entry) => entry.code !== config.machineCode);
-    // 逐分控端读一次信箱（KV 不支持列键，靠名册决定读哪些）
-    const inbox: Record<string, CloudSyncUplinkPayload> = { ...state.inbox };
-    for (const peer of peers) {
-      const mail = await readBox<CloudSyncUplinkPayload>(config, `uplink/${peer.code}`);
-      if (mail.value && Array.isArray(mail.value.matches)) {
-        inbox[peer.code] = { ...mail.value, from: normalizeMachineCode(mail.value.from) || peer.code };
-      }
-    }
+    // 逐分控端读一次信箱（KV 不支持列键，靠名册决定读哪些）；已确认过序号的旧值会被忽略
+    const { inbox, ackedInboxSeq } = await readInbox(paths, config, state);
 
     const sources: CloudSyncAckSource[] = [];
     peers.forEach((peer) => {
@@ -1069,7 +1174,7 @@ export async function checkCloudSync(paths: AppPaths, code?: string | null): Pro
 
     const sorted = sources.sort((a, b) => (a.submittedAt < b.submittedAt ? 1 : -1));
     const target = code ? sorted.find((source) => source.code === code) ?? null : sorted[0] ?? null;
-    finish(paths, { inbox });
+    finish(paths, { inbox, ackedInboxSeq });
     return { status: getCloudSyncStatus(paths), data: { sources: sorted, source: target } };
   } catch (error) {
     finish(paths, {}, error);
@@ -1143,7 +1248,14 @@ export async function confirmCloudSync(
     } else {
       delete inbox[code];
     }
-    finish(paths, { inbox, ackedMatchIds, ackedAt: ack.at, lastAckedAt: ack.at });
+    finish(paths, {
+      inbox,
+      ackedMatchIds,
+      // 记下水位：KV 旧值（确认前的 uplink）之后被读到也不会再出现在待确认清单里
+      ackedInboxSeq: { ...nextState.ackedInboxSeq, [code]: Math.max(uplink.seq, nextState.ackedInboxSeq[code] ?? 0) },
+      ackedAt: ack.at,
+      lastAckedAt: ack.at,
+    });
 
     return {
       status: getCloudSyncStatus(paths),

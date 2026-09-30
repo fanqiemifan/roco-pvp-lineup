@@ -622,6 +622,121 @@ describe('上行：分控「回传」→ 主控确认台 → 回执', () => {
     expect(String(result.data.error)).toContain('无待回传');
   });
 
+  it('确认后 KV 还读到旧回传值时，待确认清单不会被“复活”', async () => {
+    configureRoom();
+    const { matches } = createRunningTournament();
+    await postMain('/api/cloud-sync/assignment', {
+      syncKey: SYNC_KEY,
+      machineCode: 'A',
+      overrides: { [matches[0]]: 'B' },
+    });
+    await push();
+    await syncSub();
+    await playMatchOnSub(matches[0], 'left');
+    await postSub('/api/cloud-sync/upload', { syncKey: SYNC_KEY, machineCode: 'B' });
+
+    const check = await postMain('/api/cloud-sync/check', { syncKey: SYNC_KEY, machineCode: 'A' });
+    expect(check.data.data.sources).toHaveLength(1);
+    await postMain('/api/cloud-sync/confirm', {
+      syncKey: SYNC_KEY,
+      machineCode: 'A',
+      code: 'B',
+      accepted: check.data.data.source.selectableKeys,
+    });
+
+    // KV 是最终一致的：模拟「确认之后仍读到确认前的旧 uplink」（seq 还是 1）
+    const uplinkBefore = worker.kv.get(`room:${SYNC_KEY}:uplink/B`);
+    const poll = await postMain('/api/cloud-sync/poll', { syncKey: SYNC_KEY, machineCode: 'A' });
+    expect(poll.data.status.inbox).toHaveLength(0);
+    expect(worker.kv.get(`room:${SYNC_KEY}:uplink/B`)).toEqual(uplinkBefore);
+
+    // 再点一次「检查回传」也不该把已确认的赛果重新列出来
+    const recheck = await postMain('/api/cloud-sync/check', { syncKey: SYNC_KEY, machineCode: 'A' });
+    expect(recheck.data.data.sources).toHaveLength(0);
+    expect(recheck.data.data.source).toBeNull();
+
+    // 分控端交了新一版（seq 更大）时仍然会被读到
+    const second = await postSub('/api/cloud-sync/upload', { syncKey: SYNC_KEY, machineCode: 'B' });
+    expect(second.status).toBe(200);
+    const afterNew = await postMain('/api/cloud-sync/check', { syncKey: SYNC_KEY, machineCode: 'A' });
+    expect(afterNew.data.data.sources).toHaveLength(1);
+  });
+
+  it('确认台确认后主控状态立刻清空（不会还显示待确认数量）', async () => {
+    configureRoom();
+    const { matches } = createRunningTournament();
+    await postMain('/api/cloud-sync/assignment', {
+      syncKey: SYNC_KEY,
+      machineCode: 'A',
+      overrides: { [matches[0]]: 'B' },
+    });
+    await push();
+    await syncSub();
+    await playMatchOnSub(matches[0], 'right');
+    await postSub('/api/cloud-sync/upload', { syncKey: SYNC_KEY, machineCode: 'B' });
+
+    const check = await postMain('/api/cloud-sync/check', { syncKey: SYNC_KEY, machineCode: 'A' });
+    expect(check.data.status.inbox[0].pending).toHaveLength(1);
+
+    const confirm = await postMain('/api/cloud-sync/confirm', {
+      syncKey: SYNC_KEY,
+      machineCode: 'A',
+      code: 'B',
+      accepted: check.data.data.source.selectableKeys,
+    });
+    // 响应里带回的状态就是清空后的：界面不需要再猜
+    expect(confirm.data.status.inbox).toHaveLength(0);
+    expect(confirm.data.status.lastContact.ackedAt).toBeTruthy();
+  });
+
+  it('分控端交回后：待交回计数与「等确认」计数能区分开', async () => {
+    configureRoom();
+    const { matches } = createRunningTournament();
+    await postMain('/api/cloud-sync/assignment', {
+      syncKey: SYNC_KEY,
+      machineCode: 'A',
+      overrides: { [matches[0]]: 'B' },
+    });
+    await push();
+    await syncSub();
+    await playMatchOnSub(matches[0], 'left');
+
+    const beforeUpload = (await get(subBase, '/api/cloud-sync/status')).data.status;
+    expect(beforeUpload.pending.count).toBe(1);
+    expect(beforeUpload.pending.unconfirmedCount).toBe(0);
+
+    await postSub('/api/cloud-sync/upload', { syncKey: SYNC_KEY, machineCode: 'B' });
+    const afterUpload = (await get(subBase, '/api/cloud-sync/status')).data.status;
+    expect(afterUpload.pending.count).toBe(1);
+    expect(afterUpload.pending.unconfirmedCount).toBe(1);
+  });
+
+  it('分控端「确认合并」后 appliedVersion 跟上：红点不会一直挂着', async () => {
+    configureRoom();
+    createMatch(mainPaths, { leftPlayer: '甲', rightPlayer: '乙', bestOf: 3 });
+    await push();
+
+    const pulled = await postSub('/api/cloud-sync/pull', { syncKey: SYNC_KEY, machineCode: 'B' });
+    const accepted = pulled.data.preview.matchItems.map((item: { key: string }) => item.key);
+    const applied = await postSub('/api/cloud-sync/apply', {
+      syncKey: SYNC_KEY,
+      machineCode: 'B',
+      accepted,
+      mode: 'newer',
+    });
+    expect(applied.data.status.appliedVersion).toBe(applied.data.status.version.v);
+
+    // 再点一次：没有可写入的条目 → 用「标记为已处理」收尾（不写入任何数据）
+    const again = await postSub('/api/cloud-sync/pull', { syncKey: SYNC_KEY, machineCode: 'B' });
+    const selectable = again.data.preview.matchItems.filter((item: { action: string }) => item.action !== 'skip');
+    expect(selectable).toHaveLength(0);
+
+    const skipped = await postSub('/api/cloud-sync/skip', { syncKey: SYNC_KEY, machineCode: 'B' });
+    expect(skipped.status).toBe(200);
+    expect(skipped.data.status.appliedVersion).toBe(skipped.data.status.version.v);
+    expect(getMatchStore(subPaths).matches).toHaveLength(1);
+  });
+
   it('未在收件箱的回传内容不能确认（先「检查回传」）', async () => {
     configureRoom();
     const result = await postMain('/api/cloud-sync/confirm', {
@@ -632,6 +747,71 @@ describe('上行：分控「回传」→ 主控确认台 → 回执', () => {
     });
     expect(result.status).toBe(400);
     expect(String(result.data.error)).toContain('收件箱');
+  });
+  it('预览按系列赛分组：能看出哪条系列赛包含哪些比赛', async () => {
+    configureRoom();
+    const { tournament, matches } = createRunningTournament();
+    createMatch(mainPaths, { leftPlayer: '散人甲', rightPlayer: '散人乙', bestOf: 3 });
+    await push();
+
+    const pulled = await postSub('/api/cloud-sync/pull', { syncKey: SYNC_KEY, machineCode: 'B' });
+    const groups = pulled.data.preview.tournamentGroups;
+    expect(pulled.data.preview.hasTournaments).toBe(true);
+
+    const tournamentGroup = groups.find((group: { id: string }) => group.id === tournament.id);
+    expect(tournamentGroup).toBeTruthy();
+    expect(tournamentGroup.name).toBe('云同步杯');
+    expect(tournamentGroup.playerCount).toBe(8);
+    expect(tournamentGroup.incoming).toBe(true);
+    expect(tournamentGroup.existsLocally).toBe(false);
+    expect(tournamentGroup.matchKeys.sort()).toEqual(matches.map((id) => `match:${id}`).sort());
+
+    // 普通对局单独一组，且不混进系列赛组
+    const plainGroup = groups.find((group: { id: string }) => group.id === '');
+    expect(plainGroup.matchKeys).toHaveLength(1);
+    expect(tournamentGroup.matchKeys).not.toContain(plainGroup.matchKeys[0]);
+  });
+
+  it('取消勾选某条系列赛：它的编排与名下比赛都不导入，其他数据照常导入', async () => {
+    configureRoom();
+    const { tournament, matches } = createRunningTournament();
+    createMatch(mainPaths, { leftPlayer: '散人甲', rightPlayer: '散人乙', bestOf: 3 });
+    await push();
+
+    const pulled = await postSub('/api/cloud-sync/pull', { syncKey: SYNC_KEY, machineCode: 'B' });
+    const accepted = pulled.data.preview.matchItems.map((item: { key: string }) => item.key);
+    const applied = await postSub('/api/cloud-sync/apply', {
+      syncKey: SYNC_KEY,
+      machineCode: 'B',
+      accepted,
+      mode: 'newer',
+      excludeTournamentIds: [tournament.id],
+    });
+    expect(applied.status).toBe(200);
+
+    // 系列赛与它的比赛都没进来，只有普通对局落地
+    expect(getTournamentStore(subPaths)).toHaveLength(0);
+    const subMatches = getMatchStore(subPaths).matches;
+    expect(subMatches).toHaveLength(1);
+    expect(matches).not.toContain(subMatches[0].id);
+    expect(applied.data.data.warnings.join()).toContain('跳过');
+
+    // 再同步一次、这次不排除：系列赛与比赛都会进来
+    await push();
+    const pulled2 = await postSub('/api/cloud-sync/pull', { syncKey: SYNC_KEY, machineCode: 'B' });
+    const accepted2 = pulled2.data.preview.matchItems.map((item: { key: string }) => item.key);
+    const applied2 = await postSub('/api/cloud-sync/apply', {
+      syncKey: SYNC_KEY,
+      machineCode: 'B',
+      accepted: accepted2,
+      mode: 'newer',
+    });
+    expect(applied2.status).toBe(200);
+    expect(getTournamentStore(subPaths).map((record) => record.id)).toContain(tournament.id);
+    const subIds = getMatchStore(subPaths).matches.map((match) => match.id);
+    expect(matches.every((matchId) => subIds.includes(matchId))).toBe(true);
+    // 普通对局不会被系列赛导入顺手删掉
+    expect(subIds.length).toBe(matches.length + 1);
   });
 });
 

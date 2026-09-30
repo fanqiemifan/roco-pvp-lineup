@@ -570,6 +570,31 @@ export interface SyncImportCounts {
   skip: number;
 }
 
+/**
+ * 导入预览里的系列赛分组：把包内的系列赛与它包含的比赛关联起来，
+ * 让用户在预览弹窗里能一眼分辨「哪些比赛属于哪个系列赛」，并按系列赛决定要不要一起导入。
+ * - key：`tournament:${id}` 或 `plain`（不属于任何系列赛的普通对局）
+ * - id：系列赛 id（plain 组为空字符串）
+ * - incoming：本包是否带了这条系列赛编排（false = 包内没有该系列赛的编排，只是比赛挂了引用）
+ */
+export interface SyncImportTournamentGroup {
+  key: string;
+  id: string;
+  name: string;
+  /** 本包是否携带该系列赛编排（会随导入自动合并） */
+  incoming: boolean;
+  /** 本机是否已有该系列赛 */
+  existsLocally: boolean;
+  /** 该系列赛的参赛人数（包内编排可见时才有值） */
+  playerCount: number | null;
+  /** 该系列赛现有的轮次摘要（如「8进4 · 第 2 波」），无编排时为空字符串 */
+  stageSummary: string;
+  /** 由它包含、且出现在本次预览里的比赛 key（match:xxx） */
+  matchKeys: string[];
+  /** 其中可勾选（新增/更新）的比赛数 */
+  selectableCount: number;
+}
+
 /** 头像 / logo 处理统计 */
 export interface SyncAvatarCounts {
   /** 本地缺失、可从包内补缺的数量 */
@@ -588,6 +613,10 @@ export interface SyncImportPreview {
   matchItems: SyncImportItem[];
   playerItems: SyncImportItem[];
   teamItems: SyncImportItem[];
+  /** 按系列赛分组的比赛（含「普通对局」组），用于预览弹窗里区分系列赛及其比赛 */
+  tournamentGroups?: SyncImportTournamentGroup[];
+  /** 本包是否携带系列赛编排（false = 只带了比赛，编排不参与本次导入） */
+  hasTournaments?: boolean;
   summary: {
     match: SyncImportCounts;
     player: SyncImportCounts;
@@ -680,6 +709,8 @@ export interface CloudSyncAckPayload {
 export interface CloudSyncPendingQueue {
   matches: CloudSyncPendingMatch[];
   count: number;
+  /** 其中「已经交回、还在等主控电脑确认」的场次数（用来区分「还没交回」和「交了没被确认」） */
+  unconfirmedCount: number;
   /** 上次回传序号（0 = 未回传过） */
   seq: number;
   submittedAt: string | null;
