@@ -15,6 +15,8 @@ import type {
   CloudSyncCheckResult,
   CloudSyncConfirmResult,
   CloudSyncInboxEntry,
+  CloudSyncKeyGuardResult,
+  CloudSyncLocalStateSummary,
   CloudSyncOffer,
   CloudSyncPendingMatch,
   CloudSyncPendingQueue,
@@ -37,7 +39,7 @@ import type {
   SyncImportResult,
 } from '../../shared/types.js';
 import type { RuntimeConfig } from './config-service.js';
-import { loadRuntimeConfig, normalizeMachineCode, saveRuntimeConfig } from './config-service.js';
+import { loadRuntimeConfig, normalizeMachineCode, normalizeSyncKey, saveRuntimeConfig } from './config-service.js';
 import { getMatchStore, resetMatchRegistrations } from './match-service.js';
 import type { AppPaths } from './path-service.js';
 import { applySyncImport, exportSyncBundle, parseSyncBundle, previewSyncImport, type SyncBundlePayload } from './sync-service.js';
@@ -595,6 +597,101 @@ function buildLocalRoster(paths: AppPaths): CloudSyncRosterEntry[] {
   return entries.slice(0, CLOUD_SYNC_ROSTER_MAX);
 }
 
+/* ==================== 换房间守卫（改 syncKey：旧房间的本机状态怎么处理） ==================== */
+
+/** 旧房间本机状态摘要（只报数量；全 0 = 没有值得保护的东西） */
+function localStateSummary(state: CloudSyncLocalState): CloudSyncLocalStateSummary {
+  return {
+    version: state.version?.v ?? 0,
+    appliedVersion: state.appliedVersion,
+    ackedMatches: state.ackedMatchIds.length,
+    inboxPeers: Object.keys(state.inbox).length,
+    uplinkWatermarks: Object.keys(state.ackedInboxSeq).length,
+    uplinkSeq: state.seq,
+    assignments: Object.keys(state.assignment).length,
+    peers: state.roster.length,
+  };
+}
+
+function isSummaryEmpty(summary: CloudSyncLocalStateSummary): boolean {
+  return Object.values(summary).every((value) => value === 0);
+}
+
+/** 摘要的人话描述（只说有内容的项，拼进守卫提示） */
+function describeState(summary: CloudSyncLocalStateSummary): string {
+  const parts: string[] = [];
+  if (summary.version || summary.appliedVersion) {
+    parts.push(`同步进度（旧房间读到第 ${summary.version} 版、本机处理到第 ${summary.appliedVersion} 版）`);
+  }
+  if (summary.ackedMatches) {
+    parts.push(`${summary.ackedMatches} 场已被主控确认的赛果`);
+  }
+  if (summary.uplinkWatermarks) {
+    parts.push(`${summary.uplinkWatermarks} 台电脑的回传进度`);
+  }
+  if (summary.inboxPeers) {
+    parts.push(`${summary.inboxPeers} 台电脑待确认的回传`);
+  }
+  if (summary.assignments) {
+    parts.push(`${summary.assignments} 条登记指派`);
+  }
+  if (summary.peers) {
+    parts.push(`名册里的 ${summary.peers} 台电脑`);
+  }
+  return parts.join('、');
+}
+
+/**
+ * 换房间守卫：改「房间号」（syncKey）就是把本机云同步状态留在旧房间。
+ * 这些记录（版本水位 / 已确认集 / 回传水位 / 名册 / 指派）**都不带房间标识**，原样带进新房间的后果：
+ * - 分控端 `appliedVersion` 比新房间的版本号大 → 界面显示「已是最新」，真实内容被整批跳过；
+ * - 主控端旧 `ackedInboxSeq` 水位会把新房间的回传当成陈旧值**静默忽略**（登记了却永远不出现）；
+ * 所以必须让使用者显式选择「重置」还是「保留」（只是改正房间号里的错字时，保留是合理的）。
+ */
+export function checkSyncKeyChange(paths: AppPaths, nextKey: unknown): CloudSyncKeyGuardResult {
+  const current = loadRuntimeConfig(paths).syncKey;
+  const next = normalizeSyncKey(nextKey);
+  const summary = localStateSummary(loadLocalState(paths));
+  const hasLocalState = !isSummaryEmpty(summary);
+  const changed = next !== current;
+  const requireConfirm = changed && hasLocalState;
+  return {
+    changed,
+    hasLocalState,
+    requireConfirm,
+    message: requireConfirm
+      ? `房间号从「${current || '（空）'}」改成「${next || '（空）'}」，但本机还留着上一个房间的记录：${describeState(summary)}。`
+        + '这些记录不带房间标识，原样带进新房间会让界面误判「已是最新」，新房间里的回传也可能被当成旧数据静默忽略。'
+        + '建议重置；如果只是改正房间号里的错字（数据其实还在同一个房间），可以保留。'
+      : '',
+    summary,
+  };
+}
+
+/** 换房间动作：reset = 清掉旧房间状态；keep = 原样保留（其它值一律视为没选） */
+function normalizeCloudStateAction(value: unknown): 'reset' | 'keep' | '' {
+  return value === 'reset' || value === 'keep' ? value : '';
+}
+
+/** 守卫错误：带上 guard，路由据此回 409、前端弹「重置 / 保留」二次确认 */
+function syncKeyGuardError(guard: CloudSyncKeyGuardResult): Error & { guard: CloudSyncKeyGuardResult } {
+  const error = new Error(guard.message) as Error & { guard: CloudSyncKeyGuardResult };
+  error.guard = guard;
+  return error;
+}
+
+/**
+ * 清掉本机云同步状态（换房间用）：删掉 `cache/cloud-sync.json`。
+ * 本地状态不按房间分键（见 checkSyncKeyChange），没法只丢「属于旧房间的那部分」，只能整体丢弃。
+ */
+function resetCloudLocalState(paths: AppPaths): void {
+  try {
+    fs.rmSync(paths.cloudSyncFile, { force: true });
+  } catch {
+    // 删不掉不阻断保存：下次写入会整体覆盖
+  }
+}
+
 /* ==================== 设置 ==================== */
 
 export interface CloudSyncConfigInput {
@@ -607,13 +704,29 @@ export interface CloudSyncConfigInput {
   pollIntervalSeconds?: unknown;
   /** 分控端机器码列表（仅主控端填写；不含本机码，自动去重） */
   peerCodes?: unknown;
+  /**
+   * 房间号变更时的处置：'reset' = 先清掉本机旧房间的云同步状态再保存；'keep' = 原样保留。
+   * 两者都不给时，若房间号确实变了且本机还留着旧状态 → 抛带 guard 的错误（前端弹二次确认）。
+   */
+  cloudStateAction?: unknown;
 }
 
 /**
  * 保存云同步设置：名册由主控端维护（分控端码列表），显示名取各机自己填的 machineLabel
  * （主控端拿不到分控端的显示名，只显示短码——名册里没有分控端标签）。
+ *
+ * **换房间守卫**：改 syncKey 时会先问旧房间的本机状态怎么处理（见 checkSyncKeyChange）；
+ * 重置必须发生在写名册**之前**，否则会把刚写进去的分控码名册一起清掉。
  */
 export function saveCloudSyncConfig(paths: AppPaths, input: CloudSyncConfigInput): CloudSyncStatus {
+  const cloudStateAction = normalizeCloudStateAction(input.cloudStateAction);
+  if (input.syncKey !== undefined) {
+    const guard = checkSyncKeyChange(paths, input.syncKey);
+    if (guard.requireConfirm && !cloudStateAction) {
+      throw syncKeyGuardError(guard);
+    }
+  }
+
   const patch: Partial<RuntimeConfig> = {};
   if (input.syncKey !== undefined) patch.syncKey = String(input.syncKey);
   if (input.syncToken !== undefined) patch.syncToken = String(input.syncToken);
@@ -624,6 +737,12 @@ export function saveCloudSyncConfig(paths: AppPaths, input: CloudSyncConfigInput
   if (input.pollIntervalSeconds !== undefined) patch.cloudPollInterval = Number(input.pollIntervalSeconds);
 
   const next = saveRuntimeConfig(paths, patch);
+
+  // 重置旧房间状态必须在写名册之前：否则会把下面刚写进去的分控码名册一起清掉
+  if (cloudStateAction === 'reset') {
+    resetCloudLocalState(paths);
+  }
+
   const state = loadLocalState(paths);
 
   if (Array.isArray(input.peerCodes)) {

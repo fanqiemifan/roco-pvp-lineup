@@ -56,6 +56,7 @@ import type {
   AvatarCollectionState,
   CloudSyncAckSource,
   CloudSyncInboxEntry,
+  CloudSyncKeyGuardResult,
   CloudSyncPendingQueue,
   CloudSyncRole,
   CloudSyncStatus,
@@ -554,6 +555,8 @@ function Dashboard() {
   const [cloudPeerDraft, setCloudPeerDraft] = useState('');
   const [cloudSaving, setCloudSaving] = useState(false);
   const [cloudTesting, setCloudTesting] = useState(false);
+  // 换房间守卫：改「房间号」时服务端回 409 + guard，弹窗让用户选「重置旧状态 / 原样保留」再重试（缺省拒绝保存）
+  const [cloudRoomGuard, setCloudRoomGuard] = useState<{ action: 'save' | 'test'; guard: CloudSyncKeyGuardResult } | null>(null);
   const [cloudBusy, setCloudBusy] = useState<'push' | 'pull' | 'upload' | 'check' | 'apply' | 'assignment' | 'poll' | ''>('');
   // 云端数据走与「导入同步包」同一套预览：flow 区分「拉取待合并」与「主控确认台」
   const [cloudPreviewFlow, setCloudPreviewFlow] = useState<'pull' | 'incoming' | null>(null);
@@ -3729,7 +3732,11 @@ function Dashboard() {
     }
   }
 
-  async function saveCloudSettings() {
+  /**
+   * 保存云同步设置。改「房间号」时服务端会先拦一次（409 + guard）：本机旧房间的同步状态
+   * （版本水位 / 已确认集 / 回传水位 / 名册 / 指派）不带房间标识，必须由用户选「重置」还是「保留」。
+   */
+  async function saveCloudSettings(cloudStateAction?: 'reset' | 'keep') {
     setCloudSaving(true);
     try {
       const result = await requestJson<{ success: boolean; status: CloudSyncStatus }>('/api/cloud-sync/config', {
@@ -3740,28 +3747,37 @@ function Dashboard() {
           role: cloudRoleDraft,
           workerUrl: cloudWorkerUrlDraft,
           machineLabel: cloudLabelDraft,
+          cloudStateAction,
           peerCodes: cloudRoleDraft === 'main'
             ? cloudPeerDraft.split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean)
             : undefined,
         },
       });
       applyCloudStatus(result.status, true);
-      message.success('云同步设置已保存');
+      message.success(cloudStateAction === 'reset'
+        ? '云同步设置已保存，本机旧房间的同步状态已清空'
+        : '云同步设置已保存');
     } catch (error) {
+      const guard = (error as { guard?: CloudSyncKeyGuardResult }).guard;
+      if (guard?.requireConfirm && !cloudStateAction) {
+        setCloudRoomGuard({ action: 'save', guard });
+        return;
+      }
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setCloudSaving(false);
     }
   }
 
-  async function testCloudWorker() {
+  async function testCloudWorker(cloudStateAction?: 'reset' | 'keep') {
     if (!cloudWorkerUrlDraft.trim()) {
       message.warning('请先填 Worker 地址（形如 https://roco-sync.xxx.workers.dev）');
       return;
     }
     setCloudTesting(true);
     try {
-      // 检测在线会先把地址/密钥/令牌按当前草稿存下来（/health 本身不需要它们），省一步「保存设置」
+      // 检测在线会先把地址/密钥/令牌按当前草稿存下来（/health 本身不需要它们），省一步「保存设置」；
+      // 因此这里同样可能被换房间守卫拦下（房间号变了 + 本机还留着旧房间状态）
       const result = await requestJson<{ success: boolean; ok: boolean; message: string; status: CloudSyncStatus }>(
         '/api/cloud-sync/test',
         {
@@ -3770,6 +3786,7 @@ function Dashboard() {
             workerUrl: cloudWorkerUrlDraft,
             syncKey: cloudKeyDraft,
             syncToken: cloudTokenDraft,
+            cloudStateAction,
           },
         },
       );
@@ -3783,10 +3800,29 @@ function Dashboard() {
         message.error({ content: result.message, duration: 8 });
       }
     } catch (error) {
+      const guard = (error as { guard?: CloudSyncKeyGuardResult }).guard;
+      if (guard?.requireConfirm && !cloudStateAction) {
+        setCloudRoomGuard({ action: 'test', guard });
+        return;
+      }
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setCloudTesting(false);
     }
+  }
+
+  /** 换房间守卫的选择：带选择把刚才被拦下的动作（保存 / 测试连通）重跑一次 */
+  function resolveCloudRoomGuard(cloudStateAction: 'reset' | 'keep') {
+    const pending = cloudRoomGuard;
+    setCloudRoomGuard(null);
+    if (!pending) {
+      return;
+    }
+    if (pending.action === 'test') {
+      void testCloudWorker(cloudStateAction);
+      return;
+    }
+    void saveCloudSettings(cloudStateAction);
   }
 
   /** 主控「上传给其他电脑」：把本机赛事资料整体发到云端 */
@@ -5129,7 +5165,8 @@ function Dashboard() {
                     <div className="sync-card-hint">
                       <b>怎么填：</b>主办方（主控电脑）把「服务地址 / 房间号 / 通行证」发给其他电脑，三样照抄，
                       再把角色选成<b>分控电脑</b>、本机标识（卡片最上面那个字母）改成<b>和别人不重复</b>的即可。
-                      「服务地址 / 通行证 / 备注名」填一次就存下来了，换比赛不用再填；只有「房间号」和角色是每场赛事确认一下。
+                      「服务地址 / 通行证 / 备注名」填一次就存下来了，换比赛不用再填；只有「房间号」和角色是每场赛事确认一下
+                      （换房间号时会问一次：本机旧房间的同步记录要不要重置）。
                     </div>
                     <div className="sync-card-hint">
                       <b>为什么要互不相同：</b>同一组人里两台电脑的「本机标识」必须不一样（比如 A / B），
@@ -5284,6 +5321,38 @@ function Dashboard() {
                   </div>
                 </div>
               </Card>
+
+              {/* 换房间守卫：房间号变了且本机还留着旧房间的同步状态时必须显式选一项，别默默带过去 */}
+              <Modal
+                title="房间号变了：本机旧房间的同步状态怎么处理？"
+                open={Boolean(cloudRoomGuard)}
+                onCancel={() => setCloudRoomGuard(null)}
+                footer={(
+                  <Space>
+                    <Button onClick={() => setCloudRoomGuard(null)}>先不改了</Button>
+                    <Button onClick={() => resolveCloudRoomGuard('keep')} loading={cloudSaving || cloudTesting}>
+                      保留旧状态，继续
+                    </Button>
+                    <Button
+                      type="primary"
+                      onClick={() => resolveCloudRoomGuard('reset')}
+                      loading={cloudSaving || cloudTesting}
+                    >
+                      重置旧状态，继续
+                    </Button>
+                  </Space>
+                )}
+              >
+                {cloudRoomGuard ? (
+                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    <Alert type="warning" showIcon message={cloudRoomGuard.guard.message} />
+                    <div className="sync-card-hint">
+                      <b>重置</b>＝ 清掉上面这些旧房间记录（换赛事、换一组人时选它）；
+                      <b>保留</b>＝ 只是改正房间号里的错字、数据其实还在同一个房间时选它。
+                    </div>
+                  </Space>
+                ) : null}
+              </Modal>
 
               <Modal
                 title={cloudPreviewFlow === 'pull'

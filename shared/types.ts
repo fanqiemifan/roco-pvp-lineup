@@ -924,6 +924,44 @@ export interface MachineCodeGuardResult {
   message: string;
 }
 
+/**
+ * 换房间守卫结果：改「房间号」（syncKey）时本机旧的云同步状态怎么处理。
+ * 本机 `cache/cloud-sync.json`（版本水位 / 已确认集 / 回传水位 / 名册 / 指派）**不含房间标识**，
+ * 原样带进新房间会让分控端被误判「已是最新」、主控端旧水位让新回传被静默忽略，
+ * 因此要求显式选择「重置」或「保留」（缺省则拒绝保存）。
+ */
+export interface CloudSyncKeyGuardResult {
+  /** 规范化后的房间号是否与已保存的不同 */
+  changed: boolean;
+  /** 本机是否留有旧房间的云同步状态 */
+  hasLocalState: boolean;
+  /** 需要二次确认（房间号确实变了 + 本机还留着旧状态） */
+  requireConfirm: boolean;
+  message: string;
+  /** 会被一起重置的内容摘要（界面据 0 值隐藏该项） */
+  summary: CloudSyncLocalStateSummary;
+}
+
+/** 旧房间本机云同步状态的摘要（换房间守卫展示用，全 0 = 没有旧状态） */
+export interface CloudSyncLocalStateSummary {
+  /** 云端最新版本号（0 = 没读到过） */
+  version: number;
+  /** 本机已处理到第几版（0 = 没处理过） */
+  appliedVersion: number;
+  /** 已确认赛果场次 */
+  ackedMatches: number;
+  /** 待确认回传的电脑台数 */
+  inboxPeers: number;
+  /** 记录过回传水位的电脑台数 */
+  uplinkWatermarks: number;
+  /** 本机回传序号（0 = 没回传过） */
+  uplinkSeq: number;
+  /** 指派规则条数 */
+  assignments: number;
+  /** 房间名册里的电脑台数（含分控码） */
+  peers: number;
+}
+
 /** 云同步接口的键名（KV 中四类键的后两类按机器码分键） */
 export type CloudSyncBoxName = 'downlink' | 'version' | `uplink/${string}` | `ack/${string}`;
 

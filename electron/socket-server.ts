@@ -10,7 +10,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { SOCKET_EVENTS } from '../shared/events.js';
 import { SYNC_BUNDLE_MAX_BYTES } from '../shared/constants.js';
 import { computeScheduleTimes } from '../shared/match-schedule.js';
-import type { AvatarCollectionState, CountdownState, MatchRecord, MatchStoreState, Page6State, Page7State, Page8State, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
+import type { AvatarCollectionState, CloudSyncKeyGuardResult, CountdownState, MatchRecord, MatchStoreState, Page6State, Page7State, Page8State, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
 import { getSpriteRanking } from './services/stats-service.js';
 import {
@@ -1968,6 +1968,20 @@ export async function createLocalServer(
     Array.isArray(value) ? value.map((item) => String(item ?? '')) : []
   );
 
+  /**
+   * 保存云同步设置类接口的错误出口：换房间守卫回 409 + guard（前端据此弹「重置旧状态 / 原样保留」
+   * 二次确认，选了再重试一次），其余（字段非法等）照旧 400。
+   */
+  const respondCloudConfigError = (response: Response, error: unknown): void => {
+    const guard = (error as { guard?: CloudSyncKeyGuardResult }).guard;
+    const message = error instanceof Error ? error.message : String(error);
+    if (guard) {
+      response.status(409).json({ success: false, error: message, guard });
+      return;
+    }
+    response.status(400).json({ success: false, error: message });
+  };
+
   /** multipart 表单里的字符串化 JSON 数组（accepted / excludeTournamentIds 都走这个） */
   const readJsonArrayField = (value: unknown): string[] => {
     if (typeof value !== 'string' || !value.trim()) {
@@ -1997,7 +2011,7 @@ export async function createLocalServer(
     }
   });
 
-  /** 云同步设置：房间密钥 / 角色 / Worker 地址 / 显示名 / 轮询开关 + 主控端分控码名册 */
+  /** 云同步设置：房间密钥 / 角色 / Worker 地址 / 显示名 / 轮询开关 + 主控端分控码名册（改房间号见换房间守卫） */
   app.post('/api/cloud-sync/config', (request, response) => {
     try {
       const body = (request.body ?? {}) as Record<string, unknown>;
@@ -2010,10 +2024,11 @@ export async function createLocalServer(
         pollEnabled: body.pollEnabled,
         pollIntervalSeconds: body.pollIntervalSeconds,
         peerCodes: body.peerCodes,
+        cloudStateAction: body.cloudStateAction,
       });
       response.json({ success: true, status });
     } catch (error) {
-      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+      respondCloudConfigError(response, error);
     }
   });
 
@@ -2026,16 +2041,18 @@ export async function createLocalServer(
       const body = (request.body ?? {}) as Record<string, unknown>;
       if (body.workerUrl !== undefined || body.syncKey !== undefined || body.syncToken !== undefined) {
         // undefined = 界面没带该字段（保持已保存值）；空字符串 = 用户主动清空（照存）
+        // 这里同样会经过换房间守卫：测试连通性顺手保存的房间号也不许静默带走旧房间状态
         saveCloudSyncConfig(paths, {
           workerUrl: body.workerUrl,
           syncKey: body.syncKey,
           syncToken: body.syncToken,
+          cloudStateAction: body.cloudStateAction,
         });
       }
       const result = await testCloudConnection(paths);
       response.json({ success: result.ok, ...result });
     } catch (error) {
-      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+      respondCloudConfigError(response, error);
     }
   });
 
