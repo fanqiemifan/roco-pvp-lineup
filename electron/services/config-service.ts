@@ -10,8 +10,10 @@ export interface RuntimeConfig {
   machineCode: string;
   /** 显示名（给机器码加人类语义，如「主播机」；纯展示，空字符串 = 只显示短码） */
   machineLabel: string;
-  /** 云同步：房间密钥（两端一致才能配对，空字符串 = 未配置） */
+  /** 云同步：房间密钥（两端一致才能配对；只用于键空间隔离，经请求头传递，不进 URL） */
   syncKey: string;
+  /** 云同步：访问令牌（Worker 侧 SYNC_TOKEN，真正的大门；只存本机 config.json 与 Cloudflare secret） */
+  syncToken: string;
   /** 云同步：角色（main = 主控端 / sub = 分控端），主/分不靠 machineCode 表达 */
   syncRole: CloudSyncRole;
   /** 云同步：Worker 地址（一次性每机设置，不打包进 exe） */
@@ -27,6 +29,7 @@ const DEFAULT_CONFIG: RuntimeConfig = {
   machineCode: '',
   machineLabel: '',
   syncKey: '',
+  syncToken: '',
   syncRole: 'main',
   workerUrl: '',
   cloudPollEnabled: true,
@@ -44,9 +47,14 @@ export function normalizeMachineLabel(value: unknown): string {
   return String(value ?? '').trim().slice(0, 16);
 }
 
-/** 房间密钥规范化：去首尾空白 + 去掉不适合拼进 URL 路径的字符（两端必须填写一致） */
+/** 房间密钥规范化：去首尾空白 + 去掉不适合拼进请求头的字符（两端必须填写一致） */
 export function normalizeSyncKey(value: unknown): string {
   return String(value ?? '').trim().replace(/[^A-Za-z0-9_.~-]/g, '').slice(0, 64);
+}
+
+/** 访问令牌规范化：允许随机串常见字符（字母数字与 !#$%&*+-.=?@^_~），最长 128 位 */
+export function normalizeSyncToken(value: unknown): string {
+  return String(value ?? '').trim().replace(/[^A-Za-z0-9!#$%&*+\-.=?@^_~]/g, '').slice(0, 128);
 }
 
 /** Worker 地址规范化：补全 scheme、去掉末尾斜杠；非 http(s) 视为未配置 */
@@ -93,6 +101,7 @@ export function loadRuntimeConfig(paths: AppPaths): RuntimeConfig {
       machineCode: normalizeMachineCode(payload.machineCode),
       machineLabel: normalizeMachineLabel(payload.machineLabel),
       syncKey: normalizeSyncKey(payload.syncKey),
+      syncToken: normalizeSyncToken(payload.syncToken),
       syncRole: normalizeSyncRole(payload.syncRole),
       workerUrl: normalizeWorkerUrl(payload.workerUrl),
       cloudPollEnabled: payload.cloudPollEnabled === undefined
@@ -116,6 +125,7 @@ export function saveRuntimeConfig(paths: AppPaths, patch: Partial<RuntimeConfig>
     machineCode: patch.machineCode === undefined ? current.machineCode : normalizeMachineCode(patch.machineCode),
     machineLabel: patch.machineLabel === undefined ? current.machineLabel : normalizeMachineLabel(patch.machineLabel),
     syncKey: patch.syncKey === undefined ? current.syncKey : normalizeSyncKey(patch.syncKey),
+    syncToken: patch.syncToken === undefined ? current.syncToken : normalizeSyncToken(patch.syncToken),
     syncRole: patch.syncRole === undefined ? current.syncRole : normalizeSyncRole(patch.syncRole),
     workerUrl: patch.workerUrl === undefined ? current.workerUrl : normalizeWorkerUrl(patch.workerUrl),
     cloudPollEnabled: patch.cloudPollEnabled === undefined

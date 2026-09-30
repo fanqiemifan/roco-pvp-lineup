@@ -531,6 +531,7 @@ function Dashboard() {
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus | null>(null);
   // 云同步设置区草稿（本地编辑，点「保存设置」才落 config.json）
   const [cloudKeyDraft, setCloudKeyDraft] = useState('');
+  const [cloudTokenDraft, setCloudTokenDraft] = useState('');
   const [cloudRoleDraft, setCloudRoleDraft] = useState<CloudSyncRole>('main');
   const [cloudWorkerUrlDraft, setCloudWorkerUrlDraft] = useState('');
   const [cloudLabelDraft, setCloudLabelDraft] = useState('');
@@ -3543,6 +3544,9 @@ function Dashboard() {
     if (force || !cloudKeyDraft) {
       setCloudKeyDraft(next.config.syncKey);
     }
+    if (force || !cloudTokenDraft) {
+      setCloudTokenDraft(next.config.syncToken);
+    }
     if (force || !cloudWorkerUrlDraft) {
       setCloudWorkerUrlDraft(next.config.workerUrl);
     }
@@ -3560,12 +3564,13 @@ function Dashboard() {
     setCloudAckedMatchIds(next.pending.ackedMatchIds);
   }
 
-  /** 云同步请求统一出口：自动带房间密钥与机器码（服务端校验一致才执行） */
+  /** 云同步请求统一出口：自动带房间密钥、访问令牌与机器码（服务端校验一致才执行） */
   async function postCloud<T>(pathname: string, body: Record<string, unknown> = {}): Promise<T & { status: CloudSyncStatus }> {
     const result = await requestJson<T & { status: CloudSyncStatus }>(pathname, {
       method: 'POST',
       json: {
         syncKey: cloudStatus?.config.syncKey ?? cloudKeyDraft,
+        syncToken: cloudStatus?.config.syncToken ?? cloudTokenDraft,
         machineCode: cloudStatus?.config.machineCode ?? machineCodeInput,
         ...body,
       },
@@ -3624,6 +3629,7 @@ function Dashboard() {
         method: 'POST',
         json: {
           syncKey: cloudKeyDraft,
+          syncToken: cloudTokenDraft,
           role: cloudRoleDraft,
           workerUrl: cloudWorkerUrlDraft,
           machineLabel: cloudLabelDraft,
@@ -3642,11 +3648,23 @@ function Dashboard() {
   }
 
   async function testCloudWorker() {
+    if (!cloudWorkerUrlDraft.trim()) {
+      message.warning('请先填 Worker 地址（形如 https://roco-sync.xxx.workers.dev）');
+      return;
+    }
     setCloudTesting(true);
     try {
+      // 检测在线会先把地址/密钥/令牌按当前草稿存下来（/health 本身不需要它们），省一步「保存设置」
       const result = await requestJson<{ success: boolean; ok: boolean; message: string; status: CloudSyncStatus }>(
         '/api/cloud-sync/test',
-        { method: 'POST', json: { workerUrl: cloudWorkerUrlDraft, syncKey: cloudKeyDraft } },
+        {
+          method: 'POST',
+          json: {
+            workerUrl: cloudWorkerUrlDraft,
+            syncKey: cloudKeyDraft,
+            syncToken: cloudTokenDraft,
+          },
+        },
       );
       if (result.status) {
         applyCloudStatus(result.status, true);
@@ -3654,7 +3672,8 @@ function Dashboard() {
       if (result.ok) {
         message.success(result.message);
       } else {
-        message.error(result.message);
+        // 失败原因明确指出是网络还是地址，不要只说「不可达」
+        message.error({ content: result.message, duration: 8 });
       }
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
@@ -4762,23 +4781,31 @@ function Dashboard() {
                     </Space>
 
                     <Row gutter={[12, 8]} className="cloud-sync-fields">
-                      <Col xs={24} md={12} xl={8}>
+                      <Col xs={24} md={12} xl={6}>
                         <Input.Password
-                          value={cloudKeyDraft}
-                          onChange={(event) => setCloudKeyDraft(event.target.value)}
-                          placeholder="房间密钥 syncKey（两端一致才能配对）"
-                          addonBefore="syncKey"
-                        />
-                      </Col>
-                      <Col xs={24} md={12} xl={8}>
-                        <Input
                           value={cloudWorkerUrlDraft}
                           onChange={(event) => setCloudWorkerUrlDraft(event.target.value)}
                           placeholder="https://roco-sync.xxx.workers.dev"
                           addonBefore="workerUrl"
                         />
                       </Col>
-                      <Col xs={12} md={8} xl={4}>
+                      <Col xs={24} md={12} xl={6}>
+                        <Input
+                          value={cloudKeyDraft}
+                          onChange={(event) => setCloudKeyDraft(event.target.value)}
+                          placeholder="两端一致即可，仅用于键空间隔离"
+                          addonBefore="syncKey"
+                        />
+                      </Col>
+                      <Col xs={24} md={12} xl={6}>
+                        <Input.Password
+                          value={cloudTokenDraft}
+                          onChange={(event) => setCloudTokenDraft(event.target.value)}
+                          placeholder="与 Worker 的 SYNC_TOKEN 相同"
+                          addonBefore="访问令牌"
+                        />
+                      </Col>
+                      <Col xs={12} md={6} xl={3}>
                         <Input
                           value={cloudLabelDraft}
                           onChange={(event) => setCloudLabelDraft(event.target.value)}
@@ -4787,7 +4814,7 @@ function Dashboard() {
                           addonBefore="显示名"
                         />
                       </Col>
-                      <Col xs={12} md={8} xl={4}>
+                      <Col xs={12} md={6} xl={3}>
                         {cloudRoleDraft === 'main' ? (
                           <Input
                             value={cloudPeerDraft}
@@ -4800,8 +4827,9 @@ function Dashboard() {
                     </Row>
 
                     <div className="sync-card-hint">
-                      workerUrl / 机器码 / 显示名是<b>一次性每机设置</b>（存 <Text code>runtime/config.json</Text>，不打包进 exe）；
+                      workerUrl / 访问令牌 / 机器码 / 显示名是<b>一次性每机设置</b>（存 <Text code>runtime/config.json</Text>，不打包进 exe）；
                       syncKey + 角色是<b>每次比赛</b>填写/切换，同房间内机器码必须互不相同（否则分控端可能被误判为编排机）。
+                      访问令牌 = Worker 侧的 <Text code>SYNC_TOKEN</Text>，<b>只存本机与 Cloudflare，不进 URL</b>；没有它两端都会被 Worker 拒绝（503/401）。
                     </div>
 
                     <div className="cloud-sync-hints">

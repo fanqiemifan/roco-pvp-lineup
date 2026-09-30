@@ -701,6 +701,8 @@ export interface CloudSyncInboxEntry {
 export interface CloudSyncStatus {
   config: {
     syncKey: string;
+    /** 访问令牌（Worker 侧 SYNC_TOKEN）：只存本机 config.json 与 Cloudflare secret，不进 URL */
+    syncToken: string;
     role: CloudSyncRole;
     workerUrl: string;
     machineCode: string;
@@ -807,6 +809,8 @@ export interface CloudSyncRejectResult extends CloudSyncActionResult<{ code: str
 export interface CloudSyncTestResult extends CloudSyncActionResult<{ ok: boolean }> {
   ok: boolean;
   message: string;
+  /** Worker 侧鉴权状态（来自 /health）：tokenConfigured=false 说明运营者还没设 SYNC_TOKEN，任何人都会拿到 503 */
+  health?: { tokenRequired: boolean; tokenConfigured: boolean };
 }
 
 /** 机器码变更校验结果：blocked = 拒绝，需确认 = 前端二次确认 */

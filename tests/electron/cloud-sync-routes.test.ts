@@ -34,6 +34,8 @@ interface FakeWorker {
 }
 
 const BOX_PATTERN = /^(downlink|version|uplink\/[A-Za-z0-9_-]{1,8}|ack\/[A-Za-z0-9_-]{1,8})$/;
+/** Worker 侧访问令牌（真实部署用 `wrangler secret put SYNC_TOKEN`） */
+const SYNC_TOKEN = 'test-token-3f9a1c';
 
 async function startFakeWorker(): Promise<FakeWorker> {
   const kv = new Map<string, unknown>();
@@ -50,23 +52,33 @@ async function startFakeWorker(): Promise<FakeWorker> {
       };
 
       if (url.pathname === '/health') {
-        send(200, { success: true, service: 'roco-pvp-cloud-sync' });
+        send(200, {
+          success: true,
+          service: 'roco-pvp-cloud-sync',
+          tokenRequired: true,
+          tokenConfigured: true,
+        });
         return;
       }
 
-      const matched = /^\/room\/([^/]+)\/(.+)$/.exec(url.pathname);
+      // 新契约：/room/{box}，房间密钥与令牌都走请求头（URL 里不出现任何密钥）
+      const matched = /^\/room\/(.+)$/.exec(url.pathname);
       if (!matched) {
         send(404, { success: false, error: '未知的信箱地址' });
         return;
       }
-      const key = decodeURIComponent(matched[1]);
-      const box = decodeURIComponent(matched[2]);
+      const box = decodeURIComponent(matched[1]);
       if (!BOX_PATTERN.test(box)) {
         send(400, { success: false, error: '未知的信箱名' });
         return;
       }
-      if (request.headers['x-sync-key'] !== key) {
-        send(401, { success: false, error: '房间密钥不匹配' });
+      if (request.headers['x-sync-token'] !== SYNC_TOKEN) {
+        send(401, { success: false, error: '访问令牌不正确' });
+        return;
+      }
+      const key = String(request.headers['x-sync-key'] ?? '');
+      if (!key) {
+        send(401, { success: false, error: '缺少房间密钥' });
         return;
       }
 
@@ -173,10 +185,11 @@ async function get(base: string, pathname: string): Promise<{ status: number; da
   return { status: response.status, data: await response.json() };
 }
 
-/** 两端配置到同一个房间（A 主控 + B 分控） */
+/** 两端配置到同一个房间（A 主控 + B 分控）：密钥 + 令牌 + Worker 地址 */
 function configureRoom(): void {
   saveCloudSyncConfig(mainPaths, {
     syncKey: SYNC_KEY,
+    syncToken: SYNC_TOKEN,
     workerUrl: worker.url,
     role: 'main',
     machineLabel: '主播机',
@@ -184,6 +197,7 @@ function configureRoom(): void {
   });
   saveCloudSyncConfig(subPaths, {
     syncKey: SYNC_KEY,
+    syncToken: SYNC_TOKEN,
     workerUrl: worker.url,
     role: 'sub',
     machineLabel: '现场机',
@@ -286,12 +300,60 @@ describe('云同步设置与连通性', () => {
     expect(String(bad.data.message)).toContain('不可达');
   });
 
+  it('「检测 Worker 在线」不需要房间密钥，但需要访问令牌；令牌没填时明确提示', async () => {
+    // 只填 workerUrl + 令牌（syncKey 留空）：检测在线必须通过，并把地址/令牌存下来
+    const saved = await postMain('/api/cloud-sync/test', {
+      syncKey: '',
+      syncToken: SYNC_TOKEN,
+      workerUrl: worker.url,
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.data.ok).toBe(true);
+    expect(String(saved.data.message)).toContain('可达');
+    expect((await get(mainBase, '/api/cloud-sync/status')).data.status.config.workerUrl).toBe(worker.url);
+
+    // 令牌留空：不能只说「不可达」，要指出是缺访问令牌
+    const noToken = await postMain('/api/cloud-sync/test', { syncKey: '', syncToken: '', workerUrl: worker.url });
+    expect(noToken.data.ok).toBe(false);
+    expect(String(noToken.data.message)).toContain('访问令牌');
+
+    // 地址写成别的站点（能连上但不是本软件的 Worker）→ 给出可操作提示
+    const wrong = await postMain('/api/cloud-sync/test', {
+      syncKey: '',
+      syncToken: SYNC_TOKEN,
+      workerUrl: mainBase,
+    });
+    expect(wrong.data.ok).toBe(false);
+    expect(String(wrong.data.message)).toMatch(/\/health|Worker 标识/);
+  });
+
   it('房间密钥不一致时报中文错误，不写任何云端数据', async () => {
     configureRoom();
     const result = await postMain('/api/cloud-sync/push', { syncKey: '别的房间', machineCode: 'A' });
     expect(result.status).toBe(400);
     expect(String(result.data.error)).toContain('房间密钥');
     expect(worker.kv.size).toBe(0);
+  });
+
+  it('访问令牌配错：Worker 拒绝（401）且给出中文原因，不写入任何数据', async () => {
+    configureRoom();
+    // 本机令牌与 Worker 的 SYNC_TOKEN 不一致
+    saveCloudSyncConfig(mainPaths, { syncToken: '错误的令牌' });
+    createMatch(mainPaths, { leftPlayer: '甲', rightPlayer: '乙', bestOf: 3 });
+
+    const result = await postMain('/api/cloud-sync/push', { syncKey: SYNC_KEY, machineCode: 'A' });
+    expect(result.status).toBe(400);
+    expect(String(result.data.error)).toContain('访问令牌');
+    expect(worker.kv.size).toBe(0);
+
+    // 检测在线也要把「令牌不对」说清楚，而不是笼统的不可达
+    const test = await postMain('/api/cloud-sync/test', {
+      workerUrl: worker.url,
+      syncKey: SYNC_KEY,
+      syncToken: '错误的令牌',
+    });
+    expect(test.data.ok).toBe(false);
+    expect(String(test.data.message)).toContain('令牌');
   });
 });
 

@@ -56,14 +56,14 @@
 ## 云同步接口（点击式 · Cloudflare Worker + KV 信箱）
 
 > 全部为 POST/GET 且**强制登录**：鉴权开启（Node/Docker 模式）时中间件对 `/api/cloud-sync/*` 单独拦截返回 401，不落入公开 GET 页面接口白名单。
-> 写操作 body 统一带 `syncKey` + `machineCode`（readCloudRequest 校验：键必须与已保存的一致、机器码必须已设置），否则 400 中文提示。
+> 写操作 body 统一带 `syncKey` + `syncToken` + `machineCode`（readCloudRequest 校验：密钥/令牌必须与已保存的一致、机器码必须已设置），否则 400 中文提示。
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
 | 云同步状态（轮询用） | GET | /api/cloud-sync/status | 只读本机状态文件，**不产生任何云端请求**：config/version/appliedVersion/pending/inbox/roster/assignment/ownedTournamentIds/lastContact/lastError | electron/socket-server.ts |
 | 红点轮询 | POST | /api/cloud-sync/poll | 只读云端**小键**：version（两端）+ ack:{本机码}（分控端清待回传标记）+ uplink:{各分控码}（主控端刷新收件箱）。**绝不读大包、绝不合并数据** | electron/socket-server.ts |
-| 保存云同步设置 | POST | /api/cloud-sync/config | body: syncKey/role/workerUrl/machineLabel/pollEnabled/pollIntervalSeconds/peerCodes（仅主控端填分控码列表）。落 runtime/config.json；peerCodes 并入名册 | electron/socket-server.ts |
-| 检测 Worker 在线 | POST | /api/cloud-sync/test | 打 Worker `/health`（不需要密钥、不碰 KV，避免为测通白扣读写额度）；不可达时仍返回 200 + ok:false + 中文原因（前端读 ok 字段） | electron/socket-server.ts |
+| 保存云同步设置 | POST | /api/cloud-sync/config | body: syncKey/syncToken/role/workerUrl/machineLabel/pollEnabled/pollIntervalSeconds/peerCodes（仅主控端填分控码列表）。落 runtime/config.json；peerCodes 并入名册 | electron/socket-server.ts |
+| 检测 Worker 在线 | POST | /api/cloud-sync/test | body 可带 workerUrl/syncKey/syncToken（先按当前草稿存下来，省一步「保存设置」；`undefined` = 保持已保存值，空串 = 主动清空）。打 Worker `/health`：**不需要令牌也不碰 KV**，避免为测通白扣读写额度；返回 `ok` + 中文原因 + `health.tokenConfigured`（Worker 没配 SYNC_TOKEN 时明确提示去 `wrangler secret put`） | electron/socket-server.ts |
 | 主控「同步分发」 | POST | /api/cloud-sync/push | 组包（matches + tournaments + profiles，**不带头像**）+ 指派规则 + 名册 → 写 downlink，再写 version（小键）。每次覆盖（幂等全量）；版本号 = 本机记录的版本 + 1 | electron/socket-server.ts |
 | 分控「同步最新」（拉取 + 预览） | POST | /api/cloud-sync/pull | 读 downlink → 配对校验（本机码不能等于分发机码，否则 400）→ 落盘 cache/cloud-pending.json 并返回与「导入同步包」完全一致的预览（字段级 diff、逐条勾选），**不写入任何数据** | electron/socket-server.ts |
 | 分控「确认合并」 | POST | /api/cloud-sync/apply | body: accepted（勾选 key 数组）+ mode（默认 newer：分控本地较新的登记不会被压掉）→ 走现有 applySyncImport 合并 → 重算待回传集 → 广播 matches:update + tournament:update | electron/socket-server.ts |

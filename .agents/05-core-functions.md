@@ -148,6 +148,8 @@
 
 云端是 Cloudflare Worker + KV 信箱，只有 4 类键：`room:{KEY}:downlink`（主控写/分控读）、`room:{KEY}:version`（小版本键，红点轮询用）、`room:{KEY}:uplink:{码}`（分控写/主控读）、`room:{KEY}:ack:{码}`（主控写/分控读）。**业务细节：没有任何定时器会自动合并数据**——分发、拉取、回传、确认全部由人点击触发；唯一的定时器是前端红点轮询（只读小键）。本机状态落 `cache/cloud-sync.json`，待合并包落 `cache/cloud-pending.json`。
 
+鉴权两把钥匙都走请求头（URL 里不出现任何密钥）：`X-Sync-Key`（房间密钥，键空间隔离）+ `X-Sync-Token`（访问令牌 = Worker secret `SYNC_TOKEN`，真正的大门）。**Worker 侧未配置 SYNC_TOKEN 时所有 `/room` 请求返回 503（fail closed）**，因此本机 config 缺 `syncToken` 时任何数据操作都会被服务端直接拦下并给中文原因。
+
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 读云同步状态 | getCloudSyncStatus | (paths: AppPaths) => CloudSyncStatus | 组装界面所需的全部状态（config/configured/version/appliedVersion/pending/inbox/roster/assignment/ownedTournamentIds/lastContact/lastError），不产生云端请求 |

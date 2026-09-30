@@ -1963,6 +1963,7 @@ export async function createLocalServer(
       const body = (request.body ?? {}) as Record<string, unknown>;
       const status = saveCloudSyncConfig(paths, {
         syncKey: body.syncKey,
+        syncToken: body.syncToken,
         role: body.role,
         workerUrl: body.workerUrl,
         machineLabel: body.machineLabel,
@@ -1976,12 +1977,20 @@ export async function createLocalServer(
     }
   });
 
-  /** 「检测 Worker 在线」：打 /health，不碰 KV */
+  /**
+   * 「检测 Worker 在线」：打 /health，不碰 KV、**不需要房间密钥**。
+   * 只要求 workerUrl 已保存（本接口会先把界面上的地址存下来再测，省一步「保存设置」）。
+   */
   app.post('/api/cloud-sync/test', async (request, response) => {
     try {
       const body = (request.body ?? {}) as Record<string, unknown>;
-      if (body.workerUrl !== undefined || body.syncKey !== undefined) {
-        saveCloudSyncConfig(paths, { workerUrl: body.workerUrl, syncKey: body.syncKey });
+      if (body.workerUrl !== undefined || body.syncKey !== undefined || body.syncToken !== undefined) {
+        // undefined = 界面没带该字段（保持已保存值）；空字符串 = 用户主动清空（照存）
+        saveCloudSyncConfig(paths, {
+          workerUrl: body.workerUrl,
+          syncKey: body.syncKey,
+          syncToken: body.syncToken,
+        });
       }
       const result = await testCloudConnection(paths);
       response.json({ success: result.ok, ...result });

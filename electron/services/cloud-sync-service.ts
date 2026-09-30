@@ -53,12 +53,21 @@ interface MailboxRead<T> {
 }
 
 function buildBoxUrl(config: RuntimeConfig, box: CloudBox): string {
-  return `${config.workerUrl}/room/${encodeURIComponent(config.syncKey)}/${box}`;
+  // 房间密钥与访问令牌都走请求头：URL 里不再出现任何密钥（避免进 Cloudflare 日志/分析）
+  return `${config.workerUrl}/room/${box}`;
+}
+
+/** 统一鉴权头：X-Sync-Key 决定键空间隔离，X-Sync-Token 是 Worker 侧的大门 */
+function authHeaders(config: RuntimeConfig): Record<string, string> {
+  return {
+    'X-Sync-Key': config.syncKey,
+    'X-Sync-Token': config.syncToken,
+  };
 }
 
 /**
- * 信箱请求：读写都带 X-Sync-Key（Worker 侧强制校验，读也校验，避免拿到链接就能拉走数据）。
- * 超时/网络错误统一转中文错误，界面直接可读；HTTP 错误取出 Worker 返回的 error 字段。
+ * 信箱请求：读写都带 X-Sync-Key（键空间隔离）与 X-Sync-Token（Worker 侧强制校验，读也校验，
+ * 避免拿到链接就能拉走数据）。超时/网络错误统一转中文错误，界面直接可读；HTTP 错误取出 Worker 的 error 字段。
  */
 async function mailboxRequest<T>(
   config: RuntimeConfig,
@@ -71,6 +80,9 @@ async function mailboxRequest<T>(
   if (!config.syncKey) {
     throw new Error('未配置房间密钥（syncKey），请先在「云同步设置区」填写并保存');
   }
+  if (!config.syncToken) {
+    throw new Error('未配置访问令牌（Worker 侧 SYNC_TOKEN），请先在「云同步设置区」填写并保存');
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CLOUD_SYNC_REQUEST_TIMEOUT_MS);
@@ -79,7 +91,7 @@ async function mailboxRequest<T>(
     response = await fetch(buildBoxUrl(config, box), {
       method: init.method,
       headers: {
-        'X-Sync-Key': config.syncKey,
+        ...authHeaders(config),
         ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
@@ -106,6 +118,13 @@ async function mailboxRequest<T>(
     const message = payload && typeof payload === 'object' && typeof (payload as { error?: unknown }).error === 'string'
       ? String((payload as { error: string }).error)
       : `云端返回 HTTP ${response.status}`;
+    // 401/503 是鉴权问题：补一句「去哪修」，别让人对着「不可达」猜
+    if (response.status === 401) {
+      throw new Error(`${message}（本机访问令牌与 Worker 的 SYNC_TOKEN 必须一致）`);
+    }
+    if (response.status === 503) {
+      throw new Error(`${message}（运营者需在 cloudflare 目录执行 npx wrangler secret put SYNC_TOKEN）`);
+    }
     throw new Error(message);
   }
 
@@ -443,6 +462,7 @@ export function getCloudSyncStatus(paths: AppPaths): CloudSyncStatus {
   return {
     config: {
       syncKey: config.syncKey,
+      syncToken: config.syncToken,
       role,
       workerUrl: config.workerUrl,
       machineCode: config.machineCode,
@@ -450,7 +470,8 @@ export function getCloudSyncStatus(paths: AppPaths): CloudSyncStatus {
       pollEnabled: config.cloudPollEnabled,
       pollIntervalSeconds: config.cloudPollInterval,
     },
-    configured: Boolean(config.syncKey && config.workerUrl && config.machineCode),
+    // 四项齐全才算「已配置」：缺令牌时任何数据操作都会被 Worker 拒绝（503/401）
+    configured: Boolean(config.syncKey && config.syncToken && config.workerUrl && config.machineCode),
     version: state.version,
     appliedVersion: state.appliedVersion,
     pending: role === 'sub'
@@ -496,6 +517,7 @@ function buildLocalRoster(paths: AppPaths): CloudSyncRosterEntry[] {
 
 export interface CloudSyncConfigInput {
   syncKey?: unknown;
+  syncToken?: unknown;
   role?: unknown;
   workerUrl?: unknown;
   machineLabel?: unknown;
@@ -512,6 +534,7 @@ export interface CloudSyncConfigInput {
 export function saveCloudSyncConfig(paths: AppPaths, input: CloudSyncConfigInput): CloudSyncStatus {
   const patch: Partial<RuntimeConfig> = {};
   if (input.syncKey !== undefined) patch.syncKey = String(input.syncKey);
+  if (input.syncToken !== undefined) patch.syncToken = String(input.syncToken);
   if (input.workerUrl !== undefined) patch.workerUrl = String(input.workerUrl);
   if (input.machineLabel !== undefined) patch.machineLabel = String(input.machineLabel);
   if (input.role !== undefined) patch.syncRole = input.role === 'sub' ? 'sub' : 'main';
@@ -536,7 +559,9 @@ export function saveCloudSyncConfig(paths: AppPaths, input: CloudSyncConfigInput
 /* ==================== 「检测 Worker 在线」 ==================== */
 
 /**
- * 自检：打 Worker 的 /health（不需要密钥、不碰 KV，避免为测通白扣读写额度）。
+ * 自检：打 Worker 的 /health（**不需要令牌与房间密钥**，也不碰 KV，避免为测通白扣读写额度）。
+ * 顺带读回 Worker 的鉴权状态：令牌没配（tokenConfigured=false）时明确提示运营者去
+ * `wrangler secret put SYNC_TOKEN`，否则两端任何数据操作都会拿到 503。
  * 活动前两台机器各自实测一次——大陆网络对 *.workers.dev 可达性不稳。
  */
 export async function testCloudConnection(paths: AppPaths): Promise<CloudSyncTestResult> {
@@ -548,17 +573,44 @@ export async function testCloudConnection(paths: AppPaths): Promise<CloudSyncTes
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CLOUD_SYNC_REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`${config.workerUrl}/health`, { signal: controller.signal });
-    const payload = await response.json().catch(() => null) as { success?: boolean } | null;
+    const response = await fetch(`${config.workerUrl}/health`, {
+      headers: authHeaders(config),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => null) as
+      | { success?: boolean; tokenRequired?: boolean; tokenConfigured?: boolean }
+      | null;
     if (!response.ok || payload?.success !== true) {
-      throw new Error(`Worker 返回 HTTP ${response.status}`);
+      // 地址能连上但不是我们的 Worker（比如填成了别的站点/域名拼错）——给出可操作提示
+      throw new Error(
+        response.status === 404
+          ? '该地址不存在 /health（404）：请确认填的是 Worker 根地址（形如 https://roco-sync.你的子域.workers.dev），不要带路径'
+          : `该地址没有返回本软件的 Worker 标识（HTTP ${response.status}）：请确认填的是 Worker 根地址，形如 https://roco-sync.你的子域.workers.dev`,
+      );
     }
+
+    const health = {
+      tokenRequired: payload.tokenRequired !== false,
+      tokenConfigured: payload.tokenConfigured === true,
+    };
+    if (health.tokenRequired && !health.tokenConfigured) {
+      const message = 'Worker 可达，但云端还没配置访问令牌（SYNC_TOKEN）：请在 cloudflare 目录执行 `npx wrangler secret put SYNC_TOKEN` 设置一个随机串，再把它填进两端「访问令牌」';
+      finish(paths, {}, message);
+      return { ok: false, message, status: getCloudSyncStatus(paths), data: { ok: false }, health };
+    }
+    if (!config.syncToken) {
+      const message = 'Worker 可达，但本机还没填访问令牌：请填写与 Worker 的 SYNC_TOKEN 相同的随机串';
+      finish(paths, {}, message);
+      return { ok: false, message, status: getCloudSyncStatus(paths), data: { ok: false }, health };
+    }
+
     finish(paths);
     return {
       ok: true,
-      message: `Worker 可达：${config.workerUrl}`,
+      message: `Worker 可达且已启用访问令牌：${config.workerUrl}`,
       status: getCloudSyncStatus(paths),
       data: { ok: true },
+      health,
     };
   } catch (error) {
     const message = controller.signal.aborted

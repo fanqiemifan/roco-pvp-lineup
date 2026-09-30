@@ -50,7 +50,7 @@
 >
 > 双机数据同步：`runtime/config.json` 含 `machineCode`（本机标识，1-2 位大写字母），参与新比赛 id 前缀与同步包来源标识；同步包为单个 JSON（头像 base64 内嵌），导入上限 SYNC_BUNDLE_MAX_BYTES = 64MB。
 >
-> 云同步：`runtime/config.json` 另含 `syncKey` / `syncRole` / `workerUrl` / `machineLabel` / `cloudPollEnabled` / `cloudPollInterval`（workerUrl 一次性每机设置，**不打包进 exe**；syncKey + 角色每次比赛填写/切换）。本机状态 `cache/cloud-sync.json`（名册 / 指派规则 / 回传 seq / 回执 / 收件箱快照），待合并包 `cache/cloud-pending.json`。KV 单值上限 25 MiB（Worker 侧 MAX_BODY_BYTES 同值），读取用默认 60 秒边缘缓存（Cloudflare 限制 cacheTtl 最小 60）。
+> 云同步：`runtime/config.json` 另含 `syncKey` / `syncToken` / `syncRole` / `workerUrl` / `machineLabel` / `cloudPollEnabled` / `cloudPollInterval`（workerUrl 与**访问令牌 syncToken** 一次性每机设置，**不打包进 exe**；syncKey + 角色每次比赛填写/切换）。访问令牌对应 Worker secret `SYNC_TOKEN`，只存本机 config 与 Cloudflare；Worker 侧没配时所有 `/room` 请求 503（fail closed），部署脚本 `npm run cloud:deploy` 会生成并打印一次（重设走 `ROCO_SYNC_TOKEN` 环境变量）。本机状态 `cache/cloud-sync.json`（名册 / 指派规则 / 回传 seq / 回执 / 收件箱快照），待合并包 `cache/cloud-pending.json`。KV 单值上限 25 MiB（Worker 侧 MAX_BODY_BYTES 同值），读取用默认 60 秒边缘缓存（Cloudflare 限制 cacheTtl 最小 60）。
 
 ## 悬浮窗尺寸（electron/float-window.ts）
 
