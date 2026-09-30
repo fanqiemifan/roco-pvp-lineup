@@ -50,7 +50,7 @@
 | 开赛 | startTournament | (paths: AppPaths, tournamentId: string) => TournamentRecord | setup→running，materialize 阶段0 W1（自动锁定或 draft） |
 | 确认推进 | advanceTournament | (paths: AppPaths, tournamentId: string) => TournamentRecord | 最后波 draft 且随机配对 → 重新随机并锁定建场；手动配对/非 draft 拒绝 |
 | 暂存配对草稿 | savePairingDraft | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 编辑中间态即存（白名单/范围校验，允许漏配重复），不建场 |
-| 锁定配对 | lockPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 校验通过后批量 createMatch（draft→nodes），自动标签（赛事名/阶段名/W波次，跨桶加标签）；建场时从选手档案快照 leftRank/rightRank（与前端「快速创建比赛」同口径） |
+| 锁定配对 | lockPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => TournamentRecord | 校验通过后批量 createMatch（draft→nodes）；建场不写身份标签（赛事名/阶段/波次由 tournamentRef 解析），仅跨桶场次加「跨桶」标注标签；并从选手档案快照 leftRank/rightRank（与前端「快速创建比赛」同口径） |
 | 导入外部对阵 | importPairings | (paths: AppPaths, tournamentId: string, waveGlobalIndex: unknown, payload: unknown) => PairingImportResult | text（每行 A vs B）/pairs 名字数组；匹配池仅本波选手，精确→子串模糊，未唯一匹配进 unmatched，回填草稿不锁定 |
 | 回退上一波 | rollbackWave | (paths: AppPaths, tournamentId: string) => TournamentRecord | 最后波三情形：①整波刚打完（总决赛完赛）→ 波保留，比赛复位 pending、清节点胜者、撤销冠军、recompute 战绩；②波未打（pending/draft）→ 删未打比赛与波（可恢复）、重开前一波；③部分进行 → 拒绝并提示逐场撤销。跨阶段回落 currentStageIndex |
 | 比赛完成钩子 | onMatchCompleted | (paths: AppPaths, matchId: string) => TournamentRecord \| null | 无 ref/未完成→null；系列赛已删除（孤儿引用）或本机只是只读副本（非编排机）→null 不报错；节点写胜者+更新战绩（幂等）；波齐→completed 并自动生成下一波/下一阶段或冠军 |
@@ -241,7 +241,7 @@
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
-| 获取精灵排行 | getSpriteRanking | (paths: AppPaths, params) => ... | 计算精灵使用率/上场率/胜率排行 |
+| 获取精灵排行 | getSpriteRanking | (paths: AppPaths, { player, tag, tournamentId }) => ... | 计算精灵使用率/上场率/胜率排行；系列赛按 tournamentRef.tournamentId 精确匹配（同名不合并）并回传 tournamentName 供页5标题展示 |
 
 ## 桌面悬浮窗 (float-window.ts)
 

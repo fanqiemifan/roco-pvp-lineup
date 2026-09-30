@@ -832,20 +832,6 @@ function isCrossPair(record: TournamentRecord, draftPair: DraftPair): boolean {
   return bucketA !== bucketB;
 }
 
-/** 自动标签：赛事名 + 阶段名 + W波次（跨桶追加标注） */
-function buildWaveTags(
-  record: TournamentRecord,
-  stage: StageRule,
-  wave: TournamentWave,
-  cross: boolean,
-): string[] {
-  const tags = [record.name, stage.name, `W${wave.waveIndex}`];
-  if (cross) {
-    tags.push(TOURNAMENT_CROSS_BUCKET_TAG);
-  }
-  return Array.from(new Set(tags));
-}
-
 /**
  * 锁定配对：先整体校验（错误先于任何建场副作用），再逐对 createMatch 并登记 nodes。
  * createMatch 的 tournamentRef 与 nodeId 一一对应；返回后波状态为 locked/running。
@@ -879,7 +865,9 @@ function lockDraftPairs(
       leftRank: leftProfile?.rank ?? '',
       rightRank: rightProfile?.rank ?? '',
       bestOf: stage.bestOf,
-      tags: buildWaveTags(record, stage, wave, cross),
+      // 赛事身份（赛事名/阶段/波次）一律由 tournamentRef + tournaments.json 实时解析，不再写入标签；
+      // 仅保留「跨桶」这类配对观测量（可人工检索）
+      tags: cross ? [TOURNAMENT_CROSS_BUCKET_TAG] : [],
       tournamentRef: {
         tournamentId: record.id,
         nodeId,

@@ -70,7 +70,7 @@
   - **KV 最终一致**：写入异地最长约 60 秒（`cacheTtl` 最小 60，Worker 用默认值）才可见，「键不存在」的结果同样被缓存；界面常显版本/时间对比 + 等待重试提示，**不要连点刷**（读也计数）。免费额度读 10 万/天、写 1000/天，点击式消耗从容。`/api/cloud-sync/*` 强制登录（不在公开 GET 白名单里）。
 - 系列赛自动化编排（「系列比赛」视图，引擎 `tournament-service.ts`，编排落 `cache/tournaments.json`，API `/api/tournaments`，广播 `tournament:update`）：
   - 参赛人数限 4/8/16/32/64 且全部来自档案、不可重复（前端校验数组由 `SUPPORTED_TOURNAMENT_SIZES` 派生，别再硬编码）；阶段模型 `stages`（默认模板 `buildDefaultStages`），`format` = 单败 `single-elim` / 双败 `double-life`，双败按 3 波战绩桶收敛（W1 0-0 → W2 1-0/0-1 → W3 1-1，决胜波经典交叉配对）。**「总决赛」= 只剩 2 人的阶段，必须单败**（`createTournament` 直接拒绝，判据用阶段人数）。RNG = mulberry32 注入式，同 seed 可复现。
-  - 每个节点的对决仍是普通比赛：引擎内部 `createMatch` 打 `tournamentRef`，自动标签 = 赛事名+阶段名+波次；手动/需确认的波先停 `draft`（配对确认台），锁定校验通过后批量建场。
+  - 每个节点的对决仍是普通比赛：引擎内部 `createMatch` 打 `tournamentRef`，赛事身份（赛事名/阶段/波次）由 ref + tournaments.json 实时解析、**不写入标签**（仅跨桶场次保留「跨桶」标注标签）；手动/需确认的波先停 `draft`（配对确认台），锁定校验通过后批量建场。
   - 赛果写回靠 socket-server 在登记胜负/弃权/撤回处调钩子 `onMatchCompleted`/`onMatchUndo`（幂等，波打齐自动推进 / 反向回退）；`rollback-wave` 回退上一波，pending 比赛可弃权判负。**各钩子/回退的完整分支语义见 `.agents/05`。**
   - **删除系列赛**（`DELETE /api/tournaments/:id`）：默认只删编排记录、经 `detachMatchesFromTournament` 剥离关联比赛的 `tournamentRef` 保留为普通对局；`deleteMatches=true` 再连对局删除。孤儿引用按普通对局处理不阻断登记。
   - **编排机所有权**：系列赛归创建它的机器码所有，只有编排机能变更（变更入口与写回钩子都有闸门），其余机器是只读副本；`tournaments.json` 随同步包流转、导入自动合并，赛果回传编排机后由 `runTournamentWriteBack` 补跑推进。详见 `.agents/05`。

@@ -424,6 +424,7 @@ function Dashboard() {
   const [statsMetric, setStatsMetric] = useState<StatsMetricKey>('pickRate');
   const [statsPlayer, setStatsPlayer] = useState<string | null>(null);
   const [statsTag, setStatsTag] = useState<string | null>(null);
+  const [statsTournamentId, setStatsTournamentId] = useState<string | null>(null);
   const [statsSearch, setStatsSearch] = useState('');
   const [previewSlot, setPreviewSlot] = useState<PreviewSlotKey>('stage');
   const [previewScale, setPreviewScale] = useState(1);
@@ -693,7 +694,7 @@ function Dashboard() {
       parts.push(`只看系列赛「${tournamentNameMap.get(historyTournamentFilter) ?? historyTournamentFilter}」`);
     }
     if (historyTagFilter) {
-      parts.push(historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? '只看未分类赛事' : `只看标签「${historyTagFilter}」`);
+      parts.push(historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? '只看无标签' : `只看标签「${historyTagFilter}」`);
     }
     if (normalizedHistorySearch) {
       parts.push(`搜索「${historySearch.trim()}」`);
@@ -2427,7 +2428,7 @@ function Dashboard() {
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5Tag?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5TournamentId?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
@@ -2439,16 +2440,16 @@ function Dashboard() {
     const page3RedLightInstant = options?.page3RedLightInstant ?? stage?.page3RedLightInstant ?? false;
     const page11RankVisible = options?.page11RankVisible ?? stage?.page11RankVisible ?? true;
     const page5Player = options?.page5Player ?? stage?.page5Player ?? '';
-    const page5Tag = options?.page5Tag ?? stage?.page5Tag ?? '';
+    const page5TournamentId = options?.page5TournamentId ?? stage?.page5TournamentId ?? '';
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -4855,7 +4856,7 @@ function Dashboard() {
                     color={historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? 'processing' : 'default'}
                     onClick={() => setHistoryTagFilter(historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? null : UNCATEGORIZED_HISTORY_TAG)}
                   >
-                    未分类赛事
+                    无标签
                   </Tag>
                   <Tag color={!historyTagFilter ? 'processing' : 'default'} onClick={() => setHistoryTagFilter(null)}>全部</Tag>
                   {allHistoryTags.map((tag) => (
@@ -5891,12 +5892,12 @@ function Dashboard() {
                 confirmLoading={batchTagSaving}
               >
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  <Text>已选中 {selectedHistoryKeys.length} 场赛事，选择要添加的赛事标签（仅可选择一个）：</Text>
+                  <Text>已选中 {selectedHistoryKeys.length} 场赛事，选择要添加的标签（仅可选择一个）：</Text>
                   <Select
                     showSearch
                     autoFocus
                     value={batchTagValue ?? undefined}
-                    placeholder="选择赛事标签"
+                    placeholder="选择标签"
                     options={allHistoryTags.map((tag) => ({ value: tag, label: tag }))}
                     onChange={setBatchTagValue}
                     className="history-tag-select"
@@ -6248,13 +6249,16 @@ function Dashboard() {
             <StatsView
               matches={matchStore.matches}
               spriteMap={spriteMap}
+              tournaments={tournaments}
               metric={statsMetric}
               player={statsPlayer}
               tag={statsTag}
+              tournamentId={statsTournamentId}
               search={statsSearch}
               onMetricChange={setStatsMetric}
               onPlayerChange={setStatsPlayer}
               onTagChange={setStatsTag}
+              onTournamentChange={setStatsTournamentId}
               onSearchChange={setStatsSearch}
             />
           ) : null}
@@ -6765,22 +6769,22 @@ function Dashboard() {
                           <SettingField label="页面5标题：">
                             <Input
                               maxLength={40}
-                              placeholder="例如：洛克比赛（自动拼上赛事标签与精灵出场胜率）"
+                              placeholder="例如：洛克比赛（自动拼上系列赛名与精灵出场胜率）"
                               value={page5TitleDraft}
                               onChange={(event) => setPage5TitleDraft(event.target.value)}
                               onBlur={() => { void savePage5TitleNow(); }}
                             />
                           </SettingField>
-                          <SettingField label="赛事标签：">
+                          <SettingField label="系列赛：">
                             <Select
                               className="stage-page5-tag-select"
-                              value={stage?.page5Tag || undefined}
+                              value={stage?.page5TournamentId || undefined}
                               disabled={stageSaving}
                               options={[
                                 { value: '', label: '全部' },
-                                ...allHistoryTags.map((tag) => ({ value: tag, label: tag })),
+                                ...historyTournamentFilters.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
                               ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Tag: value ?? '' }); }}
+                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5TournamentId: value ?? '' }); }}
                             />
                           </SettingField>
                           <SettingField label="选手：">
@@ -7237,12 +7241,12 @@ function Dashboard() {
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item label="赛事标签（可选）">
+              <Form.Item label="标签（可选）">
                 <Select
                   mode="multiple"
                   allowClear
                   style={{ width: '100%' }}
-                  placeholder="可选，选择赛事标签"
+                  placeholder="可选，选择标签"
                   value={quickCreateTags}
                   onChange={(value) => setQuickCreateTags(value as string[])}
                   options={allHistoryTags.map((tag) => ({ value: tag, label: tag }))}
@@ -7454,12 +7458,12 @@ function Dashboard() {
               ]}
             />
           </Form.Item>
-          <Form.Item label="赛事标签" name="tags">
+          <Form.Item label="标签" name="tags">
             <Select
               mode="multiple"
               allowClear
               style={{ width: '100%' }}
-              placeholder="可选，选择赛事标签"
+              placeholder="可选，选择标签"
               options={allHistoryTags.map((tag) => ({ value: tag, label: tag }))}
             />
           </Form.Item>

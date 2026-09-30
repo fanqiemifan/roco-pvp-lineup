@@ -19,6 +19,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -197,25 +198,36 @@ export function TournamentView({
     {
       title: '操作',
       width: 176,
-      render: (_value, record) => (
-        <Space size={4}>
-          <Button type="link" style={{ padding: 0 }} onClick={() => openTournament(record.id)}>
-            {record.status === 'setup' ? '继续配置 →' : '打开详情 →'}
-          </Button>
-          <Button
-            type="link"
-            danger
-            style={{ padding: 0 }}
-            disabled={!isTournamentOwnedByLocal(record.id, machineCode)}
-            onClick={() => {
-              setDeleteWithMatches(false);
-              setDeleteTarget(record);
-            }}
-          >
-            删除
-          </Button>
-        </Space>
-      ),
+      render: (_value, record) => {
+        const owned = isTournamentOwnedByLocal(record.id, machineCode);
+        const ownerCode = getTournamentOwnerCode(record.id);
+        return (
+          <Space size={4}>
+            <Button type="link" style={{ padding: 0 }} onClick={() => openTournament(record.id)}>
+              {record.status === 'setup' ? '继续配置 →' : '打开详情 →'}
+            </Button>
+            {/* 只读副本删除被禁用：用 Tooltip 说明原因（禁用按钮自身不派发鼠标事件，需 span 包裹） */}
+            <Tooltip
+              title={owned ? null : `该系列赛由${ownerCode ? `机器 ${ownerCode}` : '另一台机器'}编排，请在编排机上删除`}
+            >
+              <span style={{ display: 'inline-block' }}>
+                <Button
+                  type="link"
+                  danger
+                  style={{ padding: 0, pointerEvents: owned ? undefined : 'none' }}
+                  disabled={!owned}
+                  onClick={() => {
+                    setDeleteWithMatches(false);
+                    setDeleteTarget(record);
+                  }}
+                >
+                  删除
+                </Button>
+              </span>
+            </Tooltip>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -392,7 +404,7 @@ function TournamentDetail({
     >
       {readOnly ? (
         <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          只读副本：该系列赛由{ownerCode ? `机器 ${ownerCode}` : '另一台机器'}编排 —— 本机可查看对阵图、可登记对局赛果；推进与编排请在编排机执行，回传后本机对阵图自动更新。
+          只读副本：该系列赛由{ownerCode ? `机器 ${ownerCode}` : '另一台机器'}编排 —— 本机可查看对阵图、可登记对局赛果；推进、编排与删除请在编排机执行（本机即便删掉，下一次同步也会被重新合并回来），回传后本机对阵图自动更新。
         </Paragraph>
       ) : null}
 

@@ -1725,7 +1725,12 @@ export async function createLocalServer(
   app.get('/api/stats/ranking', (request, response) => {
     const player = typeof request.query.player === 'string' ? request.query.player : '';
     const tag = typeof request.query.tag === 'string' ? request.query.tag : '';
-    response.json(getSpriteRanking(paths, { player: player || null, tag: tag || null }));
+    const tournamentId = typeof request.query.tournamentId === 'string' ? request.query.tournamentId : '';
+    response.json(getSpriteRanking(paths, {
+      player: player || null,
+      tag: tag || null,
+      tournamentId: tournamentId || null,
+    }));
   });
 
   app.post('/api/panels/:position', (request, response) => {

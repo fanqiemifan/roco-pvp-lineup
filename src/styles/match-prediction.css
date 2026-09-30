@@ -32,13 +32,13 @@ body {
     background: transparent !important;
 }
 
-/* 屏幕：蓝色渐变背景（stops 0% #2A5EF2 → 100% #31B0FD），不再使用背景图片 */
+/* 使用背景图片 */
 .mp-screen {
     position: relative;
     width: 1920px;
     height: 1080px;
     overflow: hidden;
-    background: linear-gradient(180deg, #2A5EF2 0%, #31B0FD 100%);
+    background: url("/assets/ui/blue-back-01.jgp") no-repeat center / 100% 100%;
 }
 
 /* 主标题：96px YouSheBiaoTiHei 白色，水平居中，top 100px；空内容时由 JS 隐藏 */

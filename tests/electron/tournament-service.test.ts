@@ -296,8 +296,8 @@ describe('startTournament', () => {
     const waveMatches = matches.filter((match) => match.tournamentRef?.waveIndex === 1);
     expect(waveMatches).toHaveLength(16);
     expect(waveMatches.every((match) => match.bestOf === 1)).toBe(true);
-    // 自动标签：赛事名 + 阶段名 + W1
-    expect(waveMatches[0].tags).toEqual(['星空杯S1', '32进16', 'W1']);
+    // 建场不再写身份标签（赛事名/阶段/波次由 tournamentRef 解析）；非跨桶普通场次无标注标签
+    expect(waveMatches[0].tags).toEqual([]);
     // 节点 id 与 ref 一致
     const nodeIds = new Set(wave.nodes.map((node) => node.id));
     expect(waveMatches.every((match) => nodeIds.has(match.tournamentRef?.nodeId ?? ''))).toBe(true);

@@ -89,7 +89,7 @@
 | 开赛 | POST | /api/tournaments/:tournamentId/start | setup → running，生成阶段 0 第 1 波：随机自动且无需确认 → 锁定并批量建场；手动配对/requireConfirm → 停在 draft。建场后另广播 matches:update | electron/socket-server.ts |
 | 确认推进 | POST | /api/tournaments/:tournamentId/advance | requireConfirm 的确认动作：对最后波 draft（随机配对）重新随机并锁定建场；手动配对波拒绝（请在配对确认台编辑后锁定） | electron/socket-server.ts |
 | 暂存配对草稿 | PUT | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings | 配对确认台编辑即存（body: pairings）；中间态允许漏配/重复，仅做字段白名单与选手范围校验，不建场 | electron/socket-server.ts |
-| 锁定配对 | POST | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/lock | 校验（每人恰好一次/同桶严格/跨桶需 body.allowCrossBucket）通过后批量 createMatch，比赛带 tournamentRef 与自动标签（赛事名+阶段名+W波次，跨桶加「跨桶」）；广播 matches:update + tournament:update | electron/socket-server.ts |
+| 锁定配对 | POST | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/lock | 校验（每人恰好一次/同桶严格/跨桶需 body.allowCrossBucket）通过后批量 createMatch，比赛带 tournamentRef（身份由此解析，不再写赛事名/阶段/波次标签；跨桶场次加「跨桶」标注标签）；广播 matches:update + tournament:update | electron/socket-server.ts |
 | 导入外部对阵 | POST | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/import | body.text（每行 `A vs B`）或 body.pairs（名字数组）；匹配池仅本波选手，先精确后子串模糊，未唯一匹配的行进入 unmatched，已匹配的回填草稿（不锁定） | electron/socket-server.ts |
 | 回退上一波 | POST | /api/tournaments/:tournamentId/rollback-wave | 管理级回退：仅最后波、且该波比赛全部 pending 无小局结果；删除未打比赛（deleteMatches 可恢复）、清节点胜者并复位战绩；跨阶段时 currentStageIndex 回落。广播 matches:update + tournament:update | electron/socket-server.ts |
 | 弃权判负 | POST | /api/tournaments/:tournamentId/forfeit | body: matchId + loserSide(left/right)；校验比赛属于本系列赛且 pending，补决胜小局（BO1=1:0、BO3=2:0）+「弃权」标签，completed 后走完成钩子写回节点 | electron/socket-server.ts |
@@ -188,7 +188,7 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 精灵排行 | GET | /api/stats/ranking | 精灵使用率/上场率/胜率排行（支持 tag / player 参数，统计全部历史对局） | electron/socket-server.ts |
+| 精灵排行 | GET | /api/stats/ranking | 精灵使用率/上场率/胜率排行（支持 tournamentId（系列赛精确过滤）/ tag / player 参数，统计全部历史对局；响应回传 tournamentId + tournamentName） | electron/socket-server.ts |
 
 > 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/page10`、`/api/page11`、`/api/page14`、`/api/mvp`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`、`/api/countdown`；同名 POST/DELETE 写操作仍受保护。页面路由同理：`/roco-pvp-page14.html` 与其它推流页一起列在 `isPublicPage` 白名单里。
 

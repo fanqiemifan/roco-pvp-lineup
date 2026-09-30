@@ -905,6 +905,57 @@ export function buildPushCandidateGroups(
   return ordered;
 }
 
+/* ---------- 比赛的语义轮次（统计趋势轴 / 选场分组共用口径） ---------- */
+
+/** 比赛在所属系列赛中的语义轮次描述 */
+export interface MatchSemanticRound {
+  /** 轮次 key（单败 stage；双败 opening|winner|loser|decider|waveN），与阶段下标拼成分组/桶 key */
+  key: string;
+  /** 观众侧轮次名（单败为空串，展示时直接用阶段名） */
+  label: string;
+  /** 同阶段内的排序位（首轮 0 → 决胜轮 3） */
+  order: number;
+}
+
+/**
+ * 比赛 → 语义轮次：单败无轮次细分；双败按波次给观众侧语义名
+ * （W1 首轮 / W2 胜者组·败者组 / W3 决胜轮），W2 按该场两位选手的首轮胜负判池，
+ * 与后端 resolveTournamentLabel 同口径；跨桶等非常规组合拿不到一致池归属 → wave2 兜底。
+ */
+export function resolveMatchSemanticRound(
+  record: TournamentRecord,
+  ref: NonNullable<MatchRecord['tournamentRef']>,
+): MatchSemanticRound {
+  const stage = record.stages[ref.stageIndex];
+  if (!stage || stage.format !== 'double-life') {
+    return { key: 'stage', label: '', order: 0 };
+  }
+  if (ref.waveIndex === 1) {
+    return { key: 'opening', label: '首轮', order: 0 };
+  }
+  if (ref.waveIndex === 3) {
+    return { key: 'decider', label: '决胜轮', order: 3 };
+  }
+  if (ref.waveIndex === 2) {
+    const wave = record.waves.find(
+      (item) => item.stageIndex === ref.stageIndex && item.waveIndex === 2,
+    );
+    const node = wave?.nodes.find((item) => item.id === ref.nodeId);
+    if (node?.playerAId && node.playerBId) {
+      const aWonOpeningRound = wonOpeningRound(record, ref.stageIndex, node.playerAId);
+      const bWonOpeningRound = wonOpeningRound(record, ref.stageIndex, node.playerBId);
+      if (aWonOpeningRound === bWonOpeningRound) {
+        return aWonOpeningRound
+          ? { key: 'winner', label: '胜者组', order: 1 }
+          : { key: 'loser', label: '败者组', order: 2 };
+      }
+    }
+    // 跨桶等非常规组合拿不到一致池归属：按波次归组，标题退回阶段名
+    return { key: 'wave2', label: '', order: 1 };
+  }
+  return { key: `wave${ref.waveIndex}`, label: '', order: ref.waveIndex };
+}
+
 function resolvePushCandidateGroup(
   match: MatchRecord,
   recordById: Map<string, TournamentRecord>,
@@ -915,34 +966,10 @@ function resolvePushCandidateGroup(
   if (!ref || !record || !stage) {
     return { key: 'normal', title: '普通对局' };
   }
+  const round = resolveMatchSemanticRound(record, ref);
   const prefix = `🏆 ${record.name} · ${stage.name}`;
-  if (stage.format !== 'double-life') {
-    return { key: `${record.id}:${ref.stageIndex}:stage`, title: prefix };
-  }
-  if (ref.waveIndex === 1) {
-    return { key: `${record.id}:${ref.stageIndex}:opening`, title: `${prefix} · 首轮` };
-  }
-  if (ref.waveIndex === 3) {
-    return { key: `${record.id}:${ref.stageIndex}:decider`, title: `${prefix} · 决胜轮` };
-  }
-  if (ref.waveIndex === 2) {
-    // 与后端 resolveTournamentLabel 同口径：按该场两位选手的首轮胜负判池（胜者组 / 败者组）
-    const wave = record.waves.find(
-      (item) => item.stageIndex === ref.stageIndex && item.waveIndex === 2,
-    );
-    const node = wave?.nodes.find((item) => item.id === ref.nodeId);
-    if (node?.playerAId && node.playerBId) {
-      const aWonOpeningRound = wonOpeningRound(record, ref.stageIndex, node.playerAId);
-      const bWonOpeningRound = wonOpeningRound(record, ref.stageIndex, node.playerBId);
-      if (aWonOpeningRound === bWonOpeningRound) {
-        return {
-          key: `${record.id}:${ref.stageIndex}:${aWonOpeningRound ? 'winner' : 'loser'}`,
-          title: `${prefix} · ${aWonOpeningRound ? '胜者组' : '败者组'}`,
-        };
-      }
-    }
-    // 跨桶等非常规组合拿不到一致池归属：按波次归组，标题退回阶段名
-    return { key: `${record.id}:${ref.stageIndex}:wave2`, title: prefix };
-  }
-  return { key: `${record.id}:${ref.stageIndex}:wave${ref.waveIndex}`, title: prefix };
+  return {
+    key: `${record.id}:${ref.stageIndex}:${round.key}`,
+    title: round.label ? `${prefix} · ${round.label}` : prefix,
+  };
 }
