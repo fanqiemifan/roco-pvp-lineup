@@ -528,6 +528,13 @@ export interface TeamProfile {
 export interface ProfileStoreState {
   players: PlayerProfile[];
   teams: TeamProfile[];
+  /**
+   * id 别名：外部（另一台机器）的档案 id -> 本机档案 id。
+   * 导入时若本机已有「同名但不同 id」的档案，会保留本机 id 并登记别名 ——
+   * 系列赛编排里的 playerIds 可能是对方的 id，展示端按「原名 → 别名」依次解析才能显示出选手名字。
+   */
+  playerAliases?: Record<string, string>;
+  teamAliases?: Record<string, string>;
   mtime: number | null;
 }
 

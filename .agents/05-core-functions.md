@@ -121,7 +121,7 @@
 | 获取推流配置 | getStageState | (paths: AppPaths) => StageConfig | 获取 stage 配置 |
 | 保存推流配置 | saveStageState | (paths: AppPaths, payload) => StageConfig | 保存 stage 配置；page3RankVisible / page3TeamVisible / page3RedLightMode / page3RedLightInstant 未携带时保留现值 |
 
-## 信息录入 (profile-service.ts)
+| 信息录入 (profile-service.ts)
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
@@ -133,7 +133,9 @@
 | 删除选手录入 | deletePlayerProfile | (paths: AppPaths, playerId: string) => ProfileStoreState | 删除选手连同头像文件 |
 | 保存战队录入 | saveTeamProfile | (paths: AppPaths, payload: unknown) => ProfileStoreState | 新增/更新战队；未传 id 但同名视为更新（沿用旧 id 保住 logo 文件）；上限 100 支 |
 | 删除战队录入 | deleteTeamProfile | (paths: AppPaths, teamId: string) => ProfileStoreState | 删除战队连同 logo 文件 |
-| 档案导入分类 | diffProfileRecords | (paths: AppPaths, incoming: ProfileImportInput) => ProfileImportDiff | 双机同步预览：先按 id（内容相同跳过、差异覆盖）再按名字（同名不同 id 跳过并在 reason 提示，不覆盖），受 200 人 / 100 队上限约束；每条附带字段级 diff（名字/常用精灵/宣言/排名 或 名字/队长/宣言） |
+| 档案导入分类 | diffProfileRecords | (paths: AppPaths, incoming: ProfileImportInput) => ProfileImportDiff | 双机同步预览：先按 id（内容相同跳过、差异覆盖）再按名字 —— **同名不同 id 现在是「可勾选的更新」**（导入后保留本机 id 并登记 id 别名），不再直接跳过；受 200 人 / 100 队上限约束；每条附带字段级 diff（名字/常用精灵/宣言/排名 或 名字/队长/宣言） |
+| 合并档案导入 | mergeProfileRecords | (paths: AppPaths, incoming: ProfileImportInput, acceptedIds?: { players?: Set<string>; teams?: Set<string> }) => MergeProfileRecordsReport | 按 id 覆盖 / **同名保留本机 id**（更新字段 + 写 `playerAliases`/`teamAliases`）/ 新增；acceptedIds 只合并勾选条目；报告带本次新增的 `aliases` 供导入摘要提示。**为什么要别名**：本机若已有同名但不同 id 的档案，系列赛编排里的 `playerIds` 是对方的 id，没有别名就只能显示一串 id（晋级图/波次卡片解析不出名字） |
+| 别名解析 | resolveProfileAlias | (paths: AppPaths, id: string) => string | 外部档案 id → 本机档案 id（无别名时原样返回） |
 | 合并导入档案 | mergeProfileRecords | (paths: AppPaths, incoming: ProfileImportInput, acceptedIds?) => MergeProfileRecordsReport | 双机同步落盘：按 diffProfileRecords 同规则合并；acceptedIds 传入时只合并其中条目（导入预览未勾选的条目不落盘） |
 
 ## 双机数据同步 (sync-service.ts)

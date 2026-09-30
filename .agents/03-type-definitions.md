@@ -73,7 +73,7 @@
 |---------|------|------|
 | PlayerProfile | 选手录入（id, name, pets 常用精灵, declaration 宣言, rank 排名仅数字, avatarExists, avatarMtime） | shared/types.ts |
 | TeamProfile | 战队录入（id, name, captain 队长, declaration 宣言, logoExists, logoMtime） | shared/types.ts |
-| ProfileStoreState | 录入存储状态（players, teams, mtime），落盘 cache/profiles.json | shared/types.ts |
+| ProfileStoreState | 录入存储状态（players, teams, **playerAliases/teamAliases** = 外部档案 id → 本机 id 的别名表, mtime），落盘 cache/profiles.json | shared/types.ts |
 | PetSuggestionReview | 常用精灵导入未命中 pets.json 的兜底回执（name 选手名, input 未命中输入, candidates 最多 5 个候选含 name/number） | electron/services/profile-service.ts |
 
 ## 双机数据同步
@@ -92,7 +92,7 @@
 | SyncTournamentReport | 系列赛导入合并与写回统计（added/updated/skipped/rejected/advanced——advanced = 写回补跑是否真正改动系列赛） | shared/types.ts |
 | SyncImportCounts / SyncAvatarCounts | 逐类 新增/更新/跳过 计数；头像 补缺/已有/无法对应 计数 | shared/types.ts |
 | NormalizedMatchImport / MatchImportDecision / MergeMatchRecordsReport | 比赛导入：规范化结果、逐条判定、合并回报 | electron/services/match-service.ts |
-| ProfileImportInput / ProfileImportDiff / MergeProfileRecordsReport | 档案导入：输入、逐条判定与合并回报 | electron/services/profile-service.ts |
+| ProfileImportInput / ProfileImportDiff / MergeProfileRecordsReport | 档案导入：输入、逐条判定与合并回报（报告带 `aliases`：本次登记的 id 别名） | electron/services/profile-service.ts |
 
 ## 云同步（点击式：Cloudflare Worker + KV 信箱）
 

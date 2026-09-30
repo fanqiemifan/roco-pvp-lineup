@@ -10,6 +10,7 @@ import { createMatch, getMatchStore, saveGameLineupForMatch } from '../../electr
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
 import { getProfileStore, savePlayerProfile } from '../../electron/services/profile-service';
 import { applySyncImport, exportSyncBundle, previewSyncImport } from '../../electron/services/sync-service';
+import { buildPlayerNameMap } from '../../src/admin-antd/lib/tournament';
 import type { SyncBundle, SyncImportPreview } from '../../shared/types';
 
 /** 1×1 合法 PNG（用于头像夹具，能通过魔数校验并被 sharp 处理） */
@@ -186,7 +187,7 @@ describe('previewSyncImport / applySyncImport（比赛）', () => {
 });
 
 describe('previewSyncImport / applySyncImport（档案与头像）', () => {
-  it('同名不同 id 的档案：跳过并提示，不覆盖本机', async () => {
+  it('同名不同 id 的档案：保留本机 id + 登记 id 别名（对方 id 也能解析出名字）', async () => {
     savePlayerProfile(paths, { name: '夜航', rank: '100' });
     const localId = getProfileStore(paths).players[0].id;
     const bundle = exportMatchesFromSource();
@@ -197,8 +198,10 @@ describe('previewSyncImport / applySyncImport（档案与头像）', () => {
 
     const preview = previewSyncImport(paths, bundle, 'newer');
     expect(preview.playerItems).toHaveLength(1);
-    expect(preview.playerItems[0].action).toBe('skip');
-    expect(preview.playerItems[0].reason).toContain('同名');
+    // 内容有差异 → 可勾选覆盖；说明里点明「保留本机 id + 登记别名」
+    expect(preview.playerItems[0].action).toBe('update');
+    expect(preview.playerItems[0].reason).toContain('保留本机 id');
+    expect(preview.playerItems[0].reason).toContain('p_other_machine');
 
     const result = await applySyncImport(paths, bundle, {
       mode: 'newer',
@@ -206,9 +209,14 @@ describe('previewSyncImport / applySyncImport（档案与头像）', () => {
       includeAvatars: false,
     });
 
-    const local = result.profiles?.players[0];
+    // 本机 id 不变（比赛/头像目录都引用它），内容按包内更新，并登记别名
+    const local = result.profiles?.players.find((player) => player.name === '夜航');
     expect(local?.id).toBe(localId);
-    expect(local?.rank).toBe('100');
+    expect(local?.rank).toBe('1');
+    expect(result.profiles?.playerAliases?.['p_other_machine']).toBe(localId);
+    // 别名能解析出名字：系列赛里的 playerIds 可能来自另一台机器
+    const names = buildPlayerNameMap(result.profiles ?? null);
+    expect(names.get('p_other_machine')).toBe('夜航');
   });
 
   it('新档案按 id 新增；同 id 内容差异覆盖、相同跳过', async () => {

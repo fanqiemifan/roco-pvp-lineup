@@ -16,10 +16,33 @@ import type {
 
 /* ==================== 纯函数：展示/校验辅助（可单测，不依赖 DOM） ==================== */
 
-/** id → 选手名字映射（profiles 未加载时为空表，消费点需兜底显示 id） */
+/**
+ * id → 选手名字映射（profiles 未加载时为空表，消费点需兜底显示 id）。
+ * 同时登记 id 别名（另一台机器的档案 id → 本机 id）：系列赛编排里的 playerIds 可能来自对方机器，
+ * 只按本机 id 查会解析不出名字、退回显示一串 id（见「分控端不显示选手名字」）。
+ */
 export function buildPlayerNameMap(profiles: ProfileStoreState | null): Map<string, string> {
   const map = new Map<string, string>();
   profiles?.players.forEach((player) => map.set(player.id, player.name));
+  Object.entries(profiles?.playerAliases ?? {}).forEach(([aliasId, localId]) => {
+    const name = map.get(localId);
+    if (name && !map.has(aliasId)) {
+      map.set(aliasId, name);
+    }
+  });
+  return map;
+}
+
+/** 队名映射（含别名），口径同 buildPlayerNameMap；比赛里的 teamId 也可能来自对方机器 */
+export function buildTeamNameMap(profiles: ProfileStoreState | null): Map<string, string> {
+  const map = new Map<string, string>();
+  profiles?.teams.forEach((team) => map.set(team.id, team.name));
+  Object.entries(profiles?.teamAliases ?? {}).forEach(([aliasId, localId]) => {
+    const name = map.get(localId);
+    if (name && !map.has(aliasId)) {
+      map.set(aliasId, name);
+    }
+  });
   return map;
 }
 

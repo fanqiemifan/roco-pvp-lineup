@@ -46,6 +46,16 @@ interface TeamProfileFileEntry {
 interface ProfileStoreFile {
   players: PlayerProfileFileEntry[];
   teams: TeamProfileFileEntry[];
+  /**
+   * id 别名：外部（另一台机器）的档案 id -> 本机档案 id。
+   *
+   * 为什么需要：导入时若本机已有「同名但不同 id」的档案，按原规则会跳过不覆盖 —— 本机保留自己的 id，
+   * 而系列赛编排里的 playerIds 是对方的 id，于是晋级图/波次卡片解析不出名字只能显示 id
+   * （见「分控端不显示选手名字」的排查）。导入时登记一条别名即可让对方的 id 也能指到这个人，
+   * 既不破坏本机 id 稳定性（比赛/头像目录都引用 id），也不影响显示。
+   */
+  playerAliases: Record<string, string>;
+  teamAliases: Record<string, string>;
 }
 
 function normalizeName(value: unknown): string {
@@ -70,7 +80,23 @@ function createProfileId(prefix: string): string {
 }
 
 function defaultStoreFile(): ProfileStoreFile {
-  return { players: [], teams: [] };
+  return { players: [], teams: [], playerAliases: {}, teamAliases: {} };
+}
+
+/** id 别名表规范化：只保留「合法 id -> 合法 id」且两者不同的条目 */
+function normalizeAliases(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const result: Record<string, string> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([from, to]) => {
+    const aliasId = normalizeId(from);
+    const localId = normalizeId(to);
+    if (aliasId && localId && aliasId !== localId) {
+      result[aliasId] = localId;
+    }
+  });
+  return result;
 }
 
 function readStoreFile(paths: AppPaths): { store: ProfileStoreFile; mtime: number | null } {
@@ -121,6 +147,8 @@ function readStoreFile(paths: AppPaths): { store: ProfileStoreFile; mtime: numbe
             .filter((item): item is TeamProfileFileEntry => Boolean(item))
             .slice(0, MAX_TEAMS)
         : [],
+      playerAliases: normalizeAliases(raw.playerAliases),
+      teamAliases: normalizeAliases(raw.teamAliases),
     };
     return { store, mtime: stat.mtimeMs };
   } catch {
@@ -160,8 +188,19 @@ export function getProfileStore(paths: AppPaths): ProfileStoreState {
   return {
     players: store.players.map((entry) => toPlayerProfile(paths, entry)),
     teams: store.teams.map((entry) => toTeamProfile(paths, entry)),
+    playerAliases: store.playerAliases,
+    teamAliases: store.teamAliases,
     mtime,
   };
+}
+
+/**
+ * 外部档案 id -> 本机档案 id 的解析（别名优先，其次原名）。
+ * 系列赛编排里的 playerIds 可能来自另一台机器，靠它才能显示出选手名字。
+ */
+export function resolveProfileAlias(paths: AppPaths, id: string): string {
+  const { store } = readStoreFile(paths);
+  return store.playerAliases[id] ?? id;
 }
 
 /**
@@ -442,6 +481,8 @@ export interface MergeProfileRecordsReport {
   profiles: ProfileStoreState;
   players: { added: string[]; updated: string[]; skipped: Array<{ id: string; name: string; reason: string }> };
   teams: { added: string[]; updated: string[]; skipped: Array<{ id: string; name: string; reason: string }> };
+  /** 本次新登记的 id 别名（外部 id -> 本机 id），供导入摘要提示 */
+  aliases: { players: Record<string, string>; teams: Record<string, string> };
   rejected: ProfileImportRejected[];
 }
 
@@ -529,11 +570,14 @@ function classifyPlayerImport(players: PlayerProfileFileEntry[], entry: PlayerPr
 
   const sameName = players.find((item) => item.name === entry.name);
   if (sameName) {
+    const diff = buildPlayerDiff(sameName, entry);
     return {
       ...base,
-      action: 'skip',
-      reason: `同名档案已存在（id ${sameName.id}），不覆盖`,
-      diff: buildPlayerDiff(sameName, entry),
+      action: diff.length === 0 ? 'skip' : 'update',
+      reason: diff.length === 0
+        ? `与本机档案「${sameName.name}」内容相同（保留本机 id ${sameName.id}）`
+        : `按名字匹配到已有档案「${sameName.name}」，导入后保留本机 id（${sameName.id}）并登记 id 别名 ${entry.id} → ${sameName.id}`,
+      diff,
     };
   }
 
@@ -558,11 +602,14 @@ function classifyTeamImport(teams: TeamProfileFileEntry[], entry: TeamProfileFil
 
   const sameName = teams.find((item) => item.name === entry.name);
   if (sameName) {
+    const diff = buildTeamDiff(sameName, entry);
     return {
       ...base,
-      action: 'skip',
-      reason: `同名档案已存在（id ${sameName.id}），不覆盖`,
-      diff: buildTeamDiff(sameName, entry),
+      action: diff.length === 0 ? 'skip' : 'update',
+      reason: diff.length === 0
+        ? `与本机档案「${sameName.name}」内容相同（保留本机 id ${sameName.id}）`
+        : `按名字匹配到已有档案「${sameName.name}」，导入后保留本机 id（${sameName.id}）并登记 id 别名 ${entry.id} → ${sameName.id}`,
+      diff,
     };
   }
 
@@ -587,8 +634,8 @@ export function diffProfileRecords(paths: AppPaths, incoming: ProfileImportInput
 }
 
 /**
- * 合并包内档案：按 id 覆盖 / 同名跳过 / 新增（受上限约束）；头像由同步服务另行补缺。
- * acceptedIds 传入时只合并其中的条目（导入预览里未勾选的条目不落盘）。
+ * 合并包内档案：按 id 覆盖 / 同名则保留本机 id（更新字段 + 登记 id 别名）/ 新增（受上限约束）；
+ * 头像由同步服务另行补缺。acceptedIds 传入时只合并其中的条目（导入预览里未勾选的条目不落盘）。
  */
 export function mergeProfileRecords(
   paths: AppPaths,
@@ -599,6 +646,7 @@ export function mergeProfileRecords(
   const normalizedPlayers = normalizeIncomingPlayers(Array.isArray(incoming.players) ? incoming.players : []);
   const normalizedTeams = normalizeIncomingTeams(Array.isArray(incoming.teams) ? incoming.teams : []);
 
+  const aliases: { players: Record<string, string>; teams: Record<string, string> } = { players: {}, teams: {} };
   const players: MergeProfileRecordsReport['players'] = { added: [], updated: [], skipped: [] };
   normalizedPlayers.entries.forEach((entry) => {
     if (acceptedIds?.players && !acceptedIds.players.has(entry.id)) {
@@ -611,9 +659,24 @@ export function mergeProfileRecords(
       return;
     }
     if (decision.action === 'update') {
-      const index = store.players.findIndex((item) => item.id === entry.id);
-      store.players[index] = entry;
-      players.updated.push(entry.id);
+      const byIdIndex = store.players.findIndex((item) => item.id === entry.id);
+      if (byIdIndex >= 0) {
+        store.players[byIdIndex] = entry;
+        players.updated.push(entry.id);
+        return;
+      }
+      // 同名匹配：保留本机 id（比赛 / 头像目录都引用它），只更新内容，并登记对方 id 的别名
+      const byNameIndex = store.players.findIndex((item) => item.name === entry.name);
+      if (byNameIndex >= 0) {
+        const localId = store.players[byNameIndex].id;
+        store.players[byNameIndex] = { ...entry, id: localId };
+        store.playerAliases[entry.id] = localId;
+        aliases.players[entry.id] = localId;
+        players.updated.push(localId);
+        return;
+      }
+      store.players.push(entry);
+      players.added.push(entry.id);
       return;
     }
     players.skipped.push({ id: entry.id, name: entry.name, reason: decision.reason });
@@ -631,9 +694,23 @@ export function mergeProfileRecords(
       return;
     }
     if (decision.action === 'update') {
-      const index = store.teams.findIndex((item) => item.id === entry.id);
-      store.teams[index] = entry;
-      teams.updated.push(entry.id);
+      const byIdIndex = store.teams.findIndex((item) => item.id === entry.id);
+      if (byIdIndex >= 0) {
+        store.teams[byIdIndex] = entry;
+        teams.updated.push(entry.id);
+        return;
+      }
+      const byNameIndex = store.teams.findIndex((item) => item.name === entry.name);
+      if (byNameIndex >= 0) {
+        const localId = store.teams[byNameIndex].id;
+        store.teams[byNameIndex] = { ...entry, id: localId };
+        store.teamAliases[entry.id] = localId;
+        aliases.teams[entry.id] = localId;
+        teams.updated.push(localId);
+        return;
+      }
+      store.teams.push(entry);
+      teams.added.push(entry.id);
       return;
     }
     teams.skipped.push({ id: entry.id, name: entry.name, reason: decision.reason });
@@ -644,6 +721,7 @@ export function mergeProfileRecords(
     profiles: getProfileStore(paths),
     players,
     teams,
+    aliases,
     rejected: [...normalizedPlayers.rejected, ...normalizedTeams.rejected],
   };
 }

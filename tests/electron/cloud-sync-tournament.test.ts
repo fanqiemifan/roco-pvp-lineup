@@ -18,9 +18,10 @@ import { saveCloudSyncConfig } from '../../electron/services/cloud-sync-service'
 import { saveRuntimeConfig } from '../../electron/services/config-service';
 import { getMatchStore, recordMatchWinner, saveGameLineupForMatch, startCurrentGame } from '../../electron/services/match-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
-import { savePlayerProfile } from '../../electron/services/profile-service';
+import { getProfileStore, savePlayerProfile } from '../../electron/services/profile-service';
 import { createTournament, getTournamentStore, onMatchCompleted, startTournament } from '../../electron/services/tournament-service';
 import { exportSyncBundle } from '../../electron/services/sync-service';
+import { buildPlayerNameMap } from '../../src/admin-antd/lib/tournament';
 import type { MatchRecord } from '../../shared/types';
 
 let root: string;
@@ -131,5 +132,62 @@ describe('诊断：分控端拉取推进后的数据', () => {
     // 所以比赛管理必须把筛选状态显式提示出来（前端 historyFilterHint）。
     const plainOnly = store.matches.filter((match) => !getEffectiveTournamentId(match, tournamentIdSet));
     expect(plainOnly.some((match) => match.id === newMatchId)).toBe(false);
+  });
+
+  it('分控端已有同名但不同 id 的档案时，导入后仍能用别名显示选手名字', async () => {
+    // 这条用例要「分控端档案干净」的起点（前面的用例可能已经导入过档案）
+    rmSync(subPaths.profilesFile, { force: true });
+    const bundle = buildAdvancedTournamentBundle();
+    const record = getTournamentStore(mainPaths)[0];
+    const mainPlayerIds = record.playerIds;
+    const names = new Map(getProfileStore(mainPaths).players.map((player) => [player.id, player.name]));
+
+    // 分控端提前手工建了同名档案（id 是本机自己生成的）—— 这正是「显示出一串 id」的现场
+    const localIds: string[] = [];
+    mainPlayerIds.forEach((mainId) => {
+      const name = names.get(mainId) ?? mainId;
+      savePlayerProfile(subPaths, { id: `local_${mainId}`, name, rank: '9' });
+      localIds.push(`local_${mainId}`);
+    });
+    const beforeNames = buildPlayerNameMap(getProfileStore(subPaths));
+    expect(beforeNames.get(mainPlayerIds[0])).toBeUndefined();
+
+    // 走一遍真实导入
+    const previewRes = await fetch(`${subBase}/api/sync/preview`, {
+      method: 'POST',
+      body: (() => {
+        const form = new FormData();
+        form.append('file', new Blob([JSON.stringify(bundle)], { type: 'application/json' }), 'bundle.json');
+        form.append('mode', 'newer');
+        return form;
+      })(),
+    });
+    const preview = (await previewRes.json() as any).preview;
+    // 同名不同 id → 现在是「可勾选的更新」，说明里点明会保留本机 id 并登记别名
+    const aliasedPlayer = preview.playerItems.find((item: { reason: string }) => item.reason.includes('保留本机 id'));
+    expect(aliasedPlayer).toBeTruthy();
+
+    const accepted = [...preview.matchItems, ...preview.playerItems, ...preview.teamItems]
+      .filter((item: { action: string }) => item.action !== 'skip')
+      .map((item: { key: string }) => item.key);
+    const applyForm = new FormData();
+    applyForm.append('file', new Blob([JSON.stringify(bundle)], { type: 'application/json' }), 'bundle.json');
+    applyForm.append('mode', 'newer');
+    applyForm.append('accepted', JSON.stringify(accepted));
+    applyForm.append('includeAvatars', 'false');
+    const applyRes = await fetch(`${subBase}/api/sync/import`, { method: 'POST', body: applyForm });
+    expect(applyRes.status).toBe(200);
+
+    // /api/profiles 带别名 → 晋级图/波次卡片能显示名字而不是一串 id
+    const profiles = await (await fetch(`${subBase}/api/profiles`)).json() as {
+      players: Array<{ id: string; name: string }>;
+      playerAliases?: Record<string, string>;
+    };
+    const afterNames = buildPlayerNameMap(profiles as never);
+    mainPlayerIds.forEach((mainId) => {
+      expect(afterNames.get(mainId)).toBe(names.get(mainId));
+    });
+    // 本机 id 保持不变（比赛 / 头像目录都引用它），只新增别名
+    expect(profiles.players.map((player) => player.id).sort()).toEqual([...localIds].sort());
   });
 });
