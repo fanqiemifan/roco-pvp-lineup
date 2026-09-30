@@ -20,8 +20,10 @@ const wranglerToml = path.join(cloudflareDir, 'wrangler.toml');
 const PLACEHOLDER = 'REPLACE_WITH_KV_NAMESPACE_ID';
 
 function runWrangler(args, { capture = false } = {}) {
-  const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const result = spawnSync(command, ['--yes', 'wrangler', ...args], {
+  // Windows 上不能直接 spawnSync('npx.cmd')（Node 20+ 对 .cmd/.bat 抛 EINVAL，shell:true 也有注入风险）；
+  // 改为用当前 Node 执行 npx-cli.js（npx 与 node 同装在一个 nodejs 目录下），全平台一致。
+  const npxCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npx-cli.js');
+  const result = spawnSync(process.execPath, [npxCli, '--yes', 'wrangler', ...args], {
     cwd: cloudflareDir,
     encoding: 'utf-8',
     stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
@@ -45,7 +47,8 @@ function extractNamespaceId(output) {
 
 function main() {
   const toml = readFileSync(wranglerToml, 'utf-8');
-  const existingId = /id\s*=\s*"([^"]*)"/.exec(toml)?.[1] ?? '';
+  // 只认「非空且不是占位符」的 id：留空时也必须重新创建，否则会把空 id 当成已配置
+  const existingId = (/id\s*=\s*"([^"]*)"/.exec(toml)?.[1] ?? '').trim();
   let namespaceId = existingId && existingId !== PLACEHOLDER ? existingId : '';
 
   if (!namespaceId) {
@@ -56,7 +59,11 @@ function main() {
       console.error(output);
       throw new Error('未能从 wrangler 输出解析出 KV namespace id，请手动执行 npx wrangler kv namespace create SYNC_KV 并把 id 填进 cloudflare/wrangler.toml');
     }
-    writeFileSync(wranglerToml, toml.replace(PLACEHOLDER, namespaceId), 'utf-8');
+    // 空 id / 占位符都替换成真 id（两种写法都要认，否则第二次部署时找不到替换目标）
+    const replaced = /id\s*=\s*"[^"]*"/.test(toml)
+      ? toml.replace(/id\s*=\s*"[^"]*"/, `id = "${namespaceId}"`)
+      : toml;
+    writeFileSync(wranglerToml, replaced, 'utf-8');
     console.log(`   KV 空间已创建，id = ${namespaceId}（已回填 cloudflare/wrangler.toml）`);
   } else {
     console.log(`① KV 空间已配置（id = ${namespaceId}），跳过创建`);

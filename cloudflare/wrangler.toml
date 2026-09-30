@@ -22,5 +22,5 @@ compatibility_flags = []
 
 [[kv_namespaces]]
 binding = "SYNC_KV"
-# ↓ 由 `npm run cloud:deploy`（scripts/deploy-cloud-sync.mjs）自动回填；手动部署时自己粘贴
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+# 由 `npm run cloud:deploy`（scripts/deploy-cloud-sync.mjs）自动回填；手动部署时自己粘贴
+id = "382128f1ed0b4a388c109d5fd95ab545"
