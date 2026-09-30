@@ -147,7 +147,10 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 获取对局推送状态 | getPage7State | (paths: AppPaths) => Page7State | 获取 page7 标题/温馨提示/已选比赛列表 |
-| 保存对局推送配置 | savePage7State | (paths: AppPaths, payload: unknown) => Page7State | 保存 page7 配置（matchIds 已结束比赛 / title / notice） |
+| 保存对局推送配置 | savePage7State | (paths: AppPaths, payload: unknown) => Page7State | 保存 page7 配置（matchIds 任意状态现存比赛 / title / notice） |
+| 清理选场悬空引用 | prunePage7State | (paths: AppPaths) => Page7State \| null | 移除已删比赛的引用（page7 不限状态）；有变化落盘并返回新状态，无变化返回 null；由 socket-server 的比赛广播出口 emitMatchesUpdate 调用 |
+
+> 同口径的 `prunePage6State`（page6-service.ts，额外要求「已结束」）/ `prunePage8State`（page8-service.ts，额外要求「待开始/进行中」）签名与行为一致；page6/page8 的收录状态白名单为 PAGE6_MATCH_STATUSES / PAGE8_MATCH_STATUSES（保存与清理共用，避免口径漂移）。
 
 ## 团队积分榜 (page9-service.ts)
 

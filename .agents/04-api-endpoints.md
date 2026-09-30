@@ -33,15 +33,15 @@
 | 更新比赛 | PATCH | /api/matches/:matchId | 更新比赛信息（含选手名、排位排名、赛制，以及所属战队 leftTeamId/leftTeamName/rightTeamId/rightTeamName 可选，未传时保留原值；后台「保存比赛信息」与「战队修改」都走此接口） | electron/socket-server.ts |
 | 更新比赛标签 | PATCH | /api/matches/:matchId/tags | 更新比赛标签 | electron/socket-server.ts |
 | 批量添加标签 | POST | /api/matches/batch-tags | 为多场比赛追加标签（合并保留原有，body: matchIds/tags） | electron/socket-server.ts |
-| 删除比赛 | DELETE | /api/matches/:matchId | 删除单个比赛 | electron/socket-server.ts |
+| 删除比赛 | DELETE | /api/matches/:matchId | 删除单个比赛；响应额外回带 pagePush（推流选场清理结果，仅含发生变化的页面） | electron/socket-server.ts |
 | 选择活动比赛 | POST | /api/matches/:matchId/select | 选择活动比赛 | electron/socket-server.ts |
 | 开始小局 | POST | /api/matches/:matchId/start | 开始当前小局 | electron/socket-server.ts |
 | 录入小局阵容 | POST | /api/matches/:matchId/games/:gameNumber/lineup | 为当前小局（待开始）录入双方阵容（body: selections.left/right；双侧合并一次写入 + 单次广播 matches:update，不触碰面板/记分牌/activeMatchId；比赛管理「录入阵容」用） | electron/socket-server.ts |
 | 记录胜负 | POST | /api/matches/:matchId/winner | 记录本局胜负 | electron/socket-server.ts |
 | 撤销操作 | POST | /api/matches/:matchId/undo | 撤销操作；系列赛对局会先跑 onMatchUndo 反向钩子（清节点胜者、必要时级联丢弃「自动锁定且未开打」的后续波），钩子失败则整个撤回 400、比赛不动（避免「比赛撤了、系列赛仍显示晋级」） | electron/socket-server.ts |
 | 恢复操作 | POST | /api/matches/:matchId/redo | 恢复操作 | electron/socket-server.ts |
-| 批量删除比赛 | POST | /api/matches/history/delete | 批量删除比赛 | electron/socket-server.ts |
-| 撤销删除 | POST | /api/matches/history/undo-delete | 撤销删除 | electron/socket-server.ts |
+| 批量删除比赛 | POST | /api/matches/batch-delete | 批量删除比赛（body: matchIds）；响应额外回带 pagePush（推流选场清理结果，仅含发生变化的页面） | electron/socket-server.ts |
+| 撤销删除 | POST | /api/matches/undo-delete | 撤销删除 | electron/socket-server.ts |
 
 ## 数据同步接口
 
@@ -84,22 +84,24 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取比赛结果页状态与已选比赛 | GET | /api/page6 | 获取 page6 状态、完整比赛数据（公开 GET）、按赛事隔离的选手头像 avatars、场序时间 scheduleTimes（开始时间 + BO×30 分钟累加），以及系列赛阶段语义标签 tournamentLabels（仅系列赛对局有值，如「8进4·胜者组」，普通对局/孤儿引用缺席；由 tournament-service 的 resolveTournamentLabels 解析）；对局未填排位排名时按选手名回退「信息录入」档案排名（对局已填值优先，仅响应层兜底不落盘） | electron/socket-server.ts |
+| 获取比赛结果页状态与已选比赛 | GET | /api/page6 | 获取 page6 状态、完整比赛数据（公开 GET）、按赛事隔离的选手头像 avatars、场序时间 scheduleTimes（开始时间 + BO×30 分钟累加），以及系列赛阶段语义标签 tournamentLabels（仅系列赛对局有值，如「8进4·胜者组」，普通对局/孤儿引用缺席；由 tournament-service 的 resolveTournamentLabels 解析）；对局未填排位排名时按选手名回退「信息录入」档案排名（对局已填值优先，仅响应层兜底不落盘）；下发的 state.matchIds 先按「比赛仍存在 + 已结束」过滤（见下方推流选场一致性说明） | electron/socket-server.ts |
 | 保存比赛结果配置 | POST | /api/page6 | 保存 page6 配置（matchIds 最多 9 个已结束比赛 / title 大标题 / startTime 第一场开始时间 HH:mm / matchTimes 手动时间覆盖） | electron/socket-server.ts |
 
 ## 比赛预告（page8）接口
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取比赛预告页状态与已选比赛 | GET | /api/page8 | 获取 page8 状态、完整比赛数据（仅待开始/进行中，公开 GET）、按赛事隔离的选手头像 avatars、场序时间 scheduleTimes，以及系列赛阶段语义标签 tournamentLabels（与 page6 同口径）；排位排名兜底与 page6 一致（未填则按选手名回退档案排名） | electron/socket-server.ts |
+| 获取比赛预告页状态与已选比赛 | GET | /api/page8 | 获取 page8 状态、完整比赛数据（仅待开始/进行中，公开 GET）、按赛事隔离的选手头像 avatars、场序时间 scheduleTimes，以及系列赛阶段语义标签 tournamentLabels（与 page6 同口径）；排位排名兜底与 page6 一致（未填则按选手名回退档案排名）；下发的 state.matchIds 先按「比赛仍存在 + 待开始/进行中」过滤（见下方推流选场一致性说明） | electron/socket-server.ts |
 | 保存比赛预告配置 | POST | /api/page8 | 保存 page8 配置（matchIds 最多 9 个待开始/进行中比赛 / title / startTime / matchTimes，已完成比赛会被过滤） | electron/socket-server.ts |
 
 ## 对局推送（page7）接口
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取对局推送页状态 | GET | /api/page7 | 获取 page7 状态与已选比赛数据（公开 GET） | electron/socket-server.ts |
+| 获取对局推送页状态 | GET | /api/page7 | 获取 page7 状态与已选比赛数据（公开 GET）；下发的 state.matchIds 先过滤已删除比赛的悬空引用（见下方推流选场一致性说明） | electron/socket-server.ts |
 | 保存对局推送配置 | POST | /api/page7 | 保存 page7 配置（matchIds 最多 9 场任意状态比赛 / title 主标题 / notice 温馨提示） | electron/socket-server.ts |
+
+> **推流选场一致性（page6/7/8 通用）**：选场 matchIds 会随比赛数据自动清理——比赛被删除（悬空引用）或状态不再符合该页收录口径（page6 需已结束、page8 需待开始/进行中、page7 不限状态）时，服务端在比赛广播出口 `emitMatchesUpdate` 落盘清理该页选场（`prunePage6State`/`prunePage7State`/`prunePage8State`），**只对发生变化的页面广播 pageN:update**（后台卡片「已选 N/9」随之刷新）；三个 GET 下发前同样按「比赛仍存在 + 符合收录状态」过滤 state.matchIds，保证与 matches 同源（历史遗留悬空数据兜底）。删除类接口（DELETE /api/matches/:matchId、POST /api/matches/batch-delete、删除系列赛连对局、回退上一波）在响应中回带 pagePush（仅含发生变化的页面状态）。
 
 ## 团队积分榜（page9）接口
 

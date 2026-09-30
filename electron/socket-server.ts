@@ -10,7 +10,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { SOCKET_EVENTS } from '../shared/events.js';
 import { SYNC_BUNDLE_MAX_BYTES } from '../shared/constants.js';
 import { computeScheduleTimes } from '../shared/match-schedule.js';
-import type { AvatarCollectionState, CountdownState, MatchRecord, MatchStoreState, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
+import type { AvatarCollectionState, CountdownState, MatchRecord, MatchStoreState, Page6State, Page7State, Page8State, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
 import { getSpriteRanking } from './services/stats-service.js';
 import {
@@ -39,14 +39,19 @@ import {
 } from './services/stage-service.js';
 import {
   getPage6State,
+  PAGE6_MATCH_STATUSES,
+  prunePage6State,
   savePage6State,
 } from './services/page6-service.js';
 import {
   getPage7State,
+  prunePage7State,
   savePage7State,
 } from './services/page7-service.js';
 import {
   getPage8State,
+  PAGE8_MATCH_STATUSES,
+  prunePage8State,
   savePage8State,
 } from './services/page8-service.js';
 import {
@@ -478,15 +483,68 @@ export async function createLocalServer(
     broadcast(SOCKET_EVENTS.stageUpdate, { stage: saved }, ROLES_FOR_STAGE);
   };
 
-  // 比赛数据统一广播出口：广播后检查红光特效「立即显示」是否已进入下一局需清除
-  const emitMatchesUpdate = (store: MatchStoreState): void => {
+  // 比赛数据统一广播出口：广播后检查红光特效「立即显示」是否已进入下一局需清除，
+  // 并同步推流选场（page6/7/8）——比赛删除/状态变更后清理不再可展示的引用，返回变化页面
+  const emitMatchesUpdate = (store: MatchStoreState): PagePushPruneResult => {
     broadcast(SOCKET_EVENTS.matchesUpdate, { store }, ROLES_FOR_MATCHES);
     clearRedLightInstantOnBoundary(store);
+    return prunePagePushSelections();
   };
 
   // 系列赛数据广播：V1 消费端仅 admin（第 11 视图下轮接入），传空角色列表即只投 admin 房间
   const emitTournamentUpdate = (): void => {
     broadcast(SOCKET_EVENTS.tournamentUpdate, { tournaments: getTournamentStore(paths) }, []);
+  };
+
+  /** 推流选场（page6/7/8）清理结果：仅含发生变化的页面 */
+  type PagePushPruneResult = Partial<Record<'page6' | 'page7' | 'page8', Page6State | Page7State | Page8State>>;
+
+  // GET 下发的选场 id 白名单过滤：只保留仍存在且状态符合页面收录口径的比赛（与落盘口径同源）
+  const filterSelectableMatchIds = (
+    matchIds: string[],
+    statuses: ReadonlySet<MatchRecord['status']>,
+  ): string[] => {
+    const allowed = new Set(
+      getMatchStore(paths).matches
+        .filter((match) => statuses.has(match.status))
+        .map((match) => match.id),
+    );
+    return matchIds.filter((id) => allowed.has(id));
+  };
+
+  // 对局推送（page7）不限状态：只过滤已被删除的悬空引用
+  const filterExistingMatchIds = (matchIds: string[]): string[] => {
+    const existing = new Set(getMatchStore(paths).matches.map((match) => match.id));
+    return matchIds.filter((id) => existing.has(id));
+  };
+
+  /**
+   * 推流选场（page6/7/8）与比赛数据保持一致：
+   * 比赛删除（悬空引用）或状态变更（不再符合页面收录状态）后清理选场清单，
+   * 只广播实际变化的页面（避免多余刷新），返回清理结果供删除类路由回传发起端。
+   */
+  const prunePagePushSelections = (): PagePushPruneResult => {
+    const next: PagePushPruneResult = {};
+
+    const page6 = prunePage6State(paths);
+    if (page6) {
+      broadcast(SOCKET_EVENTS.page6Update, { state: page6 }, ['page6']);
+      next.page6 = page6;
+    }
+
+    const page7 = prunePage7State(paths);
+    if (page7) {
+      broadcast(SOCKET_EVENTS.page7Update, { state: page7 }, ['page7']);
+      next.page7 = page7;
+    }
+
+    const page8 = prunePage8State(paths);
+    if (page8) {
+      broadcast(SOCKET_EVENTS.page8Update, { state: page8 }, ['page8']);
+      next.page8 = page8;
+    }
+
+    return next;
   };
 
   // 记录启动基线，保证服务启动后首次进入下一局也能被识别
@@ -670,8 +728,10 @@ export async function createLocalServer(
   });
 
   app.get('/api/page6', (_request, response) => {
-    const state = getPage6State(paths);
     const matchStore = getMatchStore(paths);
+    const savedState = getPage6State(paths);
+    // 失效引用兜底：存量配置里已删或不再可展示（非已结束）的 id 不下发（state.matchIds 与 matches 需同源）
+    const state = { ...savedState, matchIds: filterSelectableMatchIds(savedState.matchIds, PAGE6_MATCH_STATUSES) };
     // 排名兜底：对局未填排名时按选手名回退「信息录入」档案排名（系列赛早期对局无快照）
     const matches = withProfileRankFallback(
       paths,
@@ -707,8 +767,10 @@ export async function createLocalServer(
 
   // 对局推送（page7）：返回所选多场比赛完整数据（含每个小局阵容）与按赛事隔离的选手头像
   app.get('/api/page7', (_request, response) => {
-    const state = getPage7State(paths);
     const matchStore = getMatchStore(paths);
+    const savedState = getPage7State(paths);
+    // 悬空引用兜底：存量配置里指向已删比赛的 id 不下发（对局推送不限状态）
+    const state = { ...savedState, matchIds: filterExistingMatchIds(savedState.matchIds) };
     const matches = state.matchIds
       .map((id) => matchStore.matches.find((item) => item.id === id))
       .filter((match): match is NonNullable<typeof match> => Boolean(match));
@@ -732,8 +794,10 @@ export async function createLocalServer(
 
   // 比赛预告（page8）：返回所选比赛完整数据与按赛事隔离的选手头像
   app.get('/api/page8', (_request, response) => {
-    const state = getPage8State(paths);
     const matchStore = getMatchStore(paths);
+    const savedState = getPage8State(paths);
+    // 失效引用兜底：存量配置里已删或不再可展示（已结束）的 id 不下发（state.matchIds 与 matches 需同源）
+    const state = { ...savedState, matchIds: filterSelectableMatchIds(savedState.matchIds, PAGE8_MATCH_STATUSES) };
     // 排名兜底：与 page6 同口径，按选手名回退「信息录入」档案排名
     const matches = withProfileRankFallback(
       paths,
@@ -1209,11 +1273,12 @@ export async function createLocalServer(
       const matches = deleteMatch(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      emitMatchesUpdate(matches);
+      // 广播出口同步清理推流选场（page6/7/8）中的该场引用，清理结果一并回传
+      const pagePush = emitMatchesUpdate(matches);
       emitAvatarUpdate();
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
-      response.json({ success: true, store: matches, scoreboard, panels });
+      response.json({ success: true, store: matches, scoreboard, panels, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
@@ -1230,11 +1295,12 @@ export async function createLocalServer(
       const matches = deleteMatches(paths, request.body?.matchIds ?? []);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      emitMatchesUpdate(matches);
+      // 广播出口同步清理推流选场（page6/7/8）中的已删引用，清理结果一并回传
+      const pagePush = emitMatchesUpdate(matches);
       emitAvatarUpdate();
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
-      response.json({ success: true, store: matches, scoreboard, panels });
+      response.json({ success: true, store: matches, scoreboard, panels, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
@@ -1487,9 +1553,10 @@ export async function createLocalServer(
   app.post('/api/tournaments/:tournamentId/rollback-wave', (request, response) => {
     try {
       const tournament = rollbackWave(paths, request.params.tournamentId);
-      emitMatchesUpdate(getMatchStore(paths));
+      // 回退会删除未打的对局：广播出口同步清理推流选场里的引用
+      const pagePush = emitMatchesUpdate(getMatchStore(paths));
       emitTournamentUpdate();
-      response.json({ success: true, tournament });
+      response.json({ success: true, tournament, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
@@ -1535,9 +1602,10 @@ export async function createLocalServer(
         request.params.tournamentId,
         { deleteMatches: body.deleteMatches === true },
       );
-      emitMatchesUpdate(getMatchStore(paths));
+      // 连同对局删除时由广播出口同步清理推流选场里的引用（仅解绑不影响选场）
+      const pagePush = emitMatchesUpdate(getMatchStore(paths));
       emitTournamentUpdate();
-      response.json({ success: true, ...result });
+      response.json({ success: true, ...result, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

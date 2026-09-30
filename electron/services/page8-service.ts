@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import type { Page8State } from '../../shared/types.js';
+import type { MatchRecord, Page8State } from '../../shared/types.js';
 import { normalizeHHmm } from '../../shared/match-schedule.js';
 import { ensureRuntimeDirs } from './image-service.js';
 import { getMatchStore } from './match-service.js';
@@ -10,7 +10,7 @@ import type { AppPaths } from './path-service.js';
 export const PAGE8_MAX_MATCHES = 9;
 
 /** 允许收录进比赛预告的比赛状态：待开始优先，进行中可选 */
-const PAGE8_MATCH_STATUSES = new Set(['pending', 'in_progress']);
+export const PAGE8_MATCH_STATUSES: ReadonlySet<MatchRecord['status']> = new Set(['pending', 'in_progress']);
 
 function defaultPage8State(): Page8State {
   return {
@@ -116,4 +116,22 @@ export function savePage8State(paths: AppPaths, payload: unknown): Page8State {
   const metadata = { matchIds, title, startTime, matchTimes };
   fs.writeFileSync(paths.page8File, JSON.stringify(metadata, null, 2), 'utf-8');
   return getPage8State(paths);
+}
+
+/**
+ * 清理选场清单中已删或不再可展示（已结束）的比赛引用。
+ * 比赛删除 / 状态变更后由广播出口调用：有变化时落盘并返回新状态，无变化返回 null。
+ */
+export function prunePage8State(paths: AppPaths): Page8State | null {
+  const current = getPage8State(paths);
+  const allowedIds = new Set(
+    getMatchStore(paths).matches
+      .filter((match) => PAGE8_MATCH_STATUSES.has(match.status))
+      .map((match) => match.id),
+  );
+  const matchIds = current.matchIds.filter((id) => allowedIds.has(id));
+  if (matchIds.length === current.matchIds.length) {
+    return null;
+  }
+  return savePage8State(paths, { matchIds });
 }

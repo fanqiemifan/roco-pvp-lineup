@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import type { Page6State } from '../../shared/types.js';
+import type { MatchRecord, Page6State } from '../../shared/types.js';
 import { normalizeHHmm } from '../../shared/match-schedule.js';
 import { ensureRuntimeDirs } from './image-service.js';
 import { getMatchStore } from './match-service.js';
@@ -8,6 +8,9 @@ import type { AppPaths } from './path-service.js';
 
 /** 比赛结果页（page6）最多展示的比赛数量（3×3 卡片网格） */
 export const PAGE6_MAX_MATCHES = 9;
+
+/** 比赛结果页（page6）允许收录的比赛状态：仅已结束 */
+export const PAGE6_MATCH_STATUSES: ReadonlySet<MatchRecord['status']> = new Set(['completed']);
 
 function defaultPage6State(): Page6State {
   return {
@@ -104,7 +107,7 @@ export function savePage6State(paths: AppPaths, payload: unknown): Page6State {
 
   const completedIds = new Set(
     getMatchStore(paths).matches
-      .filter((match) => match.status === 'completed')
+      .filter((match) => PAGE6_MATCH_STATUSES.has(match.status))
       .map((match) => match.id),
   );
   const matchIds = rawMatchIds.filter((id) => completedIds.has(id)).slice(0, PAGE6_MAX_MATCHES);
@@ -113,4 +116,22 @@ export function savePage6State(paths: AppPaths, payload: unknown): Page6State {
   const metadata = { matchIds, title, startTime, matchTimes };
   fs.writeFileSync(paths.page6File, JSON.stringify(metadata, null, 2), 'utf-8');
   return getPage6State(paths);
+}
+
+/**
+ * 清理选场清单中已删或不再可展示（非已结束）的比赛引用。
+ * 比赛删除 / 状态变更后由广播出口调用：有变化时落盘并返回新状态，无变化返回 null。
+ */
+export function prunePage6State(paths: AppPaths): Page6State | null {
+  const current = getPage6State(paths);
+  const allowedIds = new Set(
+    getMatchStore(paths).matches
+      .filter((match) => PAGE6_MATCH_STATUSES.has(match.status))
+      .map((match) => match.id),
+  );
+  const matchIds = current.matchIds.filter((id) => allowedIds.has(id));
+  if (matchIds.length === current.matchIds.length) {
+    return null;
+  }
+  return savePage6State(paths, { matchIds });
 }

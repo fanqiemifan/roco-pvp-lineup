@@ -95,3 +95,17 @@ export function savePage7State(paths: AppPaths, payload: unknown): Page7State {
   fs.writeFileSync(paths.page7File, JSON.stringify(metadata, null, 2), 'utf-8');
   return getPage7State(paths);
 }
+
+/**
+ * 清理选场清单中已不存在的比赛引用（对局推送不限状态，只处理删除）。
+ * 比赛删除后由广播出口调用：有变化时落盘并返回新状态，无变化返回 null。
+ */
+export function prunePage7State(paths: AppPaths): Page7State | null {
+  const current = getPage7State(paths);
+  const knownIds = new Set(getMatchStore(paths).matches.map((match) => match.id));
+  const matchIds = current.matchIds.filter((id) => knownIds.has(id));
+  if (matchIds.length === current.matchIds.length) {
+    return null;
+  }
+  return savePage7State(paths, { matchIds });
+}
