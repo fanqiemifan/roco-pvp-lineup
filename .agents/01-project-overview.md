@@ -95,7 +95,7 @@ roco-pvp-lineup/
 | views/HistoryLineupEntryModal.tsx | 比赛管理「录入阵容」弹窗（为待开始小局录入双方阵容） |
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、标签趋势） |
 | components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）等小组件 |
-| lib/ | format、history、live、match、panel、preview、request、sprite、stats 通用逻辑 |
+| lib/ | format、history、last-tournament（系列赛「上次操作」本地记忆）、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
 | styles.css | 管理后台样式 |

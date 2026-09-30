@@ -66,6 +66,7 @@ import {
   selectMatchApi,
   startTournamentApi,
 } from '../lib/tournament-api';
+import { readLastTournamentId, writeLastTournamentId } from '../lib/last-tournament';
 import { BracketBoard } from '../components/BracketBoard';
 import { TournamentNodeCard } from '../components/TournamentNodeCard';
 
@@ -99,11 +100,18 @@ export function TournamentView({
 }: TournamentViewProps): React.ReactElement {
   const { message } = App.useApp();
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 详情默认打开「上次操作的系列赛」（本地记忆，见 lib/last-tournament）；无记忆/记录已失效时回退列表第一条
+  const [selectedId, setSelectedId] = useState<string | null>(() => readLastTournamentId());
   // 删除系列赛确认弹窗：deleteWithMatches=连同关联对局一起删（可在比赛管理撤回）
   const [deleteTarget, setDeleteTarget] = useState<TournamentRecord | null>(null);
   const [deleteWithMatches, setDeleteWithMatches] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
+
+  /** 打开某个系列赛详情：同时写入本地记忆，下次进入本视图自动打开它 */
+  function openTournament(tournamentId: string): void {
+    setSelectedId(tournamentId);
+    writeLastTournamentId(tournamentId);
+  }
 
   async function handleDeleteTournament(): Promise<void> {
     if (!deleteTarget) {
@@ -112,6 +120,10 @@ export function TournamentView({
     setDeleteSaving(true);
     try {
       const result = await deleteTournamentApi(deleteTarget.id, deleteWithMatches);
+      // 删掉的正是记忆里的那个：一并清除，否则下次进来会拿着已失效的 id 空转
+      if (readLastTournamentId() === deleteTarget.id) {
+        writeLastTournamentId(null);
+      }
       message.success(
         result.matchesDeleted
           ? `已删除系列赛及其 ${result.matchIds.length} 场对局（可在比赛管理撤回）`
@@ -128,7 +140,7 @@ export function TournamentView({
     }
   }
 
-  // 当前选中记录（被删除时自动回退到第一条；无数据则 null）
+  // 当前选中记录（记忆失效或记录被删除时回退到第一条；无数据则 null）
   const selected = useMemo(() => {
     if (tournaments.length === 0) {
       return null;
@@ -144,7 +156,7 @@ export function TournamentView({
       title: '名称',
       dataIndex: 'name',
       render: (_value, record) => (
-        <Button type="link" style={{ padding: 0 }} onClick={() => setSelectedId(record.id)}>
+        <Button type="link" style={{ padding: 0 }} onClick={() => openTournament(record.id)}>
           <b>{record.name}</b>
         </Button>
       ),
@@ -187,7 +199,7 @@ export function TournamentView({
       width: 176,
       render: (_value, record) => (
         <Space size={4}>
-          <Button type="link" style={{ padding: 0 }} onClick={() => setSelectedId(record.id)}>
+          <Button type="link" style={{ padding: 0 }} onClick={() => openTournament(record.id)}>
             {record.status === 'setup' ? '继续配置 →' : '打开详情 →'}
           </Button>
           <Button
@@ -309,7 +321,7 @@ export function TournamentView({
         onClose={() => setCreateOpen(false)}
         onCreated={(id) => {
           setCreateOpen(false);
-          setSelectedId(id);
+          openTournament(id);
         }}
       />
     </Space>
