@@ -647,8 +647,42 @@ export function mergeProfileRecords(
   const normalizedTeams = normalizeIncomingTeams(Array.isArray(incoming.teams) ? incoming.teams : []);
 
   const aliases: { players: Record<string, string>; teams: Record<string, string> } = { players: {}, teams: {} };
+  /**
+   * 名字匹配上就登记 id 别名（不管内容是否相同、哪怕用户没勾选这条）。
+   *
+   * 为什么不等用户勾选：别名只是「对方 id 也能指到这个人」的映射，不改变任何本机数据，
+   * 但没有它，系列赛编排里来自对方的 playerIds 就会显示成一串 id。
+   * 之前只在「可勾选的更新」分支里登记，导致内容本来就一致的同名档案同步多少次都补不上别名。
+   */
+  const linkPlayerAlias = (incomingId: string, localId: string): void => {
+    if (!incomingId || !localId || incomingId === localId) {
+      return;
+    }
+    const existing = store.playerAliases[incomingId];
+    if (existing === localId) {
+      return;
+    }
+    store.playerAliases[incomingId] = localId;
+    aliases.players[incomingId] = localId;
+  };
+  const linkTeamAlias = (incomingId: string, localId: string): void => {
+    if (!incomingId || !localId || incomingId === localId) {
+      return;
+    }
+    const existing = store.teamAliases[incomingId];
+    if (existing === localId) {
+      return;
+    }
+    store.teamAliases[incomingId] = localId;
+    aliases.teams[incomingId] = localId;
+  };
   const players: MergeProfileRecordsReport['players'] = { added: [], updated: [], skipped: [] };
   normalizedPlayers.entries.forEach((entry) => {
+    // 同名档案始终登记别名（先做，避免被 acceptedIds / 各 skip 分支漏掉）
+    const sameName = store.players.find((item) => item.name === entry.name);
+    if (sameName) {
+      linkPlayerAlias(entry.id, sameName.id);
+    }
     if (acceptedIds?.players && !acceptedIds.players.has(entry.id)) {
       return;
     }
@@ -665,13 +699,11 @@ export function mergeProfileRecords(
         players.updated.push(entry.id);
         return;
       }
-      // 同名匹配：保留本机 id（比赛 / 头像目录都引用它），只更新内容，并登记对方 id 的别名
+      // 同名匹配：保留本机 id（比赛 / 头像目录都引用它），只更新内容
       const byNameIndex = store.players.findIndex((item) => item.name === entry.name);
       if (byNameIndex >= 0) {
         const localId = store.players[byNameIndex].id;
         store.players[byNameIndex] = { ...entry, id: localId };
-        store.playerAliases[entry.id] = localId;
-        aliases.players[entry.id] = localId;
         players.updated.push(localId);
         return;
       }
@@ -684,6 +716,10 @@ export function mergeProfileRecords(
 
   const teams: MergeProfileRecordsReport['teams'] = { added: [], updated: [], skipped: [] };
   normalizedTeams.entries.forEach((entry) => {
+    const sameName = store.teams.find((item) => item.name === entry.name);
+    if (sameName) {
+      linkTeamAlias(entry.id, sameName.id);
+    }
     if (acceptedIds?.teams && !acceptedIds.teams.has(entry.id)) {
       return;
     }
@@ -704,8 +740,6 @@ export function mergeProfileRecords(
       if (byNameIndex >= 0) {
         const localId = store.teams[byNameIndex].id;
         store.teams[byNameIndex] = { ...entry, id: localId };
-        store.teamAliases[entry.id] = localId;
-        aliases.teams[entry.id] = localId;
         teams.updated.push(localId);
         return;
       }

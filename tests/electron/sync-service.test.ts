@@ -219,6 +219,32 @@ describe('previewSyncImport / applySyncImport（档案与头像）', () => {
     expect(names.get('p_other_machine')).toBe('夜航');
   });
 
+  it('同名且内容完全一致（预览显示跳过）时也要登记别名', async () => {
+    // 之前别名只在「可勾选的更新」分支登记，内容一致的同名档案同步多少次都补不上别名 →
+    // 系列赛里对方的 playerIds 一直显示成一串 id
+    savePlayerProfile(paths, { id: 'p_local_same', name: '同款选手', rank: '5' });
+    const bundle = exportMatchesFromSource();
+    bundle.profiles = {
+      players: [{ id: 'p_remote_same', name: '同款选手', pets: '', declaration: '', rank: '5' }],
+      teams: [],
+    };
+
+    const preview = previewSyncImport(paths, bundle, 'newer');
+    expect(preview.playerItems[0].action).toBe('skip');
+
+    // 即便用户一条都没勾选（acceptedKeys 为空），名字匹配上的别名也要落盘
+    const result = await applySyncImport(paths, bundle, {
+      mode: 'newer',
+      acceptedKeys: [],
+      includeAvatars: false,
+    });
+
+    expect(result.profiles?.playerAliases?.p_remote_same).toBe('p_local_same');
+    expect(buildPlayerNameMap(result.profiles ?? null).get('p_remote_same')).toBe('同款选手');
+    // 本机档案保持原样（跳过不动数据）
+    expect(getProfileStore(paths).players.map((player) => player.id)).toEqual(['p_local_same']);
+  });
+
   it('新档案按 id 新增；同 id 内容差异覆盖、相同跳过', async () => {
     const bundle = exportMatchesFromSource();
     bundle.profiles = {
