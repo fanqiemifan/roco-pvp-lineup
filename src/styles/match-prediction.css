@@ -38,7 +38,7 @@ body {
     width: 1920px;
     height: 1080px;
     overflow: hidden;
-    background: url("/assets/ui/blue-back-01.jgp") no-repeat center / 100% 100%;
+    background: url("/assets/ui/blue-back-01.jpg") no-repeat center / 100% 100%;
 }
 
 /* 主标题：96px YouSheBiaoTiHei 白色，水平居中，top 100px；空内容时由 JS 隐藏 */
