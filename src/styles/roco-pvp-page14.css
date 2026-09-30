@@ -51,7 +51,7 @@ body {
     height: 1080px;
     overflow: hidden;
     background: #0a1a4a;
-    font-family: "YouSheBiaoTiHei", "MiSans-Heavy", "Microsoft YaHei", sans-serif;
+    font-family: "MiSans-Heavy", "Microsoft YaHei", sans-serif;
     color: #fff;
 }
 
@@ -60,10 +60,7 @@ body {
 .page14-bg {
     position: absolute;
     inset: 0;
-    background:
-        radial-gradient(1200px 620px at 20% 8%, rgba(64, 132, 255, 0.55), transparent 62%),
-        radial-gradient(1000px 560px at 84% 92%, rgba(23, 64, 232, 0.62), transparent 60%),
-        linear-gradient(160deg, #0b2264 0%, #0a1a4a 46%, #071233 100%);
+    background: url("/assets/ui/back-for-page5.png") no-repeat center / 100% 100%;
 }
 
 .page14-shade {
@@ -76,7 +73,7 @@ body {
 
 .page14-title {
     position: absolute;
-    top: 28px;
+    top: 42px;
     left: 0;
     right: 0;
     z-index: 4;
@@ -188,7 +185,7 @@ body {
 }
 
 .page14-row.is-top .page14-rank {
-    color: var(--page14-gold);
+    color: #fff;
 }
 
 .page14-name {
@@ -210,9 +207,9 @@ body {
     text-shadow: 0 2px 6px rgba(0, 15, 70, 0.5);
 }
 
-/* 胜列金黄、负列白（与表头文案对应） */
+
 .page14-num.is-win {
-    color: var(--page14-gold);
+    color: #fff;
 }
 
 /* ========== 占位与页脚 ========== */
