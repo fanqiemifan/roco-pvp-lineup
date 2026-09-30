@@ -21,6 +21,8 @@
 
 > 双机数据同步（/api/sync/*）**不新增事件**：导入成功后复用 matches:update（比赛）与 profiles:update（档案）广播，包内系列赛有新增/更新或写回推进时另广播 tournament:update，各客户端按既有订阅自动刷新。
 
+> 云同步（/api/cloud-sync/*）同样**不新增事件**：分控「确认合并」与主控确认赛果后复用 matches:update + tournament:update 广播；红点提示由前端轮询 HTTP 接口自己消费（`GET /api/cloud-sync/status`、`POST /api/cloud-sync/poll`），不走 socket——云端信箱是外网请求，塞进 socket 房间只会让推流页收到无关事件。
+
 # 角色房间（role rooms）与定向广播
 
 客户端连接时通过 `io({ query: { role } })` 声明身份；服务端把 socket 加入 `role:<role>` 房间，**首连快照按角色裁剪、事件只投订阅角色**，admin 房间始终收全量。未声明或未知 role 按 admin 处理（旧客户端零改动兼容）。

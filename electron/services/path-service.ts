@@ -32,6 +32,10 @@ export interface AppPaths {
   profilesFile: string;
   /** 系列赛编排状态文件（cache/tournaments.json） */
   tournamentsFile: string;
+  /** 云同步本机状态文件（cache/cloud-sync.json：房间名册 / 指派规则 / 回传序号 / 回执） */
+  cloudSyncFile: string;
+  /** 云同步「同步最新」拉取下来的待合并同步包（cache/cloud-pending.json，确认导入后才清除） */
+  cloudPendingFile: string;
   /** 「信息录入」选手头像文件（cache/profiles/players/{playerId}.png） */
   profilePlayerAvatarFile(playerId: string): string;
   /** 「信息录入」战队 logo/头像文件（cache/profiles/teams/{teamId}.png） */
@@ -73,6 +77,8 @@ export function createAppPaths(projectRoot: string, userDataDir: string): AppPat
     configFile: path.join(runtimeDir, 'config.json'),
     profilesFile: path.join(cacheDir, 'profiles.json'),
     tournamentsFile: path.join(cacheDir, 'tournaments.json'),
+    cloudSyncFile: path.join(cacheDir, 'cloud-sync.json'),
+    cloudPendingFile: path.join(cacheDir, 'cloud-pending.json'),
     // profile id 仅允许字母数字与 -_，防止路径穿越
     profilePlayerAvatarFile(playerId: string) {
       const safeId = String(playerId ?? '').replace(/[^a-zA-Z0-9_-]/g, '');

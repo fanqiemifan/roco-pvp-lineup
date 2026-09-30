@@ -35,6 +35,9 @@
 | 管理后台视图 | RosterPanelEditor / StatsView | src/admin-antd/views/ |
 | 比赛管理录入阵容 | saveGameLineupForMatch | electron/services/match-service.ts |
 | 启动测试用服务器 | createLocalServer | electron/socket-server.ts |
+| 云同步（分发/拉取/回传/确认台/轮询） | pushCloudSync / previewCloudPull / uploadCloudSync / checkCloudSync / confirmCloudSync / pollCloudSync | electron/services/cloud-sync-service.ts |
+| 云同步 Worker 端点 | /room/:key/:box（GET/PUT/DELETE）+ /health | cloudflare/worker.js |
+| 云同步一键部署 Worker | npm run cloud:deploy | scripts/deploy-cloud-sync.mjs |
 | 跑测试 | npm test（vitest run） | tests/ + vitest.config.ts |
 
 ## 类型引用

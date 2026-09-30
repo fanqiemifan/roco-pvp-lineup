@@ -34,6 +34,23 @@ import {
 import { loadRuntimeConfig, saveRuntimeConfig } from './services/config-service.js';
 import { applySyncImport, exportSyncBundle, previewSyncImport } from './services/sync-service.js';
 import {
+  canRegisterMatch,
+  checkCloudSync,
+  checkMachineCodeChange,
+  checkSubUndoAllowed,
+  confirmCloudSync,
+  finalizeCloudPull,
+  getCloudSyncStatus,
+  pollCloudSync,
+  previewCloudPull,
+  pushCloudSync,
+  rejectCloudSync,
+  saveCloudAssignment,
+  saveCloudSyncConfig,
+  testCloudConnection,
+  uploadCloudSync,
+} from './services/cloud-sync-service.js';
+import {
   getStageState,
   saveStageState,
 } from './services/stage-service.js';
@@ -496,7 +513,7 @@ export async function createLocalServer(
     broadcast(SOCKET_EVENTS.tournamentUpdate, { tournaments: getTournamentStore(paths) }, []);
   };
 
-  /** 推流选场（page6/7/8）清理结果：仅含发生变化的页面 */
+  // 推流选场（page6/7/8）清理结果：仅含发生变化的页面
   type PagePushPruneResult = Partial<Record<'page6' | 'page7' | 'page8', Page6State | Page7State | Page8State>>;
 
   // GET 下发的选场 id 白名单过滤：只保留仍存在且状态符合页面收录口径的比赛（与落盘口径同源）
@@ -669,8 +686,14 @@ export async function createLocalServer(
       // 头像图片公开访问（含按赛事隔离的 /api/avatar/{matchId}/{side}-avatar.png），推流页无需登录
       const isPublicAvatarImage = req.method === 'GET' && req.path.startsWith('/api/avatar/');
       const isAuthApi = req.path.startsWith('/api/auth/');
+      // 云同步涉及房间密钥读写与跨机赛果合并，必须在公开 GET 白名单之外（Node 模式下强制登录）
+      const isCloudSyncApi = req.path.startsWith('/api/cloud-sync/');
       const isFavicon = req.path === '/favicon.ico';
 
+      if (isCloudSyncApi) {
+        if (req.session?.isAuthenticated && req.session.sessionId === activeSessionId) return next();
+        return res.status(401).json({ success: false, error: '请先登录' });
+      }
       if (isPublicStatic || isPublicPage || isPublicPage5Api || isPublicAvatarImage || isAuthApi || isFavicon) return next();
       // Verify both authenticated flag AND single-session ID match
       if (req.session?.isAuthenticated && req.session.sessionId === activeSessionId) return next();
@@ -1336,12 +1359,29 @@ export async function createLocalServer(
     }
   });
 
+  // ===== 云同步登记闸门：分控端只能登记指派给本机的比赛，已确认赛果禁止撤回 =====
+  // 从源头杜绝误操作（分控端登记了未指派的比赛 → 回传 → 主控还得驳回）。
+  const assertMatchRegistration = (matchId: string): void => {
+    const gate = canRegisterMatch(paths, matchId);
+    if (!gate.allowed) {
+      throw new Error(gate.reason);
+    }
+  };
+
+  const assertMatchUndoAllowed = (matchId: string): void => {
+    const gate = checkSubUndoAllowed(paths, matchId);
+    if (!gate.allowed) {
+      throw new Error(gate.reason);
+    }
+  };
+
   app.post('/api/matches/:matchId/winner', (request, response) => {
     try {
       const winner = request.body?.winner;
       if (winner !== 'left' && winner !== 'right') {
         throw new Error('winner must be left or right');
       }
+      assertMatchRegistration(request.params.matchId);
       const matches = recordMatchWinner(paths, request.params.matchId, winner);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
@@ -1365,6 +1405,7 @@ export async function createLocalServer(
 
   app.post('/api/matches/:matchId/start', (request, response) => {
     try {
+      assertMatchRegistration(request.params.matchId);
       const matches = startCurrentGame(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
@@ -1405,6 +1446,8 @@ export async function createLocalServer(
 
   app.post('/api/matches/:matchId/undo', (request, response) => {
     try {
+      // 已 ack 的赛果在分控端禁止撤回（整条替换合并不会触发 onMatchUndo，单方面撤回会让状态分叉）
+      assertMatchUndoAllowed(request.params.matchId);
       // 系列赛反向钩子必须先跑：无法回退时（后续波已开打/人工对阵）直接失败，
       // 避免出现「比赛已撤回、系列赛仍显示晋级」的半吊子状态（后续登记还会被节点胜者幂等吞掉）
       const undoneTournament = onMatchUndo(paths, request.params.matchId);
@@ -1843,18 +1886,244 @@ export async function createLocalServer(
   });
 
   app.get('/api/runtime-config', (_request, response) => {
-    response.json(loadRuntimeConfig(paths));
+    // 云同步状态也一并下发：前端「数据同步」卡片一次请求就能渲染设置区（含名册与最后通信时间）
+    response.json({
+      ...loadRuntimeConfig(paths),
+      syncConfig: getCloudSyncStatus(paths),
+    });
   });
 
   app.post('/api/runtime-config', (request, response) => {
     const body = (request.body ?? {}) as Record<string, unknown>;
     // 合并语义：只覆盖传入字段（单传 machineCode 不会把 port 重置为默认）
+    // 改机器码守卫：有 running 系列赛内嵌旧码直接拒绝；有其它系列赛内嵌旧码要求二次确认
+    let guard = { blocked: false, requireConfirm: false, tournamentIds: [] as string[], message: '' };
+    if (body.machineCode !== undefined) {
+      guard = checkMachineCodeChange(paths, String(body.machineCode));
+      if (guard.blocked) {
+        response.status(400).json({ success: false, error: guard.message, guard });
+        return;
+      }
+      if (guard.requireConfirm && body.confirmMachineCodeChange !== true) {
+        response.status(409).json({ success: false, error: guard.message, guard });
+        return;
+      }
+    }
+
     const config = saveRuntimeConfig(paths, {
       port: body.port === undefined ? undefined : Number(body.port),
       machineCode: body.machineCode === undefined ? undefined : String(body.machineCode),
     });
-    response.json({ success: true, config });
+    response.json({ success: true, config, guard, syncConfig: getCloudSyncStatus(paths) });
   });
+
+  // === 云同步（点击式）：主控「同步分发 / 检查回传 / 确认台」+ 分控「同步最新 / 回传」+ 红点轮询 ===
+
+  /** 云同步写操作必须带房间密钥与机器码（两道校验：键一致 + 本机已设置标识） */
+  const readCloudRequest = (request: Request): { key: string; machine: string } => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const config = loadRuntimeConfig(paths);
+    const key = String(body.syncKey ?? config.syncKey ?? '').trim();
+    const machine = String(body.machineCode ?? config.machineCode ?? '').trim();
+    if (!key) {
+      throw new Error('未配置房间密钥（syncKey），请先在「云同步设置区」填写并保存');
+    }
+    if (key !== config.syncKey) {
+      throw new Error('界面上的房间密钥与已保存的不一致，请重新保存云同步设置');
+    }
+    if (!machine) {
+      throw new Error('请先设置本机标识（machineCode）');
+    }
+    return { key, machine };
+  };
+
+  const readStringArray = (value: unknown): string[] => (
+    Array.isArray(value) ? value.map((item) => String(item ?? '')) : []
+  );
+
+  /** 云同步状态（轮询用；只读本机状态，不产生任何云端请求） */
+  app.get('/api/cloud-sync/status', (_request, response) => {
+    response.json({ success: true, status: getCloudSyncStatus(paths) });
+  });
+
+  /** 红点轮询：只读云端小键（version / ack / uplink），绝不合并数据 */
+  app.post('/api/cloud-sync/poll', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await pollCloudSync(paths);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 云同步设置：房间密钥 / 角色 / Worker 地址 / 显示名 / 轮询开关 + 主控端分控码名册 */
+  app.post('/api/cloud-sync/config', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const status = saveCloudSyncConfig(paths, {
+        syncKey: body.syncKey,
+        role: body.role,
+        workerUrl: body.workerUrl,
+        machineLabel: body.machineLabel,
+        pollEnabled: body.pollEnabled,
+        pollIntervalSeconds: body.pollIntervalSeconds,
+        peerCodes: body.peerCodes,
+      });
+      response.json({ success: true, status });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 「检测 Worker 在线」：打 /health，不碰 KV */
+  app.post('/api/cloud-sync/test', async (request, response) => {
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      if (body.workerUrl !== undefined || body.syncKey !== undefined) {
+        saveCloudSyncConfig(paths, { workerUrl: body.workerUrl, syncKey: body.syncKey });
+      }
+      const result = await testCloudConnection(paths);
+      response.json({ success: result.ok, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 主控「同步分发」：全量包（不带头像）+ 指派规则 + 名册 → downlink + version */
+  app.post('/api/cloud-sync/push', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await pushCloudSync(paths);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 分控「同步最新」：读 downlink → 配对校验 → 与现有导入一致的预览（不写入） */
+  app.post('/api/cloud-sync/pull', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await previewCloudPull(paths);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 分控「确认合并」：用落盘待合并包 + 勾选条目走现有 applySyncImport，合并后重算待回传集 */
+  app.post('/api/cloud-sync/apply', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const result = await finalizeCloudPull(
+        paths,
+        readStringArray(body.accepted),
+        body.mode === 'bundle' ? 'bundle' : 'newer',
+      );
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 分控「回传」：现算所有未 ack 比赛的累计集合 → uplink:{本机码} */
+  app.post('/api/cloud-sync/upload', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await uploadCloudSync(paths);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 主控「检查回传」：读各分控 uplink → 复用现有预览 + 写回影响说明（不写入） */
+  app.post('/api/cloud-sync/check', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const result = await checkCloudSync(paths, body.code === undefined ? null : String(body.code));
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 主控确认台：确认 = 合并被勾选赛果 + runTournamentWriteBack 推进波次 + 写回执 */
+  app.post('/api/cloud-sync/confirm', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const code = String(body.code ?? '').trim();
+      if (!code) {
+        throw new Error('请指定要确认的分控端机器码');
+      }
+      const result = await confirmCloudSync(paths, code, readStringArray(body.accepted));
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 主控驳回：不写本地、不写回执，分控端保持待回传 */
+  app.post('/api/cloud-sync/reject', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const code = String(body.code ?? '').trim();
+      if (!code) {
+        throw new Error('请指定要驳回的分控端机器码');
+      }
+      const result = await rejectCloudSync(paths, code);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 主控指派：比赛 id -> 登记机器码（空字符串 = 主控端自己登记），随下次「同步分发」生效 */
+  app.post('/api/cloud-sync/assignment', (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const status = saveCloudAssignment(paths, body.overrides ?? {});
+      response.json({ success: true, status });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /**
+   * 登记入口判定（分控端按指派范围置灰，未指派 = 主控端登记）：
+   * 一次问一批比赛（比赛管理列表逐行渲染，不能逐行打接口）。
+   * 同时下发待回传集与已确认集：前者用于「回传」按钮与列表标记，后者用于锁定分控端撤回。
+   */
+  app.post('/api/cloud-sync/registration-scope', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const matchIds = readStringArray(body.matchIds);
+      const scope: Record<string, { allowed: boolean; reason: string }> = {};
+      matchIds.forEach((matchId) => {
+        scope[matchId] = canRegisterMatch(paths, matchId);
+      });
+      const status = getCloudSyncStatus(paths);
+      response.json({
+        success: true,
+        scope,
+        role: status.config.role,
+        pending: status.pending,
+      });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
 
   // === 双机数据同步：导出 / 预览 / 导入（同步包为单个 JSON 文件，导入走 multipart 上传） ===
 

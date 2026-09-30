@@ -123,6 +123,29 @@ export const MACHINE_CODE_REGEX = /^[A-Z]{1,2}$/;
  */
 export const MATCH_ID_REGEX = /^(\d{8})_([A-Za-z]{0,2})(\d+)$/;
 
+/* ==================== 云同步（点击式：Cloudflare Worker + KV 信箱） ==================== */
+
+/** 云同步角色：主控端（编排机 + 确认台）/ 分控端（只读副本 + 登记点） */
+export const CLOUD_SYNC_ROLES = new Set<string>(['main', 'sub']);
+/**
+ * 红点轮询间隔可选值（秒）：只读小键（version / ack / uplink），绝不自动合并数据。
+ * 默认 60s，最低 30s（与 KV 异地区间可见延迟同量级，再密也拿不到更新）。
+ */
+export const CLOUD_SYNC_POLL_INTERVALS = [30, 60, 120, 300];
+export const DEFAULT_CLOUD_SYNC_POLL_INTERVAL = 60;
+export const DEFAULT_CLOUD_SYNC_POLL_ENABLED = true;
+/** 房间名册容量上限（1 主 + N 分，机器码互不相同） */
+export const CLOUD_SYNC_ROSTER_MAX = 8;
+/** 单次「回传」最多携带的比赛数（KV 单值上限充裕，这里只是防误操作） */
+export const CLOUD_SYNC_UPLINK_MAX_MATCHES = 200;
+/**
+ * 云端信箱 HTTP 超时（毫秒）：Cloudflare 免费版 Workers 单次请求上限 30s（CPU 时间 10ms），
+ * 分包大小不带头像时只有几十 KB，留 20s 足够；超时给中文提示而不是让界面空转。
+ */
+export const CLOUD_SYNC_REQUEST_TIMEOUT_MS = 20_000;
+/** 主控端认为分控端未通信而提示「对端尚未分发/回传」的展示时长（分钟） */
+export const CLOUD_SYNC_STALE_MINUTES = 30;
+
 /* ==================== 系列赛自动化管理 ==================== */
 
 /** 双败阶段晋级线 / 淘汰线：阶段内 2 胜晋级、2 败淘汰 */

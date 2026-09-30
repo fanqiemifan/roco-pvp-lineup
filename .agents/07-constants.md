@@ -34,6 +34,11 @@
 | SUPPORTED_TOURNAMENT_SIZES | {4,8,16,32} | V1 系列赛允许人数（2 的幂，桶恒偶零轮空） | shared/constants.ts |
 | TOURNAMENT_ID_REGEX | ^T(\d{8})_([A-Za-z]{0,2})(\d+)$ | 系列赛 id 白名单：T 前缀 + 日期 + 机器码 + 序号（如 T20260928_A01），外部导入必过该校验防路径穿越 | shared/constants.ts |
 | TOURNAMENT_CROSS_BUCKET_TAG / TOURNAMENT_FORFEIT_TAG | 跨桶 / 弃权 | 自动标签：跨桶配对 / 弃权场次标注 | shared/constants.ts |
+| CLOUD_SYNC_ROLES / CLOUD_SYNC_ROSTER_MAX | {main,sub} / 8 | 云同步角色枚举（主控 / 分控）与房间名册容量上限（1 主 + N 分，机器码必须互不相同） | shared/constants.ts |
+| CLOUD_SYNC_POLL_INTERVALS / DEFAULT_CLOUD_SYNC_POLL_INTERVAL / DEFAULT_CLOUD_SYNC_POLL_ENABLED | [30,60,120,300] / 60 / true | 红点轮询间隔可选值（秒）、默认值、默认开关（只读小键，最低 30s；调更密拿不到更新且白扣读额度） | shared/constants.ts |
+| CLOUD_SYNC_UPLINK_MAX_MATCHES | 200 | 单次「回传」最多携带的比赛数（KV 单值上限充裕，这里只是防误操作） | shared/constants.ts |
+| CLOUD_SYNC_REQUEST_TIMEOUT_MS | 20000 | 访问 Worker 的 HTTP 超时（超时给中文提示而不是让界面空转） | shared/constants.ts |
+| CLOUD_SYNC_STALE_MINUTES | 30 | 主控端提示「对端尚未分发/回传」的展示阈值（分钟） | shared/constants.ts |
 
 > 系列赛默认阶段模板构建器 `buildDefaultStages(playerCount): StageRule[]` 位于 shared/constants.ts：32人=双败BO1×2（32进16/16进8）+ 单败BO3×3（8进4/4进2/总决赛），16/8/4 人类似递减；默认 avoidRematch=true、requireConfirm=false。
 
@@ -44,6 +49,8 @@
 > 信息录入（profile-service.ts 内部常量）：选手上限 MAX_PLAYERS = 200、战队上限 MAX_TEAMS = 100、名字最长 32 字、宣言/常用精灵最长 120 字、排名最长 10 位数字；战队 id/选手 id 仅保留字母数字与 `-_`。
 >
 > 双机数据同步：`runtime/config.json` 含 `machineCode`（本机标识，1-2 位大写字母），参与新比赛 id 前缀与同步包来源标识；同步包为单个 JSON（头像 base64 内嵌），导入上限 SYNC_BUNDLE_MAX_BYTES = 64MB。
+>
+> 云同步：`runtime/config.json` 另含 `syncKey` / `syncRole` / `workerUrl` / `machineLabel` / `cloudPollEnabled` / `cloudPollInterval`（workerUrl 一次性每机设置，**不打包进 exe**；syncKey + 角色每次比赛填写/切换）。本机状态 `cache/cloud-sync.json`（名册 / 指派规则 / 回传 seq / 回执 / 收件箱快照），待合并包 `cache/cloud-pending.json`。KV 单值上限 25 MiB（Worker 侧 MAX_BODY_BYTES 同值），读取用默认 60 秒边缘缓存（Cloudflare 限制 cacheTtl 最小 60）。
 
 ## 悬浮窗尺寸（electron/float-window.ts）
 

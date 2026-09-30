@@ -2103,3 +2103,44 @@ export function mergeMatchRecords(
   const nextState = writeStoreFile(paths, { ...store, matches });
   return { store: nextState, added, updated, skipped };
 }
+
+/**
+ * 撤回本机对指定比赛的登记（云同步专用：主控回退波次后，分控端保留的陈旧赛果必须被丢弃）。
+ *
+ * 语义 = 把该场退回「未登记」：只保留第 1 个待开始小局（含已录阵容），清掉其余小局与全部小局结果、
+ * 比分、胜者、完成时间与「弃权」标签；**保留 tournamentRef**（仍是系列赛对局，分控端重新登记后
+ * 才能再次回传给主控写回节点）。不走撤销栈（这不是用户操作，是被云端状态纠正）。
+ *
+ * 为什么不在 applySyncImport 里做：那是「合并外部包」的通用路径，回退语义只属于云同步回传链路。
+ */
+export function resetMatchRegistrations(paths: AppPaths, matchIds: string[]): MatchStoreState {
+  const targets = new Set(matchIds);
+  if (!targets.size) {
+    return getMatchStore(paths);
+  }
+
+  const { store } = readStoreFile(paths);
+  const matches = store.matches.map((match) => {
+    if (!targets.has(match.id)) {
+      return match;
+    }
+    const firstPending = match.games.find((game) => game.status === 'pending') ?? createEmptyGameRecord(1);
+    const resetGames: GameRecord[] = [{
+      ...firstPending,
+      gameNumber: 1,
+      winner: null,
+      status: 'pending',
+    }];
+    return computeMatchProgress({
+      ...match,
+      games: resetGames,
+      tags: (match.tags ?? []).filter((tag) => tag !== TOURNAMENT_FORFEIT_TAG),
+      completedAt: null,
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  const publicStore = writeStoreFile(paths, { ...store, matches });
+  syncAfterStoreChange(paths, publicStore);
+  return getMatchStore(paths);
+}

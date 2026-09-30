@@ -18,10 +18,15 @@ export async function requestJson<T>(url: string, init?: JsonInit): Promise<T> {
     : await response.text();
 
   if (!response.ok) {
-    if (typeof payload === 'object' && payload && 'error' in payload) {
-      throw new Error(String((payload as { error?: unknown }).error ?? '请求失败'));
-    }
-    throw new Error(typeof payload === 'string' ? payload : `${response.status} 请求失败`);
+    // 把响应体挂到 Error 上：调用方需要读结构化的附加信息（如改机器码守卫的 guard）
+    const payloadForError = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>;
+    const error = new Error(
+      typeof payload === 'object' && payload && 'error' in payload
+        ? String((payload as { error?: unknown }).error ?? '请求失败')
+        : (typeof payload === 'string' ? payload : `${response.status} 请求失败`),
+    );
+    Object.assign(error, payloadForError);
+    throw error;
   }
 
   return payload as T;

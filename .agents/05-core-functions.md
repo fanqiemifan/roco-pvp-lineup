@@ -32,6 +32,7 @@
 | 比赛导入分类 | diffMatchRecords | (paths: AppPaths, incoming: MatchRecord[], mode: SyncConflictMode) => MatchImportDecision[] | 只读：按 id 对比本机 store 逐条给出 add/update/skip 与原因（newer = 包内 updatedAt 较新才覆盖；bundle = 内容有差异即覆盖、相同跳过），并附带 conflict（两边都登记过且不一致）与字段级 diff |
 | 比赛字段级差异 | buildMatchDiffFields | (local: MatchRecord, incoming: MatchRecord) => SyncImportDiffField[] | 只列出不同的字段（状态/比分/选手/赛制/标签 + 逐小局状态与双方阵容名称快照），最多 20 条；供导入预览弹窗做左右 diff 展示 |
 | 合并导入比赛 | mergeMatchRecords | (paths: AppPaths, incoming: MatchRecord[], mode: SyncConflictMode) => MergeMatchRecordsReport | 双机同步落盘：不存在追加、已存在按冲突模式覆盖或跳过；复用 readStoreFile/writeStoreFile 缓存与原子写管线，不改 activeMatchId 与撤销栈 |
+| 撤回本机登记（云同步专用） | resetMatchRegistrations | (paths: AppPaths, matchIds: string[]) => MatchStoreState | 把指定比赛退回「未登记」：只保留第 1 个待开始小局（含已录阵容），清掉其余小局与全部小局结果、比分、胜者、completedAt 与「弃权」标签；**保留 tournamentRef**（仍是系列赛对局），不走撤销栈。只给云同步回退防复活用（不在 applySyncImport 通用路径里） |
 | 弃权判负 | forfeitMatch | (paths: AppPaths, matchId: string, loserSide: 'left' \| 'right') => MatchStoreState | 仅 pending 无结果比赛可用；补决胜小局（BO1=1:0、BO3=2:0，空阵容）+「弃权」标签，completed，入 undo 栈 |
 | 批量复位未开始 | resetMatchesToPending | (paths: AppPaths, matchIds: string[]) => MatchStoreState | 系列赛回退专用：比赛直接置 pending（单空小局/0:0/无胜者），清 flowHistory；不进删除/撤销栈 |
 | 解除系列赛关联 | detachMatchesFromTournament | (paths: AppPaths, tournamentId: string) => { store: MatchStoreState; matchIds: string[] } | 删除系列赛专用：剥离全部关联比赛的 tournamentRef（比赛保留为普通对局），不进删除/撤销栈；先解绑再删比赛可保证撤销栈快照无孤儿引用 |
@@ -140,7 +141,34 @@
 |-------------|-------|------|------|
 | 导出同步包 | exportSyncBundle | (paths: AppPaths, options: SyncExportOptions) => SyncBundle | 打包全部比赛（含空白/进行中）+ 系列赛编排全量 + 可选档案与头像（base64，仅在包含档案时附带；缺失头像文件不产生键） |
 | 导入预览 | previewSyncImport | (paths: AppPaths, raw: unknown, mode: SyncConflictMode) => SyncImportPreview | 校验 app/schema（不符抛中文错误）后组合比赛与档案 diff，统计头像 补缺/已有/无法对应；只读不写入（系列赛不进预览，导入时自动合并） |
-| 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，系列赛编排自动合并（不参与勾选）后补跑写回（runTournamentWriteBack，幂等，波打齐自动推进），按 includeAvatars 只补缺头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标 id 支持「同名匹配」）；返回 store（写回后最新、可能含新生成的下一波比赛）/profiles/avatarsWritten/tournaments/warnings |
+| 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，系列赛编排自动合并（不参与勾选）后补跑写回（runTournamentWriteBack，幂等，波打齐自动推进），按 includeAvatars 只补缺头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标 id 支持「同名匹配」）；返回 store（写回后最新、可能含新生成的下一波比赛）/profiles/avatarsWritten/tournaments/warnings。`options.skipTournaments`（云同步主控确认台用）= 不合并包内系列赛编排（编排结构由本机自己持有），只合并比赛并照跑写回 |
+| 解析同步包（供云同步复用） | parseSyncBundle | (raw: unknown) => SyncBundlePayload | 校验 app/schema/结构并产出 {machine, exportedAt, matches, tournaments, profiles, avatars}，不合法抛中文错误（云同步服务与路由共用同一校验口径） |
+
+## 云同步 (cloud-sync-service.ts)
+
+云端是 Cloudflare Worker + KV 信箱，只有 4 类键：`room:{KEY}:downlink`（主控写/分控读）、`room:{KEY}:version`（小版本键，红点轮询用）、`room:{KEY}:uplink:{码}`（分控写/主控读）、`room:{KEY}:ack:{码}`（主控写/分控读）。**业务细节：没有任何定时器会自动合并数据**——分发、拉取、回传、确认全部由人点击触发；唯一的定时器是前端红点轮询（只读小键）。本机状态落 `cache/cloud-sync.json`，待合并包落 `cache/cloud-pending.json`。
+
+| 自然语言描述 | 函数名 | 签名 | 说明 |
+|-------------|-------|------|------|
+| 读云同步状态 | getCloudSyncStatus | (paths: AppPaths) => CloudSyncStatus | 组装界面所需的全部状态（config/configured/version/appliedVersion/pending/inbox/roster/assignment/ownedTournamentIds/lastContact/lastError），不产生云端请求 |
+| 计算待回传集 | computePendingQueue | (paths: AppPaths) => CloudSyncPendingQueue | 现算「已完赛 + 有胜者 + 按指派归本机码 + 主控未 ack」的比赛；每次「同步最新」合并后重算，防主控回退后陈旧登记被复活 |
+| 已确认比赛集合 | ackedMatchIdSet | (paths: AppPaths) => Set<string> | 主控回执里的 matchId 集合（分控端禁止撤回的判据） |
+| 保存云同步设置 | saveCloudSyncConfig | (paths: AppPaths, input: CloudSyncConfigInput) => CloudSyncStatus | syncKey/role/workerUrl/machineLabel/pollEnabled/pollIntervalSeconds 落 config.json；peerCodes（主控端分控码列表）并入名册并剔除本机码 |
+| 检测 Worker 在线 | testCloudConnection | (paths: AppPaths) => Promise<CloudSyncTestResult> | 打 `${workerUrl}/health`（不需要密钥、不碰 KV，避免为测通白扣读写额度）；超时/不可达返回 ok:false + 中文原因 |
+| 主控「同步分发」 | pushCloudSync | (paths: AppPaths) => Promise<CloudSyncActionResult<CloudSyncPushResult> & { version }> | 组包（不带头像）+ `bundle.cloud = {roster, assignment}` → 写 downlink → 写 version（v = 本机记录版本 + 1）。校验：角色必须是 main、机器码必须已设置、名册里不能出现本机码 |
+| 分控「同步最新」 | previewCloudPull | (paths: AppPaths) => Promise<CloudSyncPullResult> | 读 downlink → 配对校验（分发机码 == 本机码 → 400）→ 落盘 pending 文件 + 返回现有预览；同时把名册与指派规则并入本机状态（指派随分发下发） |
+| 分控「确认合并」 | finalizeCloudPull | (paths: AppPaths, acceptedKeys: string[], mode?: SyncConflictMode) => Promise<CloudSyncActionResult<{applied, warnings}>> | 用落盘包走 applySyncImport（默认 newer），记 appliedVersion（「已同步」判据）后删除 pending 文件。**回退防复活**：本机把某场系列赛对局登记为 completed，而包内同一场仍是 pending（无胜者）且本机该节点已无 winnerId → 判定主控回退过这一波，先 `resetMatchRegistrations` 撤回本机登记再合并（并把它从 ackedMatchIds 移除，否则该场永远不会再进待回传集），附中文 warning。只对系列赛对局生效（普通对局的 pending 分发不是回退信号） |
+| 分控「回传」 | uploadCloudSync | (paths: AppPaths) => Promise<CloudSyncUploadResult> | 现算**累计**未 ack 集（不是增量，否则两次回传之间未确认会覆盖丢失）→ 写 uplink:{本机码}，seq + 1；空集 400 |
+| 红点轮询 | pollCloudSync | (paths: AppPaths) => Promise<CloudSyncPollResult> | 只读小键：version（两端）、ack:{本机码}（分控端合并 ackedMatchIds，序号不小于已回传 seq 才认）、uplink:{各分控码}（主控端刷新收件箱）。**不读大包、不合并数据** |
+| 主控「检查回传」 | checkCloudSync | (paths: AppPaths, code?: string \| null) => Promise<CloudSyncCheckResult> | 逐分控端读 uplink → 包装成 SyncBundle → previewSyncImport 复用现有 diff → 每条附 impact 写回影响（写哪个节点、是否推进）；不写入任何数据 |
+| 主控确认 | confirmCloudSync | (paths: AppPaths, code: string, acceptedKeys: string[]) => Promise<CloudSyncConfirmResult> | 服务端重分类取交集 → applySyncImport（mode:'bundle' + `skipTournaments:true`，编排结构绝不用分控副本覆盖）→ 内部 runTournamentWriteBack 推进波次 → 写 ack:{code} → 从收件箱移除已确认条目 |
+| 主控驳回 | rejectCloudSync | (paths: AppPaths, code: string) => Promise<CloudSyncRejectResult> | 不写本地、不写回执；分控端保持「待回传」，修正后重新点「回传」 |
+| 保存指派规则 | saveCloudAssignment | (paths: AppPaths, overrides: unknown) => CloudSyncStatus | 比赛 id -> 机器码（空串 = 主控端自己登记）；自动清理已不存在比赛的条目；随下次分发写入 downlink |
+| 改机器码守卫 | checkMachineCodeChange | (paths: AppPaths, nextCode: string) => MachineCodeGuardResult | 有内嵌旧码的 running 系列赛 → blocked（堵「改码丢所有权，自己锁死自己」）；仅有其它内嵌旧码系列赛 → requireConfirm；**不做自动迁移 id**（引用、头像目录名都会断） |
+| 登记入口判定 | canRegisterMatch | (paths: AppPaths, matchId: string) => {allowed, reason} | 未启用云同步（没填 syncKey/机器码）→ 放行（保持单机行为）；主控端未指派/指派给本机可登记；分控端只有指派给本机的可登记 |
+| 撤回判定 | checkSubUndoAllowed | (paths: AppPaths, matchId: string) => {allowed, reason} | 分控端对已 ack 的比赛禁止撤回（合并是整条替换、不触发 onMatchUndo，单方面撤回会让比赛回 pending 而节点胜者还在，状态分叉） |
+
+> `machineCode` 一码三责（id 命名空间 / 编排所有权闸门 / 同步包来源标识）与两个坑（改码丢所有权、两机撞码）见 AGENTS.md「注意事项」与 docs/cloud-sync-plan.html ④。
 
 ## 对局推送 (page7-service.ts)
 

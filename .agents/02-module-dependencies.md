@@ -17,6 +17,7 @@ main.ts
 │   ├── nextgame-service.ts   → shared/types, shared/constants, image-service, match-service, path-service
 │   ├── countdown-service.ts  → shared/types, shared/constants, image-service, path-service
 │   ├── sync-service.ts       → shared/types, shared/constants, config-service, match-service, profile-service, tournament-service, image-service, path-service
+│   ├── cloud-sync-service.ts → shared/types, shared/constants, config-service, sync-service, match-service, tournament-service, path-service（跑 fetch 访问 Worker，无 Node 专用依赖）
 │   ├── tournament-service.ts → shared/types, shared/constants, match-service, profile-service, config-service, image-service, path-service
 │   └── stats-service.ts      → shared/types, path-service
 ├── float-window.ts           → preload.js（rocoFloat IPC 通道）

@@ -28,6 +28,8 @@ roco-pvp-lineup/
 │   ├── styles/         # 原生 CSS 样式
 │   └── assets/         # UI 资源（图标、字体）
 ├── tests/              # Vitest 测试（tests/electron/ 服务与 HTTP 层、tests/admin-antd/ 前端纯函数，镜像源码结构）
+├── cloudflare/         # 云同步信箱 Worker（独立部署，不进 Electron 构建：worker.js + wrangler.toml）
+├── scripts/            # 构建/资源脚本（sync-spirits-assets.mjs 下载精灵图、deploy-cloud-sync.mjs 一键部署 Worker）
 └── resources/          # 游戏资源
     ├── sprites-img/    # 精灵立绘（official_small_icon，/img/）
     ├── sprites-icon/   # 精灵头像（icon_url + 原 Thumbnail 迁移，/resources/sprites-icon/）
@@ -71,6 +73,7 @@ roco-pvp-lineup/
 | electron/services/profile-service.ts | 选手/战队信息录入（增删改、JSON 批量导入 importPlayerProfiles、常用精灵命中判定 matchSpriteToken） |
 | electron/services/stats-service.ts | 精灵精灵登场/胜率排行统计（/api/stats/ranking） |
 | electron/services/sync-service.ts | 双机数据同步（导出同步包 exportSyncBundle / 导入预览 previewSyncImport / 合并应用 applySyncImport——含系列赛自动合并与写回补跑） |
+| electron/services/cloud-sync-service.ts | 云同步（点击式 · Cloudflare Worker + KV 信箱）：主控 pushCloudSync（分发）/ checkCloudSync + confirmCloudSync（确认台 + 回执）/ rejectCloudSync，分控 previewCloudPull + finalizeCloudPull（同步最新）/ uploadCloudSync（回传），两端共用的 pollCloudSync（红点轮询，只读小键）、saveCloudAssignment（指派）、checkMachineCodeChange（改码守卫）、canRegisterMatch / checkSubUndoAllowed（登记与撤回闸门）；本机状态落 cache/cloud-sync.json，待合并包落 cache/cloud-pending.json |
 | electron/services/tournament-service.ts | 系列赛自动化引擎（创建/抽签/分桶配对/完成与撤回钩子/波次回退/弃权/删除，删除时经 match-service 解绑 tournamentRef 或连对局一并删除；编排落 cache/tournaments.json；双机编排机所有权闸门 + mergeTournamentRecords / runTournamentWriteBack） |
 
 ### 共享模块

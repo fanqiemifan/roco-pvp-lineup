@@ -1989,6 +1989,57 @@ a {
   border-color: #EDE4D8;
 }
 
+/* ===== 云同步（点击式）：设置区字段行 + 状态提示 + 红点徽标 ===== */
+.cloud-sync-role-tag {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6B5944;
+}
+
+.cloud-sync-fields {
+  margin-top: 12px;
+}
+
+.cloud-sync-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.cloud-sync-actions {
+  margin-top: 12px;
+}
+
+.cloud-sync-status-text {
+  font-size: 12px;
+}
+
+.cloud-sync-alert {
+  margin-top: 10px;
+}
+
+.cloud-sync-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 10px;
+  background: rgba(199, 99, 47, 0.12);
+  color: #C7632F;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* 云同步区内容比标签高得多：标签贴顶对齐，不再垂直居中 */
+.sync-card-row-cloud .sync-card-label {
+  height: auto;
+  align-self: flex-start;
+}
+
 /* 导出行：勾选项靠左、导出按钮靠右 */
 .sync-export-bar {
   display: flex;

@@ -58,6 +58,13 @@
 - page10 自动切回：登记本局胜负时若当前画面是 page1-3，自动切入 page10 停留 `page10Duration` 后切回（socket-server 定时器驱动）。
 - 信息录入（选手/战队档案）：服务 `profile-service.ts`，落盘 `cache/profiles.json`，头像/logo 存 `cache/profiles/{players,teams}/<id>.png` 经 `/runtime/profiles/**` 访问；创建赛事/page9 输入名字自动联想档案。JSON 批量导入只认白名单字段（见「注意事项」）。
 - 双机数据同步（「比赛管理 → 数据同步」卡片）：同步包 = 单个 JSON（比赛 + 系列赛编排 + 可选档案/头像 base64），导入先预览（字段级 diff、逐条可勾选、冲突标记保留哪一边）再合并。合并规则/函数见 `.agents/05`（`sync-service.ts`）。**关键约束**：本机标识 `machineCode`（1-2 位大写字母）决定新比赛 id 形态 `20260928_A001`；**同一场比赛不能在两台机器分别创建**（会合并成两条）。「各登记一半」协作流程：A 建场导出基线 → B 导入 → 各自登记自己的场次 → B 导出回传 → A 导入（合并赛果 + 补写回推进）→ A 导出 → B 导入拿到下一波。
+- 云同步（点击式 · Cloudflare Worker + KV 信箱；方案 `docs/cloud-sync-plan.html`，服务 `electron/services/cloud-sync-service.ts`，Worker 独立部署在 `cloudflare/`、`npm run cloud:deploy` 一键上线，运行时只填 syncKey/role/workerUrl 三项）：
+  - 两组按钮：**主控端**（`role=main`，编排机 + 确认台）「同步分发 / 检查回传 / 确认台 / 指派」；**分控端**（`role=sub`，只读副本 + 登记点）「同步最新 / 回传」。**除前端红点轮询（只读 version/ack/uplink 小键、可关、绝不合并）外没有任何定时器会碰数据**，合并/推进/回执全靠点击，出问题可复现可暂停。
+  - 四类 KV 键：`room:{KEY}:downlink`（主控写全量包，**不带头像**）、`version`（小版本键）、`uplink:{码}`（分控写）、`ack:{码}`（主控写回执）。分发包 = 现有 `SyncBundle` + `cloud.roster`（名册）+ `cloud.assignment.overrides`（指派）。分控端头像缺图以占位/名字代替。
+  - **回传 = 发送时现算的所有未 ack 比赛累计集合**（不是增量，否则两次回传之间主控未确认会覆盖丢失）；**确认 = 服务端重分类合并（不盲信分控端勾选）+ `runTournamentWriteBack` 推进波次 + 写回执**，走 `applySyncImport(mode:'bundle')` + `skipTournaments:true`（编排结构归编排机，绝不用分控副本覆盖）；驳回不写本地不回执。每次「同步最新」合并后重算待回传集，防主控回退后陈旧登记复活。
+  - **指派**：主控勾选（按波次 / 按比赛），未指派 = 主控端登记、分控端入口置灰（闸门在 winner/start/undo 路由，见 `.agents/04`），改派随下次分发生效。**已 ack 的赛果在分控端禁止撤回**（整条替换合并不触发 `onMatchUndo`，会状态分叉），修正走主控「回退上一波」（该波已有部分结果时引擎会拒绝整波回退，改走逐场撤回）→ 重新分发 → 分控重新登记回传；分控端「确认合并」时若发现本机已登记而云端仍是「未登记」，判定主控回退过这一波，自动撤回本机陈旧赛果（`resetMatchRegistrations`，保留 tournamentRef 但清掉比分/胜者）并不再计入已确认集，**旧登记不会复活**。
+  - **配对校验**：同房间机器码必须互不相同（分控拉取时分发机码 == 本机码直接 400）；`role` 独立表达主/分，不靠 machineCode。**改 machineCode 有守卫**：有内嵌旧码的 running 系列赛直接拒绝，其余需二次确认（不做自动迁移 id）。
+  - **KV 最终一致**：写入异地最长约 60 秒（`cacheTtl` 最小 60，Worker 用默认值）才可见，「键不存在」的结果同样被缓存；界面常显版本/时间对比 + 等待重试提示，**不要连点刷**（读也计数）。免费额度读 10 万/天、写 1000/天，点击式消耗从容。`/api/cloud-sync/*` 强制登录（不在公开 GET 白名单里）。
 - 系列赛自动化编排（「系列比赛」视图，引擎 `tournament-service.ts`，编排落 `cache/tournaments.json`，API `/api/tournaments`，广播 `tournament:update`）：
   - 参赛人数限 4/8/16/32 且全部来自档案、不可重复；阶段模型 `stages`（默认模板 `buildDefaultStages`），`format` = 单败 `single-elim` / 双败 `double-life`，双败按 3 波战绩桶收敛（W1 0-0 → W2 1-0/0-1 → W3 1-1，决胜波经典交叉配对）。**「总决赛」= 只剩 2 人的阶段，必须单败**（`createTournament` 直接拒绝，判据用阶段人数）。RNG = mulberry32 注入式，同 seed 可复现。
   - 每个节点的对决仍是普通比赛：引擎内部 `createMatch` 打 `tournamentRef`，自动标签 = 赛事名+阶段名+波次；手动/需确认的波先停 `draft`（配对确认台），锁定校验通过后批量建场。

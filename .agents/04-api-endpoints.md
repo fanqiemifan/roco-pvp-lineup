@@ -53,6 +53,29 @@
 
 > 数据同步上传走独立 multer 实例（单文件，上限 SYNC_BUNDLE_MAX_BYTES = 64MB），不经过全局 express.json（2mb），避免大包被拦；超限/坏包统一 400 中文提示。
 
+## 云同步接口（点击式 · Cloudflare Worker + KV 信箱）
+
+> 全部为 POST/GET 且**强制登录**：鉴权开启（Node/Docker 模式）时中间件对 `/api/cloud-sync/*` 单独拦截返回 401，不落入公开 GET 页面接口白名单。
+> 写操作 body 统一带 `syncKey` + `machineCode`（readCloudRequest 校验：键必须与已保存的一致、机器码必须已设置），否则 400 中文提示。
+
+| 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
+|-------------|------|------|------|------|
+| 云同步状态（轮询用） | GET | /api/cloud-sync/status | 只读本机状态文件，**不产生任何云端请求**：config/version/appliedVersion/pending/inbox/roster/assignment/ownedTournamentIds/lastContact/lastError | electron/socket-server.ts |
+| 红点轮询 | POST | /api/cloud-sync/poll | 只读云端**小键**：version（两端）+ ack:{本机码}（分控端清待回传标记）+ uplink:{各分控码}（主控端刷新收件箱）。**绝不读大包、绝不合并数据** | electron/socket-server.ts |
+| 保存云同步设置 | POST | /api/cloud-sync/config | body: syncKey/role/workerUrl/machineLabel/pollEnabled/pollIntervalSeconds/peerCodes（仅主控端填分控码列表）。落 runtime/config.json；peerCodes 并入名册 | electron/socket-server.ts |
+| 检测 Worker 在线 | POST | /api/cloud-sync/test | 打 Worker `/health`（不需要密钥、不碰 KV，避免为测通白扣读写额度）；不可达时仍返回 200 + ok:false + 中文原因（前端读 ok 字段） | electron/socket-server.ts |
+| 主控「同步分发」 | POST | /api/cloud-sync/push | 组包（matches + tournaments + profiles，**不带头像**）+ 指派规则 + 名册 → 写 downlink，再写 version（小键）。每次覆盖（幂等全量）；版本号 = 本机记录的版本 + 1 | electron/socket-server.ts |
+| 分控「同步最新」（拉取 + 预览） | POST | /api/cloud-sync/pull | 读 downlink → 配对校验（本机码不能等于分发机码，否则 400）→ 落盘 cache/cloud-pending.json 并返回与「导入同步包」完全一致的预览（字段级 diff、逐条勾选），**不写入任何数据** | electron/socket-server.ts |
+| 分控「确认合并」 | POST | /api/cloud-sync/apply | body: accepted（勾选 key 数组）+ mode（默认 newer：分控本地较新的登记不会被压掉）→ 走现有 applySyncImport 合并 → 重算待回传集 → 广播 matches:update + tournament:update | electron/socket-server.ts |
+| 分控「回传」 | POST | /api/cloud-sync/upload | **现算**所有未 ack 比赛的累计集合（不是增量）→ 写 uplink:{本机码}，seq + 1；无待回传 400「无待回传」 | electron/socket-server.ts |
+| 主控「检查回传」 | POST | /api/cloud-sync/check | body.code 可空（空取最近提交的分控端）；逐分控端读 uplink → 包装成 SyncBundle → 复用现有预览（matchItems）+ 每条附 impact 写回影响说明；**不写入任何数据** | electron/socket-server.ts |
+| 主控确认（确认台） | POST | /api/cloud-sync/confirm | body: code + accepted。服务端重分类（不盲信分控端勾选）→ 只合并被确认的比赛（skipTournaments：编排结构绝不用分控副本覆盖）→ runTournamentWriteBack 推进波次 → 写回执 ack:{code} → 从收件箱移除已确认条目；广播 matches:update + tournament:update | electron/socket-server.ts |
+| 主控驳回 | POST | /api/cloud-sync/reject | body: code。**不写本地、不写回执**，分控端保持「待回传」 | electron/socket-server.ts |
+| 保存指派规则 | POST | /api/cloud-sync/assignment | body.overrides = 比赛 id -> 登记机器码（空字符串 = 主控端自己登记）；自动清掉已不存在比赛的条目；随下次「同步分发」写入 downlink 生效 | electron/socket-server.ts |
+| 登记入口判定 | POST | /api/cloud-sync/registration-scope | body.matchIds；返回逐场 {allowed, reason} + role + pending（待回传集）。一次问一批（列表逐行渲染，不能逐行打接口） | electron/socket-server.ts |
+
+> 登记闸门（分控端只能登记指派给本机的比赛）：`POST /api/matches/:matchId/winner`、`/start` 经 `canRegisterMatch` 校验，`/undo` 经 `checkSubUndoAllowed` 校验（已 ack 禁撤回）。未启用云同步（没填 syncKey/机器码）时闸门放行，保持单机行为。
+
 ## 系列赛接口
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
@@ -193,5 +216,5 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取运行时配置 | GET | /api/runtime-config | 获取运行时配置（port、machineCode 本机标识） | electron/socket-server.ts |
-| 保存运行时配置 | POST | /api/runtime-config | 保存运行时配置（合并语义：只覆盖传入字段——单传 machineCode 不会重置 port；machineCode 归一化为 1-2 位大写字母，空串 = 未设置） | electron/socket-server.ts |
+| 获取运行时配置 | GET | /api/runtime-config | 获取运行时配置（port、machineCode 本机标识、machineLabel 显示名、syncKey/syncRole/workerUrl/cloudPollEnabled/cloudPollInterval，并附 syncConfig = 完整 CloudSyncStatus，前端「数据同步」卡片一次请求即可渲染云同步区） | electron/socket-server.ts |
+| 保存运行时配置 | POST | /api/runtime-config | 保存运行时配置（合并语义：只覆盖传入字段——单传 machineCode 不会重置 port；machineCode 归一化为 1-2 位大写字母，空串 = 未设置）。**改机器码守卫**：有内嵌旧码的 running 系列赛 → 400 拒绝；仅有其它内嵌旧码的系列赛 → 409 要求 body.confirmMachineCodeChange=true 二次确认；响应带 guard 明细 | electron/socket-server.ts |

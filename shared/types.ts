@@ -511,6 +511,11 @@ export interface SyncBundle {
     players: Record<string, string>;
     teams: Record<string, string>;
   };
+  /**
+   * 云同步策略载荷（仅云同步分发/回传包携带；U 盘导入导出仍不带该字段）：
+   * 名册（房间内全部机器码，用于配对校验）+ 指派规则（哪场比赛交给哪个分控端登记）。
+   */
+  cloud?: CloudSyncOffer;
 }
 
 /** 导入冲突策略：newer = 较新覆盖（默认，看 updatedAt）；bundle = 以包为准（内容有差异即覆盖） */
@@ -615,6 +620,206 @@ export interface SyncImportResult {
   tournaments: SyncTournamentReport;
   warnings: string[];
 }
+
+/* ==================== 云同步（点击式：主控分发 / 分控拉取回传 / 主控确认台） ==================== */
+
+/** 云同步角色：main = 主控端（编排机 + 确认台）；sub = 分控端（只读副本 + 登记点） */
+export type CloudSyncRole = 'main' | 'sub';
+
+/**
+ * 云同步配置（随同步包下发的策略/名册载荷，不带头像）。
+ * - roster：房间名册（主控端维护，两端机器码必须互不相同）
+ * - assignment.overrides：比赛 id -> 登记机器码；空字符串 = 主控端自己登记，未列出的同理
+ */
+export interface CloudSyncOffer {
+  roster: CloudSyncRosterEntry[];
+  assignment: { overrides: Record<string, string>; updatedAt: string };
+}
+
+export interface CloudSyncRosterEntry {
+  code: string;
+  /** 显示名（machineLabel，纯展示；空字符串 = 只显示短码） */
+  label: string;
+}
+
+/** 云端版本号（小键，供红点轮询，不读大包） */
+export interface CloudSyncVersion {
+  v: number;
+  at: string;
+  /** 分发机机器码 */
+  from: string;
+}
+
+/** 分控端已登记但未被主控确认的比赛（现算，用于回传） */
+export interface CloudSyncPendingMatch {
+  matchId: string;
+  label: string;
+  /** 系列赛阶段/波次标签（非系列赛对局为空字符串） */
+  tournamentLabel: string;
+  leftScore: number;
+  rightScore: number;
+  winner: 'left' | 'right' | null;
+}
+
+/** 分控端回传载荷（累计集合，非增量） */
+export interface CloudSyncUplinkPayload {
+  from: string;
+  seq: number;
+  submittedAt: string;
+  matches: MatchRecord[];
+}
+
+/** 主控端确认回执 */
+export interface CloudSyncAckPayload {
+  ackedMatchIds: string[];
+  ackedSeq: number;
+  at: string;
+}
+
+/** 待回传集（分控端本地现算结果，含重算依据） */
+export interface CloudSyncPendingQueue {
+  matches: CloudSyncPendingMatch[];
+  count: number;
+  /** 上次回传序号（0 = 未回传过） */
+  seq: number;
+  submittedAt: string | null;
+  /** 已确认比赛 id（主控回执，用于清理待回传标记与锁定撤回） */
+  ackedMatchIds: string[];
+  ackedAt: string | null;
+}
+
+/** 主控端收件箱：按分控端分组 */
+export interface CloudSyncInboxEntry {
+  code: string;
+  label: string;
+  pending: CloudSyncPendingMatch[];
+  seq: number;
+  submittedAt: string;
+}
+
+/** 云同步状态（两端共用同一份结构，字段按角色填充） */
+export interface CloudSyncStatus {
+  config: {
+    syncKey: string;
+    role: CloudSyncRole;
+    workerUrl: string;
+    machineCode: string;
+    machineLabel: string;
+    pollEnabled: boolean;
+    pollIntervalSeconds: number;
+  };
+  /** 本机是否已配置到可用的程度（syncKey + workerUrl） */
+  configured: boolean;
+  /** 云端版本（未轮询/未拉取过为 null） */
+  version: CloudSyncVersion | null;
+  /** 本机已合并并落地的云端版本（分控端「已同步」判据） */
+  appliedVersion: number;
+  /** 待回传集（分控端；主控端为空集） */
+  pending: CloudSyncPendingQueue;
+  /** 收件箱（主控端；分控端为空数组） */
+  inbox: CloudSyncInboxEntry[];
+  /** 房间名册（主控端为本地配置，分控端来自最近一次拉取） */
+  roster: CloudSyncRosterEntry[];
+  /** 指派规则（比赛 id -> 机器码；空字符串 = 主控端登记） */
+  assignment: Record<string, string>;
+  /** 主控端：本机为编排机的系列赛 id（分控端为空数组） */
+  ownedTournamentIds: string[];
+  /** 最后一次成功通信时间（本机记录，不做心跳） */
+  lastContact: {
+    pushedAt: string | null;
+    pulledAt: string | null;
+    uploadedAt: string | null;
+    ackedAt: string | null;
+  };
+  /** 上一次云端操作失败原因（成功清空，供界面提示） */
+  lastError: string;
+}
+
+/** 云动作结果：成功回执 + 更新后的状态 */
+export interface CloudSyncActionResult<T = Record<string, unknown>> {
+  status: CloudSyncStatus;
+  data: T;
+}
+
+/** 红点轮询结果：只读小键，绝不合并数据（changed = 云端版本号比本机记录的新） */
+export interface CloudSyncPollResult {
+  version: CloudSyncVersion | null;
+  changed: boolean;
+  /** 主控端：各分控端回传摘要；分控端为空数组 */
+  inbox: CloudSyncInboxEntry[];
+  status: CloudSyncStatus;
+}
+
+/** 主控「同步分发」结果 */
+export interface CloudSyncPushResult {
+  version: CloudSyncVersion;
+  bytes: number;
+  matchCount: number;
+  tournamentCount: number;
+}
+
+/** 分控「同步最新」结果：dist = 下发机（主控端）机器码 */
+export interface CloudSyncPullResult extends CloudSyncActionResult<{ dist: string }> {
+  preview: SyncImportPreview;
+  bundle: SyncBundle;
+}
+
+/** 分控「回传」结果 */
+export interface CloudSyncUploadResult extends CloudSyncActionResult<{ seq: number; count: number }> {
+  submittedAt: string;
+}
+
+/**
+ * 主控确认台单条赛果：把分控端回传条目重分类为现有导入预览条目，
+ * 并附「写回影响」说明（确认后写入哪个系列赛节点、是否会推进波次）。
+ */
+export interface CloudSyncAckItem {
+  item: SyncImportItem;
+  /** 比赛记录（确认后按此项合并） */
+  record: MatchRecord;
+  /** 写回影响说明（非系列赛对局为空字符串） */
+  impact: string;
+}
+
+export interface CloudSyncAckSource {
+  code: string;
+  label: string;
+  seq: number;
+  submittedAt: string;
+  /** 全部待确认条目 */
+  items: CloudSyncAckItem[];
+  /** 可勾选条目（action != skip）的 key */
+  selectableKeys: string[];
+}
+
+/** 主控「检查回传」结果：全体分控端待确认赛果（code = null 时取收件箱第一个有内容的分控端） */
+export interface CloudSyncCheckResult extends CloudSyncActionResult<{ sources: CloudSyncAckSource[]; source: CloudSyncAckSource | null }> {}
+
+/** 主控确认结果 */
+export interface CloudSyncConfirmResult extends CloudSyncActionResult<{ acked: string[]; warnings: string[] }> {
+  result: SyncImportResult;
+}
+
+/** 主控「驳回」结果：不写本地、不写回执，分控端保持待回传 */
+export interface CloudSyncRejectResult extends CloudSyncActionResult<{ code: string }> {}
+
+/** 主控「测试连接」结果 */
+export interface CloudSyncTestResult extends CloudSyncActionResult<{ ok: boolean }> {
+  ok: boolean;
+  message: string;
+}
+
+/** 机器码变更校验结果：blocked = 拒绝，需确认 = 前端二次确认 */
+export interface MachineCodeGuardResult {
+  blocked: boolean;
+  requireConfirm: boolean;
+  /** 受影响（内嵌旧机器码）的系列赛 id */
+  tournamentIds: string[];
+  message: string;
+}
+
+/** 云同步接口的键名（KV 中四类键的后两类按机器码分键） */
+export type CloudSyncBoxName = 'downlink' | 'version' | `uplink/${string}` | `ack/${string}`;
 
 /* ==================== 系列赛自动化管理（cache/tournaments.json） ==================== */
 

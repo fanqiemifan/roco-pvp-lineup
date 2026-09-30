@@ -37,7 +37,7 @@ export interface SyncExportOptions {
 }
 
 /** 解析后的同步包（包内条目保持 unknown，由各服务逐条规范化） */
-interface SyncBundlePayload {
+export interface SyncBundlePayload {
   machine: string;
   exportedAt: string;
   matches: unknown[];
@@ -52,6 +52,11 @@ export interface SyncApplyOptions {
   /** 前端勾选保留的 item.key 列表（服务端会重新分类后取交集，不信任客户端判定） */
   acceptedKeys: string[];
   includeAvatars: boolean;
+  /**
+   * 跳过系列赛编排合并（云同步的主控确认台走这条路）：
+   * 确认赛果只合并比赛记录，编排结构由本机（编排机）自己持有，绝不能用分控端回传的副本覆盖。
+   */
+  skipTournaments?: boolean;
 }
 
 function toBundlePlayer(player: PlayerProfile): SyncBundlePlayerProfile {
@@ -145,7 +150,7 @@ function sanitizeAvatarMap(value: unknown): Record<string, string> {
 }
 
 /** 解析并校验同步包头部（app / schema / 结构），不合法抛中文错误供路由转 400 */
-function parseSyncBundle(raw: unknown): SyncBundlePayload {
+export function parseSyncBundle(raw: unknown): SyncBundlePayload {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('同步包内容不是有效的 JSON 对象');
   }
@@ -547,11 +552,15 @@ export async function applySyncImport(
 
   // 系列赛：编排数据随包流转（自动合并，不进勾选列表）。
   // 只有编排机会修改系列赛，只读副本的本地版本不会反向覆盖编排机（见 tournament-service 所有权校验）。
-  const tournamentReport = mergeTournamentRecords(paths, payload.tournaments, options.mode);
+  const tournamentReport = mergeTournamentRecords(
+    paths,
+    options.skipTournaments ? [] : payload.tournaments,
+    options.mode,
+  );
   if (tournamentReport.rejected) {
     warnings.push(`包内有 ${tournamentReport.rejected} 条系列赛记录不合法被忽略`);
   }
-  if (payload.tournaments.length && !loadRuntimeConfig(paths).machineCode) {
+  if (!options.skipTournaments && payload.tournaments.length && !loadRuntimeConfig(paths).machineCode) {
     warnings.push('本机未设置机器标识（machineCode），系列赛所有权无法区分，双机编排可能冲突');
   }
 

@@ -46,7 +46,7 @@
   - 显示控制：`显示 MVP 结算`（POST /api/mvp/show：记录当前画面到 returnPage 并切 stage 到 page4）/ `关闭`（POST /api/mvp/hide：切回 returnPage）；状态标签显示已标记精灵 n/6、标签是否完整、是否已标记 MVP；另展示**已载入胜方头像（56 圆形，`.mvp-winner-avatar`）+ 名字 + 侧/比赛 id**（头像按快照 matchId+side 解析、带 mtime 缓存参数，未上传回退 left/right-avatar.png 占位图，数据取 GET /api/mvp 的 winner，mvp:update 用 payload、avatar:update 时重拉）；未标记 MVP 时禁用「显示」（标签可留空，不要求全部填完）。
   - 精灵项（最多 6 行）：点选当前对局胜者阵容精灵填入第一个空槽（再次点击移除），每行可填标签（预设 MVP_TAG_PRESETS + 手动输入 ≤4 字，选择即时保存、手动输入失焦/回车保存）、标记 MVP（全页互斥，最多一个）、清空；空槽位不可编辑。
   - 草稿同步：服务端 mvp.slots 变化时按内容比较回填（一致则保持原引用，避免编辑中标签被覆盖）。
-- history - 比赛管理（列表、删除、批量删除、撤销删除；**表格分页「N 条/页」下拉走 `showSizeChanger` 传 SelectProps（antd 6 支持对象形式）：`getPopupContainer: () => document.body` + `popupMatchSelectWidth: false`**——原来布尔形式下下拉跟随很窄的触发器、又处于卡片底部，选项文字会被裁掉/看不到；筛选区分两行维度且 AND 叠加：紫色「系列赛」组 = 普通对局 + 各系列赛 🏆名称（N场），按对局首次出现顺序，只含有关联赛局的系列赛，孤儿引用（系列赛已删）归普通对局；蓝色「标签」组 = 全部/未分类/各标签；标签单元格对系列赛对局固定前置紫色奖杯 Tag（不可随标签编辑删除，点击即按该系列赛筛选），纯函数 buildHistoryTournamentFilters/getEffectiveTournamentId 在 lib/history.ts；**推流选场不在表格内勾选**：表格上方三个 MatchPushCard（推送比赛结果 / 推送对局推送 / 推送比赛预告，组件 components/MatchPushCard.tsx），点击「选择比赛」打开选场弹窗（左候选比赛表+搜索+资格过滤：page6 仅已结束、page8 待开始/进行中、page7 任意；**候选按系列赛「阶段 + 语义轮次」分组**——纯函数 `buildPushCandidateGroups`（lib/tournament.ts）：双败=首轮/胜者组/败者组/决胜轮（W2 按节点两位选手首轮胜负判池，与服务端 resolveTournamentLabel 及 page6 卡片标签同口径）、单败=阶段名（如「总决赛」）、普通对局与孤儿引用归「普通对局」组，组序按组内首场比赛在候选列表中的位置；分组标题行为整行合并单元格，带头部 Checkbox 可整组勾选/取消（indeterminate 半选态，勾选按组内顺序加入且受上限约束），样式 `.match-push-group-row`；右已选区按勾选顺序=卡片场序，可上移/下移/移除；page6/8 弹窗内另可编辑大标题、第一场开始时间与每场时间（自动时间走 shared/match-schedule 的 computeScheduleTimes，输入框 placeholder 为自动值），page7 弹窗内编辑主标题与温馨提示），确认即 POST 推送，三页上限均 9；「录入阵容」弹窗 HistoryLineupEntryModal 为待开始小局录入双方阵容；「数据同步」卡片 = 本机标识 + 导出同步包 + 导入预览弹窗，弹窗为「左条目列表 + 右侧本机 vs 包内字段级 diff 面板」，列表按「更新 → 新增 → 跳过」排序（同级冲突优先），冲突场次红色标记并可逐条/批量选择保留哪一边，档案项的头像/logo 变更在 diff 中显示「本机 / 包内」左右对照图；**导入摘要**额外带「系列赛 新增/更新/跳过」统计，编排机补写回推进时标注「已补写回推进」）
+- history - 比赛管理（列表、删除、批量删除、撤销删除；**表格分页「N 条/页」下拉走 `showSizeChanger` 传 SelectProps（antd 6 支持对象形式）：`getPopupContainer: () => document.body` + `popupMatchSelectWidth: false`**——原来布尔形式下下拉跟随很窄的触发器、又处于卡片底部，选项文字会被裁掉/看不到；筛选区分两行维度且 AND 叠加：紫色「系列赛」组 = 普通对局 + 各系列赛 🏆名称（N场），按对局首次出现顺序，只含有关联赛局的系列赛，孤儿引用（系列赛已删）归普通对局；蓝色「标签」组 = 全部/未分类/各标签；标签单元格对系列赛对局固定前置紫色奖杯 Tag（不可随标签编辑删除，点击即按该系列赛筛选），纯函数 buildHistoryTournamentFilters/getEffectiveTournamentId 在 lib/history.ts；**推流选场不在表格内勾选**：表格上方三个 MatchPushCard（推送比赛结果 / 推送对局推送 / 推送比赛预告，组件 components/MatchPushCard.tsx），点击「选择比赛」打开选场弹窗（左候选比赛表+搜索+资格过滤：page6 仅已结束、page8 待开始/进行中、page7 任意；**候选按系列赛「阶段 + 语义轮次」分组**——纯函数 `buildPushCandidateGroups`（lib/tournament.ts）：双败=首轮/胜者组/败者组/决胜轮（W2 按节点两位选手首轮胜负判池，与服务端 resolveTournamentLabel 及 page6 卡片标签同口径）、单败=阶段名（如「总决赛」）、普通对局与孤儿引用归「普通对局」组，组序按组内首场比赛在候选列表中的位置；分组标题行为整行合并单元格，带头部 Checkbox 可整组勾选/取消（indeterminate 半选态，勾选按组内顺序加入且受上限约束），样式 `.match-push-group-row`；右已选区按勾选顺序=卡片场序，可上移/下移/移除；page6/8 弹窗内另可编辑大标题、第一场开始时间与每场时间（自动时间走 shared/match-schedule 的 computeScheduleTimes，输入框 placeholder 为自动值），page7 弹窗内编辑主标题与温馨提示），确认即 POST 推送，三页上限均 9；「录入阵容」弹窗 HistoryLineupEntryModal 为待开始小局录入双方阵容；「数据同步」卡片 = 本机标识 + 导出同步包 + 导入预览弹窗 + **云同步区**（见下文「云同步」小节），弹窗为「左条目列表 + 右侧本机 vs 包内字段级 diff 面板」，列表按「更新 → 新增 → 跳过」排序（同级冲突优先），冲突场次红色标记并可逐条/批量选择保留哪一边，档案项的头像/logo 变更在 diff 中显示「本机 / 包内」左右对照图；**导入摘要**额外带「系列赛 新增/更新/跳过」统计，编排机补写回推进时标注「已补写回推进」）
 - stats - 数据统计（StatsView：使用率/上场率排行、属性分布、标签趋势；1920px 断点布局）
 - preview - 页面预览（推流页面1-13 切换，含页面4 MVP 结算，`PREVIEW_PAGES` 定义于 constants.ts；page6/7/8 仅提示去「比赛管理」上方功能卡片选场推送，标题/时间在选场弹窗内编辑）
 - tournament - 系列比赛（TournamentView：列表 + 4 步创建向导 + 详情；**双机只读副本**：非本机编排的系列赛（id 机器码 ≠ 本机 machineCode）显示蓝色「只读副本 · 机器 X 编排」标签与说明行，列表删除按钮、详情内回退/删除/抽签/开赛/配对台/锁定/弃权全部禁用（判定纯函数 getTournamentOwnerCode / isTournamentOwnedByLocal 在 lib/tournament.ts，与服务端同口径）；导航图标 系列比赛.svg；菜单顺序为 赛事面板 → 直播推流 → 系列比赛 → 结算画面…，「实时控制」移到「页面预览」之后）
@@ -62,6 +62,7 @@
 
 - leftPanel / rightPanel、scoreboard、matches、avatars、stage、page7 / page9 / page11（配置状态与对应草稿/保存中标记）、tournaments（系列赛编排记录列表）
 - stats 相关：statsRange / statsMetric / statsPlayer / statsTag / statsSearch
+- cloudStatus + 云同步草稿（cloudKeyDraft / cloudRoleDraft / cloudWorkerUrlDraft / cloudLabelDraft / cloudPeerDraft）、cloudPreviewFlow（pull / ack，复用同一份 syncPreview 状态与预览弹窗）、cloudAckSources / cloudAckSource / cloudAckCode（确认台按分控端分组）、cloudAssignDraft（指派工作台草稿）、cloudAckedMatchIds（分控端已确认集合）
 - socket - Socket.IO 连接实例
 
 ### 核心逻辑（lib/）
@@ -83,6 +84,15 @@
 - SettingField.tsx - 设置项字段封装
 - SpritePetCard.tsx - 精灵卡片
 - StageThumb.tsx - 推流页面缩略图
+
+### 云同步（「比赛管理 → 数据同步」卡片第三区 · 点击式）
+
+- **同一张预览弹窗复用三种流程**：`syncPreview` 状态配 `cloudPreviewFlow`（null = U 盘导入 / 'pull' = 分控「同步最新」/ 'ack' = 主控确认台）。确认台流程下弹窗标题带分控端码、页脚换成「稍后再看 / ✗ 驳回 / ✓ 确认并推进」（隐藏 antd 默认 ok/cancel），顶部一个 Select 切换分控端（`switchCloudAckSource`，纯前端换条目，不重打接口）。
+- **状态自动轮询**：`GET /api/cloud-sync/status` 只读本机（不产生云端请求），红点轮询 `POST /api/cloud-sync/poll` 按 `cloudPollIntervalSeconds` 起 `setInterval`，`document.visibilityState !== 'visible'` 时跳过（后台标签页不刷云端）。轮询只更新提示，**绝不自动合并数据**；新版本提示按版本号去重（`cloudPollNotified`）。
+- **登记/撤回闸门是纯前端镜像**：`cloudRegisterGate(matchId)` / `cloudUndoGate(matchId)` 由 `cloudStatus.assignment` + `role` + `cloudAckedMatchIds` 现算，禁用按钮并挂 Tooltip（服务端在 winner/start/undo 路由上另有一道同口径校验，前端只是提前告知）。未配置云同步时两个闸门一律放行（保持单机行为）。
+- **指派工作台**：`cloudAssignDraft` = 比赛 id -> 机器码（空串 = 主控端），按波次批量按钮只改当前列表里该波次的比赛；保存走 `POST /api/cloud-sync/assignment`，随下次「同步分发」生效。
+- **`/api/runtime-config` 顺带回带 `syncConfig`（完整 CloudSyncStatus）**：初始加载一次请求即可渲染设置区；「检测 Worker 在线」复用该接口回执里的 status。
+- **改机器码守卫的前端配合**：`POST /api/runtime-config` 遇 409（有内嵌旧码的系列赛）弹 `modal.confirm`，确认后带 `confirmMachineCodeChange: true` 重发；400 直接报错（有 running 系列赛时禁止改码）。
 
 ## login-antd（登录页面）
 
