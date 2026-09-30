@@ -1168,6 +1168,18 @@ a {
   font-size: 12px;
 }
 
+/* ===== 系列赛「阵容详情」弹窗（晋级图 / 波次卡片入口）：逐局只读阵容，槽位沿用 history-slot 样式 ===== */
+.lineup-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.lineup-detail-empty.ant-empty {
+  margin: 4px 0;
+}
+
 .preview-frame-shell {
   position: relative;
   width: 100%;
@@ -2826,6 +2838,12 @@ a {
 .bracket-row-lost .bracket-row-score {
   background: #c24635;
   color: #fff;
+}
+
+/* 单人链路选中：高亮该选手的槽位行（点击选手行走单人视图，与卡片选中同色系） */
+.bracket-row-active {
+  background: rgba(212, 136, 6, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(212, 136, 6, 0.35);
 }
 
 /* 卡片内操作区：卡片本身 padding 归零，这里补回内边距 */

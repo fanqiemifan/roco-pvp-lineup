@@ -7155,6 +7155,7 @@ function Dashboard() {
               sprites={sprites}
               machineCode={machineCodeInput}
               onJumpToRoster={() => setView('roster')}
+              onMatchesStore={(store) => applyServerState({ store })}
             />
           ) : null}
 

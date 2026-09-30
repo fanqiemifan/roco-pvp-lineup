@@ -26,6 +26,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { buildDefaultStages, SUPPORTED_TOURNAMENT_SIZES } from '../../../shared/constants';
 import type {
   MatchRecord,
+  MatchStoreState,
   ProfileStoreState,
   SpriteRecord,
   StageFormat,
@@ -39,6 +40,7 @@ import {
   buildWaveCards,
   countCompletedMatches,
   crossPairDeciderPool,
+  formatStageRoundLabel,
   getCurrentPositionText,
   getDraftBucketSpecs,
   getPairingLabel,
@@ -71,6 +73,8 @@ import {
 import { readLastTournamentId, writeLastTournamentId } from '../lib/last-tournament';
 import { BracketBoard } from '../components/BracketBoard';
 import { TournamentNodeCard } from '../components/TournamentNodeCard';
+import { HistoryLineupEntryModal } from './HistoryLineupEntryModal';
+import { MatchLineupDetailModal } from './MatchLineupDetailModal';
 import { TournamentLineupExportModal } from './TournamentLineupExportModal';
 import { TournamentLineupImportModal } from './TournamentLineupImportModal';
 
@@ -95,6 +99,8 @@ export interface TournamentViewProps {
   machineCode: string;
   /** 切换为当前比赛后跳转赛事面板（App 提供） */
   onJumpToRoster?: () => void;
+  /** 阵容录入保存后回传最新赛事 store（App 统一应用，免等 socket 广播） */
+  onMatchesStore?: (store: MatchStoreState) => void;
 }
 
 export function TournamentView({
@@ -104,6 +110,7 @@ export function TournamentView({
   sprites,
   machineCode,
   onJumpToRoster,
+  onMatchesStore,
 }: TournamentViewProps): React.ReactElement {
   const { message } = App.useApp();
   const [createOpen, setCreateOpen] = useState(false);
@@ -276,6 +283,7 @@ export function TournamentView({
           sprites={sprites}
           machineCode={machineCode}
           onSelectMatch={handleSelectMatch}
+          onMatchesStore={onMatchesStore}
           onDelete={() => {
             setDeleteWithMatches(false);
             setDeleteTarget(selected);
@@ -356,6 +364,8 @@ interface DetailProps {
   sprites: SpriteRecord[];
   machineCode: string;
   onSelectMatch(matchId: string): Promise<void>;
+  /** 阵容录入保存后回传最新赛事 store（App 统一应用） */
+  onMatchesStore?: (store: MatchStoreState) => void;
   onDelete(): void;
 }
 
@@ -366,6 +376,7 @@ function TournamentDetail({
   sprites,
   machineCode,
   onSelectMatch,
+  onMatchesStore,
   onDelete,
 }: DetailProps): React.ReactElement {
   const { message, modal } = App.useApp();
@@ -377,6 +388,10 @@ function TournamentDetail({
   // 阵容表批量导出 / 导入（比赛记录写入，只读副本也可用；门槛与单场录入一致）
   const [lineupExportOpen, setLineupExportOpen] = useState(false);
   const [lineupImportOpen, setLineupImportOpen] = useState(false);
+  // 「阵容详情」弹窗：按 matchId 从最新 matches 解析（socket 更新自动跟随，比赛被删时自动关闭）
+  const [lineupDetailMatchId, setLineupDetailMatchId] = useState<string | null>(null);
+  // 「录入阵容」弹窗上下文（与比赛管理同口径：仅当前小局 + 待开始可录入）
+  const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
 
   async function handleRollback(): Promise<void> {
     try {
@@ -389,6 +404,19 @@ function TournamentDetail({
 
   // 波次最新在前（裁判只需操作当前波）
   const reversedWaves = [...record.waves].reverse();
+
+  const lineupDetailMatch = lineupDetailMatchId
+    ? matches.find((match) => match.id === lineupDetailMatchId) ?? null
+    : null;
+  // 「阶段 · 轮次」摘要：仅当比赛仍归属当前系列赛时展示（解绑/删除系列赛后自动消失）
+  const lineupDetailStageRound = lineupDetailMatch?.tournamentRef
+    && lineupDetailMatch.tournamentRef.tournamentId === record.id
+    ? formatStageRoundLabel(record, lineupDetailMatch.tournamentRef)
+    : null;
+  const lineupEntryMatch = lineupEntry ? matches.find((match) => match.id === lineupEntry.matchId) ?? null : null;
+  const lineupEntryGame = lineupEntryMatch && lineupEntry
+    ? lineupEntryMatch.games.find((game) => game.gameNumber === lineupEntry.gameNumber) ?? null
+    : null;
 
   return (
     <Card
@@ -470,6 +498,7 @@ function TournamentDetail({
           names={names}
           matches={matches}
           onSelectMatch={onSelectMatch}
+          onViewLineup={setLineupDetailMatchId}
           readOnly={readOnly}
         />
       ) : (
@@ -482,6 +511,7 @@ function TournamentDetail({
               names={names}
               matches={matches}
               onSelectMatch={onSelectMatch}
+              onViewLineup={setLineupDetailMatchId}
               readOnly={readOnly}
             />
           ))}
@@ -520,6 +550,22 @@ function TournamentDetail({
         record={record}
         matches={matches}
         onClose={() => setLineupImportOpen(false)}
+      />
+      <MatchLineupDetailModal
+        open={Boolean(lineupDetailMatch)}
+        match={lineupDetailMatch}
+        stageRoundText={lineupDetailStageRound}
+        sprites={sprites}
+        onClose={() => setLineupDetailMatchId(null)}
+        onEnterLineup={(matchId, gameNumber) => setLineupEntry({ matchId, gameNumber })}
+      />
+      <HistoryLineupEntryModal
+        open={Boolean(lineupEntry && lineupEntryMatch && lineupEntryGame)}
+        match={lineupEntryMatch}
+        game={lineupEntryGame}
+        sprites={sprites}
+        onClose={() => setLineupEntry(null)}
+        onSaved={(store) => onMatchesStore?.(store)}
       />
     </Card>
   );
@@ -659,6 +705,7 @@ interface WavePanelProps {
   names: Map<string, string>;
   matches: MatchRecord[];
   onSelectMatch(matchId: string): Promise<void>;
+  onViewLineup(matchId: string): void;
   readOnly: boolean;
 }
 
@@ -668,6 +715,7 @@ function WavePanel({
   names,
   matches,
   onSelectMatch,
+  onViewLineup,
   readOnly,
 }: WavePanelProps): React.ReactElement {
   const stage = record.stages[wave.stageIndex];
@@ -702,6 +750,7 @@ function WavePanel({
           names={names}
           matches={matches}
           onSelectMatch={onSelectMatch}
+          onViewLineup={onViewLineup}
           readOnly={readOnly}
         />
       )}
@@ -1084,6 +1133,7 @@ function NodeGrid({
   names,
   matches,
   onSelectMatch,
+  onViewLineup,
   readOnly = false,
 }: {
   record: TournamentRecord;
@@ -1091,6 +1141,7 @@ function NodeGrid({
   names: Map<string, string>;
   matches: MatchRecord[];
   onSelectMatch(matchId: string): Promise<void>;
+  onViewLineup(matchId: string): void;
   /** 只读副本：隐藏弃权操作（服务端也会拒绝） */
   readOnly?: boolean;
 }): React.ReactElement {
@@ -1126,6 +1177,7 @@ function NodeGrid({
             <TournamentNodeCard
               card={card}
               onSelectMatch={(matchId) => void onSelectMatch(matchId)}
+              onViewLineup={onViewLineup}
               onForfeit={readOnly ? undefined : () => setForfeitNode(
                 wave.nodes.find((node) => node.id === card.nodeId) ?? null,
               )}
