@@ -3631,6 +3631,12 @@ function Dashboard() {
 
   /* ==================== 云同步（点击式：主控分发/确认台，分控同步/回传） ==================== */
 
+  /**
+   * 「后台自动刷新收件箱」哨兵：确认/退回之后只想更新红点与待确认清单，
+   * 不再重新弹确认台（曾因此导致确认完弹窗不关、还停在原条目上）。
+   */
+  const AUTO_REFRESH_INBOX = '__auto__';
+
   /** 勾选条目按动作计数（与导入预览 summary 同口径：只统计被勾选且非跳过的条目） */
   function countActions(items: SyncImportItem[]): SyncImportCounts {
     const counts: SyncImportCounts = { add: 0, update: 0, skip: 0 };
@@ -3666,8 +3672,7 @@ function Dashboard() {
     setCloudAckedMatchIds(next.pending.ackedMatchIds);
   }
 
-  /** 云同步请求统一出口：自动带房间密钥、访问令牌与机器码（服务端校验一致才执行） */
-  async function postCloud<T>(pathname: string, body: Record<string, unknown> = {}): Promise<T & { status: CloudSyncStatus }> {
+  /** 云同步请求统一出口：自动带房间密钥、访问令牌与机器码（服务端校验一致才执行） */  async function postCloud<T>(pathname: string, body: Record<string, unknown> = {}): Promise<T & { status: CloudSyncStatus }> {
     const result = await requestJson<T & { status: CloudSyncStatus }>(pathname, {
       method: 'POST',
       json: {
@@ -3845,7 +3850,14 @@ function Dashboard() {
       );
       const sources = result.data.sources;
       if (!sources.length) {
-        message.info('暂时没有待确认的赛果：其他电脑还没交回，或都已经确认过了');
+        if (code !== AUTO_REFRESH_INBOX) {
+          message.info('暂时没有待确认的赛果：其他电脑还没交回，或都已经确认过了');
+        }
+        return;
+      }
+      // 后台自动刷新（确认/退回之后）只更新红点与待确认清单，不重新弹窗打断用户
+      if (code === AUTO_REFRESH_INBOX) {
+        setCloudAckSources(sources);
         return;
       }
       const source = result.data.source ?? sources[0];
@@ -3940,8 +3952,10 @@ function Dashboard() {
           message.success(`已确认 ${result.data.acked.length} 场赛果：本机内容本来就一致，只给对方回了「收到了」`);
         }
         result.data.warnings.forEach((warning) => message.warning(warning));
-        // 可能还有别的电脑交了赛果，刷新一次确认台状态
-        await checkCloudInbox(cloudAckCode);
+        // 确认完先把弹窗关掉（曾漏掉这一步：确认后弹窗不关，还停在原条目上）
+        closeCloudPreview();
+        // 可能还有别的电脑交了赛果：后台刷新确认台状态，刷新结果只影响红点/列表，不重新弹窗
+        void checkCloudInbox(AUTO_REFRESH_INBOX);
         return;
       }
       closeCloudPreview();
@@ -3961,8 +3975,9 @@ function Dashboard() {
     try {
       await postCloud('/api/cloud-sync/reject', { code: cloudAckCode });
       message.info(`已退回 ${cloudAckCode} 号机交回的赛果：本机数据没有任何改动，请对方改正后重新「交回赛果」`);
+      // 与确认一致：先关弹窗，再后台刷新收件箱（刷新不再重新弹窗）
       closeCloudPreview();
-      await checkCloudInbox(cloudAckCode);
+      void checkCloudInbox(AUTO_REFRESH_INBOX);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
