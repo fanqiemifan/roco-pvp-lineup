@@ -57,6 +57,8 @@
         if (state.exists && state.path) {
             var cacheBuster = state.mtime ? Math.floor(state.mtime) : Date.now();
             image.src = state.path + '?t=' + cacheBuster;
+            // 仅上传头像显示内描边，默认占位头像不描边
+            avatar.classList.add('has-avatar');
         } else {
             image.src = DEFAULT_AVATARS[side];
         }

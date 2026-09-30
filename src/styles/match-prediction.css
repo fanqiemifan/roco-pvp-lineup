@@ -178,7 +178,7 @@ body {
     top: 82px;
 }
 
-/* 选手头像：72×72，left 0 垂直居中（top 1），圆形 + 内描边 2px 黑色 50% */
+/* 选手头像：72×72，left 0 垂直居中（top 1），圆形；内描边画在 ::after 伪元素上避免被图片覆盖，仅上传头像时加 has-avatar 才显示（默认头像无描边） */
 .mp-avatar {
     position: absolute;
     left: 0;
@@ -188,7 +188,15 @@ body {
     border-radius: 50%;
     overflow: hidden;
     background: #fff7e9;
+}
+
+.mp-avatar.has-avatar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
     box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
 }
 
 .mp-avatar img {
