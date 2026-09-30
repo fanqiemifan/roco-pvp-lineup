@@ -540,7 +540,7 @@ function Dashboard() {
   const [cloudTesting, setCloudTesting] = useState(false);
   const [cloudBusy, setCloudBusy] = useState<'push' | 'pull' | 'upload' | 'check' | 'apply' | 'assignment' | 'poll' | ''>('');
   // 云端数据走与「导入同步包」同一套预览：flow 区分「拉取待合并」与「主控确认台」
-  const [cloudPreviewFlow, setCloudPreviewFlow] = useState<'pull' | 'ack' | null>(null);
+  const [cloudPreviewFlow, setCloudPreviewFlow] = useState<'pull' | 'incoming' | null>(null);
   const [cloudAckSource, setCloudAckSource] = useState<CloudSyncAckSource | null>(null);
   const [cloudAckSources, setCloudAckSources] = useState<CloudSyncAckSource[]>([]);
   const [cloudAckCode, setCloudAckCode] = useState('');
@@ -3270,7 +3270,7 @@ function Dashboard() {
       render: (status: MatchRecord['status'], record: MatchRecord) => (
         <Space size={4} wrap>
           <Tag color={getMatchStatusColor(status)}>{getMatchStatusLabel(status)}</Tag>
-          {cloudPendingIdSet.has(record.id) ? <Tag color="purple">待回传</Tag> : null}
+          {cloudPendingIdSet.has(record.id) ? <Tag color="purple">待交回</Tag> : null}
           {cloudAckedSet.has(record.id) && cloudStatus?.config.role === 'sub' ? <Tag color="green">已确认</Tag> : null}
         </Space>
       ),
@@ -3599,17 +3599,17 @@ function Dashboard() {
         const key = `v${result.version.v}`;
         if (cloudPollNotified !== key) {
           setCloudPollNotified(key);
-          message.info(`主控端有新分发（v${result.version.v}），点「同步最新」拉取`);
+          message.info('主控电脑上传了新内容，点「从云端获取最新」查看');
         }
       }
       if (status.config.role === 'main') {
         const pendingCount = result.inbox.reduce((sum, entry) => sum + entry.pending.length, 0);
         if (pendingCount > 0 && !silent) {
-          message.info(`收件箱：${result.inbox.length} 个分控端提交了赛果（共 ${pendingCount} 场待确认）`);
+          message.info(`有 ${result.inbox.length} 台电脑交回了赛果，共 ${pendingCount} 场等你确认`);
         }
       }
       if (!silent) {
-        message.success('已刷新云端状态');
+        message.success('已刷新同步状态');
       }
     } catch (error) {
       if (!silent) {
@@ -3682,16 +3682,16 @@ function Dashboard() {
     }
   }
 
-  /** 主控「同步分发」：全量包 + 指派规则 + 名册 → 云端信箱 */
+  /** 主控「上传给其他电脑」：把本机赛事资料整体发到云端 */
   async function pushCloudBundle() {
     setCloudBusy('push');
     try {
       const result = await postCloud<{ data: { bytes: number; matchCount: number; tournamentCount: number }; version: CloudSyncVersion }>(
         '/api/cloud-sync/push',
       );
-      const info = `已分发 v${result.version.v} · ${formatDateTime(result.version.at)} · ${Math.max(1, Math.round(result.data.bytes / 1024))} KB · 含 ${result.data.matchCount} 场比赛 / ${result.data.tournamentCount} 个系列赛`;
+      const info = `已上传第 ${result.version.v} 版 · ${formatDateTime(result.version.at)} · ${Math.max(1, Math.round(result.data.bytes / 1024))} KB · 含 ${result.data.matchCount} 场比赛 / ${result.data.tournamentCount} 个系列赛`;
       setCloudDistInfo(info);
-      message.success('已同步分发');
+      message.success('已上传，请让其他电脑等半分钟后点「从云端获取最新」');
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -3699,7 +3699,7 @@ function Dashboard() {
     }
   }
 
-  /** 分控「同步最新」：拉取 + 预览（确认后才合并，与「导入同步包」同一套 UI） */
+  /** 分控「从云端获取最新」：拉取 + 预览（确认后才合并，与「导入同步包」同一套界面） */
   async function pullCloudBundle() {
     setCloudBusy('pull');
     try {
@@ -3708,7 +3708,7 @@ function Dashboard() {
       setSyncPreview(result.preview);
       setSyncSelectedKeys(defaultSyncSelection(result.preview));
       setSyncActiveKey(defaultSyncActiveKey(result.preview));
-      setCloudDistInfo(`云端来自机器 ${result.data.dist}`);
+      setCloudDistInfo(`内容来自 ${result.data.dist} 号机`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -3716,14 +3716,14 @@ function Dashboard() {
     }
   }
 
-  /** 分控「回传」：现算所有未 ack 比赛的累计集合（不是增量） */
+  /** 分控「交回赛果」：把本机已登记、还没被确认的赛果一起交回去 */
   async function uploadCloudResults() {
     setCloudBusy('upload');
     try {
       const result = await postCloud<{ data: { seq: number; count: number }; submittedAt: string }>(
         '/api/cloud-sync/upload',
       );
-      message.success(`已回传 ${result.data.count} 场赛果（seq #${result.data.seq}），等待主控确认`);
+      message.success(`已交回 ${result.data.count} 场赛果，等主控电脑确认`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -3731,7 +3731,7 @@ function Dashboard() {
     }
   }
 
-  /** 主控「检查回传」：读各分控端回传 → 确认台（与导入预览同一套 diff 面板） */
+  /** 主控「查看其他电脑交回的赛果」：与导入预览同一套差异面板 */
   async function checkCloudInbox(code?: string) {
     setCloudBusy('check');
     try {
@@ -3741,7 +3741,7 @@ function Dashboard() {
       );
       const sources = result.data.sources;
       if (!sources.length) {
-        message.info('收件箱为空：还没有分控端提交赛果（或已全部确认）');
+        message.info('暂时没有待确认的赛果：其他电脑还没交回，或都已经确认过了');
         return;
       }
       const source = result.data.source ?? sources[0];
@@ -3765,7 +3765,7 @@ function Dashboard() {
           teams: { fill: 0, existing: 0, unmatched: 0 },
         },
       };
-      setCloudPreviewFlow('ack');
+      setCloudPreviewFlow('incoming');
       setSyncPreview(preview);
       setSyncSelectedKeys(source.selectableKeys);
       setSyncActiveKey(defaultSyncActiveKey(preview));
@@ -3815,7 +3815,7 @@ function Dashboard() {
           { accepted: syncSelectedKeys, mode: syncMode },
         );
         const applied = result.data.applied;
-        message.success(`已同步最新：比赛 新增 ${applied.match.add} / 更新 ${applied.match.update} / 跳过 ${applied.match.skip}`);
+        message.success(`已更新本机数据：新增 ${applied.match.add} 场 / 更新 ${applied.match.update} 场 / 无变化 ${applied.match.skip} 场`);
         result.data.warnings.forEach((warning) => message.warning(warning));
         // 拉取下的数据可能带来新比赛/新系列赛，重新拉一次全量状态
         void loadInitialData();
@@ -3827,9 +3827,9 @@ function Dashboard() {
         applyServerState(result.result.profiles
           ? { store: result.result.store, profiles: result.result.profiles }
           : { store: result.result.store });
-        message.success(`已确认 ${result.data.acked.length} 场赛果并推进波次`);
+        message.success(`已确认 ${result.data.acked.length} 场赛果，并自动推进了下一轮`);
         result.data.warnings.forEach((warning) => message.warning(warning));
-        // 收件箱里可能还有别的分控端，刷新一次确认台状态
+        // 可能还有别的电脑交了赛果，刷新一次确认台状态
         await checkCloudInbox(cloudAckCode);
         return;
       }
@@ -3841,7 +3841,7 @@ function Dashboard() {
     }
   }
 
-  /** 主控驳回：不写本地、不写回执，分控端保持「待回传」 */
+  /** 主控驳回：不写本地、不通知对方，让对方改完再交一次 */
   async function rejectCloudInbox() {
     if (!cloudAckCode) {
       return;
@@ -3849,7 +3849,7 @@ function Dashboard() {
     setCloudBusy('apply');
     try {
       await postCloud('/api/cloud-sync/reject', { code: cloudAckCode });
-      message.info(`已驳回分控端 ${cloudAckCode} 的回传：未写入任何数据，请对方修正后重新「回传」`);
+      message.info(`已退回 ${cloudAckCode} 号机交回的赛果：本机数据没有任何改动，请对方改正后重新「交回赛果」`);
       closeCloudPreview();
       await checkCloudInbox(cloudAckCode);
     } catch (error) {
@@ -3880,7 +3880,7 @@ function Dashboard() {
       });
       applyCloudStatus(result.status);
       setCloudAssignOpen(false);
-      message.success('指派已保存：下次「同步分发」后分控端生效');
+      message.success('已保存。记得点一次「上传给其他电脑」，对方才会收到最新的登记安排');
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
@@ -3893,7 +3893,7 @@ function Dashboard() {
     return cloudStatus?.assignment[matchId] ?? '';
   }
 
-  /** 本机能否登记某场比赛（分控端按指派范围置灰入口；未启用云同步时不干预） */
+  /** 本机能否登记某场比赛（分控电脑只允许登记主控安排给本机的比赛；没启用云同步时不干预） */
   function cloudRegisterGate(matchId: string): { allowed: boolean; reason: string } {
     const status = cloudStatus;
     if (!status?.configured) {
@@ -3903,7 +3903,7 @@ function Dashboard() {
     if (status.config.role === 'main') {
       return scope === '' || scope === status.config.machineCode
         ? { allowed: true, reason: '' }
-        : { allowed: false, reason: `该场已指派给分控端 ${scope} 登记，请到那台机器上登记` };
+        : { allowed: false, reason: `这场已安排给 ${scope} 号机登记，请到那台电脑上登记` };
     }
     if (scope === status.config.machineCode) {
       return { allowed: true, reason: '' };
@@ -3911,24 +3911,24 @@ function Dashboard() {
     return {
       allowed: false,
       reason: scope
-        ? `该场指派给 ${scope} 登记，本机不能登记`
-        : '该场未指派给本机登记（未指派默认由主控端登记）',
+        ? `这场安排给 ${scope} 号机登记，本机不能登记`
+        : '这场没有安排给本机登记（没安排的默认由主控电脑登记）',
     };
   }
 
-  /** 已 ack 的赛果在分控端禁止撤回（整条替换合并不会触发 onMatchUndo，单方面撤回会让状态分叉） */
+  /** 已被主控确认的赛果，分控电脑不能再撤回（会让两边的比分对不上） */
   function cloudUndoGate(matchId: string): { allowed: boolean; reason: string } {
     if (cloudStatus?.config.role !== 'sub') {
       return { allowed: true, reason: '' };
     }
     return cloudAckedMatchIds.includes(matchId)
-      ? { allowed: false, reason: '该场已被主控端确认：结果有误请联系主控端「回退上一波」后重新分发，再重新登记' }
+      ? { allowed: false, reason: '这场已经被主控电脑确认了：如果结果有误，请联系主控电脑退回这一轮，重新获取后再登记' }
       : { allowed: true, reason: '' };
   }
 
-  /** 面包屑文案：本机人类可读名称（machineLabel 优先，回退短码） */
+  /** 本机在界面上的可读名称（备注名优先，没有就显示机器码） */
   function cloudMachineText(entry: { code: string; label: string }): string {
-    return entry.label ? `${entry.label} (${entry.code})` : entry.code;
+    return entry.label ? `${entry.label}（${entry.code}）` : `${entry.code} 号机`;
   }
 
   const SYNC_KIND_LABELS: Record<SyncImportItem['kind'], string> = { match: '比赛', player: '选手档案', team: '战队档案' };
@@ -3994,14 +3994,14 @@ function Dashboard() {
       return '';
     }
     if (status.config.role === 'main') {
-      return cloudInboxCount ? `收件箱 ${cloudInboxCount}` : '';
+      return cloudInboxCount ? `有 ${cloudInboxCount} 场待确认` : '';
     }
     const hasNew = Boolean(status.version) && status.version!.v > status.appliedVersion;
     const pending = status.pending.count;
     if (hasNew) {
-      return `有新分发 v${status.version!.v}`;
+      return '云端有新内容';
     }
-    return pending ? `待回传 ${pending}` : '';
+    return pending ? `${pending} 场待交回` : '';
   })();
   const cloudVersionText = (() => {
     const status = cloudStatus;
@@ -4010,13 +4010,13 @@ function Dashboard() {
     }
     const version = status.version;
     if (!version) {
-      return '云端：暂无版本（等主控端分发后「同步最新」）';
+      return '云端还没有内容：等主控电脑上传后，点「从云端获取最新」';
     }
-    const synced = version.v === status.appliedVersion ? '✓ 已同步' : '⚠ 未同步到本机';
+    const synced = version.v === status.appliedVersion ? '本机已是最新' : '本机还没更新，请点「从云端获取最新」';
     const main = status.roster.find((entry) => entry.code === version.from);
-    return `云端 v${version.v} · ${formatDateTime(version.at)} ${synced}`
-      + (main ? ` · 主控端 ${cloudMachineText(main)}` : '')
-      + (status.lastContact.pulledAt ? ` · 最后同步 ${formatDateTime(status.lastContact.pulledAt)}` : '');
+    return `云端第 ${version.v} 版 · ${formatDateTime(version.at)} · ${synced}`
+      + (main ? ` · 来自主控电脑 ${cloudMachineText(main)}` : '')
+      + (status.lastContact.pulledAt ? ` · 上次获取 ${formatDateTime(status.lastContact.pulledAt)}` : '');
   })();
   const cloudRecentEntries = (() => {
     const status = cloudStatus;
@@ -4025,16 +4025,16 @@ function Dashboard() {
     }
     const entries: string[] = [];
     if (status.lastContact.pushedAt) {
-      entries.push(`最近分发 ${formatDateTime(status.lastContact.pushedAt)}`);
+      entries.push(`上次上传：${formatDateTime(status.lastContact.pushedAt)}`);
     }
     if (status.lastContact.uploadedAt) {
-      entries.push(`最近回传 ${formatDateTime(status.lastContact.uploadedAt)}`);
+      entries.push(`上次交回赛果：${formatDateTime(status.lastContact.uploadedAt)}`);
     }
     if (status.lastContact.ackedAt) {
-      entries.push(`最近确认 ${formatDateTime(status.lastContact.ackedAt)}`);
+      entries.push(`上次确认对方赛果：${formatDateTime(status.lastContact.ackedAt)}`);
     }
     if (!status.config.pollEnabled) {
-      entries.push('红点轮询已关闭（由前端每分钟提示；不会自动合并数据）');
+      entries.push('已关闭自动检查新内容（不影响手动操作，也可以随时点「刷新同步状态」）');
     }
     return entries;
   })();
@@ -4761,23 +4761,29 @@ function Dashboard() {
                     {cloudLiveBadge ? <span className="cloud-sync-badge">{cloudLiveBadge}</span> : null}
                   </div>
                   <div className="sync-card-content">
+                    <div className="sync-card-hint" style={{ marginTop: 0, marginBottom: 10 }}>
+                      <b>这是做什么的：</b>多台电脑各管一段赛程时用的。一台电脑（主控）负责抽签、编排、确认赛果；
+                      其他电脑（分控）负责现场登记比分。登记完点一下就能互相传过去，不用再导文件、发群聊。
+                    </div>
                     <Space size={12} wrap align="center">
                       <span className="cloud-sync-role-tag">
-                        {cloudRoleDraft === 'main' ? '主控端 · 编排机 + 确认台' : '分控端 · 只读副本 + 登记点'}
+                        {cloudRoleDraft === 'main'
+                          ? '当前身份：主控电脑（编排 + 确认赛果）'
+                          : '当前身份：分控电脑（现场登记赛果）'}
                       </span>
                       <Radio.Group
                         value={cloudRoleDraft}
                         optionType="button"
                         buttonStyle="solid"
                         options={[
-                          { label: '主控端', value: 'main' },
-                          { label: '分控端', value: 'sub' },
+                          { label: '主控电脑', value: 'main' },
+                          { label: '分控电脑', value: 'sub' },
                         ]}
                         onChange={(event) => setCloudRoleDraft(event.target.value as CloudSyncRole)}
                       />
-                      <Button onClick={() => void testCloudWorker()} loading={cloudTesting}>检测 Worker 在线</Button>
+                      <Button onClick={() => void testCloudWorker()} loading={cloudTesting}>测试能否连上云端</Button>
                       <Button onClick={() => void saveCloudSettings()} loading={cloudSaving}>保存设置</Button>
-                      <Button onClick={() => void pollCloudStatus(false)} loading={cloudBusy === 'poll'}>刷新云端状态</Button>
+                      <Button onClick={() => void pollCloudStatus(false)} loading={cloudBusy === 'poll'}>刷新同步状态</Button>
                     </Space>
 
                     <Row gutter={[12, 8]} className="cloud-sync-fields">
@@ -4786,23 +4792,23 @@ function Dashboard() {
                           value={cloudWorkerUrlDraft}
                           onChange={(event) => setCloudWorkerUrlDraft(event.target.value)}
                           placeholder="https://roco-sync.xxx.workers.dev"
-                          addonBefore="workerUrl"
+                          addonBefore="服务地址"
                         />
                       </Col>
                       <Col xs={24} md={12} xl={6}>
                         <Input
                           value={cloudKeyDraft}
                           onChange={(event) => setCloudKeyDraft(event.target.value)}
-                          placeholder="两端一致即可，仅用于键空间隔离"
-                          addonBefore="syncKey"
+                          placeholder="一组人填一样的，比如 luoke-8yue"
+                          addonBefore="房间号"
                         />
                       </Col>
                       <Col xs={24} md={12} xl={6}>
                         <Input.Password
                           value={cloudTokenDraft}
                           onChange={(event) => setCloudTokenDraft(event.target.value)}
-                          placeholder="与 Worker 的 SYNC_TOKEN 相同"
-                          addonBefore="访问令牌"
+                          placeholder="主办方发给你的，两端一致"
+                          addonBefore="通行证"
                         />
                       </Col>
                       <Col xs={12} md={6} xl={3}>
@@ -4811,7 +4817,7 @@ function Dashboard() {
                           onChange={(event) => setCloudLabelDraft(event.target.value)}
                           placeholder="如 主播机"
                           maxLength={16}
-                          addonBefore="显示名"
+                          addonBefore="备注名"
                         />
                       </Col>
                       <Col xs={12} md={6} xl={3}>
@@ -4819,33 +4825,38 @@ function Dashboard() {
                           <Input
                             value={cloudPeerDraft}
                             onChange={(event) => setCloudPeerDraft(event.target.value)}
-                            placeholder="B, C"
-                            addonBefore="分控码"
+                            placeholder="如 B、C"
+                            addonBefore="对方机器码"
                           />
                         ) : null}
                       </Col>
                     </Row>
 
                     <div className="sync-card-hint">
-                      workerUrl / 访问令牌 / 机器码 / 显示名是<b>一次性每机设置</b>（存 <Text code>runtime/config.json</Text>，不打包进 exe）；
-                      syncKey + 角色是<b>每次比赛</b>填写/切换，同房间内机器码必须互不相同（否则分控端可能被误判为编排机）。
-                      访问令牌 = Worker 侧的 <Text code>SYNC_TOKEN</Text>，<b>只存本机与 Cloudflare，不进 URL</b>；没有它两端都会被 Worker 拒绝（503/401）。
+                      <b>怎么填：</b>主办方（主控电脑）把「服务地址 / 房间号 / 通行证」发给其他电脑，三样照抄，
+                      再把角色选成<b>分控电脑</b>、本机标识（卡片最上面那个字母）改成<b>和别人不重复</b>的即可。
+                      「服务地址 / 通行证 / 备注名」填一次就存下来了，换比赛不用再填；只有「房间号」和角色是每场赛事确认一下。
+                    </div>
+                    <div className="sync-card-hint">
+                      <b>为什么要互不相同：</b>同一组人里两台电脑的「本机标识」必须不一样（比如 A / B），
+                      否则两边会互相覆盖数据、比赛编号也会撞车。
+                      <span className="cloud-sync-tech">（技术名：服务地址 = workerUrl，房间号 = syncKey，通行证 = SYNC_TOKEN）</span>
                     </div>
 
                     <div className="cloud-sync-hints">
                       {cloudStatus?.version ? (
                         <Text type="secondary">
-                          云端 v{cloudStatus.version.v} · {formatDateTime(cloudStatus.version.at)}
-                          {cloudStatus.version.from ? ` · 来自 ${cloudStatus.version.from}` : ''}
+                          云端最新：第 {cloudStatus.version.v} 版 · {formatDateTime(cloudStatus.version.at)}
+                          {cloudStatus.version.from ? ` · 由 ${cloudStatus.version.from} 号机上传` : ''}
                         </Text>
                       ) : (
-                        <Text type="secondary">云端：尚未读到版本（点「刷新云端状态」或等红点轮询）</Text>
+                        <Text type="secondary">云端还没有数据：等主控电脑点过「上传给其他电脑」后，点「刷新同步状态」看看</Text>
                       )}
                       {cloudRecentEntries.map((entry) => (
                         <Text type="secondary" key={entry}>{entry}</Text>
                       ))}
                       <Text type="secondary">
-                        KV 是最终一致：写入异地最长约 60 秒才可见。刚点完分发若拉不到新版本，等半分钟再点，不要连点刷。
+                        云端有半分钟左右的延迟是正常的：刚上传完，另一台电脑可能要等 30 秒才能拉到新内容，等一会儿再点，别连续点。
                       </Text>
                     </div>
 
@@ -4862,33 +4873,33 @@ function Dashboard() {
                       cloudRoleDraft === 'main' ? (
                         <Space size={10} wrap align="center" className="cloud-sync-actions">
                           <Button type="primary" onClick={() => void pushCloudBundle()} loading={cloudBusy === 'push'}>
-                            ⬆ 同步分发
+                            上传给其他电脑
                           </Button>
                           <Button
                             onClick={() => void checkCloudInbox()}
                             loading={cloudBusy === 'check'}
                           >
-                            🔔 检查回传{cloudInboxCount > 0 ? `（${cloudInboxCount}）` : ''}
+                            🔔 查看其他电脑交回的赛果{cloudInboxCount > 0 ? `（${cloudInboxCount}）` : ''}
                           </Button>
-                          <Button onClick={openCloudAssign}>指派登记机器…</Button>
+                          <Button onClick={openCloudAssign}>安排由哪台电脑登记…</Button>
                           <Text type="secondary" className="cloud-sync-status-text">
-                            {cloudDistInfo || '尚未分发'}
+                            {cloudDistInfo || '还没有上传过'}
                             {cloudAckSources.length
-                              ? ` · 收件箱 ${cloudAckSources.length} 个分控端待确认`
+                              ? ` · 还有 ${cloudAckSources.length} 台电脑的赛果等着确认`
                               : ''}
                           </Text>
                         </Space>
                       ) : (
                         <Space size={10} wrap align="center" className="cloud-sync-actions">
                           <Button type="primary" onClick={() => void pullCloudBundle()} loading={cloudBusy === 'pull'}>
-                            ⬇ 同步最新
+                            从云端获取最新
                           </Button>
                           <Button
                             onClick={() => void uploadCloudResults()}
                             loading={cloudBusy === 'upload'}
                             disabled={!cloudStatus.pending.count}
                           >
-                            ⬆ 回传{cloudStatus.pending.count ? `（${cloudStatus.pending.count} 场）` : ''}
+                            交回赛果{cloudStatus.pending.count ? `（${cloudStatus.pending.count} 场）` : ''}
                           </Button>
                           <Text type="secondary" className="cloud-sync-status-text">
                             {cloudVersionText}
@@ -4897,15 +4908,15 @@ function Dashboard() {
                       )
                     ) : (
                       <Text type="secondary">
-                        填好 syncKey 与 workerUrl、设好本机标识（机器码）后即可启用云同步（点「检测 Worker 在线」可先验证可达性）。
+                        把上面的「服务地址 / 房间号 / 通行证」填好、本机标识设好，就能用了。先点「测试能否连上云端」确认网络通不通。
                       </Text>
                     )}
 
                     {cloudStatus?.configured ? (
                       <div className="sync-card-hint">
                         {cloudRoleDraft === 'main'
-                          ? '分发 = 全量数据 + 指派规则 + 名册推到云端信箱；分控端「回传」后点「检查回传」逐场确认，确认即合并并自动推进波次。'
-                          : `待回传：${cloudStatus?.pending.count ?? 0} 场（已登记完赛、归本机登记、主控未确认）${cloudStatus?.pending.ackedAt ? ` · 上次确认 ${formatDateTime(cloudStatus.pending.ackedAt)}` : ''}；未指派的比赛不能在本机登记。`}
+                          ? '点「上传给其他电脑」把赛事资料发到云端；对方在别处登记完赛果后点「交回赛果」，你点「查看其他电脑交回的赛果」逐场确认，确认后自动写进系列赛并推进下一轮。'
+                          : `本机可选登记并交回的赛果：${cloudStatus?.pending.count ?? 0} 场${cloudStatus?.pending.ackedAt ? `（上次被确认 ${formatDateTime(cloudStatus.pending.ackedAt)}）` : ''}；只有主控电脑安排给本机的比赛才能登记，其余比赛登记按钮是灰的。`}
                       </div>
                     ) : null}
                   </div>
@@ -4914,9 +4925,9 @@ function Dashboard() {
 
               <Modal
                 title={cloudPreviewFlow === 'pull'
-                  ? '同步最新 · 云端数据预览'
-                  : cloudPreviewFlow === 'ack'
-                    ? `确认台 · 分控端 ${cloudAckCode} 回传的赛果`
+                  ? '从云端获取 · 请确认要写入本机的内容'
+                  : cloudPreviewFlow === 'incoming'
+                    ? `${cloudAckCode} 号机交回的赛果 · 请确认`
                     : '导入同步包预览'}
                 open={Boolean(syncPreview)}
                 width={1160}
@@ -4929,11 +4940,11 @@ function Dashboard() {
                   }
                   closeSyncPreview();
                 }}
-                footer={cloudPreviewFlow === 'ack' ? (
+                footer={cloudPreviewFlow === 'incoming' ? (
                   <Space>
                     <Button onClick={() => closeCloudPreview()}>稍后再看</Button>
                     <Button danger onClick={() => void rejectCloudInbox()} loading={cloudBusy === 'apply'}>
-                      ✗ 驳回（要求分控端重登）
+                      退回，让对方重填
                     </Button>
                     <Button
                       type="primary"
@@ -4941,18 +4952,18 @@ function Dashboard() {
                       loading={cloudBusy === 'apply'}
                       disabled={!syncPreview || syncSelectedKeys.length === 0}
                     >
-                      ✓ 确认并推进（{syncSelectedKeys.length} 场）
+                      确认这 {syncSelectedKeys.length} 场
                     </Button>
                   </Space>
                 ) : undefined}
                 okText={cloudPreviewFlow === 'pull'
-                  ? `确认合并（${syncSelectedKeys.length} 项）`
+                  ? `确认写入本机（${syncSelectedKeys.length} 项）`
                   : `确认导入（${syncSelectedKeys.length} 项）`}
                 okButtonProps={{
                   disabled: !syncPreview || syncSelectedKeys.length === 0,
-                  style: cloudPreviewFlow === 'ack' ? { display: 'none' } : undefined,
+                  style: cloudPreviewFlow === 'incoming' ? { display: 'none' } : undefined,
                 }}
-                cancelButtonProps={{ style: cloudPreviewFlow === 'ack' ? { display: 'none' } : undefined }}
+                cancelButtonProps={{ style: cloudPreviewFlow === 'incoming' ? { display: 'none' } : undefined }}
                 confirmLoading={cloudPreviewFlow ? cloudBusy === 'apply' : syncImporting}
                 onOk={() => {
                   if (cloudPreviewFlow) {
@@ -4964,36 +4975,40 @@ function Dashboard() {
               >
                 {syncPreview ? (
                   <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                    {cloudPreviewFlow === 'ack' ? (
+                    {cloudPreviewFlow === 'incoming' ? (
                       <Space wrap align="center" size={10}>
-                        <Text strong>待确认分控端</Text>
+                        <Text strong>哪台电脑交回的</Text>
                         <Select
                           value={cloudAckCode}
                           style={{ minWidth: 200 }}
                           options={cloudAckSources.map((source) => ({
                             value: source.code,
-                            label: `${source.label ? `${source.label} · ` : ''}${source.code}（${source.items.length} 场 · seq #${source.seq}）`,
+                            label: `${source.label ? `${source.label} · ` : ''}${source.code} 号机（${source.items.length} 场）`,
                           }))}
                           onChange={(value) => void switchCloudAckSource(value)}
                         />
                         {cloudAckSource ? (
                           <Text type="secondary">
-                            提交于 {formatDateTime(cloudAckSource.submittedAt)}；确认 = 服务端重分类合并（不盲信分控端勾选）+ 写回推进波次 + 写回执
+                            交回时间 {formatDateTime(cloudAckSource.submittedAt)}；确认后写入本机、自动安排下一轮，并通知对方已收到
                           </Text>
                         ) : null}
                       </Space>
                     ) : null}
 
                     {cloudPreviewFlow === 'pull' && cloudDistInfo ? (
-                      <Alert type="info" showIcon message={`${cloudDistInfo}：合并默认「较新覆盖」，本机较新的登记不会被云端版本压掉`} />
-                    ) : null}
-
-                    {cloudPreviewFlow === 'ack' ? (
                       <Alert
                         type="info"
                         showIcon
-                        message="这些赛果来自分控端本地登记"
-                        description="逐场勾选后点「确认并推进」；未勾选的条目不会写入本机、也不会回执，分控端仍会保持「待回传」。"
+                        message={`${cloudDistInfo}：默认只覆盖比本机旧的内容，本机较新的登记不会被冲掉`}
+                      />
+                    ) : null}
+
+                    {cloudPreviewFlow === 'incoming' ? (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="这些是对方电脑登记的赛果"
+                        description="逐场勾选后点「确认这 N 场」；没勾的不会写入本机，对方那边还会保留待交回的状态。"
                       />
                     ) : null}
 
@@ -5002,30 +5017,34 @@ function Dashboard() {
                         type="warning"
                         showIcon
                         message={syncPreview.meta.machine
-                          ? `源包与本机标识（${syncPreview.meta.machine}）相同，可能覆盖本机数据，请核对后再导入`
-                          : '源包与本机都未设置机器码，比赛编号可能相撞，建议两台机器分别设置 A / B'}
+                          ? `这份数据来自与本机相同标识（${syncPreview.meta.machine}）的电脑，可能互相覆盖，请核对后再导入`
+                          : '这份数据没有机器标识，比赛编号可能和本机撞车，建议每台电脑都设一个不同的本机标识（如 A / B）'}
                       />
                     ) : null}
 
                     <Space wrap align="center">
-                      <Text>冲突处理</Text>
-                      <Radio.Group
-                        value={syncMode}
-                        optionType="button"
-                        buttonStyle="solid"
-                        options={[
-                          { label: '较新覆盖', value: 'newer' },
-                          { label: '以包为准', value: 'bundle' },
-                        ]}
-                        onChange={(event) => {
-                          const nextMode = event.target.value as SyncConflictMode;
-                          setSyncMode(nextMode);
-                          if (syncFile) {
-                            void loadSyncPreview(syncFile, nextMode);
-                          }
-                        }}
-                      />
-                      <Text type="secondary">较新覆盖 = 按更新时间取最新；以包为准 = 不看时间，内容有差异即用包内版本</Text>
+                      {cloudPreviewFlow === 'incoming' ? null : (
+                        <>
+                          <Text>同一场都有内容时怎么处理</Text>
+                          <Radio.Group
+                            value={syncMode}
+                            optionType="button"
+                            buttonStyle="solid"
+                            options={[
+                              { label: '保留更新的', value: 'newer' },
+                              { label: '以这份为准', value: 'bundle' },
+                            ]}
+                            onChange={(event) => {
+                              const nextMode = event.target.value as SyncConflictMode;
+                              setSyncMode(nextMode);
+                              if (syncFile) {
+                                void loadSyncPreview(syncFile, nextMode);
+                              }
+                            }}
+                          />
+                          <Text type="secondary">保留更新的 = 看最后修改时间；以这份为准 = 不看时间，内容不同就用这份的</Text>
+                        </>
+                      )}
                     </Space>
 
                     {syncConflictCount > 0 ? (
@@ -5042,7 +5061,7 @@ function Dashboard() {
                       />
                     ) : null}
 
-                    {cloudPreviewFlow === 'ack' ? null : (
+                    {cloudPreviewFlow === 'incoming' ? null : (
                       <Space wrap align="center">
                         <Checkbox checked={syncIncludeAvatars} onChange={(event) => setSyncIncludeAvatars(event.target.checked)}>
                           缺失头像 / logo 一并补缺（{syncPreview.avatars.players.fill + syncPreview.avatars.teams.fill} 张，只补缺不覆盖）
@@ -5101,7 +5120,7 @@ function Dashboard() {
 
                             {syncActiveItem.reason ? <Text type="secondary">原因：{syncActiveItem.reason}</Text> : null}
 
-                            {cloudPreviewFlow === 'ack' && cloudAckSource
+                            {cloudPreviewFlow === 'incoming' && cloudAckSource
                               ? (() => {
                                 const ackItem = cloudAckSource.items.find((entry) => entry.item.key === syncActiveItem.key);
                                 return ackItem?.impact ? (
@@ -5184,14 +5203,14 @@ function Dashboard() {
                 ) : null}
               </Modal>
 
-              {/* 指派工作台：主控勾选哪些比赛交给哪个分控端登记（未指派 = 主控端自己登记，随下次分发生效） */}
+              {/* 安排登记：主控决定哪几场交给哪台电脑登记（没安排的默认自己在主控电脑登记） */}
               <Modal
-                title="指派登记机器"
+                title="安排由哪台电脑登记"
                 open={cloudAssignOpen}
                 width={980}
                 style={{ top: 24 }}
                 onCancel={() => setCloudAssignOpen(false)}
-                okText="保存指派"
+                okText="保存安排"
                 confirmLoading={cloudBusy === 'assignment'}
                 onOk={() => void saveCloudAssignDraft()}
               >
@@ -5199,11 +5218,11 @@ function Dashboard() {
                   <Alert
                     type="info"
                     showIcon
-                    message="未指派的比赛一律由主控端自己登记；分控端对这些比赛的登记入口会置灰"
-                    description="指派随下一次「同步分发」写入云端生效；按波次批量指派只影响当前列表里该波次的比赛。改派随时可做。"
+                    message="没有安排的比赛，默认由主控电脑自己登记；其他电脑上这些比赛的登记按钮会是灰的"
+                    description="保存后要点一次「上传给其他电脑」，对方才会收到最新的安排；随时可以改。"
                   />
                   <Space wrap size={8}>
-                    <Text type="secondary">按波次批量：</Text>
+                    <Text type="secondary">整轮一起安排：</Text>
                     {cloudAssignWaveGroups.map((group) => (
                       <Space key={group.key} size={4}>
                         <Text>{group.label}（{group.matchIds.length} 场）</Text>
@@ -5219,9 +5238,9 @@ function Dashboard() {
                               return next;
                             })}
                           >
-                            → {peer.code}
+                            → 交给 {peer.code} 号机
                           </Button>
-                        )) : <Text type="secondary">先在设置区填写分控码</Text>}
+                        )) : <Text type="secondary">请先在上面「对方机器码」里填上其他电脑的标识</Text>}
                         <Button
                           size="small"
                           onClick={() => setCloudAssignDraft((prev) => {
@@ -5232,11 +5251,11 @@ function Dashboard() {
                             return next;
                           })}
                         >
-                          → 主控端
+                          → 主控电脑自己登记
                         </Button>
                       </Space>
                     ))}
-                    {cloudAssignWaveGroups.length ? null : <Text type="secondary">暂无可指派的比赛</Text>}
+                    {cloudAssignWaveGroups.length ? null : <Text type="secondary">暂时没有需要安排的比赛</Text>}
                   </Space>
                   <Table<MatchRecord>
                     rowKey="id"
@@ -5271,18 +5290,18 @@ function Dashboard() {
                         ),
                       },
                       {
-                        title: '登记机器',
+                        title: '由哪台电脑登记',
                         key: 'scope',
-                        width: 180,
+                        width: 220,
                         render: (_value, record) => (
                           <Select
                             style={{ width: '100%' }}
                             value={cloudAssignDraft[record.id] ?? ''}
                             options={[
-                              { value: '', label: `主控端（${cloudStatus?.config.machineCode || '未设置'}）` },
+                              { value: '', label: `主控电脑自己（${cloudStatus?.config.machineCode || '未设置'}）` },
                               ...cloudAssignPeers.map((peer) => ({
                                 value: peer.code,
-                                label: `分控端 ${peer.label ? `${peer.label} ` : ''}${peer.code}`,
+                                label: `${peer.label ? `${peer.label} · ` : ''}${peer.code} 号机`,
                               })),
                             ]}
                             onChange={(value) => setCloudAssignDraft((prev) => ({ ...prev, [record.id]: value }))}

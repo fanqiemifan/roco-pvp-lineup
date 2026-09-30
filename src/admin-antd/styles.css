@@ -2017,6 +2017,12 @@ a {
   font-size: 12px;
 }
 
+/* 技术名词补充说明：视觉上弱化，不干扰「说人话」的主文案 */
+.cloud-sync-tech {
+  margin-left: 4px;
+  color: rgba(47, 36, 24, 0.32);
+}
+
 .cloud-sync-alert {
   margin-top: 10px;
 }
