@@ -131,6 +131,11 @@ import {
   PLAIN_HISTORY_MATCH_FILTER,
 } from './lib/history';
 import {
+  buildPushCandidateGroups,
+  formatStageRoundLabel,
+  resolveMatchSemanticRound,
+} from './lib/tournament';
+import {
   clampNumber,
   extractLiveConfigPanel,
   findConfigTargetIndex,
@@ -209,6 +214,11 @@ const SELECT_MATCH_CONFIRM_SUPPRESSED_KEY = 'roco-pvp-lineup:selectMatchConfirmS
 
 /** 比赛列表懒加载：一次渲染 6 条，滚动到底部再加载 6 条，赛事很多时避免全量渲染 */
 const MATCH_LIST_PAGE_SIZE = 6;
+
+/** 比赛列表行：分组标题行 或 比赛卡片行（扁平化后供懒加载切片） */
+type DashboardListRow =
+  | { rowType: 'group'; key: string; title: string; count: number }
+  | { rowType: 'match'; key: string; match: MatchRecord };
 
 function isSelectMatchConfirmSuppressed(): boolean {
   try {
@@ -632,6 +642,11 @@ function Dashboard() {
     () => new Map(tournaments.map((tournament) => [tournament.id, tournament.name])),
     [tournaments],
   );
+  // 比赛管理标签列派生「阶段 · 轮次」只读 Tag 用：id → 完整系列赛记录
+  const tournamentRecordMap = useMemo(
+    () => new Map(tournaments.map((tournament) => [tournament.id, tournament])),
+    [tournaments],
+  );
   const tournamentIdSet = useMemo(() => new Set(tournamentNameMap.keys()), [tournamentNameMap]);
   const historyTournamentFilters = useMemo(
     () => buildHistoryTournamentFilters(matchStore.matches, tournaments),
@@ -711,8 +726,29 @@ function Dashboard() {
   const lineupEntryGame = lineupEntryMatch && lineupEntry
     ? lineupEntryMatch.games.find((game) => game.gameNumber === lineupEntry.gameNumber) ?? null
     : null;
-  const visibleMatches = matchStore.matches.slice(0, visibleMatchCount);
-  const hasMoreMatches = matchStore.matches.length > visibleMatchCount;
+  // 赛事面板比赛列表：当前比赛置顶高亮（不参与懒加载计数），其余按「赛事 · 阶段 · 轮次」分组
+  const dashboardActiveMatch = activeMatch || null;
+  const dashboardNonActiveMatches = matchStore.matches.filter(
+    (m) => m.id !== dashboardActiveMatch?.id,
+  );
+  const dashboardMatchGroups = buildPushCandidateGroups(dashboardNonActiveMatches, tournaments);
+  const dashboardListRows = ((): DashboardListRow[] => {
+    const rows: DashboardListRow[] = [];
+    dashboardMatchGroups.forEach((group) => {
+      rows.push({
+        rowType: 'group',
+        key: `group:${group.key}`,
+        title: group.title,
+        count: group.matches.length,
+      });
+      group.matches.forEach((match) => {
+        rows.push({ rowType: 'match', key: match.id, match });
+      });
+    });
+    return rows;
+  })();
+  const visibleDashboardRows = dashboardListRows.slice(0, visibleMatchCount);
+  const hasMoreMatches = dashboardListRows.length > visibleMatchCount;
 
   /** 比赛列表滚动到底部（余量 32px）时追加一页卡片 */
   function handleMatchListScroll(event: React.UIEvent<HTMLDivElement>) {
@@ -721,8 +757,34 @@ function Dashboard() {
     }
     const el = event.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
-      setVisibleMatchCount((count) => Math.min(count + MATCH_LIST_PAGE_SIZE, matchStore.matches.length));
+      setVisibleMatchCount((count) => Math.min(count + MATCH_LIST_PAGE_SIZE, dashboardListRows.length));
     }
+  }
+
+  /** 比赛列表卡片行（分组列表内使用） */
+  function renderDashboardMatchItem(match: MatchRecord) {
+    return (
+      <List.Item
+        className="match-list-item"
+        actions={[
+          <Button key="select" onClick={() => void selectMatch(match.id)}>
+            选择
+          </Button>,
+        ]}
+      >
+        <List.Item.Meta
+          avatar={<Badge status={match.status === 'completed' ? 'success' : match.status === 'in_progress' ? 'processing' : 'default'} />}
+          title={`${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`}
+          description={(
+            <Space wrap>
+              <Tag color="gold">BO{match.bestOf}</Tag>
+              <Tag color={getMatchStatusColor(match.status)}>{getMatchStatusLabel(match.status)}</Tag>
+              <Tag bordered={false} className="match-list-score-tag">{match.leftScore} : {match.rightScore}</Tag>
+            </Space>
+          )}
+        />
+      </List.Item>
+    );
   }
 
   const deferredRosterSearch = useDeferredValue(rosterSearch);
@@ -3342,6 +3404,24 @@ function Dashboard() {
                   🏆 {tournamentNameMap.get(record.tournamentRef.tournamentId)}
                 </Tag>
               ) : null}
+              {/* 派生「阶段 · 轮次」只读 Tag：由 tournamentRef + 编排实时计算，不落 tags、不参与筛选 */}
+              {(() => {
+                const ref = record.tournamentRef;
+                const tournament = ref ? tournamentRecordMap.get(ref.tournamentId) : undefined;
+                const stageRound = ref && tournament ? formatStageRoundLabel(tournament, ref) : null;
+                if (!stageRound) {
+                  return null;
+                }
+                return (
+                  <Tag
+                    color="geekblue"
+                    style={{ cursor: 'default' }}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {stageRound}
+                  </Tag>
+                );
+              })()}
               {tags?.length ? tags.map((tag) => (
                 <Tag
                   key={`${record.id}-${tag}`}
@@ -4344,14 +4424,25 @@ function Dashboard() {
   const cloudAssignMatches = cloudStatus?.configured
     ? matchStore.matches.filter((match) => match.status !== 'completed')
     : [];
+  // 整轮安排分组：按「赛事 · 阶段 · 语义轮次」归组（W2 按选手首轮战绩拆胜者组/败者组），
+  // 编排缺失的孤儿引用兜底为「第 N 波」
   const cloudAssignWaveGroups = (() => {
     const groups = new Map<string, { key: string; label: string; matchIds: string[] }>();
     cloudAssignMatches.forEach((match) => {
       const ref = match.tournamentRef;
-      const key = ref ? `${ref.tournamentId}|${ref.stageIndex}|${ref.waveIndex}` : 'plain';
-      const label = ref
-        ? `${tournamentNameMap.get(ref.tournamentId) ?? ref.tournamentId} · 第 ${ref.waveIndex + 1} 波`
-        : '普通对局';
+      let key = 'plain';
+      let label = '普通对局';
+      if (ref) {
+        const name = tournamentNameMap.get(ref.tournamentId) ?? ref.tournamentId;
+        const tournament = tournamentRecordMap.get(ref.tournamentId);
+        const stageRound = tournament ? formatStageRoundLabel(tournament, ref) : null;
+        // 分组键用语义轮次 key：双败 W2 按选手首轮战绩拆胜者组/败者组两个批次
+        const roundKey = tournament
+          ? resolveMatchSemanticRound(tournament, ref).key
+          : `w${ref.waveIndex}`;
+        key = `${ref.tournamentId}|${ref.stageIndex}|${roundKey}`;
+        label = stageRound ? `${name} · ${stageRound}` : `${name} · 第 ${ref.waveIndex + 1} 波`;
+      }
       const group = groups.get(key) ?? { key, label, matchIds: [] };
       group.matchIds.push(match.id);
       groups.set(key, group);
@@ -4452,36 +4543,34 @@ function Dashboard() {
                     }
                   >
                     <div className="match-list-scroll" onScroll={handleMatchListScroll}>
+                      {dashboardActiveMatch ? (
+                        <div className="match-list-current">
+                          <div className="match-list-group-title">当前比赛</div>
+                          {/* 独立 markup：List.Item 的 actions 是 ul，脱离 List 上下文会丢样式 */}
+                          <div className="match-list-current-card">
+                            <Badge status={dashboardActiveMatch.status === 'completed' ? 'success' : dashboardActiveMatch.status === 'in_progress' ? 'processing' : 'default'} />
+                            <span className="match-list-current-players">
+                              {dashboardActiveMatch.leftPlayer || '左侧'} vs {dashboardActiveMatch.rightPlayer || '右侧'}
+                            </span>
+                            <Space size={6} wrap>
+                              <Tag color="gold">BO{dashboardActiveMatch.bestOf}</Tag>
+                              <Tag color={getMatchStatusColor(dashboardActiveMatch.status)}>{getMatchStatusLabel(dashboardActiveMatch.status)}</Tag>
+                              <Tag bordered={false} className="match-list-score-tag">{dashboardActiveMatch.leftScore} : {dashboardActiveMatch.rightScore}</Tag>
+                            </Space>
+                          </div>
+                        </div>
+                      ) : null}
                       <List
-                        dataSource={visibleMatches}
+                        dataSource={visibleDashboardRows}
                         className="match-list"
-                        locale={{ emptyText: '暂无赛事，先创建一场比赛吧。' }}
-                        renderItem={(match) => (
-                          <List.Item
-                            className="match-list-item"
-                            actions={[
-                              <Button key="select" type={match.id === activeMatch?.id ? 'primary' : 'default'} onClick={() => void selectMatch(match.id)}>
-                                {match.id === activeMatch?.id ? '当前' : '选择'}
-                              </Button>,
-                            ]}
-                          >
-                            <List.Item.Meta
-                              avatar={<Badge status={match.status === 'completed' ? 'success' : match.status === 'in_progress' ? 'processing' : 'default'} />}
-                              title={`${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`}
-                              description={(
-                                <Space wrap>
-                                  <Tag color="gold">BO{match.bestOf}</Tag>
-                                  <Tag color={getMatchStatusColor(match.status)}>{getMatchStatusLabel(match.status)}</Tag>
-                                  <Tag bordered={false} className="match-list-score-tag">{match.leftScore} : {match.rightScore}</Tag>
-                                </Space>
-                              )}
-                            />
-                          </List.Item>
-                        )}
+                        locale={{ emptyText: dashboardActiveMatch ? '没有其他比赛了。' : '暂无赛事，先创建一场比赛吧。' }}
+                        renderItem={(row) => (row.rowType === 'group' ? (
+                          <div className="match-list-group-title">{row.title}（{row.count} 场）</div>
+                        ) : renderDashboardMatchItem(row.match))}
                       />
                       {hasMoreMatches ? (
                         <div className="match-list-more">
-                          下滑加载更多（已显示 {visibleMatches.length}/{matchStore.matches.length}）
+                          下滑加载更多（已显示 {visibleDashboardRows.filter((row) => row.rowType === 'match').length}/{dashboardNonActiveMatches.length}）
                         </div>
                       ) : null}
                     </div>
@@ -5842,10 +5931,17 @@ function Dashboard() {
                       {
                         title: '系列赛',
                         key: 'tournament',
-                        width: 160,
-                        render: (_value, record) => (record.tournamentRef
-                          ? tournamentNameMap.get(record.tournamentRef.tournamentId) ?? record.tournamentRef.tournamentId
-                          : '普通对局'),
+                        width: 240,
+                        render: (_value, record) => {
+                          const ref = record.tournamentRef;
+                          if (!ref) {
+                            return '普通对局';
+                          }
+                          const name = tournamentNameMap.get(ref.tournamentId) ?? ref.tournamentId;
+                          const tournament = tournamentRecordMap.get(ref.tournamentId);
+                          const stageRound = tournament ? formatStageRoundLabel(tournament, ref) : null;
+                          return stageRound ? `${name} · ${stageRound}` : name;
+                        },
                       },
                       {
                         title: '比分 / 状态',

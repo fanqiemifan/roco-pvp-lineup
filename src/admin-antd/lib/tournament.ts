@@ -956,6 +956,22 @@ export function resolveMatchSemanticRound(
   return { key: `wave${ref.waveIndex}`, label: '', order: ref.waveIndex };
 }
 
+/**
+ * 「阶段名 · 语义轮次」文本（单败无轮次细分时仅阶段名），
+ * 供比赛管理标签列 / 指派弹窗等只读标注复用；阶段引用失效时返回 null，调用方自行兜底。
+ */
+export function formatStageRoundLabel(
+  record: TournamentRecord,
+  ref: NonNullable<MatchRecord['tournamentRef']>,
+): string | null {
+  const stage = record.stages[ref.stageIndex];
+  if (!stage) {
+    return null;
+  }
+  const round = resolveMatchSemanticRound(record, ref);
+  return round.label ? `${stage.name} · ${round.label}` : stage.name;
+}
+
 function resolvePushCandidateGroup(
   match: MatchRecord,
   recordById: Map<string, TournamentRecord>,

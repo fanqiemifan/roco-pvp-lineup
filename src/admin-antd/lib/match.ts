@@ -182,7 +182,7 @@ export function buildProgressItems(match: MatchRecord | null) {
         { title: '录入阵容' },
         { title: '开始对局' },
         { title: '记录结果' },
-        { title: '完成系列赛' },
+        { title: '完成比赛' },
       ],
     };
   }
@@ -211,7 +211,7 @@ export function buildProgressItems(match: MatchRecord | null) {
       { title: '录入阵容' },
       { title: '开始对局' },
       { title: '记录结果' },
-      { title: '完成系列赛' },
+      { title: '完成比赛' },
     ],
   };
 }

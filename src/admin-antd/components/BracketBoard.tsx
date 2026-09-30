@@ -11,6 +11,9 @@ const { Text } = Typography;
 /** 拖动平移的启动阈值（px）：位移小于它按点击处理，避免点卡片时误触发平移 */
 const PAN_DRAG_THRESHOLD = 4;
 
+/** 晋级图缩放档位（点击 −/＋ 逐档切换），连线 SVG 与卡片同处缩放坐标系 */
+const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25];
+
 /** 阶段分组底色轮换数（与 styles.css 的 .bracket-stage-group-0..4 一一对应） */
 const STAGE_TINT_COUNT = 5;
 
@@ -110,6 +113,8 @@ export function BracketBoard({
   /** 拖动平移状态（用于切换 grab/grabbing 光标与拖动中禁选文本） */
   const [panning, setPanning] = useState(false);
   const panDragRef = useRef<PanDragState | null>(null);
+  /** 晋级图缩放档位下标（ZOOM_LEVELS），大图可缩到 50% 看全局 */
+  const [zoomIndex, setZoomIndex] = useState(2);
   /** 刚结束一次拖动 → 抑制紧随其后的 click，避免拖动被当成卡片点击 */
   const suppressClickRef = useRef(false);
 
@@ -250,6 +255,11 @@ export function BracketBoard({
   useLayoutEffect(() => {
     measure();
   }, [measure]);
+
+  // 缩放档位变化后重算连线（ResizeObserver 不感知 zoom 引起的视觉尺寸变化）
+  useLayoutEffect(() => {
+    measure();
+  }, [zoomIndex, measure]);
 
   useEffect(() => {
     const scroller = scrollerRef.current;
@@ -484,9 +494,26 @@ export function BracketBoard({
           败者下沉
           <span className="bracket-legend-hint">（点击卡片查看该场的晋级连线；按住拖动可平移视图）</span>
         </Text>
-        <Text type="secondary">
-          已结束 {graph.completedCount} / 共 {graph.cardCount} 场
-        </Text>
+        <Space size={8}>
+          <Text type="secondary">
+            已结束 {graph.completedCount} / 共 {graph.cardCount} 场
+          </Text>
+          <Button
+            size="small"
+            disabled={zoomIndex <= 0}
+            onClick={() => setZoomIndex((index) => Math.max(0, index - 1))}
+          >
+            −
+          </Button>
+          <Text type="secondary">{Math.round(ZOOM_LEVELS[zoomIndex] * 100)}%</Text>
+          <Button
+            size="small"
+            disabled={zoomIndex >= ZOOM_LEVELS.length - 1}
+            onClick={() => setZoomIndex((index) => Math.min(ZOOM_LEVELS.length - 1, index + 1))}
+          >
+            ＋
+          </Button>
+        </Space>
       </div>
 
       <div
@@ -517,7 +544,9 @@ export function BracketBoard({
             ))}
         </svg>
 
-        <div className="bracket-board-columns" ref={columnsRef}>
+        {/* 缩放层：只包住列内容，连线 SVG 留在外层以 scrollWidth 同坐标系对齐；rect 量测均为缩放后视觉坐标，天然一致 */}
+        <div className="bracket-board-zoom" style={{ zoom: ZOOM_LEVELS[zoomIndex] }}>
+          <div className="bracket-board-columns" ref={columnsRef}>
           {stageGroups.map((group) => {
             const stage = record.stages[group.stageIndex];
             const stageState = STAGE_STATE_META[getStageState(record, group.stageIndex)];
@@ -543,6 +572,7 @@ export function BracketBoard({
               </section>
             );
           })}
+          </div>
         </div>
       </div>
 

@@ -688,6 +688,39 @@ a {
   border-radius: 999px;
 }
 
+/* 比赛列表分组标题行（赛事 · 阶段 · 轮次） */
+.match-list-group-title {
+  font-size: 12px;
+  color: #8a7a5f;
+  padding: 2px 4px 0;
+  line-height: 1.6;
+}
+
+/* 当前比赛置顶卡：与分组列表间隔开，单行高亮 */
+.match-list-current {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed rgba(91, 67, 43, 0.2);
+}
+
+.match-list-current-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: rgba(22, 119, 255, 0.06);
+  border: 1px solid rgba(22, 119, 255, 0.18);
+  border-radius: 8px;
+}
+
+.match-list-current-players {
+  font-weight: 600;
+  color: #2f2418;
+  margin-right: auto;
+}
+
 /* 懒加载进度提示 */
 .match-list-more {
   text-align: center;
