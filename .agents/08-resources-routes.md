@@ -38,6 +38,7 @@
 | /roco-pvp-page9.html | roco-pvp-page9.html | 团队积分榜展示页（直播推流可选画面） |
 | /roco-pvp-page10.html | roco-pvp-page10.html | 推流页面10（胜者结算画面，直播推流可选画面） |
 | /roco-pvp-page11.html | roco-pvp-page11.html | 选手介绍页（page11/12/13 共用，`?mode=left/right/versus` 区分三种画面） |
+| /roco-pvp-page14.html | roco-pvp-page14.html | 晋级积分榜展示页（直播推流可选画面；数据 GET /api/page14，只统计系列赛赛果） |
 | /float.html | float.html | 桌面阵容悬浮窗 |
 | /float-menu.html | float-menu.html | 更换精灵菜单 |
 | /float-nextgame.html | float-nextgame.html | 「下场对局」选择菜单（300×320 popup，float.js 打开） |

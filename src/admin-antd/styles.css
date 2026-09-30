@@ -2825,4 +2825,14 @@ a {
   }
 }
 
+/* 比赛管理第四张卡片（晋级积分榜）：阶段切换段控在窄列里横向滚动，不压扁换行 */
+.advance-rank-stages {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.advance-rank-stages .ant-segmented {
+  min-width: 100%;
+}
+
 

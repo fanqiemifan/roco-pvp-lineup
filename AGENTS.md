@@ -20,7 +20,7 @@
 
 ## 测试
 
-- Vitest（node 环境）。测试文件放 `tests/`，按 `tests/electron/`（服务与 HTTP/socket 层）、`tests/admin-antd/`（前端纯函数）镜像源码结构。
+- Vitest（node 环境）。测试文件放 `tests/`，按 `tests/electron/`（服务与 HTTP/socket 层）、`tests/admin-antd/`（前端纯函数）、`tests/pages/`（展示页原生脚本，用极简假 DOM + `node:vm` 跑真实脚本）镜像源码结构。
 - 服务层测试**不需要 Electron**：服务全部经 `AppPaths` 读写文件，`mkdtempSync` 临时目录 + `createAppPaths(root, root)`（补一句 `mkdirSync(paths.dataDir)`）即得完全隔离环境。精灵库夹具 = 往 `dataDir/pets.json` 写索引 + 在 `spritesDir` 放 `{pet_id}_{name}.png` 空文件（索引会过滤缺图条目）。
 - HTTP/socket 层测试：`createLocalServer(paths, 0, '127.0.0.1')` 起真实服务器（**不传 authConfig = 关闭鉴权**），用 `fetch` 打路由、`socket.io-client` 订阅广播。socket 事件名以 `shared/events.ts` 的 `SOCKET_EVENTS` **值**为准（是 `matches:update` 这类带冒号的字符串，不是 TS 属性名 `matchesUpdate`）。
 - 提交前验证：`npm test` + `npm run typecheck:tests`；改了 electron 源码再加 `npm run build:electron`。
@@ -52,7 +52,7 @@
 - `shared/`：`types.ts`（全部类型）、`events.ts`（socket 事件）、`constants.ts`（默认值：端口 9988、BO7、6 格子、推流页面/过渡枚举）、`match-schedule.ts`（page6/8 场序时间排期）——electron 与 React 共用。
 - `electron/float-window.ts`：桌面阵容悬浮窗（`float.html`）+ 更换精灵菜单（`float-menu.html`）+「下场对局」选择菜单（`float-nextgame.html`，由 float.js `window.open` 打开），经 `preload.ts` 的 `window.rocoFloat` IPC 驱动。
 - 管理后台（React，`src/admin-antd/`）：十一视图（导航顺序）= 赛事面板/直播推流/系列比赛/结算画面/比赛管理/信息录入/选手介绍/数据统计/页面预览/实时控制/关于项目；导航图标 `src/assets/ui/*.svg` 经 `?raw` 引入、`NavIcon` 换 `currentColor`。各视图交互与样式细节见 `.agents/09`。
-- 推流/展示页面（纯原生 JS，`src/pages`+`src/scripts`+`src/styles`）：page1 比分栏、page2 全局阵容、page3 头像比分阵容、page4 MVP 结算（公开免鉴权）、page5 出场/胜率排行、page6 比赛结果、page7 对局推送、page8 比赛预告（公开免鉴权，与 page6 同构走 `match-prediction.js`）、page9 团队积分榜、page10 胜者结算、page11-13 选手介绍（同一页面 `?mode=left/right/versus`）、`float`/`float-menu`/`float-nextgame` 悬浮窗。页面↔脚本对照见 `.agents/01`。
+- 推流/展示页面（纯原生 JS，`src/pages`+`src/scripts`+`src/styles`）：page1 比分栏、page2 全局阵容、page3 头像比分阵容、page4 MVP 结算（公开免鉴权）、page5 出场/胜率排行、page6 比赛结果、page7 对局推送、page8 比赛预告（公开免鉴权，与 page6 同构走 `match-prediction.js`）、page9 团队积分榜、page10 胜者结算、page11-13 选手介绍（同一页面 `?mode=left/right/versus`）、page14 晋级积分榜（只统计系列赛赛果、按阶段切换、每页最多 32 行由裁判端翻页，榜单由服务端算）、`float`/`float-menu`/`float-nextgame` 悬浮窗。**新增展示页要同时改 8 处注册点**（StagePageKey / SUPPORTED_STAGE_PAGES / STAGE_OPTIONS / PREVIEW_PAGES / 页面预览视图里那份内联硬编码选项 / stage-carrier.js 的 STAGE_PAGES / 免鉴权页面数组 / 公开 GET 白名单）。页面↔脚本对照见 `.agents/01`。
 - MVP 结算（page4）：后台「载入当前对局胜方」把最近一个已分胜负小局的**胜方名字 + 阵容快照**（只收最终形态精灵）存进 `cache/mvp.json`，**切换对局不更新画面、须重新载入**；`POST /api/mvp/show` 记录 returnPage 并切屏、`/api/mvp/hide` 切回。实现 `mvp-service.ts` + `page4-display.js`；交互与渲染细节见 `.agents/09`。
 - 入场动效：`stage-enter.css` + `stage-enter.js` 公共实现——载体 `stage-carrier.js` iframe 加载完成后 postMessage `stage-enter`，页面加 `is-stage-entered` 触发 `.fx-enter` 区块依次上浮淡入；page4 用同一时机播自定义逐项入场，page11-13 自带动效不接入。
 - page10 自动切回：登记本局胜负时若当前画面是 page1-3，自动切入 page10 停留 `page10Duration` 后切回（socket-server 定时器驱动）。
@@ -67,7 +67,7 @@
   - **配对校验**：同房间机器码必须互不相同（分控拉取时分发机码 == 本机码直接 400）；`role` 独立表达主/分，不靠 machineCode。**改 machineCode 有守卫**：有内嵌旧码的 running 系列赛直接拒绝，其余需二次确认（不做自动迁移 id）。
   - **KV 最终一致**：写入异地最长约 60 秒（`cacheTtl` 最小 60，Worker 用默认值）才可见，「键不存在」的结果同样被缓存；界面常显版本/时间对比 + 等待重试提示，**不要连点刷**（读也计数）。免费额度读 10 万/天、写 1000/天，点击式消耗从容。`/api/cloud-sync/*` 强制登录（不在公开 GET 白名单里）。
 - 系列赛自动化编排（「系列比赛」视图，引擎 `tournament-service.ts`，编排落 `cache/tournaments.json`，API `/api/tournaments`，广播 `tournament:update`）：
-  - 参赛人数限 4/8/16/32 且全部来自档案、不可重复；阶段模型 `stages`（默认模板 `buildDefaultStages`），`format` = 单败 `single-elim` / 双败 `double-life`，双败按 3 波战绩桶收敛（W1 0-0 → W2 1-0/0-1 → W3 1-1，决胜波经典交叉配对）。**「总决赛」= 只剩 2 人的阶段，必须单败**（`createTournament` 直接拒绝，判据用阶段人数）。RNG = mulberry32 注入式，同 seed 可复现。
+  - 参赛人数限 4/8/16/32/64 且全部来自档案、不可重复（前端校验数组由 `SUPPORTED_TOURNAMENT_SIZES` 派生，别再硬编码）；阶段模型 `stages`（默认模板 `buildDefaultStages`），`format` = 单败 `single-elim` / 双败 `double-life`，双败按 3 波战绩桶收敛（W1 0-0 → W2 1-0/0-1 → W3 1-1，决胜波经典交叉配对）。**「总决赛」= 只剩 2 人的阶段，必须单败**（`createTournament` 直接拒绝，判据用阶段人数）。RNG = mulberry32 注入式，同 seed 可复现。
   - 每个节点的对决仍是普通比赛：引擎内部 `createMatch` 打 `tournamentRef`，自动标签 = 赛事名+阶段名+波次；手动/需确认的波先停 `draft`（配对确认台），锁定校验通过后批量建场。
   - 赛果写回靠 socket-server 在登记胜负/弃权/撤回处调钩子 `onMatchCompleted`/`onMatchUndo`（幂等，波打齐自动推进 / 反向回退）；`rollback-wave` 回退上一波，pending 比赛可弃权判负。**各钩子/回退的完整分支语义见 `.agents/05`。**
   - **删除系列赛**（`DELETE /api/tournaments/:id`）：默认只删编排记录、经 `detachMatchesFromTournament` 剥离关联比赛的 `tournamentRef` 保留为普通对局；`deleteMatches=true` 再连对局删除。孤儿引用按普通对局处理不阻断登记。

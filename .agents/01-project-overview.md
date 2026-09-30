@@ -66,6 +66,7 @@ roco-pvp-lineup/
 | electron/services/page7-service.ts | 对局推送页（page7）状态管理 |
 | electron/services/page8-service.ts | 比赛预告页（page8）状态管理 |
 | electron/services/page9-service.ts | 团队积分榜页（page9）状态管理 |
+| electron/services/page14-service.ts | 晋级积分榜页（page14）状态管理（选题系列赛 + 可播阶段 + 当前阶段/页码 + 标题副标题；榜单经 tournament-service.resolveStageStandings 现算） |
 | electron/services/page11-service.ts | 选手介绍页（page11-13）左右两侧配置管理 |
 | electron/services/nextgame-service.ts | 下场对局（page3 下场对局展示 + 悬浮窗选择）状态管理 |
 | electron/services/countdown-service.ts | 倒计时插件状态管理（显隐/启停/重置） |
@@ -93,7 +94,7 @@ roco-pvp-lineup/
 | views/RosterPanelEditor.tsx | 阵容编辑（左右面板、精灵搜索、快速填充） |
 | views/HistoryLineupEntryModal.tsx | 比赛管理「录入阵容」弹窗（为待开始小局录入双方阵容） |
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、标签趋势） |
-| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、BracketBoard（系列赛晋级图）等小组件 |
+| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）等小组件 |
 | lib/ | format、history、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
@@ -113,6 +114,7 @@ roco-pvp-lineup/
 | page8-display.js | 比赛预告页（page8）脚本（薄封装：调用共享 match-prediction.js，标题留空隐藏） |
 | match-prediction.js | page6/8 共享卡片画面挂载器（蓝色渐变 + 标题/副标题 + 3×3 对局卡片网格 + 场序信息行，数据 GET /api/pageN，签名比对防闪烁） |
 | page9-display.js | 团队积分榜页（page9）脚本（排名与总积分自动计算） |
+| page14-display.js | 晋级积分榜页（page14）脚本（数据来自 GET /api/page14；按行数分 2/3 栏、每页最多 32 行，行元素按 playerId 增量复用不整页重写） |
 | page10-display.js | 推流页面10（胜者结算画面）脚本（解析最近一个已分胜负的小局胜者） |
 | page11-display.js | 选手介绍页脚本（page11-13 共用，`?mode=left/right/versus` 区分画面） |
 | countdown-overlay.js | 倒计时插件脚本（叠加在推流载体页顶部，GET /api/countdown + serverNow 校准） |
@@ -136,6 +138,7 @@ roco-pvp-lineup/
 | roco-pvp-page7.html | 对局推送展示页（直播推流可选画面） |
 | roco-pvp-page8.html | 比赛预告展示页（公开免鉴权，不进直播推流可选画面） |
 | roco-pvp-page9.html | 团队积分榜展示页（直播推流可选画面） |
+| roco-pvp-page14.html | 晋级积分榜展示页（直播推流可选画面；只统计系列赛赛果，按阶段切换，每页最多 32 行由后台翻页） |
 | roco-pvp-page10.html | 推流页面10（胜者结算画面，直播推流可选画面） |
 | roco-pvp-page11.html | 选手介绍页（page11-13 共用，`?mode=left/right/versus` 区分三种画面） |
 | float.html | 桌面阵容悬浮窗 |

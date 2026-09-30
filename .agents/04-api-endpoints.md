@@ -134,6 +134,17 @@
 | 获取团队积分榜状态 | GET | /api/page9 | 获取 page9 标题与战队积分列表（公开 GET） | electron/socket-server.ts |
 | 保存团队积分榜配置 | POST | /api/page9 | 保存 page9 配置（title 主标题 / teams 最多 4 支战队的名称与 R1/R2/R3 积分，排名与总积分由前端自动计算） | electron/socket-server.ts |
 
+## 晋级积分榜（page14）接口
+
+| 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
+|-------------|------|------|------|------|
+| 获取晋级积分榜配置与榜单 | GET | /api/page14 | 返回 page14 配置（tournamentId / stageIndexes / activeStageIndex / page / title / subtitle，均按系列赛现状夹紧）+ `standings: StageStandings \| null`。榜单由 `resolveStageStandings` **按该阶段现存节点重算**（胜 +1 / 负 +1，排序分 = 10×胜 − 负，同分按种子顺序），只统计系列赛内的比赛；系列赛不存在（被删 / 未同步到本机）或阶段未开打时返回 null / 空行（公开 GET） | electron/socket-server.ts |
+| 保存晋级积分榜配置 | POST | /api/page14 | 保存配置后广播 page14:update 并**在响应里带上重算后的 standings**（后台卡片据此立即刷新）。页码越界按 `standings.pageCount` 夹紧；`activeStageIndex` 必须属于 `stageIndexes`，失效时回退第一个已选阶段；阶段索引必须存在于该系列赛 | electron/socket-server.ts |
+
+> **page14 与 page6/7/8 的选场清理无关**：它不保存 matchIds，榜单每次现算，因此没有 `prune*State` 链路；系列赛被删除后 GET 会返回空榜单，后台卡片显示「系列赛不存在或尚未同步到本机」，重新选择即可。
+>
+> **为什么榜单在服务端算**：`GET /api/tournaments` 不在公开 GET 白名单里（免鉴权的展示页拿不到编排数据），且服务端重算才能规避 `record.entries` 换阶段清零的坑（历史阶段必须按 waves 节点重放）。
+
 ## 胜者结算（page10）接口
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
@@ -179,7 +190,7 @@
 |-------------|------|------|------|------|
 | 精灵排行 | GET | /api/stats/ranking | 精灵使用率/上场率/胜率排行（支持 tag / player 参数，统计全部历史对局） | electron/socket-server.ts |
 
-> 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/page10`、`/api/page11`、`/api/mvp`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`、`/api/countdown`；同名 POST/DELETE 写操作仍受保护。
+> 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/page10`、`/api/page11`、`/api/page14`、`/api/mvp`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`、`/api/countdown`；同名 POST/DELETE 写操作仍受保护。页面路由同理：`/roco-pvp-page14.html` 与其它推流页一起列在 `isPublicPage` 白名单里。
 
 ## 信息录入（选手/战队档案）接口
 

@@ -24,6 +24,7 @@ export const SUPPORTED_BEST_OF = new Set([1, 3, 5, 7]);
  * - page8: 推流页面8（比赛预告）
  * - page9: 推流页面9（团队积分榜）
  * - page10: 推流页面10（胜者结算画面）
+ * - page14: 推流页面14（晋级积分榜）
  * - page11: 选手介绍-左侧选手（同一页面文件 ?mode=left）
  * - page12: 选手介绍-右侧选手（同一页面文件 ?mode=right）
  * - page13: 选手介绍-对战页（同一页面文件 ?mode=versus）
@@ -44,6 +45,7 @@ export const SUPPORTED_STAGE_PAGES = new Set([
   'page11',
   'page12',
   'page13',
+  'page14',
   'blank',
 ]);
 
@@ -106,6 +108,16 @@ export const MVP_TAG_MAX_LENGTH = 4;
 /** 关闭 MVP 结算时切回的默认推流画面 */
 export const DEFAULT_MVP_RETURN_PAGE = 'page3';
 
+/* ==================== 晋级积分榜（推流页面14） ==================== */
+
+/**
+ * 单页最多展示行数：参赛人数超出时（例如 64进32 的 64 人）分页展示，
+ * 由裁判端在「比赛管理 → 晋级积分榜」卡片上控制当前页。
+ */
+export const PAGE14_ROWS_PER_PAGE = 32;
+/** 标题留空时的兜底文案（副标题留空由展示页按阶段与赛制自动生成） */
+export const DEFAULT_PAGE14_TITLE = '晋级积分榜';
+
 /**
  * 双机数据同步：
  * - 同步包为单个 JSON 文件（比赛 + 档案 + 头像 base64），导入前先预览、逐条勾选、确认后合并
@@ -151,8 +163,8 @@ export const CLOUD_SYNC_STALE_MINUTES = 30;
 /** 双败阶段晋级线 / 淘汰线：阶段内 2 胜晋级、2 败淘汰 */
 export const TOURNAMENT_TARGET_WINS = 2;
 export const TOURNAMENT_TARGET_LOSSES = 2;
-/** V1 仅支持 2 的幂人数（双败桶恒偶，零轮空分支） */
-export const SUPPORTED_TOURNAMENT_SIZES = new Set([4, 8, 16, 32]);
+/** 仅支持 2 的幂人数（双败桶恒偶，零轮空分支） */
+export const SUPPORTED_TOURNAMENT_SIZES = new Set([4, 8, 16, 32, 64]);
 /**
  * 系列赛 id：T 前缀 + 8 位日期 + 「_」+ 机器码（0-2 位字母）+ 序号，如 T20260928_A01。
  * 外部导入数据只接受该形态，防止路径穿越与字段注入。
@@ -164,6 +176,7 @@ export const TOURNAMENT_FORFEIT_TAG = '弃权';
 
 /**
  * 按参赛人数生成默认阶段规则（创建系列赛时 stages 可省略）：
+ * - 64 人：64进32 双败BO1 → 32进16 双败BO1 → 16进8 单败BO3 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛 单败BO3
  * - 32 人：32进16 双败BO1 → 16进8 双败BO1 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛 单败BO3
  * - 16 人：16进8 双败BO1 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛
  * - 8 人：8进4 双败BO1 → 4进2 单败BO3 → 总决赛
@@ -188,6 +201,15 @@ export function buildDefaultStages(playerCount: number): StageRule[] {
   });
 
   switch (playerCount) {
+    case 64:
+      return [
+        stage(0, '64进32', 'double-life', 1, 'random-bucket'),
+        stage(1, '32进16', 'double-life', 1, 'random-bucket'),
+        stage(2, '16进8', 'single-elim', 3, 'bracket-seed'),
+        stage(3, '8进4', 'single-elim', 3, 'bracket-seed'),
+        stage(4, '4进2', 'single-elim', 3, 'bracket-seed'),
+        stage(5, '总决赛', 'single-elim', 3, 'bracket-seed'),
+      ];
     case 32:
       return [
         stage(0, '32进16', 'double-life', 1, 'random-bucket'),

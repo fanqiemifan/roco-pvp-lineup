@@ -59,6 +59,7 @@
 | 合并导入系列赛 | mergeTournamentRecords | (paths: AppPaths, incoming: unknown[], mode: SyncConflictMode) => MergeTournamentRecordsReport | 双机同步自动合并（不参与勾选）：逐条 normalizeRecord 白名单校验（非法计数 rejected）；本机不存在→新增、内容相同→跳过（幂等）、有差异按「较新覆盖 / 以包为准」覆盖；只有编排机会修改系列赛，只读副本不会反向覆盖编排机 |
 | 写回补跑 | runTournamentWriteBack | (paths: AppPaths) => TournamentWriteBackReport | 同步导入后对本机全部「已完成 + 带 tournamentRef」比赛逐场跑 onMatchCompleted（幂等）：最后一场补齐时自动推进（下一波/冠军），双机「各登记一半、汇合推进」的关键一步；只读副本自动跳过；advanced 按内容摘要（排除 updatedAt 空转）判断是否真正改动；失败与「赛果和已写回节点胜者不一致」（协作机撤回重登后回传）都记 warnings 不阻断导入，后者提示走「回退上一波」 |
 | 阶段标注解析 | resolveTournamentLabels | (paths: AppPaths, matches: Array<Pick<MatchRecord, 'id' \| 'tournamentRef'>>) => Record<string, string> | page6/page8 卡片用（经 GET /api/page6、/api/page8 下发 tournamentLabels）：格式「阶段名·轮次」（`·` 两侧无空格）——单败阶段只给阶段名（如「总决赛」）；双败 W1=「首轮」、W2 按节点两位选手首轮胜负判池=「胜者组/败者组」、W3=「决胜轮」；跨桶等拿不到一致池归属退回阶段名；仅 tournamentRef 指向现存系列赛的比赛有值（普通对局/孤儿引用缺席） |
+| 阶段战绩重算（晋级积分榜） | resolveStageStandings | (paths: AppPaths, tournamentId: string, stageIndex: number) => StageStandings \| null | page14 用（只读、不落盘）。参赛名单：阶段 0 = `record.playerIds` 种子顺序；其后 = 该阶段 W1 节点的出场顺序（与 recomputeStageEntries 同口径），阶段未开打且非当前阶段 → 空行。逐波遍历该阶段 nodes：胜者 +1 胜、负者 +1 负（异常数据里不在名单内的人不计），排序分 = 10×胜 − 负，降序、同分按种子顺序，名次依次编号；`state` 与 deriveState 同口径（单败一胜即 promoted / 一负即 eliminated，双败 2 胜 / 2 负）。**必须重算、不能读 record.entries**：阶段推进会把它换成下一阶段的 0-0/alive，回看已完成阶段会全员显示成 0-0 存活。返回 null = 系列赛不存在或阶段索引越界 |
 
 内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`wonOpeningRound`（该选手本阶段 W1 是否取胜——决胜池 1-1 池里「胜者组掉落者」与「败者组上扬者」的判据）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`crossPair`（左右两侧交叉配对：左侧每人从右侧剩余池随机取对手；决胜波 1-1 池两类人互不相遇，avoidRematch 优先避开已交手）、`bracketPositions`（标准种子位序列，**仅 stageIndex=0 的首阶段使用**）、`generateDraftPairs`（生成配对草稿：单败 `bracket-seed` 从 stage 1 起按 `entries` 顺序两两相邻配对，**延续固定对阵树，不再每轮重新种子**；双败 W3 的 1-1 池走 `crossPair` 经典交叉配对）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`bracketOrderOfStage`（晋级选手在上一阶段的获胜节点位置 `(waveIndex, nodeIndex)`，单败即节点序、双败则胜者组出线在前）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→按 `bracketOrderOfStage` 的对阵树顺序换批进入下一阶段（而非全局种子序），否则双败建下一波）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用）。
 
@@ -189,6 +190,14 @@
 |-------------|-------|------|------|
 | 获取团队积分榜状态 | getPage9State | (paths: AppPaths) => Page9State | 获取 page9 标题与战队积分列表（cache/page9.json） |
 | 保存团队积分榜配置 | savePage9State | (paths: AppPaths, payload: unknown) => Page9State | 保存 page9 配置；标题截断 40 字、战队最多 4 支、积分仅保留数字（0-999），排名与总积分不落盘由前端计算 |
+
+## 晋级积分榜 (page14-service.ts)
+
+| 自然语言描述 | 函数名 | 签名 | 说明 |
+|-------------|-------|------|------|
+| 获取晋级积分榜状态 | getPage14State | (paths: AppPaths) => Page14State | 读 cache/page14.json（系列赛 id / 可播阶段 / 当前阶段 / 页码 / 标题 / 副标题）；文件缺失或解析失败给默认值 |
+| 保存晋级积分榜配置 | savePage14State | (paths: AppPaths, payload: unknown) => Page14State | 字段级合并后**按系列赛现状夹紧再落盘**：系列赛 id 只接受 T 前缀形态（其余归空）、阶段索引必须存在且已勾选（失效回退第一个已选阶段）、页码按 `standings.pageCount` 夹紧；标题 40 字 / 副标题 60 字 |
+| 读取展示视图 | resolvePage14View | (paths: AppPaths) => { state: Page14State; standings: StageStandings \| null } | GET /api/page14 用（只读，不写盘）：已夹紧的 state + 当前阶段榜单（`resolveStageStandings`，系列赛缺失时 null）。POST 路由保存后再调它，把重算结果一并回给后台 |
 
 ## 选手介绍 (page11-service.ts)
 

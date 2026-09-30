@@ -16,6 +16,7 @@
 | 更新推流配置 | saveStageState | electron/services/stage-service.ts |
 | 更新对局推送配置 | savePage7State | electron/services/page7-service.ts |
 | 更新团队积分榜配置 | savePage9State | electron/services/page9-service.ts |
+| 更新/读取晋级积分榜配置与榜单 | savePage14State / getPage14State / resolvePage14View | electron/services/page14-service.ts（榜单算在 tournament-service.resolveStageStandings） |
 | 选手介绍配置 | savePage11State | electron/services/page11-service.ts |
 | 下场对局显示/隐藏 | showNextGame / hideNextGame | electron/services/nextgame-service.ts |
 | 倒计时插件操作 | saveCountdownState / startCountdown 等 | electron/services/countdown-service.ts |
@@ -52,6 +53,7 @@
 - PlayerProfile / TeamProfile / ProfileStoreState - 信息录入（选手/战队档案）
 - Page7State - 对局推送页配置
 - Page9State / Page9TeamEntry - 团队积分榜配置
+- Page14State / StageStandings / StageStandingRow - 晋级积分榜配置与阶段榜单
 - Page11State / Page11SideConfig - 选手介绍（page11-13）配置
 - NextGameState / NextGamePayload - 下场对局配置与载荷
 - CountdownState / CountdownPayload - 倒计时插件状态与载荷

@@ -12,6 +12,7 @@ import {
   getNodeStatus,
   getPairingLabel,
   getPlayerStateText,
+  getStagePlayerCount,
   getStageState,
   getTournamentOwnerCode,
   getTournamentStatusMeta,
@@ -20,6 +21,7 @@ import {
   isTournamentOwnedByLocal,
   resolvePlayerName,
   shuffleBucketPairs,
+  summarizeStageMatches,
   validateDraftPairs,
 } from '../../src/admin-antd/lib/tournament';
 import { buildDefaultStages } from '../../shared/constants';
@@ -1009,5 +1011,46 @@ describe('双机同步：编排机判定（与服务端同口径）', () => {
     // 未设置机器标识（两侧都为空）时按本机编排处理，保持单机既有行为
     expect(isTournamentOwnedByLocal('T20260929_01', '')).toBe(true);
     expect(isTournamentOwnedByLocal('T20260929_01', 'B')).toBe(false);
+  });
+});
+
+describe('晋级积分榜：阶段参赛人数与场次统计', () => {
+  it('参赛人数按引擎口径逐阶段减半（64 人首阶段 64 人）', () => {
+    const record = makeRecord({ playerIds: Array.from({ length: 64 }, (_v, i) => `p${i}`), stages: buildDefaultStages(64) }, 64);
+    expect(getStagePlayerCount(record, 0)).toBe(64);
+    expect(getStagePlayerCount(record, 1)).toBe(32);
+    expect(getStagePlayerCount(record, 2)).toBe(16);
+    expect(getStagePlayerCount(record, 5)).toBe(2);
+    // 超出对阵树的阶段（人数不足 1）按 0 处理，不出现 0.5 人这类文案
+    expect(getStagePlayerCount(record, 6)).toBe(1);
+    expect(getStagePlayerCount(record, 7)).toBe(0);
+    expect(getStagePlayerCount(record, -1)).toBe(0);
+  });
+
+  it('场次统计只数本阶段节点，已决出胜负的计 completed', () => {
+    const record = makeRecord({
+      waves: [
+        makeWave(0, 1, {
+          nodes: [
+            { id: 's0-w1-n01', matchId: 'm1', playerAId: 'p0', playerBId: 'p1', winnerId: 'p0', isBye: false },
+            { id: 's0-w1-n02', matchId: 'm2', playerAId: 'p2', playerBId: 'p3', winnerId: null, isBye: false },
+          ],
+        }),
+        makeWave(0, 2, {
+          nodes: [
+            { id: 's0-w2-n01', matchId: 'm3', playerAId: 'p0', playerBId: 'p2', winnerId: 'p2', isBye: false },
+          ],
+        }),
+        makeWave(1, 1, {
+          nodes: [
+            { id: 's1-w1-n01', matchId: 'm4', playerAId: 'p0', playerBId: 'p1', winnerId: 'p0', isBye: false },
+          ],
+        }),
+      ],
+    });
+
+    expect(summarizeStageMatches(record, 0)).toEqual({ completed: 2, total: 3 });
+    expect(summarizeStageMatches(record, 1)).toEqual({ completed: 1, total: 1 });
+    expect(summarizeStageMatches(record, 2)).toEqual({ completed: 0, total: 0 });
   });
 });

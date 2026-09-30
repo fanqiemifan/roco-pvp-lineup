@@ -21,6 +21,8 @@ export interface AppPaths {
   page7File: string;
   page8File: string;
   page9File: string;
+  /** 晋级积分榜（page14）配置文件（cache/page14.json） */
+  page14File: string;
   /** 选手介绍（page11-13）配置文件（cache/page11.json） */
   page11File: string;
   /** MVP 结算（page4）配置文件（cache/mvp.json） */
@@ -70,6 +72,7 @@ export function createAppPaths(projectRoot: string, userDataDir: string): AppPat
     page7File: path.join(cacheDir, 'page7.json'),
     page8File: path.join(cacheDir, 'page8.json'),
     page9File: path.join(cacheDir, 'page9.json'),
+    page14File: path.join(cacheDir, 'page14.json'),
     page11File: path.join(cacheDir, 'page11.json'),
     mvpFile: path.join(cacheDir, 'mvp.json'),
     countdownFile: path.join(cacheDir, 'countdown.json'),

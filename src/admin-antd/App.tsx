@@ -77,6 +77,7 @@ import type {
   Page8State,
   Page9State,
   Page11State,
+  Page14State,
   PanelState,
   PlayerProfile,
   ProfileStoreState,
@@ -87,6 +88,7 @@ import type {
   SpriteRecord,
   StageConfig,
   StagePageKey,
+  StageStandings,
   StageTransitionType,
   SyncBundle,
   SyncConflictMode,
@@ -112,6 +114,8 @@ import { StageThumb } from './components/StageThumb';
 import { SettingField } from './components/SettingField';
 import { MatchPushCard } from './components/MatchPushCard';
 import type { MatchPushKind, MatchPushPayload } from './components/MatchPushCard';
+import { AdvanceRankCard } from './components/AdvanceRankCard';
+import type { AdvanceRankPayload } from './components/AdvanceRankCard';
 import { formatDateTime } from './lib/format';
 import {
   buildHistoryBattleEntries,
@@ -447,6 +451,13 @@ function Dashboard() {
   const [matchPushLoading, setMatchPushLoading] = useState<Record<string, boolean>>({});
   const [page9, setPage9] = useState<Page9State | null>(null);
   const [page11, setPage11] = useState<Page11State | null>(null);
+  // === 晋级积分榜（推流页面14） ===
+  const [page14, setPage14] = useState<Page14State | null>(null);
+  // 服务端按系列赛阶段重算的榜单（当前阶段；系列赛缺失时为 null）
+  const [page14Standings, setPage14Standings] = useState<StageStandings | null>(null);
+  const [page14Saving, setPage14Saving] = useState(false);
+  // socket 回调里判断「是否配了系列赛」用（回调注册在 [] 依赖的 effect 里，读不到最新 state）
+  const page14ConfiguredRef = useRef(false);
   // 选手介绍手动填写草稿（左侧/右侧），source 切换时同步
   const [page11LeftDraft, setPage11LeftDraft] = useState({ source: 'match' as 'manual' | 'match', name: '', rank: '', declaration: '', pets: '' });
   const [page11RightDraft, setPage11RightDraft] = useState({ source: 'match' as 'manual' | 'match', name: '', rank: '', declaration: '', pets: '' });
@@ -462,6 +473,10 @@ function Dashboard() {
   const [profiles, setProfiles] = useState<ProfileStoreState | null>(null);
   // === 系列赛编排 ===
   const [tournaments, setTournaments] = useState<TournamentRecord[]>([]);
+  // 晋级积分榜是否已配好系列赛：比赛/编排广播到达时决定要不要重取榜单
+  useEffect(() => {
+    page14ConfiguredRef.current = Boolean(page14?.tournamentId);
+  }, [page14?.tournamentId]);
   // 快速创建弹窗选手列表：按信息录入添加时间排序（档案 id 内嵌 base36 创建时间戳，先录者在前；
   // 数组顺序可能被手动编辑/导入/删后重录打乱，id 解析失败的按原数组顺序兜底排在末尾）
   const quickCreatePlayerList = useMemo(() => {
@@ -749,6 +764,7 @@ function Dashboard() {
     page8?: Page8State;
     page9?: Page9State;
     page11?: Page11State;
+    page14?: Page14State;
     nextgame?: NextGamePayload;
     profiles?: ProfileStoreState;
     tournaments?: TournamentRecord[];
@@ -804,6 +820,9 @@ function Dashboard() {
       if (payload.page11) {
         setPage11(payload.page11);
       }
+      if (payload.page14) {
+        setPage14(payload.page14);
+      }
       if (payload.profiles) {
         setProfiles(payload.profiles);
       }
@@ -821,7 +840,7 @@ function Dashboard() {
     setPageError('');
 
     try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig, nextTournaments] = await Promise.all([
+      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextPage14, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig, nextTournaments] = await Promise.all([
         requestJson<{ authenticated: boolean }>('/api/auth/check'),
         requestJson<ScoreboardState>('/api/scoreboard'),
         requestJson<MatchStoreState>('/api/matches'),
@@ -834,6 +853,7 @@ function Dashboard() {
         requestJson<{ state: Page8State }>('/api/page8'),
         requestJson<{ state: Page9State }>('/api/page9'),
         requestJson<{ state: Page11State }>('/api/page11'),
+        requestJson<{ state: Page14State; standings: StageStandings | null }>('/api/page14'),
         requestJson<NextGamePayload>('/api/nextgame'),
         requestJson<ProfileStoreState>('/api/profiles'),
         requestJson<CountdownPayload>('/api/countdown'),
@@ -858,6 +878,8 @@ function Dashboard() {
         setPage8(nextPage8.state);
         setPage9(nextPage9.state);
         setPage11(nextPage11.state);
+        setPage14(nextPage14.state);
+        setPage14Standings(nextPage14.standings);
         setProfiles(nextProfiles);
         setTournaments(nextTournaments.tournaments);
         setNextgame(nextNextgame.state);
@@ -946,6 +968,10 @@ function Dashboard() {
 
     socket.on(SOCKET_EVENTS.snapshot, (payload) => {
       applyServerState(payload ?? {});
+      // 快照只带 page14 配置，榜单（standings）要另外取一次
+      if (payload?.page14) {
+        void refreshPage14View();
+      }
     });
 
     socket.on(SOCKET_EVENTS.panelUpdate, (payload) => {
@@ -963,6 +989,10 @@ function Dashboard() {
     socket.on(SOCKET_EVENTS.matchesUpdate, (payload) => {
       if (payload?.store) {
         applyServerState({ store: payload.store });
+      }
+      // 登记/撤回赛果会改变系列赛阶段的胜负累计：重取榜单（未配系列赛时跳过）
+      if (page14ConfiguredRef.current) {
+        void refreshPage14View();
       }
     });
 
@@ -1004,6 +1034,13 @@ function Dashboard() {
       }
     });
 
+    socket.on(SOCKET_EVENTS.page14Update, (payload) => {
+      if (payload?.state) {
+        applyServerState({ page14: payload.state });
+        void refreshPage14View();
+      }
+    });
+
     socket.on(SOCKET_EVENTS.page11Update, (payload) => {
       if (payload?.state) {
         applyServerState({ page11: payload.state });
@@ -1040,6 +1077,10 @@ function Dashboard() {
     socket.on(SOCKET_EVENTS.tournamentUpdate, (payload) => {
       if (Array.isArray(payload?.tournaments)) {
         applyServerState({ tournaments: payload.tournaments });
+      }
+      // 阶段推进/回退、阶段改名都会影响榜单标题与行
+      if (page14ConfiguredRef.current) {
+        void refreshPage14View();
       }
     });
 
@@ -2345,6 +2386,39 @@ function Dashboard() {
       setPage9SettingsNotice({ tone: 'error', text });
     } finally {
       setPage9Saving(false);
+    }
+  }
+
+  // 晋级积分榜（page14）：读取服务端算好的榜单（系列赛赛果/编排变化后由 socket 触发重取）
+  async function refreshPage14View(): Promise<void> {
+    try {
+      const data = await requestJson<{ state: Page14State; standings: StageStandings | null }>('/api/page14');
+      setPage14(data.state);
+      setPage14Standings(data.standings);
+    } catch {
+      // 静默失败：榜单是展示信息，偶发请求失败不该打断登记操作
+    }
+  }
+
+  /**
+   * 保存晋级积分榜配置（卡片内联的阶段切换/翻页与弹窗确认共用）。
+   * 失败时抛错给调用方（弹窗据此保持打开），此处负责提示与 saving 标记。
+   */
+  async function savePage14Settings(payload: AdvanceRankPayload): Promise<void> {
+    setPage14Saving(true);
+    try {
+      const data = await requestJson<{ success: boolean; state: Page14State; standings: StageStandings | null }>('/api/page14', {
+        method: 'POST',
+        json: payload,
+      });
+      setPage14(data.state);
+      setPage14Standings(data.standings);
+      message.success('晋级积分榜已更新');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      setPage14Saving(false);
     }
   }
 
@@ -4572,7 +4646,7 @@ function Dashboard() {
               >
                 <Row gutter={[16, 16]} className="match-push-card-row">
                   {page6 ? (
-                    <Col xs={24} md={8}>
+                    <Col xs={24} md={6}>
                       <MatchPushCard
                         kind="page6"
                         cardTitle="推送比赛结果"
@@ -4586,7 +4660,7 @@ function Dashboard() {
                     </Col>
                   ) : null}
                   {page7 ? (
-                    <Col xs={24} md={8}>
+                    <Col xs={24} md={6}>
                       <MatchPushCard
                         kind="page7"
                         cardTitle="推送对局推送"
@@ -4600,7 +4674,7 @@ function Dashboard() {
                     </Col>
                   ) : null}
                   {page8 ? (
-                    <Col xs={24} md={8}>
+                    <Col xs={24} md={6}>
                       <MatchPushCard
                         kind="page8"
                         cardTitle="推送比赛预告"
@@ -4610,6 +4684,17 @@ function Dashboard() {
                         state={page8}
                         pushing={Boolean(matchPushLoading.page8)}
                         onPush={(payload) => pushMatchesForPage('page8', payload)}
+                      />
+                    </Col>
+                  ) : null}
+                  {page14 ? (
+                    <Col xs={24} md={6}>
+                      <AdvanceRankCard
+                        tournaments={tournaments}
+                        state={page14}
+                        standings={page14Standings}
+                        saving={page14Saving}
+                        onSave={savePage14Settings}
                       />
                     </Col>
                   ) : null}
@@ -6691,6 +6776,7 @@ function Dashboard() {
                       { value: 'page8', label: '推流页面8' },
                       { value: 'page9', label: '推流页面9' },
                       { value: 'page10', label: '推流页面10' },
+                      { value: 'page14', label: '推流页面14（晋级积分榜）' },
                     ]}
                     onChange={(value) => setPreviewSlot(value as PreviewSlotKey)}
                   />

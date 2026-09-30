@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import {
   buildDefaultStages,
   MATCH_ID_REGEX,
+  PAGE14_ROWS_PER_PAGE,
   SUPPORTED_TOURNAMENT_SIZES,
   TOURNAMENT_CROSS_BUCKET_TAG,
   TOURNAMENT_ID_REGEX,
@@ -16,6 +17,8 @@ import type {
   PairingValidation,
   StageFormat,
   StageRule,
+  StageStandingRow,
+  StageStandings,
   SyncConflictMode,
   TournamentEntry,
   TournamentNode,
@@ -1793,4 +1796,148 @@ function resolveTournamentLabel(
     return stage.name;
   }
   return `${stage.name}·${aWonOpeningRound ? '胜者组' : '败者组'}`;
+}
+
+/* ==================== 晋级积分榜（page14）：按阶段重算选手战绩 ==================== */
+
+/** 排序分权重：胜 +10、负 −1（只用于排序，不落盘、不在画面上展示） */
+const STANDING_WIN_POINTS = 10;
+
+/**
+ * 某阶段的参赛选手（保持引擎口径顺序）：
+ * - 阶段 0 = 全体选手的种子顺序（抽签顺序）
+ * - 其后 = 该阶段首波节点的出场顺序（= 上一阶段对阵树顺序，与 recomputeStageEntries 同口径）
+ * 阶段尚未开打时拿不到首波节点：仅当前阶段可退回 entries 顺序，其余返回空数组。
+ */
+function stageParticipantIds(record: TournamentRecord, stageIndex: number): string[] {
+  if (stageIndex === 0) {
+    return [...record.playerIds];
+  }
+  const wave1 = record.waves.find((wave) => wave.stageIndex === stageIndex && wave.waveIndex === 1);
+  if (!wave1) {
+    return record.currentStageIndex === stageIndex
+      ? record.entries.map((entry) => entry.playerId)
+      : [];
+  }
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  wave1.nodes.forEach((node) => {
+    [node.playerAId, node.playerBId].forEach((playerId) => {
+      if (playerId && !seen.has(playerId)) {
+        seen.add(playerId);
+        ids.push(playerId);
+      }
+    });
+  });
+  return ids;
+}
+
+/** 阶段内状态（与 deriveState 同口径，只按已累计的胜负判定） */
+function deriveStandingState(
+  format: StageFormat,
+  wins: number,
+  losses: number,
+): StageStandingRow['state'] {
+  if (format === 'single-elim') {
+    if (wins > 0) {
+      return 'promoted';
+    }
+    return losses > 0 ? 'eliminated' : 'alive';
+  }
+  if (wins >= TOURNAMENT_TARGET_WINS) {
+    return 'promoted';
+  }
+  if (losses >= TOURNAMENT_TARGET_LOSSES) {
+    return 'eliminated';
+  }
+  return 'alive';
+}
+
+/**
+ * 按该阶段现存节点重算选手战绩（晋级积分榜 page14 用；只读、不落盘）。
+ * 返回 null 表示系列赛不存在或阶段索引越界。
+ *
+ * 为什么必须重算、不能读 record.entries：阶段推进时 entries 会被
+ * initialEntries(promotedIds) 换成下一阶段的「0-0 / alive」，回头看已完成的阶段会
+ * 全员显示 0-0 存活、被淘汰者甚至查不到（BracketBoard 的卡片脚注已踩过同一个坑）。
+ */
+export function resolveStageStandings(
+  paths: AppPaths,
+  tournamentId: string,
+  stageIndex: number,
+): StageStandings | null {
+  const record = getTournamentStore(paths).find((item) => item.id === tournamentId);
+  const stage = record?.stages[stageIndex];
+  if (!record || !stage) {
+    return null;
+  }
+
+  const playerIds = stageParticipantIds(record, stageIndex);
+  const seedOrder = new Map(playerIds.map((playerId, index) => [playerId, index]));
+  const wins = new Map<string, number>();
+  const losses = new Map<string, number>();
+  playerIds.forEach((playerId) => {
+    wins.set(playerId, 0);
+    losses.set(playerId, 0);
+  });
+
+  let completedMatches = 0;
+  let totalMatches = 0;
+  record.waves
+    .filter((wave) => wave.stageIndex === stageIndex)
+    .sort((left, right) => left.waveIndex - right.waveIndex)
+    .forEach((wave) => {
+      wave.nodes.forEach((node) => {
+        totalMatches += 1;
+        if (!node.winnerId) {
+          return;
+        }
+        const loserId = node.winnerId === node.playerAId ? node.playerBId : node.playerAId;
+        // 异常数据兜底（选手不在本阶段名单内）：不计入，避免榜单里冒出幽灵行
+        if (wins.has(node.winnerId)) {
+          wins.set(node.winnerId, (wins.get(node.winnerId) ?? 0) + 1);
+        }
+        if (loserId && losses.has(loserId)) {
+          losses.set(loserId, (losses.get(loserId) ?? 0) + 1);
+        }
+        completedMatches += 1;
+      });
+    });
+
+  const names = new Map(getProfileStore(paths).players.map((player) => [player.id, player.name]));
+  const rows: StageStandingRow[] = playerIds.map((playerId) => {
+    const playerWins = wins.get(playerId) ?? 0;
+    const playerLosses = losses.get(playerId) ?? 0;
+    return {
+      playerId,
+      name: names.get(playerId) || playerId,
+      rank: 0,
+      wins: playerWins,
+      losses: playerLosses,
+      score: playerWins * STANDING_WIN_POINTS - playerLosses,
+      state: deriveStandingState(stage.format, playerWins, playerLosses),
+    };
+  });
+
+  // 同分按种子顺序（= 阶段参赛名单顺序）稳定排列，名次依次编号不并列
+  rows.sort((left, right) => (
+    right.score - left.score
+    || (seedOrder.get(left.playerId) ?? 0) - (seedOrder.get(right.playerId) ?? 0)
+  ));
+  rows.forEach((row, index) => {
+    row.rank = index + 1;
+  });
+
+  return {
+    stageIndex,
+    stageName: stage.name,
+    format: stage.format,
+    bestOf: stage.bestOf,
+    total: rows.length,
+    pageSize: PAGE14_ROWS_PER_PAGE,
+    pageCount: Math.max(1, Math.ceil(rows.length / PAGE14_ROWS_PER_PAGE)),
+    completedMatches,
+    totalMatches,
+    rows,
+  };
 }

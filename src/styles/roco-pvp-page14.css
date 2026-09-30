@@ -1,0 +1,264 @@
+/* 推流页面14：晋级积分榜（蓝色玻璃拟态分栏 + 大标题副标题 + 每页最多 32 行） */
+/* 字体与 page9 同源：YouSheBiaoTiHei 用系统安装字体，未安装时回退 MiSans Heavy */
+@font-face {
+    font-family: "YouSheBiaoTiHei";
+    src: local("YouSheBiaoTiHei");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Heavy";
+    src: url("/assets/fonts/MiSans-Heavy.otf") format("opentype");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Regular";
+    src: url("/assets/fonts/MiSans-Regular.otf") format("opentype");
+    font-display: swap;
+}
+
+:root {
+    --page14-accent: #1740e8;              /* 主蓝：表头底 / 强调 */
+    --page14-gold: #ffd54d;                /* 金黄：名次与标题点缀 */
+    --page14-col-bg: rgba(37, 86, 235, 0.34);
+    --page14-col-border: rgba(255, 255, 255, 0.35);
+    --page14-row-line: rgba(255, 255, 255, 0.18);
+    /* 行高/行字号由 page14-display.js 按每栏行数写入（保证不溢出画面） */
+    --page14-row-h: 74px;
+    --page14-row-fs: 18px;
+    --page14-num-fs: 22px;
+    --page14-rank-fs: 27px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent !important;
+}
+
+.page14-screen {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: #0a1a4a;
+    font-family: "YouSheBiaoTiHei", "MiSans-Heavy", "Microsoft YaHei", sans-serif;
+    color: #fff;
+}
+
+/* ========== 背景（纯 CSS，避免依赖外部图片） ========== */
+
+.page14-bg {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(1200px 620px at 20% 8%, rgba(64, 132, 255, 0.55), transparent 62%),
+        radial-gradient(1000px 560px at 84% 92%, rgba(23, 64, 232, 0.62), transparent 60%),
+        linear-gradient(160deg, #0b2264 0%, #0a1a4a 46%, #071233 100%);
+}
+
+.page14-shade {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(6, 20, 70, 0.30), rgba(6, 20, 70, 0.08) 34%, rgba(6, 20, 70, 0.26));
+}
+
+/* ========== 标题区 ========== */
+
+.page14-title {
+    position: absolute;
+    top: 28px;
+    left: 0;
+    right: 0;
+    z-index: 4;
+    text-align: center;
+    pointer-events: none;
+}
+
+.page14-title h1 {
+    font-size: 46px;
+    font-weight: 900;
+    font-style: italic;
+    letter-spacing: 3px;
+    text-shadow: 0 3px 14px rgba(0, 15, 70, 0.55), 0 1px 2px rgba(0, 15, 70, 0.5);
+}
+
+.page14-title p {
+    margin-top: 6px;
+    font-size: 16px;
+    font-style: italic;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: rgba(255, 255, 255, 0.85);
+    text-shadow: 0 1px 6px rgba(0, 15, 70, 0.6);
+}
+
+/* 副标题为空时不占位（JS 会清空文本） */
+.page14-title p:empty {
+    display: none;
+}
+
+/* ========== 榜单 ========== */
+
+.page14-board {
+    position: absolute;
+    left: 48px;
+    right: 48px;
+    top: 168px;
+    bottom: 48px;
+    z-index: 3;
+    display: grid;
+    gap: 36px;
+    grid-template-columns: repeat(var(--page14-cols, 2), minmax(0, 1fr));
+}
+
+.page14-col {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+    border-radius: 10px;
+    background: var(--page14-col-bg);
+    backdrop-filter: blur(18px) saturate(1.35);
+    -webkit-backdrop-filter: blur(18px) saturate(1.35);
+    border: 1px solid var(--page14-col-border);
+    box-shadow: 0 10px 40px rgba(0, 15, 70, 0.35);
+}
+
+.page14-row {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr) 74px 74px;
+    gap: 8px;
+    align-items: center;
+    height: var(--page14-row-h);
+    padding: 0 18px;
+    flex: none;
+    background: linear-gradient(200deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.02));
+    border-bottom: 1px solid var(--page14-row-line);
+}
+
+.page14-col .page14-row:last-child {
+    border-bottom: none;
+}
+
+.page14-row-head {
+    height: 50px;
+    background: var(--page14-accent);
+    border-bottom: none;
+    font-size: 16px;
+    font-weight: 900;
+    font-style: italic;
+    letter-spacing: 3px;
+}
+
+.page14-row-head .page14-num,
+.page14-row-head .page14-rank,
+.page14-row-head .page14-name {
+    font-size: 16px;
+    text-shadow: none;
+}
+
+/* 已淘汰：整行压暗（冠军/晋级行保持高亮） */
+.page14-row.is-out {
+    background: rgba(8, 18, 60, 0.30);
+}
+
+.page14-row.is-out .page14-name,
+.page14-row.is-out .page14-rank,
+.page14-row.is-out .page14-num {
+    color: rgba(255, 255, 255, 0.52);
+    text-shadow: none;
+}
+
+.page14-rank {
+    font-size: var(--page14-rank-fs);
+    font-weight: 900;
+    font-style: italic;
+    color: #fff;
+    text-shadow: 0 2px 6px rgba(0, 15, 70, 0.5);
+}
+
+.page14-row.is-top .page14-rank {
+    color: var(--page14-gold);
+}
+
+.page14-name {
+    font-size: var(--page14-row-fs);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-shadow: 0 1px 4px rgba(0, 15, 70, 0.45);
+}
+
+.page14-num {
+    font-size: var(--page14-num-fs);
+    font-weight: 900;
+    font-style: italic;
+    text-align: center;
+    color: #fff;
+    text-shadow: 0 2px 6px rgba(0, 15, 70, 0.5);
+}
+
+/* 胜列金黄、负列白（与表头文案对应） */
+.page14-num.is-win {
+    color: var(--page14-gold);
+}
+
+/* ========== 占位与页脚 ========== */
+
+.page14-empty {
+    position: absolute;
+    inset: 240px 48px 160px;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    border: 1px dashed rgba(255, 255, 255, 0.35);
+    background: rgba(37, 86, 235, 0.18);
+    font-size: 26px;
+    font-style: italic;
+    letter-spacing: 2px;
+    color: rgba(255, 255, 255, 0.78);
+}
+
+.page14-empty[hidden] {
+    display: none;
+}
+
+.page14-footer {
+    position: absolute;
+    left: 48px;
+    right: 48px;
+    bottom: 14px;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    font-size: 15px;
+    font-style: italic;
+    letter-spacing: 2px;
+    color: rgba(255, 255, 255, 0.78);
+    text-shadow: 0 1px 6px rgba(0, 15, 70, 0.6);
+}
+
+.page14-footer[hidden] {
+    display: none;
+}
+
+.page14-footer-page {
+    color: var(--page14-gold);
+    font-weight: 900;
+}

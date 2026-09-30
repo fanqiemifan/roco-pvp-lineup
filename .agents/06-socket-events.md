@@ -2,7 +2,7 @@
 
 | 自然语言描述 | 事件名称 | 方向 | 说明 | 负载结构 |
 |-------------|---------|------|------|---------|
-| 完整状态快照 | snapshot | Server → Client | 完整状态快照 | { panels, scoreboard, avatars, store: MatchStoreState, stage, page6, page7, page8, page9, page11, nextgame, profiles, countdown, mvp, tournaments }（注意比赛字段名是 `store` 不是 `matches`；tournaments 为系列赛列表） |
+| 完整状态快照 | snapshot | Server → Client | 完整状态快照 | { panels, scoreboard, avatars, store: MatchStoreState, stage, page6, page7, page8, page9, page11, page14, nextgame, profiles, countdown, mvp, tournaments }（注意比赛字段名是 `store` 不是 `matches`；tournaments 为系列赛列表；page14 只有配置，榜单需另取 GET /api/page14） |
 | 面板更新通知 | panel:update | Server → Client | 面板更新 | { panel: PanelState } |
 | 记分牌更新通知 | scoreboard:update | Server → Client | 记分牌更新 | { scoreboard: ScoreboardState } |
 | 头像更新通知 | avatar:update | Server → Client | 头像更新 | { side, avatar, avatars } |
@@ -12,12 +12,13 @@
 | 对局推送页更新通知 | page7:update | Server → Client | page7 配置更新 | { state: Page7State } |
 | 比赛预告页更新通知 | page8:update | Server → Client | page8 配置更新 | { state: Page8State } |
 | 团队积分榜页更新通知 | page9:update | Server → Client | page9 配置更新 | { state: Page9State } |
+| 晋级积分榜页更新通知 | page14:update | Server → Client | page14 配置更新（阶段切换 / 翻页 / 标题副标题 / 换系列赛，写操作后广播）；负载只带 state，**榜单 standings 需收信方重新 GET /api/page14**（服务端按系列赛阶段重算） | { state: Page14State } |
 | 信息录入更新通知 | profiles:update | Server → Client | 选手/战队录入变更（增删改/头像 logo 上传后广播，page3 战队标识实时刷新） | { profiles: ProfileStoreState } |
 | 选手介绍更新通知 | page11:update | Server → Client | 选手介绍（page11-13）配置更新 | { state: Page11State } |
 | 下场对局更新通知 | nextgame:update | Server → Client | 下场对局状态/显示变更（保存/显示/隐藏/到期自动隐藏） | NextGamePayload（state + match + avatars） |
 | 倒计时更新通知 | countdown:update | Server → Client | 倒计时状态变更（保存/show/hide/start/pause/reset/归零），负载带 serverNow 供校准 | CountdownPayload（state + serverNow） |
 | MVP 结算更新通知 | mvp:update | Server → Client | MVP 结算（page4）精灵项/标签/MVP 标记/胜方快照变更（保存/显示时广播）；推流页收到后重拉 GET /api/mvp（state + winner），后台「结算画面」直接用 payload 的 state/winner 同步草稿与已载入胜方头像 | { state: MvpState, winner: MvpWinnerInfo } |
-| 系列赛更新通知 | tournament:update | Server → Client | 系列赛编排变更（创建/抽签/开赛/锁定配对/回退/弃权后广播）；V1 仅投 admin 房间（配对确认台第 11 视图下轮接入） | { tournaments: TournamentRecord[] } |
+| 系列赛更新通知 | tournament:update | Server → Client | 系列赛编排变更（创建/抽签/开赛/锁定配对/回退/弃权后广播）；投 admin 房间 + page14（晋级积分榜要按阶段重算榜单） | { tournaments: TournamentRecord[] } |
 
 > 双机数据同步（/api/sync/*）**不新增事件**：导入成功后复用 matches:update（比赛）与 profiles:update（档案）广播，包内系列赛有新增/更新或写回推进时另广播 tournament:update，各客户端按既有订阅自动刷新。
 
@@ -37,6 +38,7 @@
 | page5 | page5-display.js | stage, scoreboard | stage, scoreboard, matches |
 | page6/7/8 | page6-display.js / page7-display.js / page8-display.js（6/8 为薄封装，画面共用 match-prediction.js） | pageN | pageN, matches（+avatar：6/7/8） |
 | page9 | page9-display.js | page9 | page9 |
+| page14 | page14-display.js | page14 | page14, matches, tournament（后两者只当刷新信号，收到后重新 GET /api/page14 取重算后的榜单） |
 | page10 | page10-display.js | {}（仅作刷新信号） | matches, avatar |
 | page11 | page11-display.js | {} | matches, avatar, panel, stage, page11, profiles |
 | float | float.js | panels | panel |

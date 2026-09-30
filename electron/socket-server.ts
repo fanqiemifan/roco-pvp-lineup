@@ -77,6 +77,11 @@ import {
   savePage9State,
 } from './services/page9-service.js';
 import {
+  getPage14State,
+  resolvePage14View,
+  savePage14State,
+} from './services/page14-service.js';
+import {
   getPage11State,
   savePage11State,
 } from './services/page11-service.js';
@@ -172,7 +177,7 @@ const ROLE_ADMIN = 'admin';
 const KNOWN_SOCKET_ROLES = new Set([
   ROLE_ADMIN,
   'page1', 'page2', 'page3', 'page4', 'page5', 'page6',
-  'page7', 'page8', 'page9', 'page10', 'page11',
+  'page7', 'page8', 'page9', 'page10', 'page11', 'page14',
   'float', 'carrier', 'countdown',
 ]);
 const ROLE_ROOM_PREFIX = 'role:';
@@ -193,6 +198,7 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
   page7: ['page7'],
   page8: ['page8'],
   page9: ['page9'],
+  page14: ['page14'],
   page10: [],
   page11: [],
   float: ['panels'],
@@ -203,7 +209,7 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
 // 事件 → 需要该事件的角色（admin 房间始终收到全部）
 const ROLES_FOR_STAGE = ['page3', 'page5', 'page11', 'carrier'];
 const ROLES_FOR_AVATAR = ['page3', 'page4', 'page6', 'page7', 'page8', 'page10', 'page11'];
-const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11'];
+const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11', 'page14'];
 const ROLES_FOR_SCOREBOARD = ['page2', 'page3', 'page5'];
 const ROLES_FOR_PANEL = ['page1', 'page2', 'page3', 'page11', 'float'];
 const ROLES_FOR_PROFILES = ['page3', 'page11'];
@@ -221,6 +227,7 @@ function snapshotPayload(paths: AppPaths): SnapshotPayload {
     page8: getPage8State(paths),
     page9: getPage9State(paths),
     page11: getPage11State(paths),
+    page14: getPage14State(paths),
     nextgame: getNextGamePayload(paths),
     profiles: getProfileStore(paths),
     countdown: getCountdownState(paths),
@@ -509,9 +516,9 @@ export async function createLocalServer(
     return prunePagePushSelections();
   };
 
-  // 系列赛数据广播：V1 消费端仅 admin（第 11 视图下轮接入），传空角色列表即只投 admin 房间
+  // 系列赛数据广播：admin（第 11 视图）与 page14（晋级积分榜按阶段重算榜单）消费
   const emitTournamentUpdate = (): void => {
-    broadcast(SOCKET_EVENTS.tournamentUpdate, { tournaments: getTournamentStore(paths) }, []);
+    broadcast(SOCKET_EVENTS.tournamentUpdate, { tournaments: getTournamentStore(paths) }, ['page14']);
   };
 
   // 推流选场（page6/7/8）清理结果：仅含发生变化的页面
@@ -624,6 +631,7 @@ export async function createLocalServer(
   app.get('/roco-pvp-page8.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page8.html'));
   app.get('/roco-pvp-page9.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page9.html'));
   app.get('/roco-pvp-page10.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page10.html'));
+  app.get('/roco-pvp-page14.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page14.html'));
   // 选手介绍（page11-13）：同一页面文件通过 ?mode=left/right/versus 区分三种画面
   app.get('/roco-pvp-page11.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page11.html'));
   app.get('/roco-pvp-page1.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page1.html'));
@@ -681,9 +689,9 @@ export async function createLocalServer(
       const isPublicStatic = publicStaticPrefixes.some(p =>
         req.path === p || req.path.startsWith(p + '/')
       );
-      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
+      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/roco-pvp-page14.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
       // 推流页面仅用于展示，所需的数据 GET 接口公开（含选手头像/录入信息），写操作仍受保护
-      const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/mvp', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
+      const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/page14', '/api/mvp', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
       // 头像图片公开访问（含按赛事隔离的 /api/avatar/{matchId}/{side}-avatar.png），推流页无需登录
       const isPublicAvatarImage = req.method === 'GET' && req.path.startsWith('/api/avatar/');
       const isAuthApi = req.path.startsWith('/api/auth/');
@@ -864,6 +872,24 @@ export async function createLocalServer(
       const state = savePage9State(paths, request.body ?? {});
       broadcast(SOCKET_EVENTS.page9Update, { state }, ["page9"]);
       response.json({ success: true, state });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // === 晋级积分榜（page14） ===
+  // 榜单由服务端按系列赛阶段的现存节点重算（只统计系列赛内的比赛），页面只负责渲染。
+  app.get('/api/page14', (_request, response) => {
+    const view = resolvePage14View(paths);
+    response.json({ state: view.state, standings: view.standings });
+  });
+
+  app.post('/api/page14', (request, response) => {
+    try {
+      savePage14State(paths, request.body ?? {});
+      const view = resolvePage14View(paths);
+      broadcast(SOCKET_EVENTS.page14Update, { state: view.state }, ["page14"]);
+      response.json({ success: true, state: view.state, standings: view.standings });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

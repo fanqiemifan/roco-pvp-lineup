@@ -22,7 +22,7 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { buildDefaultStages } from '../../../shared/constants';
+import { buildDefaultStages, SUPPORTED_TOURNAMENT_SIZES } from '../../../shared/constants';
 import type {
   MatchRecord,
   ProfileStoreState,
@@ -74,6 +74,9 @@ const { Text, Paragraph } = Typography;
 /** 配对草稿行类型简写 */
 type DraftRow = NonNullable<TournamentWave['pairingDraft']>[number];
 type DraftPairList = NonNullable<TournamentWave['pairingDraft']>;
+
+/** 参赛人数可选值：与后端 SUPPORTED_TOURNAMENT_SIZES 同源，避免两处硬编码走偏 */
+const TOURNAMENT_SIZE_OPTIONS = Array.from(SUPPORTED_TOURNAMENT_SIZES).sort((a, b) => a - b);
 
 /* ==================== 系列赛列表 + 详情容器 ==================== */
 
@@ -1155,7 +1158,7 @@ function CreateTournamentModal({
     }
   }, [open]);
 
-  const playerCountValid = [4, 8, 16, 32].includes(playerIds.length);
+  const playerCountValid = TOURNAMENT_SIZE_OPTIONS.includes(playerIds.length);
 
   // 选手列表（搜索过滤，按录入顺序）
   const playerList = useMemo(() => {
@@ -1278,7 +1281,7 @@ function CreateTournamentModal({
             />
           </div>
           <Text>
-            已选 <b style={{ color: playerCountValid ? '#389e0d' : '#cf1322' }}>{playerIds.length}</b> / 必须为 4 / 8 / 16 / 32 人
+            已选 <b style={{ color: playerCountValid ? '#389e0d' : '#cf1322' }}>{playerIds.length}</b> / 必须为 {TOURNAMENT_SIZE_OPTIONS.join(' / ')} 人
           </Text>
         </div>
       ) : null}

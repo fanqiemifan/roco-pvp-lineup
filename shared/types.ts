@@ -159,6 +159,7 @@ export interface AvatarCollectionState {
  * - page8: 推流页面8（比赛预告）
  * - page9: 推流页面9（团队积分榜）
  * - page10: 推流页面10（胜者结算画面）
+ * - page14: 推流页面14（晋级积分榜）
  * - blank: 黑场（不加载任何画面）
  */
 export type StagePageKey =
@@ -175,6 +176,7 @@ export type StagePageKey =
   | 'page11'
   | 'page12'
   | 'page13'
+  | 'page14'
   | 'blank';
 
 export type StageTransitionType = 'none' | 'blinds' | 'wolf';
@@ -274,6 +276,67 @@ export interface Page9State {
   title: string;
   /** 战队积分列表（顺序即录入顺序，最多 PAGE9_MAX_TEAMS 支） */
   teams: Page9TeamEntry[];
+  mtime: number | null;
+}
+
+/**
+ * 晋级积分榜（page14）单行选手战绩：只统计系列赛内、且属于同一阶段的比赛。
+ * - wins/losses：该阶段内已分出胜负的场次累计（服务端按阶段现存节点重算）
+ * - score：排序分 = 10×胜 − 负，只用于排序，不落盘也不展示
+ * - state：阶段内状态，淘汰行页面压暗（与引擎 deriveState 同口径）
+ */
+export interface StageStandingRow {
+  playerId: string;
+  /** 展示名（取自「信息录入」档案，档案缺失时回退 playerId） */
+  name: string;
+  /** 名次（1 起；同分按种子顺序依次编号） */
+  rank: number;
+  wins: number;
+  losses: number;
+  score: number;
+  state: 'alive' | 'promoted' | 'eliminated';
+}
+
+/**
+ * 晋级积分榜（page14）某个阶段的完整榜单：
+ * rows 为全部参赛选手（升序名次），分页由展示页按 pageSize 切片（当前页由后台控制）。
+ */
+export interface StageStandings {
+  stageIndex: number;
+  /** 阶段名（如「32进16」，自由文本，取自系列赛阶段配置） */
+  stageName: string;
+  format: StageFormat;
+  bestOf: number;
+  /** 参赛人数（= rows.length） */
+  total: number;
+  /** 每页最多展示行数（PAGE14_ROWS_PER_PAGE） */
+  pageSize: number;
+  /** 总页数（至少 1：无参赛者时也为 1，避免页码越界） */
+  pageCount: number;
+  /** 该阶段已分出胜负的场次 */
+  completedMatches: number;
+  /** 该阶段已建场场次（含未开打） */
+  totalMatches: number;
+  rows: StageStandingRow[];
+}
+
+/**
+ * 晋级积分榜（page14）状态：选一个系列赛、若干可播阶段与当前阶段，标题/副标题可改。
+ * 每页最多展示 PAGE14_ROWS_PER_PAGE 行，超出（如 64进32 的 64 人）由裁判端在后台翻页。
+ */
+export interface Page14State {
+  /** 关联系列赛 id（空字符串 = 未选择） */
+  tournamentId: string;
+  /** 可播阶段索引（后台弹窗一次性选中，顺序即后台切换顺序） */
+  stageIndexes: number[];
+  /** 当前激活阶段索引（-1 = 未选择） */
+  activeStageIndex: number;
+  /** 当前页码（0 起，每页 PAGE14_ROWS_PER_PAGE 行） */
+  page: number;
+  /** 主标题（空字符串 → 前端兜底「晋级积分榜」） */
+  title: string;
+  /** 副标题（空字符串 → 前端按阶段与赛制自动生成） */
+  subtitle: string;
   mtime: number | null;
 }
 
@@ -417,6 +480,7 @@ export interface SnapshotPayload {
   page8: Page8State;
   page9: Page9State;
   page11: Page11State;
+  page14: Page14State;
   nextgame: NextGamePayload;
   profiles: ProfileStoreState;
   countdown: CountdownState;
@@ -933,7 +997,7 @@ export interface TournamentRecord {
   seed: number;
   /** 重抽次数 */
   drawVersion: number;
-  /** 参赛选手 profile id，长度必须为 4/8/16/32，顺序即种子顺序 */
+  /** 参赛选手 profile id，长度必须为 4/8/16/32/64（见 SUPPORTED_TOURNAMENT_SIZES），顺序即种子顺序 */
   playerIds: string[];
   stages: StageRule[];
   currentStageIndex: number;

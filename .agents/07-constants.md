@@ -14,7 +14,7 @@
 | SUPPORTED_IMAGE_EXTENSIONS | {.png,.jpg,.jpeg,.webp} | 支持的头像图片扩展名 | shared/constants.ts |
 | SUPPORTED_BEST_OF | {1,3,5,7} | 支持的赛制 | shared/constants.ts |
 | DEFAULT_STAGE_PAGE | page3 | 默认推流页面 | shared/constants.ts |
-| SUPPORTED_STAGE_PAGES | {page1-overlay,page2,page3,page4,page5,page6,page7,page8,page9,page10,page11,page12,page13,blank} | 支持的推流页面（page4 = MVP 结算画面；page11/12/13 = 选手介绍三画面，共用同一页面文件） | shared/constants.ts |
+| SUPPORTED_STAGE_PAGES | {page1-overlay,page2,page3,page4,page5,page6,page7,page8,page9,page10,page11,page12,page13,page14,blank} | 支持的推流页面（page4 = MVP 结算画面；page11/12/13 = 选手介绍三画面，共用同一页面文件；page14 = 晋级积分榜） | shared/constants.ts |
 | DEFAULT_STAGE_TRANSITION | blinds | 默认切换过渡 | shared/constants.ts |
 | SUPPORTED_STAGE_TRANSITIONS | {none,blinds,wolf} | 支持的过渡效果 | shared/constants.ts |
 | DEFAULT_PAGE3_SPRITE_SOURCE | sprite | 页面3精灵图片来源默认值（sprite / thumbnail） | shared/constants.ts |
@@ -31,7 +31,7 @@
 | SYNC_APP_ID / SYNC_BUNDLE_SCHEMA / SYNC_BUNDLE_MAX_BYTES | roco-pvp-lineup / 1 / 64MB | 双机同步包的应用标识、结构版本与文件大小上限（导入上传限制 + 前端预检） | shared/constants.ts |
 | MACHINE_CODE_REGEX / MATCH_ID_REGEX | ^[A-Z]{1,2}$ / ^(\d{8})_([A-Za-z]{0,2})(\d+)$ | 本机标识（1-2 位大写字母，空 = 未设置）与比赛 id（日期 + 机器码 + 序号；解析端容忍小写，机器码只允许字母避免与序号歧义） | shared/constants.ts |
 | TOURNAMENT_TARGET_WINS / TOURNAMENT_TARGET_LOSSES | 2 / 2 | 双败阶段晋级线（2胜）与淘汰线（2败） | shared/constants.ts |
-| SUPPORTED_TOURNAMENT_SIZES | {4,8,16,32} | V1 系列赛允许人数（2 的幂，桶恒偶零轮空） | shared/constants.ts |
+| SUPPORTED_TOURNAMENT_SIZES | {4,8,16,32,64} | 系列赛允许人数（2 的幂，桶恒偶零轮空）；前端创建向导的校验数组由同一集合派生（TOURNAMENT_SIZE_OPTIONS，别再硬编码） | shared/constants.ts |
 | TOURNAMENT_ID_REGEX | ^T(\d{8})_([A-Za-z]{0,2})(\d+)$ | 系列赛 id 白名单：T 前缀 + 日期 + 机器码 + 序号（如 T20260928_A01），外部导入必过该校验防路径穿越 | shared/constants.ts |
 | TOURNAMENT_CROSS_BUCKET_TAG / TOURNAMENT_FORFEIT_TAG | 跨桶 / 弃权 | 自动标签：跨桶配对 / 弃权场次标注 | shared/constants.ts |
 | CLOUD_SYNC_ROLES / CLOUD_SYNC_ROSTER_MAX | {main,sub} / 8 | 云同步角色枚举（主控 / 分控）与房间名册容量上限（1 主 + N 分，机器码必须互不相同） | shared/constants.ts |
@@ -40,11 +40,13 @@
 | CLOUD_SYNC_REQUEST_TIMEOUT_MS | 20000 | 访问 Worker 的 HTTP 超时（超时给中文提示而不是让界面空转） | shared/constants.ts |
 | CLOUD_SYNC_STALE_MINUTES | 30 | 主控端提示「对端尚未分发/回传」的展示阈值（分钟） | shared/constants.ts |
 
-> 系列赛默认阶段模板构建器 `buildDefaultStages(playerCount): StageRule[]` 位于 shared/constants.ts：32人=双败BO1×2（32进16/16进8）+ 单败BO3×3（8进4/4进2/总决赛），16/8/4 人类似递减；默认 avoidRematch=true、requireConfirm=false。
+> 系列赛默认阶段模板构建器 `buildDefaultStages(playerCount): StageRule[]` 位于 shared/constants.ts：64人=双败BO1×2（64进32/32进16）+ 单败BO3×4（16进8/8进4/4进2/总决赛），32人=双败BO1×2（32进16/16进8）+ 单败BO3×3（8进4/4进2/总决赛），16/8/4 人类似递减；默认 avoidRematch=true、requireConfirm=false。「总决赛」判据是**阶段人数 = 2**（不是「最后一个阶段」），该阶段必须单败。
 
 > 推流选场上限三页统一为 9：PAGE6_MAX_MATCHES / PAGE8_MAX_MATCHES 位于 electron/services/page6-service.ts、page8-service.ts，PAGE7_MAX_MATCHES 位于 page7-service.ts；后台同值常量 PAGE6/PAGE7/PAGE8_MAX_MATCHES 位于 src/admin-antd/App.tsx。场序排期常量 MATCH_SLOT_MINUTES_PER_BO = 30 位于 shared/match-schedule.ts（每场占用 = BO 数 × 30 分钟）。
 >
 > 页面9（团队积分榜）在 SUPPORTED_STAGE_PAGES 中；战队上限常量 PAGE9_MAX_TEAMS = 4 位于 electron/services/page9-service.ts，后台表单行数常量 PAGE9_TEAM_COUNT = 4 位于 src/admin-antd/App.tsx；单项积分最长 3 位数字（0-999）。
+>
+> 页面14（晋级积分榜）：PAGE14_ROWS_PER_PAGE = 32（单页最多行数，超出由后台翻页）、DEFAULT_PAGE14_TITLE = '晋级积分榜'，都在 shared/constants.ts；副标题留空时由展示页按「阶段名 · 赛制 · BO」自动生成，无对应常量。榜单排序分权重（胜 10 / 负 −1）是 tournament-service.ts 内部常量 STANDING_WIN_POINTS，只用于排序、不落盘不展示。
 >
 > 信息录入（profile-service.ts 内部常量）：选手上限 MAX_PLAYERS = 200、战队上限 MAX_TEAMS = 100、名字最长 32 字、宣言/常用精灵最长 120 字、排名最长 10 位数字；战队 id/选手 id 仅保留字母数字与 `-_`。
 >

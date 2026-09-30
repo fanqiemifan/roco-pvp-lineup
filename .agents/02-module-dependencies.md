@@ -13,6 +13,7 @@ main.ts
 │   ├── page7-service.ts      → shared/types, match-service, image-service, path-service
 │   ├── page8-service.ts      → shared/types, shared/match-schedule, match-service, image-service, path-service
 │   ├── page9-service.ts      → shared/types, image-service, path-service
+│   ├── page14-service.ts     → shared/types, shared/constants, tournament-service（resolveStageStandings / getTournamentStore）, image-service, path-service
 │   ├── page11-service.ts     → shared/types, image-service, path-service
 │   ├── nextgame-service.ts   → shared/types, shared/constants, image-service, match-service, path-service
 │   ├── countdown-service.ts  → shared/types, shared/constants, image-service, path-service

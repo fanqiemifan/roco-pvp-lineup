@@ -100,6 +100,37 @@ export function getCurrentPositionText(record: TournamentRecord): string {
   return `${stage.name} · 第 ${lastWave.waveIndex} 波`;
 }
 
+/**
+ * 某阶段的参赛人数（晋级积分榜选阶段时展示「这次会带入多少人」）：
+ * 阶段 0 = 全体选手；其后每阶段晋级半额（引擎口径：personCount / 2^stageIndex）。
+ */
+export function getStagePlayerCount(record: TournamentRecord, stageIndex: number): number {
+  if (stageIndex < 0) {
+    return 0;
+  }
+  const half = Math.floor(record.playerIds.length / 2 ** stageIndex);
+  // 自定义阶段数超出对阵树时（人数不足 1）按 0 处理，避免出现「0.5 人」这类文案
+  return half >= 1 ? half : 0;
+}
+
+/** 某阶段的场次统计：已决出胜负 / 已建场（含未开打） */
+export function summarizeStageMatches(
+  record: TournamentRecord,
+  stageIndex: number,
+): { completed: number; total: number } {
+  let completed = 0;
+  let total = 0;
+  record.waves
+    .filter((wave) => wave.stageIndex === stageIndex)
+    .forEach((wave) => wave.nodes.forEach((node) => {
+      total += 1;
+      if (node.winnerId) {
+        completed += 1;
+      }
+    }));
+  return { completed, total };
+}
+
 /** 系列赛关联比赛中已完成的场次数（进度展示用） */
 export function countCompletedMatches(
   record: TournamentRecord,

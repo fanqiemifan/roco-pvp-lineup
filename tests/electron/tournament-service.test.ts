@@ -1176,12 +1176,14 @@ function expectSoundTournament(record: TournamentRecord): void {
 
 describe('随机全赛程模拟（多届属性检查）', () => {
   // 文档建议每规模 1000 次；文件型引擎每届含大量真实文件 IO，
-  // V1 按下列轮次取得规模性覆盖（合计 52 届），超时按规模放宽
+  // V1 按下列轮次取得规模性覆盖（合计 53 届），超时按规模放宽
   const table: Array<{ size: number; rounds: number; timeout: number }> = [
     { size: 4, rounds: 30, timeout: 15000 },
     { size: 8, rounds: 15, timeout: 30000 },
     { size: 16, rounds: 5, timeout: 20000 },
     { size: 32, rounds: 2, timeout: 20000 },
+    // 64 人：双败桶与人数无关，扩人数后跑一届整程验证（64进32 → … → 总决赛，共 6 个阶段）
+    { size: 64, rounds: 1, timeout: 60000 },
   ];
 
   table.forEach(({ size, rounds, timeout }) => {
