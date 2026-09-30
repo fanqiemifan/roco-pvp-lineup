@@ -28,6 +28,8 @@
 | 保存比赛草稿面板 | saveDraftPanelStateForActiveMatch | (paths: AppPaths, position: 'left' | 'right', selectedSlots: unknown) => MatchStoreState | 保存活动比赛的面板草稿 |
 | 保存比赛草稿格子 | saveDraftPanelSlotStateForActiveMatch | (paths: AppPaths, position: 'left' | 'right', slotIndex: number, slotData: unknown) => MatchStoreState | 保存活动比赛的单个格子草稿 |
 | 录入小局阵容 | saveGameLineupForMatch | (paths: AppPaths, matchId: string, gameNumber: number, selections: { left?: unknown; right?: unknown }) => MatchStoreState | 为指定比赛的「当前小局且待开始」写入双方阵容：双侧合并一次写入，不触碰面板/记分牌/activeMatchId；只传一侧时另一侧保留，空数组 = 清空该侧；已开局/已完赛/未轮到均拒绝（前端锁定文案见 App.tsx + lib/history.ts 的 getLineupEntryBlockReason） |
+| 阵容表导入预检 | inspectLineupImportTargets | (paths: AppPaths, tournamentId: string, matchIds: string[]) => LineupImportApplyResult[] | 系列赛阵容表批量导入的场次级预检（不写盘）：对局存在、tournamentRef 归属目标系列赛、比赛待开始、第 1 局尚未开赛；不满足返回 ok:false + reason（对局不存在 / 非本系列赛 / 该场已开赛 / 该场已完赛 / 第 1 局已开始）。门槛与 saveGameLineupForMatch 一致，仅把「当前小局」固定为第 1 局 |
+| 批量导入阵容 | applyLineupImport | (paths: AppPaths, tournamentId: string, entries: LineupImportEntryInput[]) => { store: MatchStoreState; results: LineupImportApplyResult[] } | 读一次 store → 逐场校验 + 覆盖第 1 局 leftSlots/rightSlots（对局级原子：未知 pet_id / 两侧全空整场跳过）→ 写一次盘；广播由调用方（路由）负责一次 matches:update。entries.left/right 为 pet_id 数组（null / 省略 = 该侧保持原样） |
 | 规范化导入比赛 | normalizeImportedMatches | (paths: AppPaths, incoming: unknown[]) => NormalizedMatchImport | 双机同步导入：逐条过 normalizeMatchRecord（含 id 白名单，只接受 `YYYYMMDD_[机器码]NNN`，防止外部包把 id 拼进头像目录），返回可用记录与被拒明细 |
 | 比赛导入分类 | diffMatchRecords | (paths: AppPaths, incoming: MatchRecord[], mode: SyncConflictMode) => MatchImportDecision[] | 只读：按 id 对比本机 store 逐条给出 add/update/skip 与原因（newer = 包内 updatedAt 较新才覆盖；bundle = 内容有差异即覆盖、相同跳过），并附带 conflict（两边都登记过且不一致）与字段级 diff |
 | 比赛字段级差异 | buildMatchDiffFields | (local: MatchRecord, incoming: MatchRecord) => SyncImportDiffField[] | 只列出不同的字段（状态/比分/选手/赛制/标签 + 逐小局状态与双方阵容名称快照），最多 20 条；供导入预览弹窗做左右 diff 展示 |
@@ -93,6 +95,7 @@
 | 创建精灵查找表 | spriteLookup | (paths: AppPaths) => Map<string, SpriteRecord> | 创建精灵查找 Map（key: pet_id/filename/名称/别名）；与列表共用同一缓存条目 |
 | 搜索精灵 | spriteMatchesKeyword | (sprite: SpriteRecord, keyword: string) => boolean | 检查精灵是否匹配关键词 |
 | 快速填充阵容 | buildQuickFillPreview | (paths: AppPaths, text: string) => QuickFillPreview | 构建快速填充预览结果 |
+| 数字前缀写法（匹配前置） | — | — | 快速填充 / 阵容导入共用：`3004 迪莫`（4 位 pet_id 精确命中，唯一主键）、`#011` / `011 鸭吉吉`（按图鉴编号筛候选集后用名字余部消歧）；余部无法消歧时退回常规名称匹配。用于解决「同名精灵填表精确指定」问题 |
 
 ## 图片管理 (image-service.ts)
 

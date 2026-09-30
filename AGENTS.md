@@ -74,6 +74,7 @@
   - 赛果写回靠 socket-server 在登记胜负/弃权/撤回处调钩子 `onMatchCompleted`/`onMatchUndo`（幂等，波打齐自动推进 / 反向回退）；`rollback-wave` 回退上一波，pending 比赛可弃权判负。**各钩子/回退的完整分支语义见 `.agents/05`。**
   - **删除系列赛**（`DELETE /api/tournaments/:id`）：默认只删编排记录、经 `detachMatchesFromTournament` 剥离关联比赛的 `tournamentRef` 保留为普通对局；`deleteMatches=true` 再连对局删除。孤儿引用按普通对局处理不阻断登记。
   - **编排机所有权**：系列赛归创建它的机器码所有，只有编排机能变更（变更入口与写回钩子都有闸门），其余机器是只读副本；`tournaments.json` 随同步包流转、导入自动合并，赛果回传编排机后由 `runTournamentWriteBack` 补跑推进。详见 `.agents/05`。
+  - **阵容表批量导出 / 导入**（系列比赛详情工具栏，只读副本也开放——均非编排操作）：导出「待开始比赛第 1 局」填写模板（一场两行 CSV：系列赛/阶段/对局ID/位置/选手 + 精灵1..6，已录阵容回显；弹窗选范围：整届 / 按阶段 / 仅当前波）。导入支持 CSV / 粘贴表格（TSV）/ JSON：前端按「对局ID + 位置」配对合并，服务端逐格解析名字（复用快速填充匹配，支持 `pet_id 名字` / `编号 名字` 写法，pet_id 是唯一主键）后批量写入。门槛与单场「录入阵容」完全一致（比赛待开始 + 第 1 局未开赛；已开赛 / 已完赛 / 非本系列赛整场跳过），一次落盘 + 单次 `matches:update` 广播；纯函数在 `lib/lineup-sheet.ts`，细节见 `.agents/04` / `.agents/09`。
   - 前端「比赛管理」与「推流选场」都按系列赛分组（紫色奖杯 Tag / 阶段·语义轮次分组），纯函数在 `lib/history.ts`、`lib/tournament.ts`；渲染细节见 `.agents/09`。
 - page3 附加特性（战队标识 / 排位排名图标 / 红光特效）：显隐各由 `stage.*` 开关控制，行为规则与踩坑见 `.agents/09`。排位排名随对局存 `leftRank/rightRank`、由 `syncScoreboardFromMatch` 同步记分牌，系列赛建场时从档案快照，`/api/page6`·`/api/page8` 对空排名按选手名回退档案。
 - 详细索引（类型、API 路由、函数、socket 事件、常量、文件地图）在 `.agents/01..10-*.md` —— 遇到问题先查它们；行为有变化时要同步更新这些文档。

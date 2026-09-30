@@ -27,6 +27,7 @@ import { buildDefaultStages, SUPPORTED_TOURNAMENT_SIZES } from '../../../shared/
 import type {
   MatchRecord,
   ProfileStoreState,
+  SpriteRecord,
   StageFormat,
   StageRule,
   TournamentNode,
@@ -70,6 +71,8 @@ import {
 import { readLastTournamentId, writeLastTournamentId } from '../lib/last-tournament';
 import { BracketBoard } from '../components/BracketBoard';
 import { TournamentNodeCard } from '../components/TournamentNodeCard';
+import { TournamentLineupExportModal } from './TournamentLineupExportModal';
+import { TournamentLineupImportModal } from './TournamentLineupImportModal';
 
 const { Text, Paragraph } = Typography;
 
@@ -86,6 +89,8 @@ export interface TournamentViewProps {
   tournaments: TournamentRecord[];
   profiles: ProfileStoreState | null;
   matches: MatchRecord[];
+  /** 精灵索引：导出模板回显已有阵容名（与解析口径一致） */
+  sprites: SpriteRecord[];
   /** 本机机器标识：判定系列赛是否归本机编排（只读副本禁用编排操作） */
   machineCode: string;
   /** 切换为当前比赛后跳转赛事面板（App 提供） */
@@ -96,6 +101,7 @@ export function TournamentView({
   tournaments,
   profiles,
   matches,
+  sprites,
   machineCode,
   onJumpToRoster,
 }: TournamentViewProps): React.ReactElement {
@@ -267,6 +273,7 @@ export function TournamentView({
           record={selected}
           names={names}
           matches={matches}
+          sprites={sprites}
           machineCode={machineCode}
           onSelectMatch={handleSelectMatch}
           onDelete={() => {
@@ -346,6 +353,7 @@ interface DetailProps {
   record: TournamentRecord;
   names: Map<string, string>;
   matches: MatchRecord[];
+  sprites: SpriteRecord[];
   machineCode: string;
   onSelectMatch(matchId: string): Promise<void>;
   onDelete(): void;
@@ -355,6 +363,7 @@ function TournamentDetail({
   record,
   names,
   matches,
+  sprites,
   machineCode,
   onSelectMatch,
   onDelete,
@@ -365,6 +374,9 @@ function TournamentDetail({
   const readOnly = !isTournamentOwnedByLocal(record.id, machineCode);
   // 详情视图：晋级图（默认）/ 波次列表；setup 阶段固定走抽签面板
   const [detailView, setDetailView] = useState<'bracket' | 'waves'>('bracket');
+  // 阵容表批量导出 / 导入（比赛记录写入，只读副本也可用；门槛与单场录入一致）
+  const [lineupExportOpen, setLineupExportOpen] = useState(false);
+  const [lineupImportOpen, setLineupImportOpen] = useState(false);
 
   async function handleRollback(): Promise<void> {
     try {
@@ -389,6 +401,8 @@ function TournamentDetail({
           <Tag color={getTournamentStatusMeta(record).color}>
             {getTournamentStatusMeta(record).label}
           </Tag>
+          <Button onClick={() => setLineupExportOpen(true)}>导出阵容模板</Button>
+          <Button onClick={() => setLineupImportOpen(true)}>导入阵容</Button>
           <Popconfirm
             title="回退上一波"
             description="将删除最后波未开始的比赛并复位战绩，确定？"
@@ -493,6 +507,20 @@ function TournamentDetail({
           </Text>
         </Space>
       ) : null}
+
+      <TournamentLineupExportModal
+        open={lineupExportOpen}
+        record={record}
+        matches={matches}
+        sprites={sprites}
+        onClose={() => setLineupExportOpen(false)}
+      />
+      <TournamentLineupImportModal
+        open={lineupImportOpen}
+        record={record}
+        matches={matches}
+        onClose={() => setLineupImportOpen(false)}
+      />
     </Card>
   );
 }

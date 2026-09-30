@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { DEFAULT_BEST_OF, MATCH_ID_REGEX, SUPPORTED_BEST_OF, TOURNAMENT_FORFEIT_TAG, TOURNAMENT_ID_REGEX } from '../../shared/constants.js';
 import type {
   GameRecord,
+  LineupImportApplyResult,
   MatchRecord,
   MatchSlotSnapshot,
   MatchStoreState,
@@ -1573,6 +1574,126 @@ export function saveGameLineupForMatch(
   };
 
   return writeStoreFile(paths, store);
+}
+
+/* ==================== 系列赛阵容批量导入（表格 / JSON 回填） ==================== */
+
+/**
+ * 场次级预检（不写盘）：对局存在、属于目标系列赛、比赛待开始、第 1 局尚未开赛。
+ * 门槛与单场「录入阵容」一致（待开始 + 第 1 局 = 当前小局 + 待开始），
+ * 批量导入天然不影响推流画面，也不会触碰进行中 / 已完赛的数据。
+ */
+export function inspectLineupImportTargets(
+  paths: AppPaths,
+  tournamentId: string,
+  matchIds: string[],
+): LineupImportApplyResult[] {
+  const { store } = readStoreFile(paths);
+  return matchIds.map((matchId) => checkLineupImportTarget(store, tournamentId, matchId));
+}
+
+function checkLineupImportTarget(
+  store: MatchStoreFile,
+  tournamentId: string,
+  matchId: string,
+): LineupImportApplyResult {
+  const match = store.matches.find((item) => item.id === matchId);
+  if (!match) {
+    return { matchId, ok: false, reason: '对局不存在' };
+  }
+  if (match.tournamentRef?.tournamentId !== tournamentId) {
+    return { matchId, ok: false, reason: '非本系列赛对局' };
+  }
+  if (match.status === 'completed') {
+    return { matchId, ok: false, reason: '该场已完赛' };
+  }
+  if (match.status !== 'pending') {
+    return { matchId, ok: false, reason: '该场已开赛（阵容请在赛事面板中修改）' };
+  }
+  const firstGame = match.games.find((game) => game.gameNumber === 1);
+  if (!firstGame || firstGame.status !== 'pending') {
+    return { matchId, ok: false, reason: '第 1 局已开始' };
+  }
+  return { matchId, ok: true };
+}
+
+/** 归一化导入侧阵容：数组 → 有效 pet_id 列表；空数组 / 非数组 → null（该侧保持原样不写） */
+function normalizeImportSide(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const petIds = value
+    .map((item) => normalizeStoredPetId(item))
+    .filter((item): item is string => Boolean(item))
+    .slice(0, MAX_GAME_SLOTS);
+  return petIds.length > 0 ? petIds : null;
+}
+
+/** 批量导入的逐场入参：left/right 为已解析的 pet_id 数组（null / 省略 = 不写该侧） */
+export interface LineupImportEntryInput {
+  matchId: string;
+  left?: unknown;
+  right?: unknown;
+}
+
+/**
+ * 批量写入第 1 局阵容：读一次 store → 逐场校验 + 覆盖（对局级原子） → 写一次盘。
+ * 广播交给调用方（一次 matchesUpdate），与单场「录入阵容」的「双侧合并一次写入」同思路。
+ */
+export function applyLineupImport(
+  paths: AppPaths,
+  tournamentId: string,
+  entries: LineupImportEntryInput[],
+): { store: MatchStoreState; results: LineupImportApplyResult[] } {
+  const { store, mtime } = readStoreFile(paths);
+  const lookup = spriteLookup(paths);
+  const results: LineupImportApplyResult[] = [];
+  let changed = false;
+
+  entries.forEach((entry) => {
+    const check = checkLineupImportTarget(store, tournamentId, entry.matchId);
+    if (!check.ok) {
+      results.push(check);
+      return;
+    }
+
+    const left = normalizeImportSide(entry.left);
+    const right = normalizeImportSide(entry.right);
+    if (!left && !right) {
+      results.push({ matchId: entry.matchId, ok: false, reason: '两侧均无阵容' });
+      return;
+    }
+    const unknownPetId = [...(left ?? []), ...(right ?? [])].find((petId) => !lookup.has(petId));
+    if (unknownPetId) {
+      results.push({ matchId: entry.matchId, ok: false, reason: `未知精灵 ${unknownPetId}` });
+      return;
+    }
+
+    const matchIndex = store.matches.findIndex((item) => item.id === entry.matchId);
+    const match = store.matches[matchIndex];
+    const gameIndex = match.games.findIndex((game) => game.gameNumber === 1);
+    const game = match.games[gameIndex];
+    const leftSlots = left ? parseSelectedSlots(paths, left.map((petId) => ({ sprite: petId }))) : game.leftSlots;
+    const rightSlots = right ? parseSelectedSlots(paths, right.map((petId) => ({ sprite: petId }))) : game.rightSlots;
+    const nextGames = [...match.games];
+    nextGames[gameIndex] = {
+      ...game,
+      leftSlots,
+      rightSlots,
+      leftLineup: lineupFromSlots(leftSlots),
+      rightLineup: lineupFromSlots(rightSlots),
+    };
+    store.matches[matchIndex] = {
+      ...match,
+      games: nextGames,
+      updatedAt: new Date().toISOString(),
+    };
+    changed = true;
+    results.push({ matchId: entry.matchId, ok: true });
+  });
+
+  const publicStore = changed ? writeStoreFile(paths, store) : toPublicStore(store, mtime);
+  return { store: publicStore, results };
 }
 
 export function startCurrentGame(paths: AppPaths, matchId: string): MatchStoreState {

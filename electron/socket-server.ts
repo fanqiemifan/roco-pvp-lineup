@@ -10,7 +10,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { SOCKET_EVENTS } from '../shared/events.js';
 import { SYNC_BUNDLE_MAX_BYTES } from '../shared/constants.js';
 import { computeScheduleTimes } from '../shared/match-schedule.js';
-import type { AvatarCollectionState, CloudSyncKeyGuardResult, CountdownState, MatchRecord, MatchStoreState, Page6State, Page7State, Page8State, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
+import type { AvatarCollectionState, CloudSyncKeyGuardResult, CountdownState, LineupImportPreviewRow, MatchRecord, MatchStoreState, Page6State, Page7State, Page8State, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
 import { getSpriteRanking } from './services/stats-service.js';
 import {
@@ -107,11 +107,13 @@ import {
   startCountdown,
 } from './services/countdown-service.js';
 import {
+  applyLineupImport,
   createMatch,
   deleteMatch,
   deleteMatches,
   forfeitMatch,
   getMatchStore,
+  inspectLineupImportTargets,
   recordMatchWinner,
   redoMatchAction,
   saveDraftPanelStateForActiveMatch,
@@ -1536,6 +1538,71 @@ export async function createLocalServer(
       return;
     }
     response.json({ tournament });
+  });
+
+  // 系列赛阵容批量导入：dryRun 预览（名字解析 + 场次预检）/ 写入（一次 matchesUpdate 广播）。
+  // 门槛与单场「录入阵容」一致（比赛待开始 + 第 1 局尚未开赛），属比赛记录写入——任意机器可用
+  app.post('/api/tournaments/:tournamentId/lineup-import', (request, response) => {
+    const tournamentId = request.params.tournamentId;
+    const body = (request.body ?? {}) as { dryRun?: unknown; rows?: unknown };
+    const rows = Array.isArray(body.rows) ? body.rows : null;
+    if (!rows || rows.length === 0 || rows.length > 256) {
+      response.status(400).json({ success: false, error: 'rows 必须是非空数组（最多 256 场）' });
+      return;
+    }
+    if (!getTournamentStore(paths).some((record) => record.id === tournamentId)) {
+      response.status(404).json({ success: false, error: '系列赛不存在' });
+      return;
+    }
+
+    const normalized = rows.map((row) => {
+      const item = (row ?? {}) as Record<string, unknown>;
+      return {
+        matchId: String(item.matchId ?? '').trim(),
+        left: item.left,
+        right: item.right,
+      };
+    });
+    const sideToText = (value: unknown): string =>
+      Array.isArray(value)
+        ? value.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean).join('\n')
+        : '';
+
+    // 预览：场次级预检（归属 / 待开始 / 第 1 局）+ 逐格名字解析（与「快速填充」同一套匹配）
+    if (body.dryRun) {
+      const checks = inspectLineupImportTargets(paths, tournamentId, normalized.map((row) => row.matchId));
+      const preview: LineupImportPreviewRow[] = normalized.map((row, index) => {
+        const check = checks[index];
+        const left = buildQuickFillPreview(paths, sideToText(row.left)).matches;
+        const right = buildQuickFillPreview(paths, sideToText(row.right)).matches;
+        const cells = [...left, ...right].filter((cell) => cell.input);
+        const unmatchedCount = cells.filter((cell) => !cell.matched).length;
+        const reason = !check.ok
+          ? check.reason
+          : cells.length === 0
+            ? '两侧均无阵容'
+            : unmatchedCount > 0
+              ? `有 ${unmatchedCount} 个精灵未匹配`
+              : undefined;
+        return {
+          matchId: row.matchId,
+          ok: check.ok && cells.length > 0 && unmatchedCount === 0,
+          reason,
+          left,
+          right,
+        };
+      });
+      response.json({ success: true, rows: preview });
+      return;
+    }
+
+    try {
+      const { store, results } = applyLineupImport(paths, tournamentId, normalized);
+      emitMatchesUpdate(store);
+      response.json({ success: true, results });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.post('/api/tournaments', (request, response) => {

@@ -383,11 +383,92 @@ export function spriteLookup(paths: AppPaths): Map<string, SpriteRecord> {
   return getSpriteIndexCache(paths).lookup;
 }
 
+/** 候选精灵排序：最终形态优先，其次按文件名（与快速填充的排序口径一致） */
+function compareCandidateSprites(left: SpriteRecord, right: SpriteRecord): number {
+  const leftFinal = left.isFinalForm ? 0 : 1;
+  const rightFinal = right.isFinalForm ? 0 : 1;
+  if (leftFinal !== rightFinal) {
+    return leftFinal - rightFinal;
+  }
+  return left.filename.localeCompare(right.filename);
+}
+
+/**
+ * 数字前缀写法识别（阵容导入 / 快速填充共用）：
+ * `3004 迪莫` = pet_id（唯一主键，精确命中优先）；`#011` / `011 鸭吉吉` = 图鉴编号 + 名字消歧。
+ * 编号命中候选集后，用名字余部在集内排序；余部为空或消歧失败时返回 null（退回常规名称匹配）。
+ */
+function collectNumberPrefixedMatches(
+  query: string,
+  sprites: SpriteRecord[],
+): Array<{ sprite: SpriteRecord; rank: [number, ...number[], string]; matchType: string }> | null {
+  const raw = String(query ?? '').trim();
+  const prefixed = /^#?\s*(\d{3,4})\s*[-_：:]*\s*(.*)$/.exec(raw);
+  if (!prefixed) {
+    return null;
+  }
+  const digits = prefixed[1];
+  const restToken = (prefixed[2] ?? '').replace(/^[\s\-_：:]+/, '').trim();
+
+  const asMatch = (sprite: SpriteRecord, rankIndex: number, matchType: string) => ({
+    sprite,
+    rank: [1, rankIndex, sprite.filename] as [number, ...number[], string],
+    matchType,
+  });
+
+  // pet_id 精确命中：唯一主键，名字余部仅作展示不参与判定
+  const byPetId = sprites.filter((sprite) => String(sprite.id) === digits);
+  if (byPetId.length > 0) {
+    return byPetId.sort(compareCandidateSprites).map((sprite, index) => asMatch(sprite, index, 'exact-pet-id'));
+  }
+
+  // 图鉴编号候选集
+  const numberValue = Number(digits);
+  const byNumber = sprites.filter((sprite) => sprite.number === numberValue);
+  if (byNumber.length === 0) {
+    return null;
+  }
+  if (!restToken) {
+    return byNumber.sort(compareCandidateSprites).map((sprite, index) => asMatch(sprite, index, 'exact-number'));
+  }
+
+  const normalizedRest = normalizeSearchName(restToken);
+  const ranked = byNumber
+    .map((sprite) => {
+      const names = [sprite.displayName, sprite.name, ...sprite.aliases, sprite.filename, path.parse(sprite.path).name]
+        .map((value) => normalizeSearchName(value))
+        .filter(Boolean);
+      if (names.includes(normalizedRest)) return { sprite, nameRank: 0 };
+      if (names.some((name) => name.startsWith(normalizedRest))) return { sprite, nameRank: 1 };
+      if (names.some((name) => name.includes(normalizedRest) || normalizedRest.includes(name))) {
+        return { sprite, nameRank: 2 };
+      }
+      return null;
+    })
+    .filter((item): item is { sprite: SpriteRecord; nameRank: number } => Boolean(item));
+
+  if (ranked.length === 0) {
+    return null;
+  }
+  ranked.sort((left, right) => {
+    if (left.nameRank !== right.nameRank) {
+      return left.nameRank - right.nameRank;
+    }
+    return compareCandidateSprites(left.sprite, right.sprite);
+  });
+  return ranked.map((item, index) => asMatch(item.sprite, index, 'number-name'));
+}
+
 function collectSpriteMatches(query: string, sprites: SpriteRecord[]): Array<{
   sprite: SpriteRecord;
   rank: [number, ...number[], string];
   matchType: string;
 }> {
+  const numberPrefixed = collectNumberPrefixedMatches(query, sprites);
+  if (numberPrefixed) {
+    return numberPrefixed;
+  }
+
   const normalizedQuery = normalizeSearchName(query);
   if (!normalizedQuery) {
     return [];

@@ -7152,6 +7152,7 @@ function Dashboard() {
               tournaments={tournaments}
               profiles={profiles}
               matches={matchStore.matches}
+              sprites={sprites}
               machineCode={machineCodeInput}
               onJumpToRoster={() => setView('roster')}
             />

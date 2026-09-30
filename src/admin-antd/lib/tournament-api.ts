@@ -1,4 +1,6 @@
 import type {
+  LineupImportApplyResult,
+  LineupImportPreviewRow,
   StageRule,
   TournamentRecord,
   TournamentWave,
@@ -127,4 +129,37 @@ export async function deleteTournamentApi(
 /** 切换为当前比赛（赛事面板跳转复用现有路由） */
 export async function selectMatchApi(matchId: string): Promise<void> {
   await requestJson<{ success: boolean }>(`/api/matches/${matchId}/select`, { method: 'POST' });
+}
+
+/* ==================== 阵容表批量导入（导出模板的线下回填） ==================== */
+
+export interface LineupImportRowPayload {
+  matchId: string;
+  /** 名字原文数组（预览）/ 已确认的 pet_id 数组（写入）；null = 该侧不写 */
+  left?: string[] | null;
+  right?: string[] | null;
+}
+
+/** 预览（dryRun）：按「对局ID + 位置」规范化后的行提交，服务端解析名字 + 场次预检，不写任何数据 */
+export async function previewLineupImportApi(
+  tournamentId: string,
+  rows: LineupImportRowPayload[],
+): Promise<LineupImportPreviewRow[]> {
+  const data = await requestJson<{ rows: LineupImportPreviewRow[] }>(
+    `/api/tournaments/${tournamentId}/lineup-import`,
+    { method: 'POST', json: { dryRun: true, rows } },
+  );
+  return data.rows;
+}
+
+/** 批量写入：left/right 为预览中确认过的 pet_id 数组（null = 该侧保持原样），服务端对局级原子写入 */
+export async function applyLineupImportApi(
+  tournamentId: string,
+  rows: LineupImportRowPayload[],
+): Promise<LineupImportApplyResult[]> {
+  const data = await requestJson<{ results: LineupImportApplyResult[] }>(
+    `/api/tournaments/${tournamentId}/lineup-import`,
+    { method: 'POST', json: { rows } },
+  );
+  return data.results;
 }

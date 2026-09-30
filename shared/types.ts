@@ -555,6 +555,27 @@ export interface QuickFillPreview {
   unmatched: string[];
 }
 
+/* ==================== 系列赛阵容批量导入（表格 / JSON 回填） ==================== */
+
+/** 批量导入的逐场写入结果（或场次级预检结果） */
+export interface LineupImportApplyResult {
+  matchId: string;
+  /** 是否已写入（false = 跳过，读取 reason 展示原因） */
+  ok: boolean;
+  /** 跳过原因（对局不存在 / 非本系列赛 / 该场已开赛 / 名字未匹配…） */
+  reason?: string;
+}
+
+/** 批量导入预览（dryRun）的单场结果：按对局聚合，左右各一组逐格解析结果 */
+export interface LineupImportPreviewRow {
+  matchId: string;
+  /** 是否可写入（比赛级预检通过，且两侧所有非空格均已解析出精灵） */
+  ok: boolean;
+  reason?: string;
+  left: QuickFillMatch[];
+  right: QuickFillMatch[];
+}
+
 /* ==================== 双机数据同步（导出 / 导入同步包） ==================== */
 
 /** 同步包内嵌的选手档案（不含本地派生字段 avatarExists/avatarMtime） */
