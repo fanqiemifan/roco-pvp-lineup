@@ -3096,6 +3096,36 @@ function Dashboard() {
     // view 也作为依赖：预览外壳在「页面预览」与「对局推送」两个视图中分别挂载，切换后需重新计算缩放
   }, [previewSlot, view]);
 
+  // 红点轮询：默认开、可关、可设 30~300s；只读小键提示，绝不自动合并数据。
+  // 必须位于任何条件 return 之前（React Hooks 规则），否则 loading 切换时 hook 数量变化会触发 React #310 白屏。
+  useEffect(() => {
+    if (!cloudStatus?.config.syncKey || !cloudStatus.config.workerUrl || !cloudStatus.config.machineCode) {
+      return;
+    }
+    if (cloudStatus.config.pollEnabled === false) {
+      return;
+    }
+    const intervalMs = Math.max(30, cloudStatus.config.pollIntervalSeconds || 60) * 1000;
+    cloudPollTimerRef.current = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void pollCloudStatus(true);
+      }
+    }, intervalMs);
+    return () => {
+      if (cloudPollTimerRef.current) {
+        window.clearInterval(cloudPollTimerRef.current);
+        cloudPollTimerRef.current = null;
+      }
+    };
+  }, [
+    cloudStatus?.config.syncKey,
+    cloudStatus?.config.workerUrl,
+    cloudStatus?.config.machineCode,
+    cloudStatus?.config.role,
+    cloudStatus?.config.pollEnabled,
+    cloudStatus?.config.pollIntervalSeconds,
+  ]);
+
   // 注意：该 useMemo 必须位于任何条件 return 之前（React Hooks 规则），否则 loading 切换时 hook 数量变化会触发 React #310 白屏
   const menuItems: MenuProps['items'] = useMemo(
     () => [
@@ -3881,35 +3911,6 @@ function Dashboard() {
   function cloudMachineText(entry: { code: string; label: string }): string {
     return entry.label ? `${entry.label} (${entry.code})` : entry.code;
   }
-
-  // 红点轮询：默认开、可关、可设 30~300s；只读小键提示，绝不自动合并数据
-  useEffect(() => {
-    if (!cloudStatus?.config.syncKey || !cloudStatus.config.workerUrl || !cloudStatus.config.machineCode) {
-      return;
-    }
-    if (cloudStatus.config.pollEnabled === false) {
-      return;
-    }
-    const intervalMs = Math.max(30, cloudStatus.config.pollIntervalSeconds || 60) * 1000;
-    cloudPollTimerRef.current = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void pollCloudStatus(true);
-      }
-    }, intervalMs);
-    return () => {
-      if (cloudPollTimerRef.current) {
-        window.clearInterval(cloudPollTimerRef.current);
-        cloudPollTimerRef.current = null;
-      }
-    };
-  }, [
-    cloudStatus?.config.syncKey,
-    cloudStatus?.config.workerUrl,
-    cloudStatus?.config.machineCode,
-    cloudStatus?.config.role,
-    cloudStatus?.config.pollEnabled,
-    cloudStatus?.config.pollIntervalSeconds,
-  ]);
 
   const SYNC_KIND_LABELS: Record<SyncImportItem['kind'], string> = { match: '比赛', player: '选手档案', team: '战队档案' };
   const SYNC_ACTION_LABELS: Record<SyncImportItem['action'], string> = { add: '新增', update: '更新', skip: '跳过' };
