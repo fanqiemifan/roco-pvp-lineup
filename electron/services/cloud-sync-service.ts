@@ -34,13 +34,14 @@ import type {
   SyncBundle,
   SyncConflictMode,
   SyncImportPreview,
+  SyncImportResult,
 } from '../../shared/types.js';
 import type { RuntimeConfig } from './config-service.js';
 import { loadRuntimeConfig, normalizeMachineCode, saveRuntimeConfig } from './config-service.js';
 import { getMatchStore, resetMatchRegistrations } from './match-service.js';
 import type { AppPaths } from './path-service.js';
 import { applySyncImport, exportSyncBundle, parseSyncBundle, previewSyncImport, type SyncBundlePayload } from './sync-service.js';
-import { getTournamentStore, resolveTournamentLabels } from './tournament-service.js';
+import { getTournamentStore, resolveTournamentLabels, runTournamentWriteBack } from './tournament-service.js';
 
 /* ==================== 云端信箱（Worker + KV）读写 ==================== */
 
@@ -1168,7 +1169,9 @@ export async function checkCloudSync(paths: AppPaths, code?: string | null): Pro
         seq: uplink.seq,
         submittedAt: uplink.submittedAt,
         items,
-        selectableKeys: items.filter((entry) => entry.item.action !== 'skip').map((entry) => entry.item.key),
+        // 全部条目都可确认（含 action='skip' 的「内容一致」项）：确认 = 写入被确认的 + 给对方回执，
+        // 没有可写入项时也要能把「收到了」告诉对方
+        selectableKeys: items.map((entry) => entry.item.key),
       });
     });
 
@@ -1210,26 +1213,48 @@ export async function confirmCloudSync(
     }
 
     const accepted = new Set(acceptedKeys);
-    const acceptedMatches = source.items
-      .filter((entry) => accepted.has(entry.item.key) && entry.item.action !== 'skip')
+    // 「跳过」= 本机与对方内容完全一致（无需写入）。这类条目**也必须能确认**：
+    // 确认动作本质上是一次回执，不写数据也要告诉对方「收到了」，否则对方永远停在「等主控确认」。
+    const acceptedItems = source.items.filter((entry) => accepted.has(entry.item.key));
+    if (!acceptedItems.length) {
+      throw new Error('没有勾选任何赛果，未做任何改动（勾选后点「确认」，本机数据一致时只会给对方回执）');
+    }
+    const acceptedMatches = acceptedItems
+      .filter((entry) => entry.item.action !== 'skip')
       .map((entry) => entry.record);
-    if (!acceptedMatches.length) {
-      throw new Error('没有勾选任何赛果，未做任何改动');
+
+    let result: SyncImportResult;
+    if (acceptedMatches.length) {
+      // 只合并比赛记录（skipTournaments）：编排结构由本机（编排机）自己持有，绝不用分控端副本覆盖；
+      // applySyncImport 内部的 runTournamentWriteBack 会把赛果写回节点、打齐则推进波次。
+      result = await applySyncImport(paths, {
+        ...buildUplinkBundle(uplink, code),
+        matches: acceptedMatches,
+      }, {
+        mode: 'bundle',
+        acceptedKeys: acceptedMatches.map((match) => `match:${match.id}`),
+        includeAvatars: false,
+        skipTournaments: true,
+      });
+    } else {
+      // 全部条目都无需写入：不碰任何数据，只回执 + 把比赛按节点补跑一次写回（幂等，通常无改动）
+      const writeBack = runTournamentWriteBack(paths);
+      result = {
+        store: getMatchStore(paths),
+        profiles: null,
+        applied: {
+          match: { add: 0, update: 0, skip: acceptedItems.length },
+          player: { add: 0, update: 0, skip: 0 },
+          team: { add: 0, update: 0, skip: 0 },
+        },
+        avatarsWritten: { players: 0, teams: 0 },
+        tournaments: { added: 0, updated: 0, skipped: 0, rejected: 0, advanced: writeBack.advanced },
+        warnings: writeBack.warnings,
+      };
     }
 
-    // 只合并比赛记录（skipTournaments）：编排结构由本机（编排机）自己持有，绝不用分控端副本覆盖；
-    // applySyncImport 内部的 runTournamentWriteBack 会把赛果写回节点、打齐则推进波次。
-    const result = await applySyncImport(paths, {
-      ...buildUplinkBundle(uplink, code),
-      matches: acceptedMatches,
-    }, {
-      mode: 'bundle',
-      acceptedKeys: acceptedMatches.map((match) => `match:${match.id}`),
-      includeAvatars: false,
-      skipTournaments: true,
-    });
-
-    const acceptedIds = acceptedMatches.map((match) => match.id);
+    // 回执带上「本次确认的条目」，对方据此清理待交回标记（已确认集合是并集，不会丢历史）
+    const acceptedIds = acceptedItems.map((entry) => entry.record.id);
     const acceptedIdSet = new Set(acceptedIds);
     const ackedMatchIds = Array.from(new Set([...state.ackedMatchIds, ...acceptedIds]));
     const nextState = loadLocalState(paths);

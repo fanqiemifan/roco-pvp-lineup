@@ -737,6 +737,62 @@ describe('上行：分控「回传」→ 主控确认台 → 回执', () => {
     expect(getMatchStore(subPaths).matches).toHaveLength(1);
   });
 
+  it('对方重复交回同一批赛果时仍能确认：预览全是「内容一致」，只写回执不改数据', async () => {
+    configureRoom();
+    const { matches } = createRunningTournament();
+    const matchId = matches[0];
+    await postMain('/api/cloud-sync/assignment', {
+      syncKey: SYNC_KEY,
+      machineCode: 'A',
+      overrides: { [matchId]: 'B' },
+    });
+    await push();
+    await syncSub();
+
+    // 第一轮：分控登记 → 交回 → 主控确认（此后主控的这场就是最终态）
+    await playMatchOnSub(matchId, 'left');
+    await postSub('/api/cloud-sync/upload', { syncKey: SYNC_KEY, machineCode: 'B' });
+    const firstCheck = await postMain('/api/cloud-sync/check', { syncKey: SYNC_KEY, machineCode: 'A' });
+    await postMain('/api/cloud-sync/confirm', {
+      syncKey: SYNC_KEY,
+      machineCode: 'A',
+      code: 'B',
+      accepted: firstCheck.data.data.source.selectableKeys,
+    });
+
+    // 第二轮：分控（还没收到回执）把同一批赛果再交回一次 → 主控预览里全是「内容一致」
+    const reupload = await postSub('/api/cloud-sync/upload', { syncKey: SYNC_KEY, machineCode: 'B' });
+    expect(reupload.status).toBe(200);
+    const check = await postMain('/api/cloud-sync/check', { syncKey: SYNC_KEY, machineCode: 'A' });
+    const source = check.data.data.source;
+    expect(source).toBeTruthy();
+    expect(source.items.every((entry: { item: { action: string } }) => entry.item.action === 'skip')).toBe(true);
+    // 关键：这类条目也必须可勾选，否则主控点不了确认、对方永远停在「等主控确认」
+    expect(source.selectableKeys).toHaveLength(source.items.length);
+
+    const storeBefore = JSON.stringify(getMatchStore(mainPaths).matches);
+    const confirm = await postMain('/api/cloud-sync/confirm', {
+      syncKey: SYNC_KEY,
+      machineCode: 'A',
+      code: 'B',
+      accepted: source.selectableKeys,
+    });
+    expect(confirm.status).toBe(200);
+    expect(confirm.data.data.acked).toEqual([matchId]);
+    // 数据零改动 + 收件箱清空
+    expect(JSON.stringify(getMatchStore(mainPaths).matches)).toBe(storeBefore);
+    expect(confirm.data.result.applied.match.update).toBe(0);
+    expect(confirm.data.status.inbox).toHaveLength(0);
+
+    // 回执送达：分控端不再显示「等主控确认」
+    const ack = worker.kv.get(`room:${SYNC_KEY}:ack/B`) as any;
+    expect(ack.ackedMatchIds).toContain(matchId);
+    await postSub('/api/cloud-sync/poll', { syncKey: SYNC_KEY, machineCode: 'B' });
+    const subAfter = (await get(subBase, '/api/cloud-sync/status')).data.status;
+    expect(subAfter.pending.count).toBe(0);
+    expect(subAfter.pending.ackedMatchIds).toContain(matchId);
+  });
+
   it('未在收件箱的回传内容不能确认（先「检查回传」）', async () => {
     configureRoom();
     const result = await postMain('/api/cloud-sync/confirm', {

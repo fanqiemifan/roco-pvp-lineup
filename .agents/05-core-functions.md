@@ -165,7 +165,7 @@
 | 分控「标记为已处理」 | skipCloudPull | (paths: AppPaths) => Promise<CloudSyncActionResult<{appliedVersion}>> | 预览里没有可写入条目时收尾状态：只把「拉取到的那一版」记进 appliedVersion，不写入任何数据（配合前端「知道了，标记为已处理」按钮） |
 | 红点轮询 | pollCloudSync | (paths: AppPaths) => Promise<CloudSyncPollResult> | 只读小键：version（两端）、ack:{本机码}（分控端合并 ackedMatchIds，序号不小于已回传 seq 才认）、uplink:{各分控码}（主控端刷新收件箱，**带 ackedInboxSeq 水位：序号 ≤ 已确认水位的旧值一律忽略**，否则 KV 最终一致会让「刚确认完的数量」又冒出来）。**不读大包、不合并数据** |
 | 主控「检查回传」 | checkCloudSync | (paths: AppPaths, code?: string \| null) => Promise<CloudSyncCheckResult> | 逐分控端读 uplink → 包装成 SyncBundle → previewSyncImport 复用现有 diff → 每条附 impact 写回影响（写哪个节点、是否推进）；不写入任何数据 |
-| 主控确认 | confirmCloudSync | (paths: AppPaths, code: string, acceptedKeys: string[]) => Promise<CloudSyncConfirmResult> | 服务端重分类取交集 → applySyncImport（mode:'bundle' + `skipTournaments:true`，编排结构绝不用分控副本覆盖）→ 内部 runTournamentWriteBack 推进波次 → 写 ack:{code} → 从收件箱移除已确认条目 |
+| 主控确认 | confirmCloudSync | (paths: AppPaths, code: string, acceptedKeys: string[]) => Promise<CloudSyncConfirmResult> | 服务端重分类取交集 → 有可写入项时 applySyncImport（mode:'bundle' + `skipTournaments:true`，编排结构绝不用分控副本覆盖）→ 内部 runTournamentWriteBack 推进波次 → 写 ack:{code} → 从收件箱移除已确认条目。**被勾选项里的 `action='skip'`（本机与对方内容一致）也算确认**：这类不写数据、只回执 + 幂等补跑一次写回；否则对方会永远停在「等主控确认」（确认动作的本质是一次回执） |
 | 主控驳回 | rejectCloudSync | (paths: AppPaths, code: string) => Promise<CloudSyncRejectResult> | 不写本地、不写回执；分控端保持「待回传」，修正后重新点「回传」 |
 | 保存指派规则 | saveCloudAssignment | (paths: AppPaths, overrides: unknown) => CloudSyncStatus | 比赛 id -> 机器码（空串 = 主控端自己登记）；自动清理已不存在比赛的条目；随下次分发写入 downlink |
 | 改机器码守卫 | checkMachineCodeChange | (paths: AppPaths, nextCode: string) => MachineCodeGuardResult | 有内嵌旧码的 running 系列赛 → blocked（堵「改码丢所有权，自己锁死自己」）；仅有其它内嵌旧码系列赛 → requireConfirm；**不做自动迁移 id**（引用、头像目录名都会断） |

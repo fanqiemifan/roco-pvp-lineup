@@ -3933,7 +3933,12 @@ function Dashboard() {
         applyServerState(result.result.profiles
           ? { store: result.result.store, profiles: result.result.profiles }
           : { store: result.result.store });
-        message.success(`已确认 ${result.data.acked.length} 场赛果，并自动推进了下一轮`);
+        const updated = result.data.acked.length - result.result.applied.match.skip;
+        if (updated > 0) {
+          message.success(`已确认 ${result.data.acked.length} 场赛果（其中 ${updated} 场写入了本机），并自动推进了下一轮`);
+        } else {
+          message.success(`已确认 ${result.data.acked.length} 场赛果：本机内容本来就一致，只给对方回了「收到了」`);
+        }
         result.data.warnings.forEach((warning) => message.warning(warning));
         // 可能还有别的电脑交了赛果，刷新一次确认台状态
         await checkCloudInbox(cloudAckCode);
@@ -5243,7 +5248,7 @@ function Dashboard() {
                         type="info"
                         showIcon
                         message="这些是对方电脑登记的赛果"
-                        description="逐场勾选后点「确认这 N 场」；没勾的不会写入本机，对方那边还会保留待交回的状态。"
+                        description="勾选后点「确认这 N 场」：内容与本机不同的会写入本机（并推进系列赛），与本机已经一致的只回一个「收到了」的通知 —— 两种情况都会清掉对方的「等主控确认」。没勾的不会处理，对方仍保留待交回。"
                       />
                     ) : null}
 
@@ -5370,10 +5375,16 @@ function Dashboard() {
                               ) : (() => {
                                 const group = syncGroupOfMatchKey.get(record.key);
                                 const excluded = Boolean(group?.id && syncExcludedTournamentIds.includes(group.id));
+                                // 确认台里的「跳过」含义是「本机已有一模一样的赛果」→ 说清楚确认它只是回执
+                                const label = excluded
+                                  ? '随系列赛跳过'
+                                  : record.action === 'skip' && cloudPreviewFlow === 'incoming'
+                                    ? '内容一致'
+                                    : SYNC_ACTION_LABELS[record.action];
                                 return (
                                   <Space size={4}>
                                     <Tag color={record.action === 'add' ? 'green' : record.action === 'update' ? 'gold' : 'default'}>
-                                      {excluded ? '随系列赛跳过' : SYNC_ACTION_LABELS[record.action]}
+                                      {label}
                                     </Tag>
                                     {record.conflict ? <Tag color="red">冲突</Tag> : null}
                                   </Space>
@@ -5425,7 +5436,10 @@ function Dashboard() {
                               }
                               const group = syncGroupOfMatchKey.get(record.key);
                               const excluded = Boolean(group?.id && syncExcludedTournamentIds.includes(group.id));
-                              return { disabled: record.action === 'skip' || excluded };
+                              // 确认台里连「内容一致（跳过）」的条目也要能勾：确认它只等于给对方回执，
+                              // 否则主控会卡在「没有需要更新的内容」，而对方永远显示「等主控确认」
+                              const selectable = cloudPreviewFlow === 'incoming' || record.action !== 'skip';
+                              return { disabled: !selectable || excluded };
                             },
                           }}
                         />

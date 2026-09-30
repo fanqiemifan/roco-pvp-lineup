@@ -70,7 +70,7 @@
 | 分控「无需改动，标记为已处理」 | POST | /api/cloud-sync/skip | 预览里全是「不用改」的条目时收尾状态（只推进 appliedVersion，不写入任何数据），避免红点一直挂着 | electron/socket-server.ts |
 | 分控「回传」 | POST | /api/cloud-sync/upload | **现算**所有未 ack 比赛的累计集合（不是增量）→ 写 uplink:{本机码}，seq + 1；无待回传 400「无待回传」 | electron/socket-server.ts |
 | 主控「检查回传」 | POST | /api/cloud-sync/check | body.code 可空（空取最近提交的分控端）；逐分控端读 uplink → 包装成 SyncBundle → 复用现有预览（matchItems）+ 每条附 impact 写回影响说明；**不写入任何数据** | electron/socket-server.ts |
-| 主控确认（确认台） | POST | /api/cloud-sync/confirm | body: code + accepted。服务端重分类（不盲信分控端勾选）→ 只合并被确认的比赛（skipTournaments：编排结构绝不用分控副本覆盖）→ runTournamentWriteBack 推进波次 → 写回执 ack:{code} → 从收件箱移除已确认条目；广播 matches:update + tournament:update | electron/socket-server.ts |
+| 主控确认（确认台） | POST | /api/cloud-sync/confirm | body: code + accepted。服务端重分类（不盲信分控端勾选）→ 只合并被确认的比赛（skipTournaments：编排结构绝不用分控副本覆盖）→ runTournamentWriteBack 推进波次 → 写回执 ack:{code} → 从收件箱移除已确认条目；广播 matches:update + tournament:update。**被勾选的条目即使是「内容一致（action=skip）」也照样确认**：这类不写数据、只回执 + 幂等补跑一次写回，否则主控会卡在「没有需要更新的内容」而对方永远停在「等主控确认」 | electron/socket-server.ts |
 | 主控驳回 | POST | /api/cloud-sync/reject | body: code。**不写本地、不写回执**，分控端保持「待回传」 | electron/socket-server.ts |
 | 保存指派规则 | POST | /api/cloud-sync/assignment | body.overrides = 比赛 id -> 登记机器码（空字符串 = 主控端自己登记）；自动清掉已不存在比赛的条目；随下次「同步分发」写入 downlink 生效 | electron/socket-server.ts |
 | 登记入口判定 | POST | /api/cloud-sync/registration-scope | body.matchIds；返回逐场 {allowed, reason} + role + pending（待回传集）。一次问一批（列表逐行渲染，不能逐行打接口） | electron/socket-server.ts |
