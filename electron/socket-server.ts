@@ -15,13 +15,13 @@ import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './serv
 import { getSpriteRanking } from './services/stats-service.js';
 import {
   ensureRuntimeDirs,
-  getAvatarStates,
   saveAvatar,
   saveProfilePlayerAvatar,
   saveProfileTeamLogo,
   deleteAvatar,
   readAvatarMimeType,
 } from './services/image-service.js';
+import { createAvatarResolver, resolveMatchAvatars } from './services/avatar-resolver.js';
 import {
   getProfileStore,
   savePlayerProfile,
@@ -214,12 +214,19 @@ const ROLES_FOR_SCOREBOARD = ['page2', 'page3', 'page5'];
 const ROLES_FOR_PANEL = ['page1', 'page2', 'page3', 'page11', 'float'];
 const ROLES_FOR_PROFILES = ['page3', 'page11'];
 
+/** 活跃比赛记录（头像解析需要选手名做档案兜底，故不只是取 id） */
+function findActiveMatch(store: MatchStoreState): MatchRecord | null {
+  return store.activeMatchId
+    ? store.matches.find((match) => match.id === store.activeMatchId) ?? null
+    : null;
+}
+
 function snapshotPayload(paths: AppPaths): SnapshotPayload {
   const store = getMatchStore(paths);
   return {
     panels: [getPanelState(paths, 'left'), getPanelState(paths, 'right')],
     scoreboard: getScoreboardState(paths),
-    avatars: getAvatarStates(paths, store.activeMatchId),
+    avatars: resolveMatchAvatars(paths, findActiveMatch(store)),
     store,
     stage: getStageState(paths),
     page6: getPage6State(paths),
@@ -467,8 +474,9 @@ export async function createLocalServer(
 
   // 广播当前赛事对应的头像（活跃赛事变化时推流页等需要同步）
   const emitAvatarUpdate = (): void => {
-    const matchId = getMatchStore(paths).activeMatchId;
-    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatars: getAvatarStates(paths, matchId) }, ROLES_FOR_AVATAR);
+    const store = getMatchStore(paths);
+    const matchId = store.activeMatchId;
+    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatars: resolveMatchAvatars(paths, findActiveMatch(store)) }, ROLES_FOR_AVATAR);
   };
 
   // 红光特效「立即显示」为一次性触发：进入下一局（换比赛 / 新小局开始）时自动清除并广播，
@@ -724,7 +732,8 @@ export async function createLocalServer(
   });
 
   app.get('/api/avatars', (_request, response) => {
-    response.json(getAvatarStates(paths, getMatchStore(paths).activeMatchId));
+    const store = getMatchStore(paths);
+    response.json(resolveMatchAvatars(paths, findActiveMatch(store)));
   });
 
   app.get('/api/scoreboard', (_request, response) => {
@@ -752,10 +761,8 @@ export async function createLocalServer(
   // 胜者结算画面（page10）：返回当前活跃比赛与双方头像，页面自行解析最近一个已分胜负的小局胜者
   app.get('/api/page10', (_request, response) => {
     const store = getMatchStore(paths);
-    const match = store.activeMatchId
-      ? store.matches.find((item) => item.id === store.activeMatchId) ?? null
-      : null;
-    const avatars = getAvatarStates(paths, store.activeMatchId);
+    const match = findActiveMatch(store);
+    const avatars = resolveMatchAvatars(paths, match);
     response.json({ match, avatars });
   });
 
@@ -771,10 +778,11 @@ export async function createLocalServer(
         .map((id) => matchStore.matches.find((match) => match.id === id))
         .filter((match): match is NonNullable<typeof match> => match !== undefined && match.status === 'completed'),
     );
-    // 头像按赛事隔离：{ [matchId]: { left, right } }
+    // 头像统一解析（赛事覆盖 > 档案头像兜底）：{ [matchId]: { left, right } }
+    const avatarResolver = createAvatarResolver(paths);
     const avatars: Record<string, AvatarCollectionState> = {};
     for (const match of matches) {
-      avatars[match.id] = getAvatarStates(paths, match.id);
+      avatars[match.id] = avatarResolver.forMatch(match);
     }
     // 卡片场序时间：开始时间 + 按 BO×30 分钟累加（手动覆盖由 service 归一化在 state.matchTimes）
     const scheduleTimes = computeScheduleTimes(
@@ -806,10 +814,11 @@ export async function createLocalServer(
     const matches = state.matchIds
       .map((id) => matchStore.matches.find((item) => item.id === id))
       .filter((match): match is NonNullable<typeof match> => Boolean(match));
-    // 头像按赛事隔离：{ [matchId]: { left, right } }
+    // 头像统一解析（赛事覆盖 > 档案头像兜底）：{ [matchId]: { left, right } }
+    const avatarResolver = createAvatarResolver(paths);
     const avatars: Record<string, AvatarCollectionState> = {};
     for (const match of matches) {
-      avatars[match.id] = getAvatarStates(paths, match.id);
+      avatars[match.id] = avatarResolver.forMatch(match);
     }
     response.json({ state, matches, avatars });
   });
@@ -837,10 +846,11 @@ export async function createLocalServer(
         .map((id) => matchStore.matches.find((match) => match.id === id))
         .filter((match): match is NonNullable<typeof match> => match != null && (match.status === 'pending' || match.status === 'in_progress')),
     );
-    // 头像按赛事隔离：{ [matchId]: { left, right } }
+    // 头像统一解析（赛事覆盖 > 档案头像兜底）：{ [matchId]: { left, right } }
+    const avatarResolver = createAvatarResolver(paths);
     const avatars: Record<string, AvatarCollectionState> = {};
     for (const match of matches) {
-      avatars[match.id] = getAvatarStates(paths, match.id);
+      avatars[match.id] = avatarResolver.forMatch(match);
     }
     // 卡片场序时间：开始时间 + 按 BO×30 分钟累加（手动覆盖由 service 归一化在 state.matchTimes）
     const scheduleTimes = computeScheduleTimes(
@@ -899,14 +909,12 @@ export async function createLocalServer(
   // 返回配置 + 信息录入 + 当前赛事（含头像）+ 实时阵容面板，页面按 mode 自行解析两侧选手
   app.get('/api/page11', (_request, response) => {
     const store = getMatchStore(paths);
-    const match = store.activeMatchId
-      ? store.matches.find((item) => item.id === store.activeMatchId) ?? null
-      : null;
+    const match = findActiveMatch(store);
     response.json({
       state: getPage11State(paths),
       profiles: getProfileStore(paths),
       match,
-      avatars: getAvatarStates(paths, store.activeMatchId),
+      avatars: resolveMatchAvatars(paths, match),
       panels: [getPanelState(paths, 'left'), getPanelState(paths, 'right')],
       stage: getStageState(paths),
     });
@@ -932,6 +940,8 @@ export async function createLocalServer(
     try {
       const profiles = savePlayerProfile(paths, request.body ?? {});
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
+      // 选手名是头像匹配键：档案变更后各页需重解析头像（赛事覆盖 > 档案头像）
+      emitAvatarUpdate();
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -949,6 +959,7 @@ export async function createLocalServer(
           : null;
       const result = importPlayerProfiles(paths, list);
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
+      emitAvatarUpdate();
       response.json({ success: true, profiles: result.profiles, review: result.review });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -959,6 +970,7 @@ export async function createLocalServer(
     try {
       const profiles = deletePlayerProfile(paths, request.params.playerId ?? '');
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
+      emitAvatarUpdate();
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1001,6 +1013,8 @@ export async function createLocalServer(
       await saveProfilePlayerAvatar(paths, playerId, request.file.buffer);
       const profiles = getProfileStore(paths);
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
+      // 档案头像变了：让 page3/4/6/7/8/10/11 立即重解析（不必等重新载入）
+      emitAvatarUpdate();
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1044,6 +1058,7 @@ export async function createLocalServer(
         })),
       );
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
+      emitAvatarUpdate();
       response.json({ success: true, ...result });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1888,7 +1903,8 @@ export async function createLocalServer(
       // HTML/etc. payloads are rejected before storage. Avatars are scoped
       // to the active match (cache/avatars/{matchId}).
       const avatar = await saveAvatar(paths, side, matchId, request.file.buffer);
-      broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatar, avatars: getAvatarStates(paths, matchId) }, ROLES_FOR_AVATAR);
+      const store = getMatchStore(paths);
+      broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatar, avatars: resolveMatchAvatars(paths, findActiveMatch(store)) }, ROLES_FOR_AVATAR);
       response.json({ success: true, side, matchId, avatar });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1908,7 +1924,8 @@ export async function createLocalServer(
     }
 
     const avatar = deleteAvatar(paths, side, matchId);
-    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, side, avatar, avatars: getAvatarStates(paths, matchId) }, ROLES_FOR_AVATAR);
+    const store = getMatchStore(paths);
+    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, side, avatar, avatars: resolveMatchAvatars(paths, findActiveMatch(store)) }, ROLES_FOR_AVATAR);
     response.json({ success: true, side, matchId, avatar });
   });
 
@@ -2266,6 +2283,8 @@ export async function createLocalServer(
         mode,
         acceptedKeys: accepted,
         includeAvatars: String(body.includeAvatars ?? 'true') !== 'false',
+        // 默认只补缺；用户勾选「覆盖已有头像」才会用包内图片覆盖本机同档案头像
+        overwriteAvatars: String(body.overwriteAvatars ?? '') === 'true',
         excludeTournamentIds,
       });
 
@@ -2276,6 +2295,8 @@ export async function createLocalServer(
       }
       if (result.profiles) {
         broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
+        // 同步导入可能补写档案头像 / 变更选手名，头像匹配结果随之变化
+        emitAvatarUpdate();
       }
       response.json({ success: true, result });
     } catch (error) {

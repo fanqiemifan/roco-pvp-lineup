@@ -54,6 +54,11 @@ export interface SyncApplyOptions {
   acceptedKeys: string[];
   includeAvatars: boolean;
   /**
+   * 覆盖已有头像 / logo：默认只补缺（本地已有文件一律跳过），
+   * 勾选后用包内图片覆盖本机同档案的头像（预览里会提示「已有头像将被覆盖」的张数）。
+   */
+  overwriteAvatars?: boolean;
+  /**
    * 跳过系列赛编排合并（云同步的主控确认台走这条路）：
    * 确认赛果只合并比赛记录，编排结构由本机（编排机）自己持有，绝不能用分控端回传的副本覆盖。
    */
@@ -233,15 +238,20 @@ function normalizeBundleId(value: unknown): string {
   return String(value ?? '').replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** 档案目标解析：源 id 命中 → 同名匹配（用于头像补缺与左右对照） */
+/**
+ * 档案目标解析：**id 别名（对方 id → 本机 id）→ 源 id 精确命中 → 同名匹配**。
+ * 头像 / logo 按「档案 id」归属，包内 key 往往是对方机器的 id（对方机器上导出时用的是它自己的 id），
+ * 所以必须先过别名表，否则只能靠同名兜底 —— 对方改了名字或本机改了名字就落不到本机档案上。
+ */
 function resolveLocalProfileEntry(
   localEntries: Array<PlayerProfile | TeamProfile>,
   sourceId: string,
   nameById: Map<string, string>,
+  aliases?: Record<string, string>,
 ): PlayerProfile | TeamProfile | undefined {
-  const byId = localEntries.find((entry) => entry.id === sourceId);
-  if (byId) {
-    return byId;
+  const byAlias = localEntries.find((entry) => entry.id === (aliases?.[sourceId] ?? sourceId));
+  if (byAlias) {
+    return byAlias;
   }
   const name = nameById.get(sourceId);
   return name ? localEntries.find((entry) => entry.name === name) : undefined;
@@ -268,9 +278,10 @@ function countAvatarFill(
 
   const localEntries = kind === 'player' ? profiles.players : profiles.teams;
   const nameById = buildBundleNameMap(payload, kind);
+  const aliases = kind === 'player' ? profiles.playerAliases : profiles.teamAliases;
 
   Object.keys(avatarMap).forEach((sourceId) => {
-    const local = resolveLocalProfileEntry(localEntries, sourceId, nameById);
+    const local = resolveLocalProfileEntry(localEntries, sourceId, nameById, aliases);
     // 包内新增的档案导入后会按源 id 落盘，头像同样能补缺
     if (!local && !addedIds.has(sourceId)) {
       counts.unmatched += 1;
@@ -313,18 +324,13 @@ function buildAvatarDiffInfo(
   const base64 = avatarMap[sourceId] ?? null;
   const label = kind === 'player' ? '头像' : 'logo';
   const localEntries = kind === 'player' ? profiles.players : profiles.teams;
-  const local = resolveLocalProfileEntry(localEntries, sourceId, buildBundleNameMap(payload, kind));
+  const aliases = kind === 'player' ? profiles.playerAliases : profiles.teamAliases;
+  const local = resolveLocalProfileEntry(localEntries, sourceId, buildBundleNameMap(payload, kind), aliases);
   const localExists = local ? avatarExistsOf(kind, local) : false;
 
   if (!base64 && !localExists) {
     return { diffField: null, compare: null };
   }
-
-  const localUrl = local && localExists
-    ? (kind === 'player'
-      ? `/runtime/profiles/players/${local.id}.png?v=${(local as PlayerProfile).avatarMtime ?? 0}`
-      : `/runtime/profiles/teams/${local.id}.png?v=${(local as TeamProfile).logoMtime ?? 0}`)
-    : null;
 
   if (base64 && !localExists) {
     const canFill = Boolean(local) || willBeAdded;
@@ -564,11 +570,16 @@ export function previewSyncImport(paths: AppPaths, raw: unknown, mode: SyncConfl
   return buildPreview(paths, parseSyncBundle(raw), mode);
 }
 
-/** 头像补缺：只写本地缺失的文件（源 id → 同名匹配），单张失败不影响整体 */
-async function writeMissingAvatars(
+/**
+ * 头像 / logo 写入：目标档案解析走「别名 → 源 id → 同名」，落盘一律用**本机档案 id**。
+ * 默认只补缺（本机已有文件跳过）；overwrite = true 时用包内图片覆盖本机同档案的头像。
+ * 单张失败（图片格式不合法等）只记警告，不影响整体导入。
+ */
+async function writeSyncAvatars(
   paths: AppPaths,
   payload: SyncBundlePayload,
   warnings: string[],
+  overwrite: boolean,
 ): Promise<{ players: number; teams: number }> {
   const written = { players: 0, teams: 0 };
   if (!payload.avatars) {
@@ -576,20 +587,12 @@ async function writeMissingAvatars(
   }
 
   const profiles = getProfileStore(paths);
-  const playerById = new Map(profiles.players.map((entry) => [entry.id, entry]));
-  const playerByName = new Map(profiles.players.map((entry) => [entry.name, entry]));
-  const teamById = new Map(profiles.teams.map((entry) => [entry.id, entry]));
-  const teamByName = new Map(profiles.teams.map((entry) => [entry.name, entry]));
   const playerNameById = buildBundleNameMap(payload, 'player');
   const teamNameById = buildBundleNameMap(payload, 'team');
 
   for (const [sourceId, base64] of Object.entries(payload.avatars.players)) {
-    let target = playerById.get(sourceId);
-    if (!target) {
-      const name = playerNameById.get(sourceId);
-      target = name ? playerByName.get(name) : undefined;
-    }
-    if (!target || target.avatarExists) {
+    const target = resolveLocalProfileEntry(profiles.players, sourceId, playerNameById, profiles.playerAliases);
+    if (!target || (avatarExistsOf('player', target) && !overwrite)) {
       continue;
     }
     try {
@@ -601,12 +604,8 @@ async function writeMissingAvatars(
   }
 
   for (const [sourceId, base64] of Object.entries(payload.avatars.teams)) {
-    let target = teamById.get(sourceId);
-    if (!target) {
-      const name = teamNameById.get(sourceId);
-      target = name ? teamByName.get(name) : undefined;
-    }
-    if (!target || target.logoExists) {
+    const target = resolveLocalProfileEntry(profiles.teams, sourceId, teamNameById, profiles.teamAliases);
+    if (!target || (avatarExistsOf('team', target) && !overwrite)) {
       continue;
     }
     try {
@@ -719,7 +718,7 @@ export async function applySyncImport(
   }
 
   const avatarsWritten = options.includeAvatars
-    ? await writeMissingAvatars(paths, payload, warnings)
+    ? await writeSyncAvatars(paths, payload, warnings, options.overwriteAvatars === true)
     : { players: 0, teams: 0 };
 
   const applied: SyncImportPreview['summary'] = {

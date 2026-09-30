@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import sharp from 'sharp';
 
-import type { AvatarCollectionState, AvatarState } from '../../shared/types.js';
+import type { AvatarState } from '../../shared/types.js';
 import type { AppPaths } from './path-service.js';
 
 // 上传头像统一缩放并压缩到该尺寸（选手介绍页 390x416 大图展示需要高清源图）
@@ -104,13 +104,6 @@ export function avatarRequestPath(side: AvatarSide, matchId: string | null): str
     return `/api/avatar/${side}-avatar.png`;
   }
   return `/api/avatar/${encodeURIComponent(matchId)}/${side}-avatar.png`;
-}
-
-export function getAvatarStates(paths: AppPaths, matchId: string | null): AvatarCollectionState {
-  return {
-    left: getAvatarState(paths, 'left', matchId),
-    right: getAvatarState(paths, 'right', matchId),
-  };
 }
 
 export async function saveAvatar(

@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import sharp from 'sharp';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { loadRuntimeConfig, saveRuntimeConfig } from '../../electron/services/config-service';
@@ -306,6 +307,77 @@ describe('previewSyncImport / applySyncImport（档案与头像）', () => {
       includeAvatars: true,
     });
     expect(second.avatarsWritten.players).toBe(0);
+  });
+
+  it('头像按 id 别名落到本机档案：对方改名后同名匹配失效也不丢头像', async () => {
+    // 1) 先同步一次：本机已有同名档案 → 保留本机 id 并登记别名 p_other_machine -> 本机 id
+    savePlayerProfile(paths, { name: '夜航' });
+    const localId = getProfileStore(paths).players[0].id;
+    const first = exportMatchesFromSource();
+    first.profiles = {
+      players: [{ id: 'p_other_machine', name: '夜航', pets: '', declaration: '', rank: '' }],
+      teams: [],
+    };
+    const firstPreview = previewSyncImport(paths, first, 'newer');
+    await applySyncImport(paths, first, {
+      mode: 'newer',
+      acceptedKeys: firstPreview.playerItems.map((item) => item.key),
+      includeAvatars: false,
+    });
+    expect(getProfileStore(paths).playerAliases?.p_other_machine).toBe(localId);
+
+    // 2) 对方把选手改名后带头像再同步：同名匹配失效，只能靠别名落盘
+    const bundle = exportMatchesFromSource();
+    bundle.profiles = {
+      players: [{ id: 'p_other_machine', name: '夜航（改名后）', pets: '', declaration: '', rank: '' }],
+      teams: [],
+    };
+    bundle.avatars = { players: { p_other_machine: PNG_1X1_BASE64 }, teams: {} };
+
+    const preview = previewSyncImport(paths, bundle, 'newer');
+    expect(preview.avatars.players).toEqual({ fill: 1, existing: 0, unmatched: 0 });
+
+    // 一条档案都不勾选（本机不留对方名字的重名档案），头像仍要写到别名指向的本机档案
+    const result = await applySyncImport(paths, bundle, { mode: 'newer', acceptedKeys: [], includeAvatars: true });
+    expect(result.avatarsWritten.players).toBe(1);
+    expect(existsSync(paths.profilePlayerAvatarFile(localId))).toBe(true);
+  });
+
+  it('覆盖已有头像：默认只补缺，勾选 overwriteAvatars 才覆盖本机同档案头像', async () => {
+    savePlayerProfile(paths, { name: '夜航' });
+    const localId = getProfileStore(paths).players[0].id;
+    // 本机先有一张头像（尺寸与包内的不同，覆盖后文件必然变化）
+    const localPng = await sharp({ create: { width: 8, height: 8, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } })
+      .png()
+      .toBuffer();
+    const incomingPng = await sharp({ create: { width: 16, height: 16, channels: 4, background: { r: 0, g: 0, b: 255, alpha: 1 } } })
+      .png()
+      .toBuffer();
+    await saveProfilePlayerAvatar(paths, localId, localPng);
+    const before = readFileSync(paths.profilePlayerAvatarFile(localId));
+
+    const bundle = exportMatchesFromSource();
+    bundle.profiles = {
+      players: [{ id: 'p_other_machine', name: '夜航', pets: '', declaration: '', rank: '' }],
+      teams: [],
+    };
+    bundle.avatars = { players: { p_other_machine: incomingPng.toString('base64') }, teams: {} };
+
+    const preview = previewSyncImport(paths, bundle, 'newer');
+    expect(preview.avatars.players).toEqual({ fill: 0, existing: 1, unmatched: 0 });
+
+    const onlyFill = await applySyncImport(paths, bundle, { mode: 'newer', acceptedKeys: [], includeAvatars: true });
+    expect(onlyFill.avatarsWritten.players).toBe(0);
+    expect(readFileSync(paths.profilePlayerAvatarFile(localId))).toEqual(before);
+
+    const overwritten = await applySyncImport(paths, bundle, {
+      mode: 'newer',
+      acceptedKeys: [],
+      includeAvatars: true,
+      overwriteAvatars: true,
+    });
+    expect(overwritten.avatarsWritten.players).toBe(1);
+    expect(readFileSync(paths.profilePlayerAvatarFile(localId))).not.toEqual(before);
   });
 
   it('头像找不到对应档案：计入 unmatched，不写入', async () => {

@@ -27,6 +27,7 @@
   - 顶部「当前比赛」表单含左右选手名 + 排位排名（仅数字，PATCH 保存比赛信息时一并提交）。
   - 「比赛列表」卡片头部「快速创建比赛」弹窗：参赛选手在固定高度可滚动列表区逐条点选，列表按录入添加时间升序（档案 id 内嵌 base36 创建时间戳，数组顺序被打乱时仍按真实添加时间排，id 解析失败的按原数组顺序兜底在末尾）；顶部搜索框按名字实时过滤并派生勾选态，所选人数实时显示、奇数红字告警；再选「比赛赛制」与「赛事标签」，确认后 Fisher–Yates 随机洗牌 + 两两配对逐一 `POST /api/matches` 创建（公平起见随机分配，杜绝固定对阵），复用选手名字与排位排名；创建与「开一局」共用前端统一入口 `postCreateMatch`。
   - 「当前比赛」操作面板「开始本次对局」旁有「战队修改」按钮：创建时未选战队后续补填，PATCH `/api/matches/:id` 更新（联想录入战队复用 id 或手动输入）。
+  - 建场头像（「开一局」弹窗）：从录入档案联想选人（`reusePlayerProfile`）**只设档案头像预览、不再复制一份赛事头像** —— 复制件会变成「赛事覆盖」，永久压住档案头像，之后在「信息录入」换头像这场比赛不跟着变；想让本场用别的头像走「选择头像」单独上传（那才会写 `cache/avatars/{matchId}` 赛事覆盖），留空则由服务端统一解析兜底档案头像。
   - 小结局时编辑器数据源为赛事草稿（getPendingDraftContext + 草稿回填 effect，按 matchId|gameNumber 去重）；全局面板仅供推流页、不覆写编辑器（syncPanelFromApi pending 感知），推流页不显示未开局阵容。
   - 「筛选精灵」属性 chips 为共享组件 AttributeFilterChips（components/，赛事面板与本页「录入阵容」弹窗共用，改一处即两处同步）：图标 + 属性文案，chip 上 `container-type: inline-size` + `@container (max-width: 52px)` 在宽度不足时隐藏 `.attribute-filter-text` 退化为纯图标（title/aria-label 保留悬浮提示）。精灵形态 chips 为共享组件 FormFilterChips（同上共用），样式经 `.form-filter-chip` 对齐属性 chips（26px 高 / 10px 圆角 / 11px 字号，无图标），改样式即两处同时生效）。
 - profiles - 信息录入（选手/战队档案，单卡片 + Segmented 切换选手/战队视图）

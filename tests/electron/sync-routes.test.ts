@@ -1,16 +1,18 @@
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AddressInfo } from 'node:net';
 
+import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { io as ioClient, type Socket } from 'socket.io-client';
 
 import { createLocalServer, type LocalServer } from '../../electron/socket-server';
 import { loadRuntimeConfig, saveRuntimeConfig } from '../../electron/services/config-service';
+import { saveProfilePlayerAvatar } from '../../electron/services/image-service';
 import { createMatch } from '../../electron/services/match-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
-import { savePlayerProfile } from '../../electron/services/profile-service';
+import { getProfileStore, savePlayerProfile } from '../../electron/services/profile-service';
 import { exportSyncBundle } from '../../electron/services/sync-service';
 import { createTournament, getTournamentStore, startTournament } from '../../electron/services/tournament-service';
 import type { SyncBundle, SyncImportPreview } from '../../shared/types';
@@ -225,5 +227,46 @@ describe('导入携带系列赛的同步包（只读副本 + 广播）', () => {
     } finally {
       client.close();
     }
+  });
+});
+
+describe('POST /api/sync/import 的头像写入选项', () => {
+  it('默认只补缺；overwriteAvatars=true 才覆盖本机已有头像', async () => {
+    savePlayerProfile(paths, { name: '路由头像选手' });
+    const localId = getProfileStore(paths).players.find((player) => player.name === '路由头像选手')!.id;
+    const localPng = await sharp({ create: { width: 8, height: 8, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } })
+      .png()
+      .toBuffer();
+    const incomingPng = await sharp({ create: { width: 16, height: 16, channels: 4, background: { r: 0, g: 0, b: 255, alpha: 1 } } })
+      .png()
+      .toBuffer();
+    await saveProfilePlayerAvatar(paths, localId, localPng);
+    const before = readFileSync(paths.profilePlayerAvatarFile(localId));
+
+    // 包内：同名档案（对方的 id）+ 头像（尺寸与本机不同）
+    const bundle: SyncBundle = JSON.parse(JSON.stringify(foreignBundle)) as SyncBundle;
+    bundle.profiles = {
+      players: [{ id: 'p_route_remote', name: '路由头像选手', pets: '', declaration: '', rank: '' }],
+      teams: [],
+    };
+    bundle.avatars = { players: { p_route_remote: incomingPng.toString('base64') }, teams: {} };
+
+    const previewResponse = await postBundle('/api/sync/preview', bundle);
+    expect(previewResponse.data.preview.avatars.players).toEqual({ fill: 0, existing: 1, unmatched: 0 });
+
+    // 只补缺（默认）：本机头像保持不动
+    const onlyFill = await postBundle('/api/sync/import', bundle, { includeAvatars: 'true' });
+    expect(onlyFill.status).toBe(200);
+    expect(onlyFill.data.result.avatarsWritten.players).toBe(0);
+    expect(readFileSync(paths.profilePlayerAvatarFile(localId))).toEqual(before);
+
+    // 勾选覆盖：包内头像写到本机档案（别名解析，用本机 id 落盘）
+    const overwritten = await postBundle('/api/sync/import', bundle, {
+      includeAvatars: 'true',
+      overwriteAvatars: 'true',
+    });
+    expect(overwritten.status).toBe(200);
+    expect(overwritten.data.result.avatarsWritten.players).toBe(1);
+    expect(readFileSync(paths.profilePlayerAvatarFile(localId))).not.toEqual(before);
   });
 });

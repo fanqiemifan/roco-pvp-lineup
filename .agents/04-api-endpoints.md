@@ -49,7 +49,7 @@
 |-------------|------|------|------|------|
 | 导出同步包 | POST | /api/sync/export | 导出同步包（body: includeProfiles / includeAvatars）；比赛含全部场次（含空白/进行中，基线分发需要）+ 系列赛编排全量，头像 base64 内嵌且仅在包含档案时附带 | electron/socket-server.ts |
 | 导入预览 | POST | /api/sync/preview | 只读解析同步包并返回逐条「新增/更新/跳过」（multipart: file + mode，mode = newer/bundle），不写入任何数据；另返回 `tournamentGroups`（按系列赛分组的比赛，含「普通对局」组）与 `hasTournaments`，供预览弹窗区分系列赛及其比赛 | electron/socket-server.ts |
-| 应用导入 | POST | /api/sync/import | 按勾选条目合并比赛与档案、按需补缺头像；系列赛编排自动合并（不参与勾选）并补跑写回（幂等，波打齐自动推进）（multipart: file + mode + accepted（JSON 数组）+ excludeTournamentIds（JSON 数组，取消勾选的系列赛整条不导入：编排不合并且其名下比赛不写入）+ includeAvatars），成功后广播 matches:update（含档案变更时另广播 profiles:update；系列赛有新增/更新/推进时另广播 tournament:update） | electron/socket-server.ts |
+| 应用导入 | POST | /api/sync/import | 按勾选条目合并比赛与档案、按需写头像（目标档案按「id 别名 → 源 id → 同名」解析、用本机 id 落盘；默认只补缺，`overwriteAvatars=true` 才覆盖本机已有头像/logo）；系列赛编排自动合并（不参与勾选）并补跑写回（幂等，波打齐自动推进）（multipart: file + mode + accepted（JSON 数组）+ excludeTournamentIds（JSON 数组，取消勾选的系列赛整条不导入：编排不合并且其名下比赛不写入）+ includeAvatars + overwriteAvatars），成功后广播 matches:update（含档案变更时另广播 profiles:update + avatar:update；系列赛有新增/更新/推进时另广播 tournament:update） | electron/socket-server.ts |
 
 > 数据同步上传走独立 multer 实例（单文件，上限 SYNC_BUNDLE_MAX_BYTES = 64MB），不经过全局 express.json（2mb），避免大包被拦；超限/坏包统一 400 中文提示。
 

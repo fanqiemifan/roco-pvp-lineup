@@ -98,13 +98,23 @@
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
-| 获取单个头像状态 | getAvatarState | (paths: AppPaths, side: 'left' | 'right') => AvatarState | 获取单个头像状态 |
-| 获取双头像状态 | getAvatarStates | (paths: AppPaths) => AvatarCollectionState | 获取双头像状态 |
+| 获取赛事头像状态 | getAvatarState | (paths: AppPaths, side: 'left' | 'right', matchId: string | null) => AvatarState | 读取按赛事隔离的原始头像（不含档案兜底） |
 | 上传头像 | saveAvatar | (paths: AppPaths, side: 'left' | 'right', buffer: Buffer, mimeType?: string) => AvatarState | 保存头像 |
 | 删除头像 | deleteAvatar | (paths: AppPaths, side: 'left' | 'right') => AvatarState | 删除头像 |
 | 读取头像 MIME 类型 | readAvatarMimeType | (paths: AppPaths, side: 'left' | 'right') => string | 读取头像 MIME 类型 |
 | 保存选手录入头像 | saveProfilePlayerAvatar | (paths: AppPaths, playerId: string, buffer: Buffer) => Promise<void> | 魔数校验 + sharp 方形裁剪 PNG，存 cache/profiles/players/<id>.png |
 | 保存战队录入 logo | saveProfileTeamLogo | (paths: AppPaths, teamId: string, buffer: Buffer) => Promise<void> | 魔数校验 + sharp cover 铺满裁剪 192×192 PNG，存 cache/profiles/teams/<id>.png |
+
+## 头像统一解析 (avatar-resolver.ts)
+
+所有展示页读取「某场比赛左右头像」都走这里，替代旧的 `getAvatarStates(paths, matchId)`。
+优先级：**赛事覆盖（cache/avatars/{matchId}/**）> 档案头像（按 match.leftPlayer/rightPlayer 名字匹配信息录入）> 占位（exists:false）**；
+这样「信息录入」改头像能反映到所有页面，同时保留「当前比赛」单独覆盖的能力。
+
+| 自然语言描述 | 函数名 | 签名 | 说明 |
+|-------------|-------|------|------|
+| 创建头像解析器 | createAvatarResolver | (paths: AppPaths) => AvatarResolver | 一次请求内建一次档案索引，用 `forMatch(match)` 连续解析多场，避免逐场重复读 profiles.json |
+| 解析单场头像 | resolveMatchAvatars | (paths: AppPaths, match: MatchRecord | null) => AvatarCollectionState | 单场一次性解析；`match` 为 null（未创建比赛）时全部回退占位 |
 
 ## 配置管理 (config-service.ts)
 
@@ -143,8 +153,8 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 导出同步包 | exportSyncBundle | (paths: AppPaths, options: SyncExportOptions) => SyncBundle | 打包全部比赛（含空白/进行中）+ 系列赛编排全量 + 可选档案与头像（base64，仅在包含档案时附带；缺失头像文件不产生键） |
-| 导入预览 | previewSyncImport | (paths: AppPaths, raw: unknown, mode: SyncConflictMode) => SyncImportPreview | 校验 app/schema（不符抛中文错误）后组合比赛与档案 diff，统计头像 补缺/已有/无法对应；只读不写入（系列赛不进预览的勾选列表，导入时自动合并）。另产出 `tournamentGroups`（按 `match.tournamentRef.tournamentId` 把比赛归到各系列赛 + 「普通对局」组，带 name/playerCount/incoming/existsLocally/stageSummary/matchKeys）与 `hasTournaments`，供预览弹窗显示「这条系列赛包含哪些比赛」 |
-| 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，系列赛编排自动合并（不参与勾选）后补跑写回（runTournamentWriteBack，幂等，波打齐自动推进），按 includeAvatars 只补缺头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标 id 支持「同名匹配」）；返回 store（写回后最新、可能含新生成的下一波比赛）/profiles/avatarsWritten/tournaments/warnings。`options.skipTournaments`（云同步主控确认台用）= 不合并包内系列赛编排（编排结构由本机自己持有），只合并比赛并照跑写回；`options.excludeTournamentIds`（预览里被取消勾选的系列赛）= 该系列赛编排不合并且**其名下比赛一律不写入**（从 acceptedKeys 里剔除并统计 warning） |
+| 导入预览 | previewSyncImport | (paths: AppPaths, raw: unknown, mode: SyncConflictMode) => SyncImportPreview | 校验 app/schema（不符抛中文错误）后组合比赛与档案 diff，统计头像 补缺/已有/无法对应；只读不写入（系列赛不进预览的勾选列表，导入时自动合并）。另产出 `tournamentGroups`（按 `match.tournamentRef.tournamentId` 把比赛归到各系列赛 + 「普通对局」组，带 name/playerCount/incoming/existsLocally/stageSummary/matchKeys）与 `hasTournaments`，供预览弹窗显示「这条系列赛包含哪些比赛」。**头像统计口径与落盘一致**：包内头像 key（档案 id）先按「id 别名 → 源 id → 同名」解析成本机档案，命中不了才算「无法对应」 |
+| 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，系列赛编排自动合并（不参与勾选）后补跑写回（runTournamentWriteBack，幂等，波打齐自动推进），按 includeAvatars 写头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标档案按「**id 别名 → 源 id → 同名**」解析后**一律用本机 id 落盘**）；返回 store（写回后最新、可能含新生成的下一波比赛）/profiles/avatarsWritten/tournaments/warnings。`options.skipTournaments`（云同步主控确认台用）= 不合并包内系列赛编排（编排结构由本机自己持有），只合并比赛并照跑写回；`options.excludeTournamentIds`（预览里被取消勾选的系列赛）= 该系列赛编排不合并且**其名下比赛一律不写入**（从 acceptedKeys 里剔除并统计 warning）；`options.overwriteAvatars`（导入预览勾选「覆盖已有头像」）= 用包内图片覆盖本机同档案已有头像，**默认 false 只补缺**（跨机一致性靠档案头像，覆盖是显式例外） |
 | 解析同步包（供云同步复用） | parseSyncBundle | (raw: unknown) => SyncBundlePayload | 校验 app/schema/结构并产出 {machine, exportedAt, matches, tournaments, profiles, avatars}，不合法抛中文错误（云同步服务与路由共用同一校验口径） |
 
 ## 云同步 (cloud-sync-service.ts)

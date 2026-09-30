@@ -543,6 +543,8 @@ function Dashboard() {
   // 预览弹窗右侧差异面板当前查看的条目 key
   const [syncActiveKey, setSyncActiveKey] = useState<string | null>(null);
   const [syncIncludeAvatars, setSyncIncludeAvatars] = useState(true);
+  // 覆盖已有头像：默认只补缺（本机已有头像保持不动），勾选后用包内图片覆盖同档案头像
+  const [syncOverwriteAvatars, setSyncOverwriteAvatars] = useState(false);
   const [syncImporting, setSyncImporting] = useState(false);
   // === 云同步（点击式：主控「同步分发 / 检查回传 / 确认台」+ 分控「同步最新 / 回传」） ===
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus | null>(null);
@@ -1997,32 +1999,30 @@ function Dashboard() {
     });
   }
 
-  /** 创建比赛时复用录入选手：自动带上排名与头像 */
-  async function reusePlayerProfile(side: PanelSide, player: PlayerProfile) {
+  /**
+   * 创建比赛时复用录入选手：自动带上排名与头像预览。
+   *
+   * 这里**只预览、不再复制一份赛事头像**：比赛头像由服务端统一解析
+   * （赛事覆盖 > 按选手名匹配档案头像 > 占位），复制件会作为「赛事覆盖」永久压住
+   * 档案头像，导致之后在「信息录入」换头像时这场比赛不跟着变。
+   * 想让本场用别的头像，用下面的「选择头像」单独上传（那才会写赛事覆盖）。
+   */
+  function reusePlayerProfile(side: PanelSide, player: PlayerProfile) {
     createMatchForm.setFieldsValue({
       ...(side === 'left' ? { leftRank: player.rank || '' } : { rightRank: player.rank || '' }),
     });
     if (!player.avatarExists) {
       return;
     }
-    try {
-      const response = await fetch(`/runtime/profiles/players/${encodeURIComponent(player.id)}.png`);
-      if (!response.ok) {
-        return;
-      }
-      const blob = await response.blob();
-      const file = new File([blob], `${player.id}.png`, { type: 'image/png' });
-      if (side === 'left') {
-        if (createLeftAvatarUrl) URL.revokeObjectURL(createLeftAvatarUrl);
-        setCreateLeftAvatar(file);
-        setCreateLeftAvatarUrl(URL.createObjectURL(file));
-      } else {
-        if (createRightAvatarUrl) URL.revokeObjectURL(createRightAvatarUrl);
-        setCreateRightAvatar(file);
-        setCreateRightAvatarUrl(URL.createObjectURL(file));
-      }
-    } catch {
-      // 头像复用失败不影响继续创建
+    const previewUrl = `/runtime/profiles/players/${encodeURIComponent(player.id)}.png?t=${player.avatarMtime ?? 0}`;
+    if (side === 'left') {
+      if (createLeftAvatarUrl) URL.revokeObjectURL(createLeftAvatarUrl);
+      setCreateLeftAvatar(null);
+      setCreateLeftAvatarUrl(previewUrl);
+    } else {
+      if (createRightAvatarUrl) URL.revokeObjectURL(createRightAvatarUrl);
+      setCreateRightAvatar(null);
+      setCreateRightAvatarUrl(previewUrl);
     }
   }
 
@@ -3558,6 +3558,7 @@ function Dashboard() {
       setSyncSelectedKeys(defaultSyncSelection(result.preview));
       setSyncActiveKey(defaultSyncActiveKey(result.preview));
       setSyncIncludeAvatars(true);
+      setSyncOverwriteAvatars(false);
     } catch (error) {
       setSyncPreview(null);
       message.error(error instanceof Error ? error.message : String(error));
@@ -3597,6 +3598,7 @@ function Dashboard() {
       formData.append('mode', syncMode);
       formData.append('accepted', JSON.stringify(syncSelectedKeys));
       formData.append('includeAvatars', syncIncludeAvatars ? 'true' : 'false');
+      formData.append('overwriteAvatars', syncOverwriteAvatars ? 'true' : 'false');
       formData.append('excludeTournamentIds', JSON.stringify(syncExcludedTournamentIds));
 
       const result = await requestJson<{ success: boolean; result: SyncImportResult }>('/api/sync/import', {
@@ -3620,7 +3622,7 @@ function Dashboard() {
         : '';
       const summary = `比赛 新增 ${applied.match.add} / 更新 ${applied.match.update} / 跳过 ${applied.match.skip}；`
         + `档案 新增 ${applied.player.add + applied.team.add} / 更新 ${applied.player.update + applied.team.update}；`
-        + `头像补缺 ${avatarCount} 张${tournamentSegment}`;
+        + `${syncOverwriteAvatars ? '头像写入' : '头像补缺'} ${avatarCount} 张${tournamentSegment}`;
       setHistoryNotice({ tone: 'success', text: `同步包导入完成：${summary}` });
       message.success('同步包导入完成');
       result.result.warnings.forEach((warning) => message.warning(warning));
@@ -5512,10 +5514,17 @@ function Dashboard() {
                     {cloudPreviewFlow === 'incoming' ? null : (
                       <Space wrap align="center">
                         <Checkbox checked={syncIncludeAvatars} onChange={(event) => setSyncIncludeAvatars(event.target.checked)}>
-                          缺失头像 / logo 一并补缺（{syncPreview.avatars.players.fill + syncPreview.avatars.teams.fill} 张，只补缺不覆盖）
+                          缺失头像 / logo 一并补缺（{syncPreview.avatars.players.fill + syncPreview.avatars.teams.fill} 张）
+                        </Checkbox>
+                        <Checkbox
+                          checked={syncOverwriteAvatars}
+                          disabled={!syncIncludeAvatars}
+                          onChange={(event) => setSyncOverwriteAvatars(event.target.checked)}
+                        >
+                          覆盖已有头像 / logo（{syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张，仅同档案）
                         </Checkbox>
                         <Text type="secondary">
-                          已有头像保持不动 {syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张 · 无法对应档案 {syncPreview.avatars.players.unmatched + syncPreview.avatars.teams.unmatched} 张
+                          已有头像{syncOverwriteAvatars ? '将被包内覆盖' : '保持不动'} {syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张 · 无法对应档案 {syncPreview.avatars.players.unmatched + syncPreview.avatars.teams.unmatched} 张
                         </Text>
                       </Space>
                     )}
@@ -7320,7 +7329,7 @@ function Dashboard() {
               onSelect={(value) => {
                 const player = (profiles?.players ?? []).find((item) => item.name === value);
                 if (player) {
-                  void reusePlayerProfile('left', player);
+                  reusePlayerProfile('left', player);
                 }
               }}
             />
@@ -7335,7 +7344,7 @@ function Dashboard() {
               onSelect={(value) => {
                 const player = (profiles?.players ?? []).find((item) => item.name === value);
                 if (player) {
-                  void reusePlayerProfile('right', player);
+                  reusePlayerProfile('right', player);
                 }
               }}
             />
@@ -7390,7 +7399,7 @@ function Dashboard() {
           </Row>
           <Row gutter={[16, 16]}>
             <Col xs={24} md={12}>
-              <Form.Item label="左侧选手头像（留空则使用默认）">
+              <Form.Item label="左侧选手头像（留空则用档案头像，无档案用默认）">
                 <div className="create-avatar-row">
                   <div className="player-avatar-circular">
                     {createLeftAvatarUrl ? (
@@ -7412,7 +7421,7 @@ function Dashboard() {
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item label="右侧选手头像（留空则使用默认）">
+              <Form.Item label="右侧选手头像（留空则用档案头像，无档案用默认）">
                 <div className="create-avatar-row">
                   <div className="player-avatar-circular">
                     {createRightAvatarUrl ? (
