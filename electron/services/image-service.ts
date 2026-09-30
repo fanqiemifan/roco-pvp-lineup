@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import sharp from 'sharp';
 
-import type { AvatarCollectionState, AvatarState } from '../../shared/types.js';
+import type { AvatarState } from '../../shared/types.js';
 import type { AppPaths } from './path-service.js';
 
 // 上传头像统一缩放并压缩到该尺寸（选手介绍页 390x416 大图展示需要高清源图）
@@ -104,13 +104,6 @@ export function avatarRequestPath(side: AvatarSide, matchId: string | null): str
     return `/api/avatar/${side}-avatar.png`;
   }
   return `/api/avatar/${encodeURIComponent(matchId)}/${side}-avatar.png`;
-}
-
-export function getAvatarStates(paths: AppPaths, matchId: string | null): AvatarCollectionState {
-  return {
-    left: getAvatarState(paths, 'left', matchId),
-    right: getAvatarState(paths, 'right', matchId),
-  };
 }
 
 export async function saveAvatar(
@@ -215,31 +208,4 @@ export async function saveProfileTeamLogo(paths: AppPaths, teamId: string, buffe
     .png({ compressionLevel: 9 })
     .toBuffer();
   fs.writeFileSync(filePath, resized);
-}
-
-// 比赛预告（page8）自定义壁纸统一缩放裁剪为 1920x1080，压缩为 JPEG 落盘
-const WALLPAPER_WIDTH = 1920;
-const WALLPAPER_HEIGHT = 1080;
-const WALLPAPER_OUTPUT_MIME = 'image/jpeg';
-
-/**
- * 保存 page8 自定义壁纸。与头像上传一样基于文件魔数做权威校验（不做任何
- * 客户端 mimetype 信任），仅接受真实栅格图片，统一等比缩放裁剪为 1920x1080
- * 并压缩为 JPEG 写入固定路径，杜绝存储型同源 XSS。
- */
-export async function savePage8Wallpaper(paths: AppPaths, buffer: Buffer): Promise<string> {
-  const detectedMimeType = detectImageMimeType(buffer);
-  if (!detectedMimeType) {
-    throw new Error('仅支持 PNG / JPEG / GIF / WebP 图片文件');
-  }
-
-  ensureRuntimeDirs(paths);
-  const resized = await sharp(buffer)
-    .rotate()
-    .resize(WALLPAPER_WIDTH, WALLPAPER_HEIGHT, { fit: 'cover' })
-    .jpeg({ quality: 88, progressive: true })
-    .toBuffer();
-
-  fs.writeFileSync(paths.page8WallpaperFile, resized);
-  return WALLPAPER_OUTPUT_MIME;
 }

@@ -28,6 +28,8 @@ roco-pvp-lineup/
 │   ├── styles/         # 原生 CSS 样式
 │   └── assets/         # UI 资源（图标、字体）
 ├── tests/              # Vitest 测试（tests/electron/ 服务与 HTTP 层、tests/admin-antd/ 前端纯函数，镜像源码结构）
+├── cloudflare/         # 云同步信箱 Worker（独立部署，不进 Electron 构建：worker.js + wrangler.toml）
+├── scripts/            # 构建/资源脚本（sync-spirits-assets.mjs 下载精灵图、deploy-cloud-sync.mjs 一键部署 Worker）
 └── resources/          # 游戏资源
     ├── sprites-img/    # 精灵立绘（official_small_icon，/img/）
     ├── sprites-icon/   # 精灵头像（icon_url + 原 Thumbnail 迁移，/resources/sprites-icon/）
@@ -64,13 +66,16 @@ roco-pvp-lineup/
 | electron/services/page7-service.ts | 对局推送页（page7）状态管理 |
 | electron/services/page8-service.ts | 比赛预告页（page8）状态管理 |
 | electron/services/page9-service.ts | 团队积分榜页（page9）状态管理 |
+| electron/services/page14-service.ts | 晋级积分榜页（page14）状态管理（选题系列赛 + 可播阶段 + 当前阶段/页码 + 标题副标题；榜单经 tournament-service.resolveStageStandings 现算） |
 | electron/services/page11-service.ts | 选手介绍页（page11-13）左右两侧配置管理 |
 | electron/services/nextgame-service.ts | 下场对局（page3 下场对局展示 + 悬浮窗选择）状态管理 |
 | electron/services/countdown-service.ts | 倒计时插件状态管理（显隐/启停/重置） |
 | electron/services/stage-service.ts | 直播推流载体配置管理 |
 | electron/services/profile-service.ts | 选手/战队信息录入（增删改、JSON 批量导入 importPlayerProfiles、常用精灵命中判定 matchSpriteToken） |
 | electron/services/stats-service.ts | 精灵精灵登场/胜率排行统计（/api/stats/ranking） |
-| electron/services/sync-service.ts | 双机数据同步（导出同步包 exportSyncBundle / 导入预览 previewSyncImport / 合并应用 applySyncImport） |
+| electron/services/sync-service.ts | 双机数据同步（导出同步包 exportSyncBundle / 导入预览 previewSyncImport / 合并应用 applySyncImport——含系列赛自动合并与写回补跑） |
+| electron/services/cloud-sync-service.ts | 云同步（点击式 · Cloudflare Worker + KV 信箱）：主控 pushCloudSync（分发）/ checkCloudSync + confirmCloudSync（确认台 + 回执）/ rejectCloudSync，分控 previewCloudPull + finalizeCloudPull（同步最新）/ uploadCloudSync（回传），两端共用的 pollCloudSync（红点轮询，只读小键）、saveCloudAssignment（指派）、checkMachineCodeChange（改码守卫）、canRegisterMatch / checkSubUndoAllowed（登记与撤回闸门）；本机状态落 cache/cloud-sync.json，待合并包落 cache/cloud-pending.json |
+| electron/services/tournament-service.ts | 系列赛自动化引擎（创建/抽签/分桶配对/完成与撤回钩子/波次回退/弃权/删除，删除时经 match-service 解绑 tournamentRef 或连对局一并删除；编排落 cache/tournaments.json；双机编排机所有权闸门 + mergeTournamentRecords / runTournamentWriteBack） |
 
 ### 共享模块
 
@@ -79,6 +84,7 @@ roco-pvp-lineup/
 | shared/types.ts | 所有 TypeScript 类型定义 |
 | shared/events.ts | Socket.IO 事件名称常量 |
 | shared/constants.ts | 全局常量（端口、默认值、推流页面/过渡枚举） |
+| shared/match-schedule.ts | page6/8 卡片场序时间排期纯函数（开始时间 + BO×30 分钟累加、手动覆盖、中文序数文案），electron 下发与后台选场弹窗共用 |
 
 ### 管理后台（src/admin-antd）
 
@@ -86,10 +92,12 @@ roco-pvp-lineup/
 |---------|------|
 | App.tsx | 主组件：九视图分发（roster/stage/live/history/profiles/page11/stats/preview/about）、可收缩 Sider 导航（SVG 图标 via `?raw`）、工具栏 |
 | views/RosterPanelEditor.tsx | 阵容编辑（左右面板、精灵搜索、快速填充） |
-| views/HistoryLineupEntryModal.tsx | 比赛历史「录入阵容」弹窗（为待开始小局录入双方阵容） |
-| views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、标签趋势） |
-| components/ | SettingField、SpritePetCard、StageThumb 等小组件 |
-| lib/ | format、history、live、match、panel、preview、request、sprite、stats 通用逻辑 |
+| views/HistoryLineupEntryModal.tsx | 比赛管理「录入阵容」弹窗（为待开始小局录入双方阵容） |
+| views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、各系列赛阶段趋势；系列赛 / 标签 / 选手筛选） |
+| views/TournamentLineupExportModal.tsx | 系列赛「导出阵容模板」弹窗（范围过滤 → 一场两行 CSV） |
+| views/TournamentLineupImportModal.tsx | 系列赛「导入阵容」弹窗（CSV/TSV/JSON → 预览消歧 → 批量写入） |
+| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）等小组件 |
+| lib/ | format、history、last-tournament（系列赛「上次操作」本地记忆）、lineup-sheet（系列赛阵容表模板生成与回填解析）、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
 | styles.css | 管理后台样式 |
@@ -103,10 +111,12 @@ roco-pvp-lineup/
 | page3-display.js | 推流页面3（头像比分阵容）脚本 |
 | page4-display.js | 推流页面4（MVP 结算画面）脚本（按 pet_id 索引 webm/头像，增量渲染最多 6 个精灵项与标签、MVP 角标） |
 | page5-display.js | 登场/胜率排行页（page5）脚本 |
-| page6-display.js | 比赛结果页（page6）脚本 |
+| page6-display.js | 比赛结果页（page6）脚本（薄封装：调用共享 match-prediction.js，defaultTitle「比赛结果」） |
 | page7-display.js | 对局推送页（page7）脚本（多场比赛逐行滚动展示） |
-| page8-display.js | 比赛预告页（page8）脚本 |
+| page8-display.js | 比赛预告页（page8）脚本（薄封装：调用共享 match-prediction.js，标题留空隐藏） |
+| match-prediction.js | page6/8 共享卡片画面挂载器（蓝色渐变 + 标题/副标题 + 3×3 对局卡片网格 + 场序信息行，数据 GET /api/pageN，签名比对防闪烁） |
 | page9-display.js | 团队积分榜页（page9）脚本（排名与总积分自动计算） |
+| page14-display.js | 晋级积分榜页（page14）脚本（数据来自 GET /api/page14；按行数分 2/3 栏、每页最多 32 行，行元素按 playerId 增量复用不整页重写） |
 | page10-display.js | 推流页面10（胜者结算画面）脚本（解析最近一个已分胜负的小局胜者） |
 | page11-display.js | 选手介绍页脚本（page11-13 共用，`?mode=left/right/versus` 区分画面） |
 | countdown-overlay.js | 倒计时插件脚本（叠加在推流载体页顶部，GET /api/countdown + serverNow 校准） |
@@ -130,6 +140,7 @@ roco-pvp-lineup/
 | roco-pvp-page7.html | 对局推送展示页（直播推流可选画面） |
 | roco-pvp-page8.html | 比赛预告展示页（公开免鉴权，不进直播推流可选画面） |
 | roco-pvp-page9.html | 团队积分榜展示页（直播推流可选画面） |
+| roco-pvp-page14.html | 晋级积分榜展示页（直播推流可选画面；只统计系列赛赛果，按阶段切换，每页最多 32 行由后台翻页） |
 | roco-pvp-page10.html | 推流页面10（胜者结算画面，直播推流可选画面） |
 | roco-pvp-page11.html | 选手介绍页（page11-13 共用，`?mode=left/right/versus` 区分三种画面） |
 | float.html | 桌面阵容悬浮窗 |

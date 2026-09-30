@@ -1,4 +1,10 @@
-import type { GameRecord, MatchRecord, MatchStoreState, SpriteRecord } from '../../../shared/types';
+import type {
+  GameRecord,
+  MatchRecord,
+  MatchStoreState,
+  SpriteRecord,
+  TournamentRecord,
+} from '../../../shared/types';
 import { DEFAULT_TAGS } from '../constants';
 import type { PanelSide } from '../types';
 import { formatDateTime } from './format';
@@ -51,7 +57,7 @@ export function getVisibleGames(record: MatchRecord) {
 }
 
 /**
- * 比赛历史展开行的小局可见性：在 getVisibleGames 基础上，额外显示
+ * 比赛管理展开行的小局可见性：在 getVisibleGames 基础上，额外显示
  * 「未开赛场次的当前小局」（待开始且还没有任何阵容）——否则新比赛在历史里
  * 连第一局的卡片都不出现，无法通过历史录入阵容（必须先去赛事面板录一只精灵）。
  * 还没轮到的空小局仍然隐藏。
@@ -69,7 +75,7 @@ export function getHistoryVisibleGames(record: MatchRecord) {
   ));
 }
 
-/** 比赛历史「录入阵容」被锁定的原因；null = 可录入（当前小局且待开始） */
+/** 比赛管理「录入阵容」被锁定的原因；null = 可录入（当前小局且待开始） */
 export type LineupEntryBlockReason = 'match-completed' | 'game-not-current' | 'game-started' | 'game-completed';
 
 export const LINEUP_ENTRY_BLOCK_TEXT: Record<LineupEntryBlockReason, string> = {
@@ -80,7 +86,7 @@ export const LINEUP_ENTRY_BLOCK_TEXT: Record<LineupEntryBlockReason, string> = {
 };
 
 /**
- * 仅「当前小局」且「待开始」可从比赛历史录入阵容（提前录入，不影响推流）：
+ * 仅「当前小局」且「待开始」可从比赛管理录入阵容（提前录入，不影响推流）：
  * 进行中的局走赛事面板（改了会推流，是有意为之），已结束的局锁定保护战绩。
  */
 export function getLineupEntryBlockReason(match: MatchRecord, game: GameRecord): LineupEntryBlockReason | null {
@@ -98,6 +104,59 @@ export function getLineupEntryBlockReason(match: MatchRecord, game: GameRecord):
     return 'game-completed';
   }
   return null;
+}
+
+/** 历史筛选特殊值：非系列赛创建的普通对局（tournamentRef 缺失或指向已删除系列赛） */
+export const PLAIN_HISTORY_MATCH_FILTER = '__plain__';
+
+/**
+ * 比赛的有效系列赛归属 id：
+ * 有 tournamentRef 且系列赛仍存在才返回；系列赛已删除时的孤儿引用视同普通对局。
+ */
+export function getEffectiveTournamentId(
+  match: MatchRecord,
+  existingTournamentIds: ReadonlySet<string>,
+): string | null {
+  const tournamentId = match.tournamentRef?.tournamentId;
+  return tournamentId && existingTournamentIds.has(tournamentId) ? tournamentId : null;
+}
+
+/** 历史页系列赛筛选项 */
+export interface HistoryTournamentFilter {
+  id: string;
+  name: string;
+  count: number;
+}
+
+/**
+ * 构建系列赛筛选组：仅含比赛库里存在有效关联赛局的系列赛（0 场的不列），
+ * 顺序按该系列赛关联赛局在列表中首次出现的位置（比赛库新对局在前，天然近期优先）。
+ */
+export function buildHistoryTournamentFilters(
+  matches: MatchRecord[],
+  tournaments: TournamentRecord[],
+): HistoryTournamentFilter[] {
+  const nameMap = new Map(tournaments.map((tournament) => [tournament.id, tournament.name]));
+  const order: string[] = [];
+  const countMap = new Map<string, number>();
+
+  matches.forEach((match) => {
+    const tournamentId = match.tournamentRef?.tournamentId;
+    if (!tournamentId || !nameMap.has(tournamentId)) {
+      return;
+    }
+    if (!countMap.has(tournamentId)) {
+      countMap.set(tournamentId, 0);
+      order.push(tournamentId);
+    }
+    countMap.set(tournamentId, (countMap.get(tournamentId) ?? 0) + 1);
+  });
+
+  return order.map((id) => ({
+    id,
+    name: nameMap.get(id) ?? id,
+    count: countMap.get(id) ?? 0,
+  }));
 }
 
 export function buildHistoryTags(matches: MatchStoreState['matches']): string[] {

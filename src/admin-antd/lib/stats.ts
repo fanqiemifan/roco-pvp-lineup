@@ -1,6 +1,6 @@
-import type { MatchStoreState, SpriteRecord } from '../../../shared/types';
-import { DEFAULT_TAGS } from '../constants';
+import type { MatchRecord, MatchStoreState, SpriteRecord, TournamentRecord } from '../../../shared/types';
 import { resolveSpriteStatsName, splitSpriteAttributes } from './sprite';
+import { resolveMatchSemanticRound } from './tournament';
 
 export type StatsMetricKey = 'pickRate' | 'gameRate';
 
@@ -9,7 +9,14 @@ export const STATS_METRIC_OPTIONS: Array<{ value: StatsMetricKey; label: string 
   { value: 'gameRate', label: '上场率' },
 ];
 
-export type StatsWindow = { player: string | null; tag: string | null };
+export type StatsWindow = {
+  player: string | null;
+  tag: string | null;
+  tournamentId: string | null;
+};
+
+/** 趋势轴上的一个阶段桶：key 用于取数，label 用于刻度显示 */
+export type StatsStageBucket = { key: string; label: string };
 
 export type SpriteUsageAccumulator = {
   picks: number;
@@ -30,7 +37,8 @@ export type SpriteUsageRow = {
   winRate: number | null;
   usageRate: number;
   usagePercent: number;
-  tagTrendDelta: number | null;
+  /** 系列赛趋势：所选系列赛下该精灵使用率 − 全量使用率（百分点）；未选择系列赛为 null */
+  tournamentTrendDelta: number | null;
 };
 
 export type UsageStatsResult = {
@@ -39,24 +47,12 @@ export type UsageStatsResult = {
   distinctSprites: number;
   playerCount: number;
   attributeRows: Array<{ attribute: string; count: number; percent: number }>;
-  tagOrder: string[];
-  spriteTagRate: Map<string, Map<string, number>>;
+  stageAxis: StatsStageBucket[];
+  spriteStageRate: Map<string, Map<string, number>>;
   rows: SpriteUsageRow[];
   spriteAcc: Map<string, SpriteUsageAccumulator>;
   spriteMeta: Map<string, { path: string; attributes: string[] }>;
 };
-
-function orderTags(tags: string[]): string[] {
-  const tagSet = new Set(tags);
-  const ordered: string[] = [];
-  DEFAULT_TAGS.forEach((tag) => {
-    if (tagSet.has(tag)) {
-      ordered.push(tag);
-      tagSet.delete(tag);
-    }
-  });
-  return [...ordered, ...Array.from(tagSet).sort((a, b) => a.localeCompare(b, 'zh-CN'))];
-}
 
 function collectUsageStats(
   matches: MatchStoreState['matches'],
@@ -76,6 +72,10 @@ function collectUsageStats(
       return;
     }
     if (window.tag && !(match.tags ?? []).includes(window.tag)) {
+      return;
+    }
+    // 系列赛维度：按 tournamentRef 精确匹配（同 id 才算同一场系列赛，不按名字）
+    if (window.tournamentId && match.tournamentRef?.tournamentId !== window.tournamentId) {
       return;
     }
     if (match.leftPlayer) {
@@ -186,24 +186,83 @@ function collectUsageStats(
         percent: attributeTotal > 0 ? (count / attributeTotal) * 100 : 0,
       }))
       .sort((a, b) => b.count - a.count),
-    tagOrder: [],
-    spriteTagRate: new Map(),
+    stageAxis: [],
+    spriteStageRate: new Map(),
     rows: [],
     spriteAcc,
     spriteMeta,
   };
 }
 
+/**
+ * 比赛 → 统计阶段桶（趋势轴用）。非系列赛对局或孤儿引用返回 null（不进趋势轴）：
+ * - 选定系列赛：桶 = 该系列赛的「阶段 · 语义轮次」（双败按 首轮/胜者组/败者组/决胜轮 拆分）；
+ * - 未选系列赛：沿用按阶段名聚合（已知限制：同名阶段跨系列赛合并，界面提示先选系列赛）。
+ */
+function resolveMatchStageBucket(
+  match: MatchRecord,
+  recordById: Map<string, TournamentRecord>,
+  tournamentId: string | null,
+): { key: string; label: string; sort: string } | null {
+  const ref = match.tournamentRef;
+  const record = ref ? recordById.get(ref.tournamentId) : undefined;
+  const stage = ref && record ? record.stages[ref.stageIndex] : undefined;
+  if (!ref || !record || !stage) {
+    return null;
+  }
+  if (tournamentId && record.id !== tournamentId) {
+    return null;
+  }
+  if (!tournamentId) {
+    return { key: `stage:${stage.name}`, label: stage.name, sort: match.createdAt || '' };
+  }
+  const round = resolveMatchSemanticRound(record, ref);
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return {
+    key: `${record.id}:${ref.stageIndex}:${round.key}`,
+    label: round.label ? `${stage.name} · ${round.label}` : stage.name,
+    sort: `${record.createdAt}|${pad(ref.stageIndex)}|${pad(ref.waveIndex)}|${pad(round.order)}`,
+  };
+}
+
+/** 趋势轴：按时间锚排序的阶段桶序列（未选系列赛时聚合桶取最早一场比赛为锚点） */
+export function buildStatsStageAxis(
+  matches: MatchStoreState['matches'],
+  tournaments: TournamentRecord[],
+  tournamentId: string | null,
+): StatsStageBucket[] {
+  const recordById = new Map(tournaments.map((record) => [record.id, record]));
+  const buckets = new Map<string, { bucket: StatsStageBucket; sort: string }>();
+  matches.forEach((match) => {
+    const resolved = resolveMatchStageBucket(match, recordById, tournamentId);
+    if (!resolved) {
+      return;
+    }
+    const existing = buckets.get(resolved.key);
+    if (!existing) {
+      buckets.set(resolved.key, { bucket: { key: resolved.key, label: resolved.label }, sort: resolved.sort });
+    } else if (resolved.sort && (!existing.sort || resolved.sort < existing.sort)) {
+      existing.sort = resolved.sort;
+    }
+  });
+  return Array.from(buckets.values())
+    .sort((left, right) => (left.sort < right.sort ? -1 : left.sort > right.sort ? 1 : 0))
+    .map((entry) => entry.bucket);
+}
+
 export function buildUsageStats(
   matches: MatchStoreState['matches'],
   spriteMap: Map<string, SpriteRecord>,
-  options: { player: string | null; tag: string | null; metric: StatsMetricKey },
+  tournaments: TournamentRecord[],
+  options: { player: string | null; tag: string | null; tournamentId: string | null; metric: StatsMetricKey },
 ): UsageStatsResult {
-  const { player, tag, metric } = options;
+  const { player, tag, tournamentId, metric } = options;
 
-  const current = collectUsageStats(matches, spriteMap, { player, tag });
-  const all = collectUsageStats(matches, spriteMap, { player: null, tag: null });
-  const tagOnly = collectUsageStats(matches, spriteMap, { player: null, tag });
+  const current = collectUsageStats(matches, spriteMap, { player, tag, tournamentId });
+  const all = collectUsageStats(matches, spriteMap, { player: null, tag: null, tournamentId: null });
+  const seriesOnly = tournamentId
+    ? collectUsageStats(matches, spriteMap, { player: null, tag: null, tournamentId })
+    : null;
 
   const rateOf = (result: UsageStatsResult, name: string): number => {
     const acc = result.spriteAcc.get(name);
@@ -217,27 +276,48 @@ export function buildUsageStats(
     return (metric === 'pickRate' ? acc.picks : acc.games) / denominator;
   };
 
-  const tagNames = Array.from(new Set(matches.flatMap((match) => match.tags ?? [])));
-  const tagOrder = orderTags(tagNames);
-  const spriteTagRate = new Map<string, Map<string, number>>();
-  for (const tagName of tagOrder) {
-    const tagStats = collectUsageStats(matches, spriteMap, { player: null, tag: tagName });
-    for (const [name, acc] of tagStats.spriteAcc) {
-      const denominator = metric === 'pickRate' ? tagStats.totalPicks : tagStats.totalGames;
+  // 趋势轴与逐桶使用率：桶内取数不受选手/标签筛选影响（与旧的逐标签口径一致）
+  const stageAxis = buildStatsStageAxis(matches, tournaments, tournamentId);
+  const recordById = new Map(tournaments.map((record) => [record.id, record]));
+  const matchesByBucket = new Map<string, MatchStoreState['matches']>();
+  matches.forEach((match) => {
+    const resolved = resolveMatchStageBucket(match, recordById, tournamentId);
+    if (!resolved) {
+      return;
+    }
+    const list = matchesByBucket.get(resolved.key);
+    if (list) {
+      list.push(match);
+    } else {
+      matchesByBucket.set(resolved.key, [match]);
+    }
+  });
+
+  const spriteStageRate = new Map<string, Map<string, number>>();
+  stageAxis.forEach((bucket) => {
+    const bucketStats = collectUsageStats(matchesByBucket.get(bucket.key) ?? [], spriteMap, {
+      player: null,
+      tag: null,
+      tournamentId: null,
+    });
+    for (const [name, acc] of bucketStats.spriteAcc) {
+      const denominator = metric === 'pickRate' ? bucketStats.totalPicks : bucketStats.totalGames;
       const rate = denominator > 0 ? (metric === 'pickRate' ? acc.picks : acc.games) / denominator : 0;
-      let rates = spriteTagRate.get(name);
+      let rates = spriteStageRate.get(name);
       if (!rates) {
         rates = new Map();
-        spriteTagRate.set(name, rates);
+        spriteStageRate.set(name, rates);
       }
-      rates.set(tagName, rate);
+      rates.set(bucket.key, rate);
     }
-  }
+  });
 
   const denominator = metric === 'pickRate' ? current.totalPicks || 1 : current.totalGames || 1;
   const rows: SpriteUsageRow[] = Array.from(current.spriteAcc.entries()).map(([name, acc]) => {
     const usageRate = (metric === 'pickRate' ? acc.picks : acc.games) / denominator;
-    const tagTrendDelta = tag ? Math.round((rateOf(tagOnly, name) - rateOf(all, name)) * 1000) / 10 : null;
+    const tournamentTrendDelta = seriesOnly
+      ? Math.round((rateOf(seriesOnly, name) - rateOf(all, name)) * 1000) / 10
+      : null;
     const meta = current.spriteMeta.get(name);
     return {
       key: name,
@@ -251,13 +331,13 @@ export function buildUsageStats(
       winRate: acc.games > 0 ? acc.wins / acc.games : null,
       usageRate,
       usagePercent: Math.round(usageRate * 1000) / 10,
-      tagTrendDelta,
+      tournamentTrendDelta,
     };
   });
 
   rows.sort((a, b) => b.usageRate - a.usageRate || b.picks - a.picks || a.name.localeCompare(b.name, 'zh-CN'));
 
-  return { ...current, rows, tagOrder, spriteTagRate };
+  return { ...current, rows, stageAxis, spriteStageRate };
 }
 
 export function buildStatsCsv(rows: SpriteUsageRow[], metric: StatsMetricKey): string {

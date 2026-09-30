@@ -15,6 +15,7 @@ import {
   SUPPORTED_PAGE3_SPRITE_SOURCES,
   SUPPORTED_STAGE_PAGES,
   SUPPORTED_STAGE_TRANSITIONS,
+  TOURNAMENT_ID_REGEX,
 } from '../../shared/constants.js';
 import type { NextGameDurationUnit, Page3RedLightMode, Page3SpriteSource, StageConfig, StagePageKey, StageTransitionType } from '../../shared/types.js';
 import { ensureRuntimeDirs } from './image-service.js';
@@ -38,8 +39,10 @@ function normalizePage5Player(value: unknown): string {
   return String(value ?? '').trim().slice(0, 40);
 }
 
-function normalizePage5Tag(value: unknown): string {
-  return String(value ?? '').trim().slice(0, 40);
+/** 推流页面5：系列赛过滤 id（空 = 全部；仅接受 T 前缀白名单形态，非法值直接丢弃） */
+function normalizePage5TournamentId(value: unknown): string {
+  const id = String(value ?? '').trim();
+  return id && TOURNAMENT_ID_REGEX.test(id) ? id : '';
 }
 
 function normalizePage3SpriteSource(value: unknown): Page3SpriteSource {
@@ -96,7 +99,7 @@ function defaultStageState(): StageConfig {
     page3RedLightInstant: DEFAULT_PAGE3_RED_LIGHT_INSTANT,
     page11RankVisible: DEFAULT_PAGE11_RANK_VISIBLE,
     page5Player: '',
-    page5Tag: '',
+    page5TournamentId: '',
     page10Duration: DEFAULT_PAGE10_DURATION,
     page10DurationUnit: DEFAULT_PAGE10_DURATION_UNIT as NextGameDurationUnit,
     mtime: null,
@@ -122,7 +125,7 @@ export function getStageState(paths: AppPaths): StageConfig {
       page3RedLightInstant: normalizePage3RedLightInstant(metadata.page3RedLightInstant),
       page11RankVisible: normalizePage11RankVisible(metadata.page11RankVisible),
       page5Player: normalizePage5Player(metadata.page5Player),
-      page5Tag: normalizePage5Tag(metadata.page5Tag),
+      page5TournamentId: normalizePage5TournamentId(metadata.page5TournamentId),
       page10Duration: normalizePage10Duration(metadata.page10Duration, page10DurationUnit),
       page10DurationUnit,
       mtime: stat.mtimeMs,
@@ -155,7 +158,7 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
     page3RedLightInstant: normalizePage3RedLightInstant(raw.page3RedLightInstant ?? current.page3RedLightInstant),
     page11RankVisible: normalizePage11RankVisible(raw.page11RankVisible ?? current.page11RankVisible),
     page5Player: normalizePage5Player(raw.page5Player),
-    page5Tag: normalizePage5Tag(raw.page5Tag),
+    page5TournamentId: normalizePage5TournamentId(raw.page5TournamentId),
     page10Duration: normalizePage10Duration(
       raw.page10Duration === undefined ? current.page10Duration : raw.page10Duration,
       page10DurationUnit,

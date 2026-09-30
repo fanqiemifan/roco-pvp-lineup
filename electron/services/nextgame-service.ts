@@ -12,7 +12,8 @@ import type {
   NextGamePayload,
   NextGameState,
 } from '../../shared/types.js';
-import { ensureRuntimeDirs, getAvatarStates } from './image-service.js';
+import { ensureRuntimeDirs } from './image-service.js';
+import { resolveMatchAvatars } from './avatar-resolver.js';
 import { getMatchStore } from './match-service.js';
 import type { AppPaths } from './path-service.js';
 
@@ -97,7 +98,7 @@ export function getNextGamePayload(paths: AppPaths): NextGamePayload {
   if (state.matchId) {
     const store = getMatchStore(paths);
     match = store.matches.find((item) => item.id === state.matchId) ?? null;
-    avatars = getAvatarStates(paths, state.matchId);
+    avatars = resolveMatchAvatars(paths, match);
   }
 
   return { state, match, avatars };

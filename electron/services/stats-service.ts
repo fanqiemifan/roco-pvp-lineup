@@ -1,5 +1,6 @@
 import { getMatchStore } from './match-service.js';
 import { spriteLookup } from './sprite-service.js';
+import { getTournamentStore } from './tournament-service.js';
 import type { AppPaths } from './path-service.js';
 
 export type StatsRankingRow = {
@@ -37,18 +38,32 @@ function spriteField(sprite: unknown, key: string): string {
 }
 
 /**
- * 按选手 + 赛事标签计算精灵使用率/胜率排行（Top 10，按使用率降序），统计范围为全部历史对局。
+ * 按选手 + 系列赛 / 标签计算精灵使用率/胜率排行（Top 10，按使用率降序），统计范围为全部历史对局。
+ * - 系列赛过滤按 tournamentRef.tournamentId 精确匹配（同 id 才算同一场系列赛，不按名字），并回传系列赛名供页面5标题展示；
  * - 使用率 = 登场只次 ÷ 总登场只次（同名精灵同局重复携带按只次计）
  * - 胜率 = 该精灵所在一侧获胜场次 ÷ 登场场次（同局左右双方携带同名精灵只计 1 场；镜像局双方同时携带按 0.5 胜计）
  */
 export function getSpriteRanking(
   paths: AppPaths,
-  options: { player: string | null; tag: string | null },
-): { player: string | null; tag: string | null; totalPicks: number; rows: StatsRankingRow[] } {
+  options: { player: string | null; tag: string | null; tournamentId: string | null },
+): {
+  player: string | null;
+  tag: string | null;
+  tournamentId: string | null;
+  tournamentName: string;
+  totalPicks: number;
+  rows: StatsRankingRow[];
+} {
   const lookup = spriteLookup(paths);
   const store = getMatchStore(paths);
   const player = typeof options.player === 'string' && options.player.trim() ? options.player.trim() : null;
   const tag = typeof options.tag === 'string' && options.tag.trim() ? options.tag.trim() : null;
+  const tournamentId = typeof options.tournamentId === 'string' && options.tournamentId.trim()
+    ? options.tournamentId.trim()
+    : null;
+  const tournamentName = tournamentId
+    ? getTournamentStore(paths).find((record) => record.id === tournamentId)?.name ?? ''
+    : '';
 
   const acc = new Map<string, { picks: number; games: number; wins: number }>();
   let totalPicks = 0;
@@ -58,6 +73,9 @@ export function getSpriteRanking(
       return false;
     }
     if (tag && !(match.tags ?? []).includes(tag)) {
+      return false;
+    }
+    if (tournamentId && match.tournamentRef?.tournamentId !== tournamentId) {
       return false;
     }
     return true;
@@ -140,5 +158,5 @@ export function getSpriteRanking(
 
   rows.sort((a, b) => b.usagePercent - a.usagePercent || b.picks - a.picks);
 
-  return { player, tag, totalPicks, rows: rows.slice(0, 10) };
+  return { player, tag, tournamentId, tournamentName, totalPicks, rows: rows.slice(0, 10) };
 }

@@ -45,9 +45,24 @@ import type { ColumnsType } from 'antd/es/table';
 import { io } from 'socket.io-client';
 
 import { SOCKET_EVENTS } from '../../shared/events';
-import { MVP_MAX_ITEMS, MVP_TAG_MAX_LENGTH, SYNC_BUNDLE_MAX_BYTES } from '../../shared/constants';
+import {
+  CLOUD_SYNC_POLL_INTERVALS,
+  CLOUD_SYNC_ROSTER_MAX,
+  MVP_MAX_ITEMS,
+  MVP_TAG_MAX_LENGTH,
+  SYNC_BUNDLE_MAX_BYTES,
+} from '../../shared/constants';
 import type {
   AvatarCollectionState,
+  CloudSyncAckSource,
+  CloudSyncInboxEntry,
+  CloudSyncKeyGuardResult,
+  CloudSyncPendingQueue,
+  CloudSyncRole,
+  CloudSyncStatus,
+  CloudSyncVersion,
+  MachineCodeGuardResult,
+  SyncImportTournamentGroup,
   CountdownPayload,
   CountdownState,
   MatchRecord,
@@ -60,28 +75,30 @@ import type {
   NextGameState,
   Page6State,
   Page7State,
-  Page8Background,
   Page8State,
   Page9State,
   Page11State,
+  Page14State,
   PanelState,
   PlayerProfile,
   ProfileStoreState,
   ScoreboardState,
-  Page6Background,
   Page3SpriteSource,
   Page3RedLightMode,
   SlotState,
   SpriteRecord,
   StageConfig,
   StagePageKey,
+  StageStandings,
   StageTransitionType,
   SyncBundle,
   SyncConflictMode,
+  SyncImportCounts,
   SyncImportItem,
   SyncImportPreview,
   SyncImportResult,
   TeamProfile,
+  TournamentRecord,
 } from '../../shared/types';
 
 import {
@@ -96,16 +113,28 @@ import {
 } from './constants';
 import { StageThumb } from './components/StageThumb';
 import { SettingField } from './components/SettingField';
+import { MatchPushCard } from './components/MatchPushCard';
+import type { MatchPushKind, MatchPushPayload } from './components/MatchPushCard';
+import { AdvanceRankCard } from './components/AdvanceRankCard';
+import type { AdvanceRankPayload } from './components/AdvanceRankCard';
 import { formatDateTime } from './lib/format';
 import {
   buildHistoryBattleEntries,
   buildHistoryCsv,
   buildHistoryLineupEntries,
   buildHistoryTags,
+  buildHistoryTournamentFilters,
+  getEffectiveTournamentId,
   getHistoryVisibleGames,
   getLineupEntryBlockReason,
   LINEUP_ENTRY_BLOCK_TEXT,
+  PLAIN_HISTORY_MATCH_FILTER,
 } from './lib/history';
+import {
+  buildPushCandidateGroups,
+  formatStageRoundLabel,
+  resolveMatchSemanticRound,
+} from './lib/tournament';
 import {
   clampNumber,
   extractLiveConfigPanel,
@@ -144,6 +173,7 @@ import { buildSpriteLookup } from './lib/sprite';
 import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
+import { TournamentView } from './views/TournamentView';
 
 import { type StatsMetricKey } from './lib/stats';
 
@@ -151,12 +181,14 @@ import rosterIcon from '../assets/ui/赛事面板.svg?raw';
 import stageIcon from '../assets/ui/直播推流.svg?raw';
 import liveIcon from '../assets/ui/实时控制.svg?raw';
 import mvpIcon from '../assets/ui/结算页面.svg?raw';
+// 图标沿用原「比赛历史」素材文件名，改文案时别动这里
 import historyIcon from '../assets/ui/比赛历史.svg?raw';
 import profilesIcon from '../assets/ui/信息录入.svg?raw';
 import introIcon from '../assets/ui/选手介绍.svg?raw';
 import statsIcon from '../assets/ui/数据统计.svg?raw';
 import previewIcon from '../assets/ui/页面预览.svg?raw';
 import aboutIcon from '../assets/ui/关于项目.svg?raw';
+import tournamentIcon from '../assets/ui/系列比赛.svg?raw';
 import brandLogoRaw from '../assets/ui/logo.svg?raw';
 import type {
   CreateMatchValues,
@@ -183,6 +215,11 @@ const SELECT_MATCH_CONFIRM_SUPPRESSED_KEY = 'roco-pvp-lineup:selectMatchConfirmS
 /** 比赛列表懒加载：一次渲染 6 条，滚动到底部再加载 6 条，赛事很多时避免全量渲染 */
 const MATCH_LIST_PAGE_SIZE = 6;
 
+/** 比赛列表行：分组标题行 或 比赛卡片行（扁平化后供懒加载切片） */
+type DashboardListRow =
+  | { rowType: 'group'; key: string; title: string; count: number }
+  | { rowType: 'match'; key: string; match: MatchRecord };
+
 function isSelectMatchConfirmSuppressed(): boolean {
   try {
     return window.localStorage.getItem(SELECT_MATCH_CONFIRM_SUPPRESSED_KEY) === '1';
@@ -204,7 +241,7 @@ function setSelectMatchConfirmSuppressed(suppressed: boolean): void {
 }
 
 /** 导航栏各视图对应的 SVG 图标（Assets 里提供的自定义图标），使用当前上下文颜色自适应 */
-type NavIconName = 'roster' | 'stage' | 'live' | 'mvp' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'about';
+type NavIconName = 'roster' | 'stage' | 'live' | 'mvp' | 'history' | 'profiles' | 'page11' | 'stats' | 'preview' | 'tournament' | 'about';
 
 /** 各导航视图对应的标题文案（与导航栏标签一致），顶部栏按当前视图显示 */
 const VIEW_LABEL: Record<NavIconName, string> = {
@@ -212,11 +249,12 @@ const VIEW_LABEL: Record<NavIconName, string> = {
   stage: '直播推流',
   live: '实时控制',
   mvp: '结算画面',
-  history: '比赛历史',
+  history: '比赛管理',
   profiles: '信息录入',
   page11: '选手介绍',
   stats: '数据统计',
   preview: '页面预览',
+  tournament: '系列比赛',
   about: '关于项目',
 };
 
@@ -230,6 +268,7 @@ const NAV_ICONS: Record<NavIconName, string> = {
   page11: introIcon,
   stats: statsIcon,
   preview: previewIcon,
+  tournament: tournamentIcon,
   about: aboutIcon,
 };
 
@@ -261,8 +300,10 @@ const HISTORY_STATUS_RANK: Record<MatchRecord['status'], number> = {
   completed: 2,
 };
 
-const PAGE6_MAX_MATCHES = 8;
-const PAGE8_MAX_MATCHES = 4;
+/** 推流页选场上限：比赛结果 / 对局推送 / 比赛预告 均为 9 场（3×3 卡片网格） */
+const PAGE6_MAX_MATCHES = 9;
+const PAGE7_MAX_MATCHES = 9;
+const PAGE8_MAX_MATCHES = 9;
 /** 团队积分榜（page9）后台可录入的战队行数 */
 const PAGE9_TEAM_COUNT = 4;
 
@@ -383,6 +424,8 @@ function Dashboard() {
   const [selectedHistoryKeys, setSelectedHistoryKeys] = useState<React.Key[]>([]);
   const [expandedHistoryKeys, setExpandedHistoryKeys] = useState<React.Key[]>([]);
   const [historyTagFilter, setHistoryTagFilter] = useState<string | null>(null);
+  // 系列赛维度筛选（独立于标签）：PLAIN_HISTORY_MATCH_FILTER=普通对局，或具体系列赛 id
+  const [historyTournamentFilter, setHistoryTournamentFilter] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState('');
   const [historySort, setHistorySort] = useState<HistorySortState>({ key: 'updatedAt', order: 'desc' });
   const [batchTagOpen, setBatchTagOpen] = useState(false);
@@ -391,6 +434,7 @@ function Dashboard() {
   const [statsMetric, setStatsMetric] = useState<StatsMetricKey>('pickRate');
   const [statsPlayer, setStatsPlayer] = useState<string | null>(null);
   const [statsTag, setStatsTag] = useState<string | null>(null);
+  const [statsTournamentId, setStatsTournamentId] = useState<string | null>(null);
   const [statsSearch, setStatsSearch] = useState('');
   const [previewSlot, setPreviewSlot] = useState<PreviewSlotKey>('stage');
   const [previewScale, setPreviewScale] = useState(1);
@@ -412,26 +456,20 @@ function Dashboard() {
   const [mvpSlotsDraft, setMvpSlotsDraft] = useState<MvpSlotEntry[]>(createEmptyMvpSlots);
   const [page6, setPage6] = useState<Page6State | null>(null);
   const [page5TitleDraft, setPage5TitleDraft] = useState('');
-  const [page6TitleDraft, setPage6TitleDraft] = useState('');
-  const [page6BackgroundDraft, setPage6BackgroundDraft] = useState<Page6Background>('image');
   const [page2EventTitleDraft, setPage2EventTitleDraft] = useState('');
-  const [page6Draft, setPage6Draft] = useState<string[]>([]);
-  const [page6Pushing, setPage6Pushing] = useState(false);
   const [page8, setPage8] = useState<Page8State | null>(null);
   const [page7, setPage7] = useState<Page7State | null>(null);
-  const [page7TitleDraft, setPage7TitleDraft] = useState('');
-  const [page7NoticeDraft, setPage7NoticeDraft] = useState('');
-  const [page7Draft, setPage7Draft] = useState<string[]>([]);
-  const [page7Pushing, setPage7Pushing] = useState(false);
-  const [page8Draft, setPage8Draft] = useState<string[]>([]);
-  const [page8TitleDraft, setPage8TitleDraft] = useState('');
-  const [page8BackgroundDraft, setPage8BackgroundDraft] = useState<Page8Background>('image');
-  const [page8Pushing, setPage8Pushing] = useState(false);
-  const [page8Saving, setPage8Saving] = useState(false);
-  const [page8WallpaperUploading, setPage8WallpaperUploading] = useState(false);
-  const [page8SettingsNotice, setPage8SettingsNotice] = useState<NoticeState>(null);
+  // 三个推流选场弹窗的推送中状态（key: page6/page7/page8）
+  const [matchPushLoading, setMatchPushLoading] = useState<Record<string, boolean>>({});
   const [page9, setPage9] = useState<Page9State | null>(null);
   const [page11, setPage11] = useState<Page11State | null>(null);
+  // === 晋级积分榜（推流页面14） ===
+  const [page14, setPage14] = useState<Page14State | null>(null);
+  // 服务端按系列赛阶段重算的榜单（当前阶段；系列赛缺失时为 null）
+  const [page14Standings, setPage14Standings] = useState<StageStandings | null>(null);
+  const [page14Saving, setPage14Saving] = useState(false);
+  // socket 回调里判断「是否配了系列赛」用（回调注册在 [] 依赖的 effect 里，读不到最新 state）
+  const page14ConfiguredRef = useRef(false);
   // 选手介绍手动填写草稿（左侧/右侧），source 切换时同步
   const [page11LeftDraft, setPage11LeftDraft] = useState({ source: 'match' as 'manual' | 'match', name: '', rank: '', declaration: '', pets: '' });
   const [page11RightDraft, setPage11RightDraft] = useState({ source: 'match' as 'manual' | 'match', name: '', rank: '', declaration: '', pets: '' });
@@ -445,6 +483,12 @@ function Dashboard() {
   const [page9SettingsNotice, setPage9SettingsNotice] = useState<NoticeState>(null);
   // === 信息录入（选手 / 战队） ===
   const [profiles, setProfiles] = useState<ProfileStoreState | null>(null);
+  // === 系列赛编排 ===
+  const [tournaments, setTournaments] = useState<TournamentRecord[]>([]);
+  // 晋级积分榜是否已配好系列赛：比赛/编排广播到达时决定要不要重取榜单
+  useEffect(() => {
+    page14ConfiguredRef.current = Boolean(page14?.tournamentId);
+  }, [page14?.tournamentId]);
   // 快速创建弹窗选手列表：按信息录入添加时间排序（档案 id 内嵌 base36 创建时间戳，先录者在前；
   // 数组顺序可能被手动编辑/导入/删后重录打乱，id 解析失败的按原数组顺序兜底排在末尾）
   const quickCreatePlayerList = useMemo(() => {
@@ -492,7 +536,7 @@ function Dashboard() {
   const avatarBatchInputRef = useRef<HTMLInputElement | null>(null);
   const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
-  // 比赛历史「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
+  // 比赛管理「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
   // === 数据同步（双机同步包导出 / 导入） ===
   const [machineCodeInput, setMachineCodeInput] = useState('');
@@ -510,7 +554,39 @@ function Dashboard() {
   // 预览弹窗右侧差异面板当前查看的条目 key
   const [syncActiveKey, setSyncActiveKey] = useState<string | null>(null);
   const [syncIncludeAvatars, setSyncIncludeAvatars] = useState(true);
+  // 覆盖已有头像：默认只补缺（本机已有头像保持不动），勾选后用包内图片覆盖同档案头像
+  const [syncOverwriteAvatars, setSyncOverwriteAvatars] = useState(false);
   const [syncImporting, setSyncImporting] = useState(false);
+  // === 云同步（点击式：主控「同步分发 / 检查回传 / 确认台」+ 分控「同步最新 / 回传」） ===
+  const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus | null>(null);
+  // 云同步设置区草稿（本地编辑，点「保存设置」才落 config.json）
+  const [cloudKeyDraft, setCloudKeyDraft] = useState('');
+  const [cloudTokenDraft, setCloudTokenDraft] = useState('');
+  const [cloudRoleDraft, setCloudRoleDraft] = useState<CloudSyncRole>('main');
+  const [cloudWorkerUrlDraft, setCloudWorkerUrlDraft] = useState('');
+  const [cloudLabelDraft, setCloudLabelDraft] = useState('');
+  const [cloudPeerDraft, setCloudPeerDraft] = useState('');
+  const [cloudSaving, setCloudSaving] = useState(false);
+  const [cloudTesting, setCloudTesting] = useState(false);
+  // 换房间守卫：改「房间号」时服务端回 409 + guard，弹窗让用户选「重置旧状态 / 原样保留」再重试（缺省拒绝保存）
+  const [cloudRoomGuard, setCloudRoomGuard] = useState<{ action: 'save' | 'test'; guard: CloudSyncKeyGuardResult } | null>(null);
+  const [cloudBusy, setCloudBusy] = useState<'push' | 'pull' | 'upload' | 'check' | 'apply' | 'assignment' | 'poll' | ''>('');
+  // 云端数据走与「导入同步包」同一套预览：flow 区分「拉取待合并」与「主控确认台」
+  const [cloudPreviewFlow, setCloudPreviewFlow] = useState<'pull' | 'incoming' | null>(null);
+  const [cloudAckSource, setCloudAckSource] = useState<CloudSyncAckSource | null>(null);
+  const [cloudAckSources, setCloudAckSources] = useState<CloudSyncAckSource[]>([]);
+  const [cloudAckCode, setCloudAckCode] = useState('');
+  const [cloudDistInfo, setCloudDistInfo] = useState('');
+  const [cloudPollNotified, setCloudPollNotified] = useState('');
+  // 指派工作台（按比赛勾选 / 按波次批量）
+  const [cloudAssignOpen, setCloudAssignOpen] = useState(false);
+  const [cloudAssignDraft, setCloudAssignDraft] = useState<Record<string, string>>({});
+  // 分控电脑本地「已被主控确认」的赛果集合（登记入口判定接口回传，避免逐行算）
+  const [cloudAckedMatchIds, setCloudAckedMatchIds] = useState<string[]>([]);
+  // 预览里被取消勾选的系列赛 id（随导入一起提交：整条不导入，含它名下的比赛）
+  const [syncExcludedTournamentIds, setSyncExcludedTournamentIds] = useState<string[]>([]);
+  const [syncCollapsedGroupKeys, setSyncCollapsedGroupKeys] = useState<string[]>([]);
+  const cloudPollTimerRef = useRef<number | null>(null);
   // 比赛列表懒加载游标：先渲染 6 条，滚动到底部再追加 6 条
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
@@ -561,6 +637,21 @@ function Dashboard() {
   const lineupLocked = activeMatch?.status === 'completed';
   const progress = buildProgressItems(activeMatch);
   const allHistoryTags = buildHistoryTags(matchStore.matches);
+  // 系列赛筛选组：id→名称映射 + 有效 id 集合（系列赛删除后残留的孤儿引用按普通对局处理）
+  const tournamentNameMap = useMemo(
+    () => new Map(tournaments.map((tournament) => [tournament.id, tournament.name])),
+    [tournaments],
+  );
+  // 比赛管理标签列派生「阶段 · 轮次」只读 Tag 用：id → 完整系列赛记录
+  const tournamentRecordMap = useMemo(
+    () => new Map(tournaments.map((tournament) => [tournament.id, tournament])),
+    [tournaments],
+  );
+  const tournamentIdSet = useMemo(() => new Set(tournamentNameMap.keys()), [tournamentNameMap]);
+  const historyTournamentFilters = useMemo(
+    () => buildHistoryTournamentFilters(matchStore.matches, tournaments),
+    [matchStore.matches, tournaments],
+  );
   const pendingMatches = matchStore.matches.filter((match) => match.status === 'pending');
   const allPlayers = Array.from(new Set(matchStore.matches.flatMap((match) => [
     match.leftPlayer,
@@ -588,6 +679,17 @@ function Dashboard() {
     } else if (historyTagFilter && !(match.tags ?? []).includes(historyTagFilter)) {
       return false;
     }
+    // 系列赛维度与标签维度 AND 叠加：普通对局=无有效归属；否则按系列赛 id 精确过滤
+    if (historyTournamentFilter) {
+      const effectiveTournamentId = getEffectiveTournamentId(match, tournamentIdSet);
+      if (historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER) {
+        if (effectiveTournamentId) {
+          return false;
+        }
+      } else if (effectiveTournamentId !== historyTournamentFilter) {
+        return false;
+      }
+    }
     if (!normalizedHistorySearch) {
       return true;
     }
@@ -598,13 +700,55 @@ function Dashboard() {
     ].some((value) => value.toLowerCase().includes(normalizedHistorySearch));
   });
   const sortedMatches = [...filteredMatches].sort(compareHistoryMatches);
+  /** 筛选状态提示：被筛掉多少场、当前按什么筛（避免「同步来的比赛看不见」被误判成丢数据） */
+  const historyFilterSummary = (() => {
+    const parts: string[] = [];
+    if (historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER) {
+      parts.push('只看普通对局');
+    } else if (historyTournamentFilter) {
+      parts.push(`只看系列赛「${tournamentNameMap.get(historyTournamentFilter) ?? historyTournamentFilter}」`);
+    }
+    if (historyTagFilter) {
+      parts.push(historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? '只看无标签' : `只看标签「${historyTagFilter}」`);
+    }
+    if (normalizedHistorySearch) {
+      parts.push(`搜索「${historySearch.trim()}」`);
+    }
+    if (!parts.length) {
+      return '';
+    }
+    const hidden = matchStore.matches.length - filteredMatches.length;
+    return `当前${parts.join(' + ')}：显示 ${filteredMatches.length} / 共 ${matchStore.matches.length} 场`
+      + (hidden > 0 ? `（有 ${hidden} 场被筛选条件隐藏，刚同步来的比赛可能在其中）` : '');
+  })();
   // 「录入阵容」弹窗的当前上下文：从最新 store 里解析比赛与小局（socket 更新后自动跟随）
   const lineupEntryMatch = lineupEntry ? matchStore.matches.find((match) => match.id === lineupEntry.matchId) ?? null : null;
   const lineupEntryGame = lineupEntryMatch && lineupEntry
     ? lineupEntryMatch.games.find((game) => game.gameNumber === lineupEntry.gameNumber) ?? null
     : null;
-  const visibleMatches = matchStore.matches.slice(0, visibleMatchCount);
-  const hasMoreMatches = matchStore.matches.length > visibleMatchCount;
+  // 赛事面板比赛列表：当前比赛置顶高亮（不参与懒加载计数），其余按「赛事 · 阶段 · 轮次」分组
+  const dashboardActiveMatch = activeMatch || null;
+  const dashboardNonActiveMatches = matchStore.matches.filter(
+    (m) => m.id !== dashboardActiveMatch?.id,
+  );
+  const dashboardMatchGroups = buildPushCandidateGroups(dashboardNonActiveMatches, tournaments);
+  const dashboardListRows = ((): DashboardListRow[] => {
+    const rows: DashboardListRow[] = [];
+    dashboardMatchGroups.forEach((group) => {
+      rows.push({
+        rowType: 'group',
+        key: `group:${group.key}`,
+        title: group.title,
+        count: group.matches.length,
+      });
+      group.matches.forEach((match) => {
+        rows.push({ rowType: 'match', key: match.id, match });
+      });
+    });
+    return rows;
+  })();
+  const visibleDashboardRows = dashboardListRows.slice(0, visibleMatchCount);
+  const hasMoreMatches = dashboardListRows.length > visibleMatchCount;
 
   /** 比赛列表滚动到底部（余量 32px）时追加一页卡片 */
   function handleMatchListScroll(event: React.UIEvent<HTMLDivElement>) {
@@ -613,8 +757,34 @@ function Dashboard() {
     }
     const el = event.currentTarget;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
-      setVisibleMatchCount((count) => Math.min(count + MATCH_LIST_PAGE_SIZE, matchStore.matches.length));
+      setVisibleMatchCount((count) => Math.min(count + MATCH_LIST_PAGE_SIZE, dashboardListRows.length));
     }
+  }
+
+  /** 比赛列表卡片行（分组列表内使用） */
+  function renderDashboardMatchItem(match: MatchRecord) {
+    return (
+      <List.Item
+        className="match-list-item"
+        actions={[
+          <Button key="select" onClick={() => void selectMatch(match.id)}>
+            选择
+          </Button>,
+        ]}
+      >
+        <List.Item.Meta
+          avatar={<Badge status={match.status === 'completed' ? 'success' : match.status === 'in_progress' ? 'processing' : 'default'} />}
+          title={`${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`}
+          description={(
+            <Space wrap>
+              <Tag color="gold">BO{match.bestOf}</Tag>
+              <Tag color={getMatchStatusColor(match.status)}>{getMatchStatusLabel(match.status)}</Tag>
+              <Tag bordered={false} className="match-list-score-tag">{match.leftScore} : {match.rightScore}</Tag>
+            </Space>
+          )}
+        />
+      </List.Item>
+    );
   }
 
   const deferredRosterSearch = useDeferredValue(rosterSearch);
@@ -662,8 +832,10 @@ function Dashboard() {
     page8?: Page8State;
     page9?: Page9State;
     page11?: Page11State;
+    page14?: Page14State;
     nextgame?: NextGamePayload;
     profiles?: ProfileStoreState;
+    tournaments?: TournamentRecord[];
     countdown?: CountdownPayload;
     mvp?: MvpState;
   }) {
@@ -716,8 +888,14 @@ function Dashboard() {
       if (payload.page11) {
         setPage11(payload.page11);
       }
+      if (payload.page14) {
+        setPage14(payload.page14);
+      }
       if (payload.profiles) {
         setProfiles(payload.profiles);
+      }
+      if (payload.tournaments) {
+        setTournaments(payload.tournaments);
       }
       if (payload.mvp) {
         setMvp(payload.mvp);
@@ -730,7 +908,7 @@ function Dashboard() {
     setPageError('');
 
     try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig] = await Promise.all([
+      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextPage14, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig, nextTournaments] = await Promise.all([
         requestJson<{ authenticated: boolean }>('/api/auth/check'),
         requestJson<ScoreboardState>('/api/scoreboard'),
         requestJson<MatchStoreState>('/api/matches'),
@@ -743,11 +921,13 @@ function Dashboard() {
         requestJson<{ state: Page8State }>('/api/page8'),
         requestJson<{ state: Page9State }>('/api/page9'),
         requestJson<{ state: Page11State }>('/api/page11'),
+        requestJson<{ state: Page14State; standings: StageStandings | null }>('/api/page14'),
         requestJson<NextGamePayload>('/api/nextgame'),
         requestJson<ProfileStoreState>('/api/profiles'),
         requestJson<CountdownPayload>('/api/countdown'),
         requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp'),
-        requestJson<{ port: number; machineCode: string }>('/api/runtime-config'),
+        requestJson<{ port: number; machineCode: string; syncConfig?: CloudSyncStatus }>('/api/runtime-config'),
+        requestJson<{ tournaments: TournamentRecord[] }>('/api/tournaments'),
       ]);
 
       if (!auth.authenticated) {
@@ -762,19 +942,22 @@ function Dashboard() {
         setSprites(nextSprites.sprites);
         setStage(nextStage);
         setPage6(nextPage6.state);
-        setPage6Draft(nextPage6.state.matchIds);
         setPage7(nextPage7.state);
-        setPage7Draft(nextPage7.state.matchIds);
         setPage8(nextPage8.state);
-        setPage8Draft(nextPage8.state.matchIds);
         setPage9(nextPage9.state);
         setPage11(nextPage11.state);
+        setPage14(nextPage14.state);
+        setPage14Standings(nextPage14.standings);
         setProfiles(nextProfiles);
+        setTournaments(nextTournaments.tournaments);
         setNextgame(nextNextgame.state);
         setNextgameMatch(nextNextgame.match ?? null);
         setMvp(nextMvp.state);
         setMvpWinner(nextMvp.winner ?? null);
         setMachineCodeInput(nextRuntimeConfig.machineCode ?? '');
+        if (nextRuntimeConfig.syncConfig) {
+          applyCloudStatus(nextRuntimeConfig.syncConfig);
+        }
         // 与 applyServerState 一致：先维护草稿上下文再同步面板，避免 pending 时全局面板覆写编辑器
         pendingDraftRef.current = getPendingDraftContext(nextMatches);
         syncPanelFromApi('left', nextPanels.panels[0]);
@@ -853,6 +1036,10 @@ function Dashboard() {
 
     socket.on(SOCKET_EVENTS.snapshot, (payload) => {
       applyServerState(payload ?? {});
+      // 快照只带 page14 配置，榜单（standings）要另外取一次
+      if (payload?.page14) {
+        void refreshPage14View();
+      }
     });
 
     socket.on(SOCKET_EVENTS.panelUpdate, (payload) => {
@@ -870,6 +1057,10 @@ function Dashboard() {
     socket.on(SOCKET_EVENTS.matchesUpdate, (payload) => {
       if (payload?.store) {
         applyServerState({ store: payload.store });
+      }
+      // 登记/撤回赛果会改变系列赛阶段的胜负累计：重取榜单（未配系列赛时跳过）
+      if (page14ConfiguredRef.current) {
+        void refreshPage14View();
       }
     });
 
@@ -911,6 +1102,13 @@ function Dashboard() {
       }
     });
 
+    socket.on(SOCKET_EVENTS.page14Update, (payload) => {
+      if (payload?.state) {
+        applyServerState({ page14: payload.state });
+        void refreshPage14View();
+      }
+    });
+
     socket.on(SOCKET_EVENTS.page11Update, (payload) => {
       if (payload?.state) {
         applyServerState({ page11: payload.state });
@@ -941,6 +1139,16 @@ function Dashboard() {
       }
       if (payload?.winner !== undefined) {
         setMvpWinner(payload.winner ?? null);
+      }
+    });
+
+    socket.on(SOCKET_EVENTS.tournamentUpdate, (payload) => {
+      if (Array.isArray(payload?.tournaments)) {
+        applyServerState({ tournaments: payload.tournaments });
+      }
+      // 阶段推进/回退、阶段改名都会影响榜单标题与行
+      if (page14ConfiguredRef.current) {
+        void refreshPage14View();
       }
     });
 
@@ -1236,7 +1444,7 @@ function Dashboard() {
             选手信息与当前小局阵容（比分栏、推流页面1-3 会被覆盖）。
           </Paragraph>
           <Paragraph type="secondary">
-            如当前正在推流其他对局，请先确认再切换。阵容可在「比赛历史」中提前录入，无需切换当前赛事。
+            如当前正在推流其他对局，请先确认再切换。阵容可在「比赛管理」中提前录入，无需切换当前赛事。
           </Paragraph>
           <Checkbox onChange={(event) => { suppressNextTime = event.target.checked; }}>
             不再提示
@@ -1854,32 +2062,30 @@ function Dashboard() {
     });
   }
 
-  /** 创建比赛时复用录入选手：自动带上排名与头像 */
-  async function reusePlayerProfile(side: PanelSide, player: PlayerProfile) {
+  /**
+   * 创建比赛时复用录入选手：自动带上排名与头像预览。
+   *
+   * 这里**只预览、不再复制一份赛事头像**：比赛头像由服务端统一解析
+   * （赛事覆盖 > 按选手名匹配档案头像 > 占位），复制件会作为「赛事覆盖」永久压住
+   * 档案头像，导致之后在「信息录入」换头像时这场比赛不跟着变。
+   * 想让本场用别的头像，用下面的「选择头像」单独上传（那才会写赛事覆盖）。
+   */
+  function reusePlayerProfile(side: PanelSide, player: PlayerProfile) {
     createMatchForm.setFieldsValue({
       ...(side === 'left' ? { leftRank: player.rank || '' } : { rightRank: player.rank || '' }),
     });
     if (!player.avatarExists) {
       return;
     }
-    try {
-      const response = await fetch(`/runtime/profiles/players/${encodeURIComponent(player.id)}.png`);
-      if (!response.ok) {
-        return;
-      }
-      const blob = await response.blob();
-      const file = new File([blob], `${player.id}.png`, { type: 'image/png' });
-      if (side === 'left') {
-        if (createLeftAvatarUrl) URL.revokeObjectURL(createLeftAvatarUrl);
-        setCreateLeftAvatar(file);
-        setCreateLeftAvatarUrl(URL.createObjectURL(file));
-      } else {
-        if (createRightAvatarUrl) URL.revokeObjectURL(createRightAvatarUrl);
-        setCreateRightAvatar(file);
-        setCreateRightAvatarUrl(URL.createObjectURL(file));
-      }
-    } catch {
-      // 头像复用失败不影响继续创建
+    const previewUrl = `/runtime/profiles/players/${encodeURIComponent(player.id)}.png?t=${player.avatarMtime ?? 0}`;
+    if (side === 'left') {
+      if (createLeftAvatarUrl) URL.revokeObjectURL(createLeftAvatarUrl);
+      setCreateLeftAvatar(null);
+      setCreateLeftAvatarUrl(previewUrl);
+    } else {
+      if (createRightAvatarUrl) URL.revokeObjectURL(createRightAvatarUrl);
+      setCreateRightAvatar(null);
+      setCreateRightAvatarUrl(previewUrl);
     }
   }
 
@@ -1923,69 +2129,46 @@ function Dashboard() {
     }
   }
 
-  function togglePage6Draft(matchId: string, checked: boolean) {
-    setPage6Draft((prev) => {
-      if (checked) {
-        if (prev.includes(matchId) || prev.length >= PAGE6_MAX_MATCHES) {
-          return prev;
-        }
-        return [...prev, matchId];
-      }
-      return prev.filter((id) => id !== matchId);
-    });
-  }
-
-  async function pushPage6Matches() {
-    setPage6Pushing(true);
+  // 比赛管理上方三个功能卡片的统一推送：选场弹窗确认后调用，失败时抛错以保持弹窗打开
+  async function pushMatchesForPage(kind: MatchPushKind, payload: MatchPushPayload): Promise<void> {
+    setMatchPushLoading((prev) => ({ ...prev, [kind]: true }));
+    let nextText = '';
     try {
-      const data = await requestJson<{ success: boolean; state: Page6State }>('/api/page6', {
-        method: 'POST',
-        json: { matchIds: page6Draft },
-      });
-      applyServerState({ page6: data.state });
-      setPage6Draft(data.state.matchIds);
-      const nextText = data.state.matchIds.length
-        ? `已推送 ${data.state.matchIds.length} 场比赛结果到推流页面6`
-        : '已清空推流页面6 的比赛结果';
+      if (kind === 'page6') {
+        const data = await requestJson<{ success: boolean; state: Page6State }>('/api/page6', {
+          method: 'POST',
+          json: payload,
+        });
+        applyServerState({ page6: data.state });
+        nextText = data.state.matchIds.length
+          ? `已推送 ${data.state.matchIds.length} 场比赛结果到推流页面6`
+          : '已清空推流页面6 的比赛结果';
+      } else if (kind === 'page8') {
+        const data = await requestJson<{ success: boolean; state: Page8State }>('/api/page8', {
+          method: 'POST',
+          json: payload,
+        });
+        applyServerState({ page8: data.state });
+        nextText = data.state.matchIds.length
+          ? `已推送 ${data.state.matchIds.length} 场对局预告到推流页面8`
+          : '已清空推流页面8 的对局预告';
+      } else {
+        const data = await requestJson<{ success: boolean; state: Page7State }>('/api/page7', {
+          method: 'POST',
+          json: payload,
+        });
+        applyServerState({ page7: data.state });
+        nextText = data.state.matchIds.length
+          ? `已推送 ${data.state.matchIds.length} 场对局到推流页面7（对局推送）`
+          : '已清空推流页面7 的对局推送';
+      }
       setHistoryNotice({ tone: 'success', text: nextText });
       message.success(nextText);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
+      throw error;
     } finally {
-      setPage6Pushing(false);
-    }
-  }
-
-  function togglePage8Draft(matchId: string, checked: boolean) {
-    setPage8Draft((prev) => {
-      if (checked) {
-        if (prev.includes(matchId) || prev.length >= PAGE8_MAX_MATCHES) {
-          return prev;
-        }
-        return [...prev, matchId];
-      }
-      return prev.filter((id) => id !== matchId);
-    });
-  }
-
-  async function pushPage8Matches() {
-    setPage8Pushing(true);
-    try {
-      const data = await requestJson<{ success: boolean; state: Page8State }>('/api/page8', {
-        method: 'POST',
-        json: { matchIds: page8Draft },
-      });
-      applyServerState({ page8: data.state });
-      setPage8Draft(data.state.matchIds);
-      const nextText = data.state.matchIds.length
-        ? `已推送 ${data.state.matchIds.length} 场对局预告到推流页面8`
-        : '已清空推流页面8 的对局预告';
-      setHistoryNotice({ tone: 'success', text: nextText });
-      message.success(nextText);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPage8Pushing(false);
+      setMatchPushLoading((prev) => ({ ...prev, [kind]: false }));
     }
   }
 
@@ -2167,21 +2350,6 @@ function Dashboard() {
   }, [scoreboard?.eventTitle]);
 
   useEffect(() => {
-    setPage6TitleDraft(page6?.title ?? '');
-    setPage6BackgroundDraft(page6?.background ?? 'image');
-  }, [page6?.title, page6?.background]);
-
-  useEffect(() => {
-    setPage8TitleDraft(page8?.title ?? '');
-    setPage8BackgroundDraft(page8?.background ?? 'image');
-  }, [page8?.title, page8?.background]);
-
-  useEffect(() => {
-    setPage7TitleDraft(page7?.title ?? '');
-    setPage7NoticeDraft(page7?.notice ?? '');
-  }, [page7?.title, page7?.notice]);
-
-  useEffect(() => {
     setPage9TitleDraft(page9?.title ?? '');
     // 以服务端数据回填草稿行，不足 PAGE9_TEAM_COUNT 行则补空行
     const serverTeams = Array.isArray(page9?.teams) ? page9.teams : [];
@@ -2257,83 +2425,6 @@ function Dashboard() {
     }
   }
 
-  // 即时保存：推流页面6副标题（失焦触发）与背景（切换即存）
-  async function savePage6FieldNow(patch: { title?: string; background?: Page6Background }) {
-    if (patch.background === undefined && patch.title === (page6?.title ?? '')) {
-      return;
-    }
-    try {
-      const data = await requestJson<{ success: boolean; state: Page6State }>('/api/page6', {
-        method: 'POST',
-        json: {
-          matchIds: page6?.matchIds ?? [],
-          title: patch.title ?? page6TitleDraft,
-          background: patch.background ?? page6BackgroundDraft,
-        },
-      });
-      applyServerState({ page6: data.state });
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-      setPage6TitleDraft(page6?.title ?? '');
-      setPage6BackgroundDraft(page6?.background ?? 'image');
-    }
-  }
-
-  async function savePage8Settings() {
-    setPage8Saving(true);
-    try {
-      const data = await requestJson<{ success: boolean; state: Page8State }>('/api/page8', {
-        method: 'POST',
-        json: {
-          matchIds: page8?.matchIds ?? page8Draft,
-          title: page8TitleDraft,
-          background: page8BackgroundDraft,
-        },
-      });
-      applyServerState({ page8: data.state });
-      setPage8SettingsNotice({ tone: 'success', text: '比赛预告页面设置已保存，预览已更新' });
-      message.success('比赛预告页面设置已保存');
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-      setPage8SettingsNotice({ tone: 'error', text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setPage8Saving(false);
-    }
-  }
-
-  // 即时保存：推流页面7主标题与温馨提示（失焦触发，值未变化时跳过）
-  async function savePage7FieldNow() {
-    const serverTitle = page7?.title ?? '';
-    const serverNotice = page7?.notice ?? '';
-    if (page7TitleDraft === serverTitle && page7NoticeDraft === serverNotice) {
-      return;
-    }
-    try {
-      const data = await requestJson<{ success: boolean; state: Page7State }>('/api/page7', {
-        method: 'POST',
-        json: {
-          matchIds: page7?.matchIds ?? page7Draft,
-          title: page7TitleDraft,
-          notice: page7NoticeDraft,
-        },
-      });
-      applyServerState({ page7: data.state });
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-      setPage7TitleDraft(serverTitle);
-      setPage7NoticeDraft(serverNotice);
-    }
-  }
-
-  function togglePage7Draft(matchId: string, checked: boolean) {
-    setPage7Draft((prev) => {
-      if (checked) {
-        return prev.includes(matchId) ? prev : [...prev, matchId];
-      }
-      return prev.filter((id) => id !== matchId);
-    });
-  }
-
   // 更新团队积分榜某一行的某个字段（战队名称 / R1 / R2 / R3；积分仅允许数字）
   function updatePage9TeamDraft(rowIndex: number, field: 'name' | 'r1' | 'r2' | 'r3', value: string) {
     const nextValue = field === 'name' ? value : value.replace(/\D/g, '');
@@ -2364,65 +2455,42 @@ function Dashboard() {
     }
   }
 
-  async function pushPage7Matches() {
-    setPage7Pushing(true);
+  // 晋级积分榜（page14）：读取服务端算好的榜单（系列赛赛果/编排变化后由 socket 触发重取）
+  async function refreshPage14View(): Promise<void> {
     try {
-      const data = await requestJson<{ success: boolean; state: Page7State }>('/api/page7', {
+      const data = await requestJson<{ state: Page14State; standings: StageStandings | null }>('/api/page14');
+      setPage14(data.state);
+      setPage14Standings(data.standings);
+    } catch {
+      // 静默失败：榜单是展示信息，偶发请求失败不该打断登记操作
+    }
+  }
+
+  /**
+   * 保存晋级积分榜配置（卡片内联的阶段切换/翻页与弹窗确认共用）。
+   * 失败时抛错给调用方（弹窗据此保持打开），此处负责提示与 saving 标记。
+   */
+  async function savePage14Settings(payload: AdvanceRankPayload): Promise<void> {
+    setPage14Saving(true);
+    try {
+      const data = await requestJson<{ success: boolean; state: Page14State; standings: StageStandings | null }>('/api/page14', {
         method: 'POST',
-        json: {
-          matchIds: page7Draft,
-          title: page7TitleDraft,
-          notice: page7NoticeDraft,
-        },
+        json: payload,
       });
-      applyServerState({ page7: data.state });
-      setPage7Draft(data.state.matchIds);
-      const nextText = data.state.matchIds.length
-        ? `已推送 ${data.state.matchIds.length} 场对局到推流页面7（对局推送）`
-        : '已清空推流页面7 的对局推送';
-      setHistoryNotice({ tone: 'success', text: nextText });
-      message.success(nextText);
+      setPage14(data.state);
+      setPage14Standings(data.standings);
+      message.success('晋级积分榜已更新');
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
+      throw error;
     } finally {
-      setPage7Pushing(false);
-    }
-  }
-
-  async function uploadPage8Wallpaper(file: File) {
-    setPage8WallpaperUploading(true);
-    try {
-      const data = await uploadSingleFile<{ success: boolean; state: Page8State; wallpaperUrl: string }>('/api/page8/wallpaper', file);
-      applyServerState({ page8: data.state });
-      setPage8BackgroundDraft('custom');
-      message.success('自定义壁纸已上传并应用');
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-      setPage8SettingsNotice({ tone: 'error', text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setPage8WallpaperUploading(false);
-    }
-  }
-
-  async function removePage8Wallpaper() {
-    setPage8WallpaperUploading(true);
-    try {
-      const data = await requestJson<{ success: boolean; state: Page8State }>('/api/page8/wallpaper', {
-        method: 'DELETE',
-      });
-      applyServerState({ page8: data.state });
-      setPage8BackgroundDraft('image');
-      message.success('已删除自定义壁纸，回退到内置背景');
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPage8WallpaperUploading(false);
+      setPage14Saving(false);
     }
   }
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5Tag?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5TournamentId?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
@@ -2434,16 +2502,16 @@ function Dashboard() {
     const page3RedLightInstant = options?.page3RedLightInstant ?? stage?.page3RedLightInstant ?? false;
     const page11RankVisible = options?.page11RankVisible ?? stage?.page11RankVisible ?? true;
     const page5Player = options?.page5Player ?? stage?.page5Player ?? '';
-    const page5Tag = options?.page5Tag ?? stage?.page5Tag ?? '';
+    const page5TournamentId = options?.page5TournamentId ?? stage?.page5TournamentId ?? '';
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5Tag, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -3194,18 +3262,49 @@ function Dashboard() {
     // view 也作为依赖：预览外壳在「页面预览」与「对局推送」两个视图中分别挂载，切换后需重新计算缩放
   }, [previewSlot, view]);
 
+  // 红点轮询：默认开、可关、可设 30~300s；只读小键提示，绝不自动合并数据。
+  // 必须位于任何条件 return 之前（React Hooks 规则），否则 loading 切换时 hook 数量变化会触发 React #310 白屏。
+  useEffect(() => {
+    if (!cloudStatus?.config.syncKey || !cloudStatus.config.workerUrl || !cloudStatus.config.machineCode) {
+      return;
+    }
+    if (cloudStatus.config.pollEnabled === false) {
+      return;
+    }
+    const intervalMs = Math.max(30, cloudStatus.config.pollIntervalSeconds || 60) * 1000;
+    cloudPollTimerRef.current = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void pollCloudStatus(true);
+      }
+    }, intervalMs);
+    return () => {
+      if (cloudPollTimerRef.current) {
+        window.clearInterval(cloudPollTimerRef.current);
+        cloudPollTimerRef.current = null;
+      }
+    };
+  }, [
+    cloudStatus?.config.syncKey,
+    cloudStatus?.config.workerUrl,
+    cloudStatus?.config.machineCode,
+    cloudStatus?.config.role,
+    cloudStatus?.config.pollEnabled,
+    cloudStatus?.config.pollIntervalSeconds,
+  ]);
+
   // 注意：该 useMemo 必须位于任何条件 return 之前（React Hooks 规则），否则 loading 切换时 hook 数量变化会触发 React #310 白屏
   const menuItems: MenuProps['items'] = useMemo(
     () => [
       { key: 'roster', icon: <NavIcon name="roster" />, label: VIEW_LABEL.roster },
       { key: 'stage', icon: <NavIcon name="stage" />, label: VIEW_LABEL.stage },
-      { key: 'live', icon: <NavIcon name="live" />, label: VIEW_LABEL.live },
+      { key: 'tournament', icon: <NavIcon name="tournament" />, label: VIEW_LABEL.tournament },
       { key: 'mvp', icon: <NavIcon name="mvp" />, label: VIEW_LABEL.mvp },
       { key: 'history', icon: <NavIcon name="history" />, label: VIEW_LABEL.history },
       { key: 'profiles', icon: <NavIcon name="profiles" />, label: VIEW_LABEL.profiles },
       { key: 'page11', icon: <NavIcon name="page11" />, label: VIEW_LABEL.page11 },
       { key: 'stats', icon: <NavIcon name="stats" />, label: VIEW_LABEL.stats },
       { key: 'preview', icon: <NavIcon name="preview" />, label: VIEW_LABEL.preview },
+      { key: 'live', icon: <NavIcon name="live" />, label: VIEW_LABEL.live },
       { key: 'about', icon: <NavIcon name="about" />, label: VIEW_LABEL.about },
     ],
     []
@@ -3220,76 +3319,10 @@ function Dashboard() {
     );
   }
 
+  const cloudPendingIdSet = new Set(cloudStatus?.pending.matches.map((item) => item.matchId) ?? []);
+  const cloudAckedSet = new Set(cloudAckedMatchIds);
+
   const historyColumns: ColumnsType<MatchRecord> = [
-    {
-      title: (
-        <span>
-          比赛结果
-          <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-            已选 {page6Draft.length}/{PAGE6_MAX_MATCHES}
-          </Text>
-        </span>
-      ),
-      key: 'page6',
-      width: 92,
-      render: (_: unknown, record: MatchRecord) => {
-        const isSelected = page6Draft.includes(record.id);
-        const isFull = page6Draft.length >= PAGE6_MAX_MATCHES && !isSelected;
-        return (
-          <Checkbox
-            checked={isSelected}
-            disabled={record.status !== 'completed' || isFull}
-            onChange={(event) => togglePage6Draft(record.id, event.target.checked)}
-          />
-        );
-      },
-    },
-    {
-      title: (
-        <span>
-          对局信息
-          <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-            已选 {page7Draft.length}
-          </Text>
-        </span>
-      ),
-      key: 'page7',
-      width: 92,
-      render: (_: unknown, record: MatchRecord) => {
-        const isSelected = page7Draft.includes(record.id);
-        return (
-          <Checkbox
-            checked={isSelected}
-            onChange={(event) => togglePage7Draft(record.id, event.target.checked)}
-          />
-        );
-      },
-    },
-    {
-      title: (
-        <span>
-          比赛预告
-          <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-            已选 {page8Draft.length}/{PAGE8_MAX_MATCHES}
-          </Text>
-        </span>
-      ),
-      key: 'page8',
-      width: 92,
-      render: (_: unknown, record: MatchRecord) => {
-        const isSelected = page8Draft.includes(record.id);
-        const isFull = page8Draft.length >= PAGE8_MAX_MATCHES && !isSelected;
-        // 可勾选「待开始」与「进行中」的比赛；已完成对局不可勾选
-        const selectable = record.status === 'pending' || record.status === 'in_progress';
-        return (
-          <Checkbox
-            checked={isSelected}
-            disabled={!selectable || isFull}
-            onChange={(event) => togglePage8Draft(record.id, event.target.checked)}
-          />
-        );
-      },
-    },
     {
       title: '左侧选手',
       dataIndex: 'leftPlayer',
@@ -3360,6 +3393,35 @@ function Dashboard() {
             }
           }}>
             <Space wrap>
+              {record.tournamentRef && tournamentNameMap.has(record.tournamentRef.tournamentId) ? (
+                <Tag
+                  color="purple"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setHistoryTournamentFilter(record.tournamentRef?.tournamentId ?? null);
+                  }}
+                >
+                  🏆 {tournamentNameMap.get(record.tournamentRef.tournamentId)}
+                </Tag>
+              ) : null}
+              {/* 派生「阶段 · 轮次」只读 Tag：由 tournamentRef + 编排实时计算，不落 tags、不参与筛选 */}
+              {(() => {
+                const ref = record.tournamentRef;
+                const tournament = ref ? tournamentRecordMap.get(ref.tournamentId) : undefined;
+                const stageRound = ref && tournament ? formatStageRoundLabel(tournament, ref) : null;
+                if (!stageRound) {
+                  return null;
+                }
+                return (
+                  <Tag
+                    color="geekblue"
+                    style={{ cursor: 'default' }}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {stageRound}
+                  </Tag>
+                );
+              })()}
               {tags?.length ? tags.map((tag) => (
                 <Tag
                   key={`${record.id}-${tag}`}
@@ -3388,7 +3450,13 @@ function Dashboard() {
       ),
       dataIndex: 'status',
       key: 'status',
-      render: (status: MatchRecord['status']) => <Tag color={getMatchStatusColor(status)}>{getMatchStatusLabel(status)}</Tag>,
+      render: (status: MatchRecord['status'], record: MatchRecord) => (
+        <Space size={4} wrap>
+          <Tag color={getMatchStatusColor(status)}>{getMatchStatusLabel(status)}</Tag>
+          {cloudPendingIdSet.has(record.id) ? <Tag color="purple">待交回</Tag> : null}
+          {cloudAckedSet.has(record.id) && cloudStatus?.config.role === 'sub' ? <Tag color="green">已确认</Tag> : null}
+        </Space>
+      ),
     },
     {
       title: (
@@ -3457,7 +3525,7 @@ function Dashboard() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = '比赛历史.csv';
+    link.download = '比赛管理.csv';
     link.click();
     URL.revokeObjectURL(url);
     message.success(`已导出 ${sortedMatches.length} 场赛事历史`);
@@ -3465,20 +3533,41 @@ function Dashboard() {
 
   // === 数据同步（双机同步包导出 / 导入） ===
 
-  async function saveMachineCode() {
+  async function saveMachineCode(confirmChange = false) {
     setMachineCodeSaving(true);
     try {
-      const result = await requestJson<{ success: boolean; config: { port: number; machineCode: string } }>('/api/runtime-config', {
+      const result = await requestJson<{
+        success: boolean;
+        config: { port: number; machineCode: string };
+        syncConfig?: CloudSyncStatus;
+      }>('/api/runtime-config', {
         method: 'POST',
-        json: { machineCode: machineCodeInput },
+        json: { machineCode: machineCodeInput, confirmMachineCodeChange: confirmChange },
       });
       setMachineCodeInput(result.config.machineCode);
+      if (result.syncConfig) {
+        applyCloudStatus(result.syncConfig, true);
+      }
       message.success(
         result.config.machineCode
           ? `本机标识已设为 ${result.config.machineCode}，新比赛编号将带该前缀`
           : '已清空本机标识：新比赛沿用旧编号格式（两机同跑请分别设置 A / B）',
       );
     } catch (error) {
+      const guard = (error as { guard?: MachineCodeGuardResult }).guard;
+      if (guard?.requireConfirm && !confirmChange) {
+        // 改码丢所有权（坑 1）：本地还有内嵌旧码的系列赛，必须人工二次确认
+        setMachineCodeSaving(false);
+        modal.confirm({
+          title: '确认修改机器码？',
+          content: guard.message,
+          okText: '确认修改',
+          okButtonProps: { danger: true },
+          cancelText: '取消',
+          onOk: () => saveMachineCode(true),
+        });
+        return;
+      }
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setMachineCodeSaving(false);
@@ -3550,6 +3639,7 @@ function Dashboard() {
       setSyncSelectedKeys(defaultSyncSelection(result.preview));
       setSyncActiveKey(defaultSyncActiveKey(result.preview));
       setSyncIncludeAvatars(true);
+      setSyncOverwriteAvatars(false);
     } catch (error) {
       setSyncPreview(null);
       message.error(error instanceof Error ? error.message : String(error));
@@ -3574,6 +3664,8 @@ function Dashboard() {
     setSyncFileName('');
     setSyncSelectedKeys([]);
     setSyncActiveKey(null);
+    setSyncExcludedTournamentIds([]);
+    setSyncCollapsedGroupKeys([]);
   }
 
   async function applySyncPreview() {
@@ -3587,6 +3679,8 @@ function Dashboard() {
       formData.append('mode', syncMode);
       formData.append('accepted', JSON.stringify(syncSelectedKeys));
       formData.append('includeAvatars', syncIncludeAvatars ? 'true' : 'false');
+      formData.append('overwriteAvatars', syncOverwriteAvatars ? 'true' : 'false');
+      formData.append('excludeTournamentIds', JSON.stringify(syncExcludedTournamentIds));
 
       const result = await requestJson<{ success: boolean; result: SyncImportResult }>('/api/sync/import', {
         method: 'POST',
@@ -3601,9 +3695,15 @@ function Dashboard() {
 
       const applied = result.result.applied;
       const avatarCount = result.result.avatarsWritten.players + result.result.avatarsWritten.teams;
+      const tournamentInfo = result.result.tournaments;
+      // 系列赛编排自动合并（不参与勾选）：有变化时在摘要里带上；写回推进额外标注
+      const tournamentSegment = tournamentInfo.added + tournamentInfo.updated + tournamentInfo.skipped > 0
+        ? `；系列赛 新增 ${tournamentInfo.added} / 更新 ${tournamentInfo.updated} / 跳过 ${tournamentInfo.skipped}`
+          + (tournamentInfo.advanced ? '（已补写回推进）' : '')
+        : '';
       const summary = `比赛 新增 ${applied.match.add} / 更新 ${applied.match.update} / 跳过 ${applied.match.skip}；`
         + `档案 新增 ${applied.player.add + applied.team.add} / 更新 ${applied.player.update + applied.team.update}；`
-        + `头像补缺 ${avatarCount} 张`;
+        + `${syncOverwriteAvatars ? '头像写入' : '头像补缺'} ${avatarCount} 张${tournamentSegment}`;
       setHistoryNotice({ tone: 'success', text: `同步包导入完成：${summary}` });
       message.success('同步包导入完成');
       result.result.warnings.forEach((warning) => message.warning(warning));
@@ -3613,6 +3713,481 @@ function Dashboard() {
     } finally {
       setSyncImporting(false);
     }
+  }
+
+  /* ==================== 云同步（点击式：主控分发/确认台，分控同步/回传） ==================== */
+
+  /**
+   * 「后台自动刷新收件箱」哨兵：确认/退回之后只想更新红点与待确认清单，
+   * 不再重新弹确认台（曾因此导致确认完弹窗不关、还停在原条目上）。
+   */
+  const AUTO_REFRESH_INBOX = '__auto__';
+
+  /** 勾选条目按动作计数（与导入预览 summary 同口径：只统计被勾选且非跳过的条目） */
+  function countActions(items: SyncImportItem[]): SyncImportCounts {
+    const counts: SyncImportCounts = { add: 0, update: 0, skip: 0 };
+    items.forEach((item) => {
+      counts[item.action] += 1;
+    });
+    return counts;
+  }
+
+  /** 应用云同步状态：首次加载或保存设置后回填设置区草稿（编辑中的草稿不覆盖） */
+  function applyCloudStatus(next: CloudSyncStatus, force = false) {
+    setCloudStatus(next);
+    if (force || !cloudKeyDraft) {
+      setCloudKeyDraft(next.config.syncKey);
+    }
+    if (force || !cloudTokenDraft) {
+      setCloudTokenDraft(next.config.syncToken);
+    }
+    if (force || !cloudWorkerUrlDraft) {
+      setCloudWorkerUrlDraft(next.config.workerUrl);
+    }
+    if (force || !cloudLabelDraft) {
+      setCloudLabelDraft(next.config.machineLabel);
+    }
+    if (force || !cloudPeerDraft) {
+      setCloudPeerDraft(
+        next.config.role === 'main'
+          ? next.roster.filter((entry) => entry.code !== next.config.machineCode).map((entry) => entry.code).join(', ')
+          : '',
+      );
+    }
+    setCloudRoleDraft(next.config.role);
+    setCloudAckedMatchIds(next.pending.ackedMatchIds);
+  }
+
+  /** 云同步请求统一出口：自动带房间密钥、访问令牌与机器码（服务端校验一致才执行） */  async function postCloud<T>(pathname: string, body: Record<string, unknown> = {}): Promise<T & { status: CloudSyncStatus }> {
+    const result = await requestJson<T & { status: CloudSyncStatus }>(pathname, {
+      method: 'POST',
+      json: {
+        syncKey: cloudStatus?.config.syncKey ?? cloudKeyDraft,
+        syncToken: cloudStatus?.config.syncToken ?? cloudTokenDraft,
+        machineCode: cloudStatus?.config.machineCode ?? machineCodeInput,
+        ...body,
+      },
+    });
+    if (result?.status) {
+      setCloudStatus(result.status);
+      setCloudAckedMatchIds(result.status.pending.ackedMatchIds);
+    }
+    return result;
+  }
+
+  /** 红点轮询：只读云端小键（version / ack / uplink），绝不自动合并数据 */
+  async function pollCloudStatus(silent = true) {
+    const status = cloudStatus;
+    if (!status?.config.syncKey || !status.config.workerUrl || !status.config.machineCode) {
+      return;
+    }
+    if (!silent) {
+      setCloudBusy('poll');
+    }
+    try {
+      const result = await postCloud<{ version: CloudSyncVersion | null; changed: boolean; inbox: CloudSyncInboxEntry[] }>(
+        '/api/cloud-sync/poll',
+      );
+      if (status.config.role === 'sub' && result.changed && result.version) {
+        const key = `v${result.version.v}`;
+        if (cloudPollNotified !== key) {
+          setCloudPollNotified(key);
+          message.info('主控电脑上传了新内容，点「从云端获取最新」查看');
+        }
+      }
+      if (status.config.role === 'main') {
+        const pendingCount = result.inbox.reduce((sum, entry) => sum + entry.pending.length, 0);
+        if (pendingCount > 0 && !silent) {
+          message.info(`有 ${result.inbox.length} 台电脑交回了赛果，共 ${pendingCount} 场等你确认`);
+        }
+      }
+      if (!silent) {
+        message.success('已刷新同步状态');
+      }
+    } catch (error) {
+      if (!silent) {
+        message.error(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (!silent) {
+        setCloudBusy('');
+      }
+    }
+  }
+
+  /**
+   * 保存云同步设置。改「房间号」时服务端会先拦一次（409 + guard）：本机旧房间的同步状态
+   * （版本水位 / 已确认集 / 回传水位 / 名册 / 指派）不带房间标识，必须由用户选「重置」还是「保留」。
+   */
+  async function saveCloudSettings(cloudStateAction?: 'reset' | 'keep') {
+    setCloudSaving(true);
+    try {
+      const result = await requestJson<{ success: boolean; status: CloudSyncStatus }>('/api/cloud-sync/config', {
+        method: 'POST',
+        json: {
+          syncKey: cloudKeyDraft,
+          syncToken: cloudTokenDraft,
+          role: cloudRoleDraft,
+          workerUrl: cloudWorkerUrlDraft,
+          machineLabel: cloudLabelDraft,
+          cloudStateAction,
+          peerCodes: cloudRoleDraft === 'main'
+            ? cloudPeerDraft.split(/[,，\s]+/).map((item) => item.trim()).filter(Boolean)
+            : undefined,
+        },
+      });
+      applyCloudStatus(result.status, true);
+      message.success(cloudStateAction === 'reset'
+        ? '云同步设置已保存，本机旧房间的同步状态已清空'
+        : '云同步设置已保存');
+    } catch (error) {
+      const guard = (error as { guard?: CloudSyncKeyGuardResult }).guard;
+      if (guard?.requireConfirm && !cloudStateAction) {
+        setCloudRoomGuard({ action: 'save', guard });
+        return;
+      }
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudSaving(false);
+    }
+  }
+
+  async function testCloudWorker(cloudStateAction?: 'reset' | 'keep') {
+    if (!cloudWorkerUrlDraft.trim()) {
+      message.warning('请先填 Worker 地址（形如 https://roco-sync.xxx.workers.dev）');
+      return;
+    }
+    setCloudTesting(true);
+    try {
+      // 检测在线会先把地址/密钥/令牌按当前草稿存下来（/health 本身不需要它们），省一步「保存设置」；
+      // 因此这里同样可能被换房间守卫拦下（房间号变了 + 本机还留着旧房间状态）
+      const result = await requestJson<{ success: boolean; ok: boolean; message: string; status: CloudSyncStatus }>(
+        '/api/cloud-sync/test',
+        {
+          method: 'POST',
+          json: {
+            workerUrl: cloudWorkerUrlDraft,
+            syncKey: cloudKeyDraft,
+            syncToken: cloudTokenDraft,
+            cloudStateAction,
+          },
+        },
+      );
+      if (result.status) {
+        applyCloudStatus(result.status, true);
+      }
+      if (result.ok) {
+        message.success(result.message);
+      } else {
+        // 失败原因明确指出是网络还是地址，不要只说「不可达」
+        message.error({ content: result.message, duration: 8 });
+      }
+    } catch (error) {
+      const guard = (error as { guard?: CloudSyncKeyGuardResult }).guard;
+      if (guard?.requireConfirm && !cloudStateAction) {
+        setCloudRoomGuard({ action: 'test', guard });
+        return;
+      }
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudTesting(false);
+    }
+  }
+
+  /** 换房间守卫的选择：带选择把刚才被拦下的动作（保存 / 测试连通）重跑一次 */
+  function resolveCloudRoomGuard(cloudStateAction: 'reset' | 'keep') {
+    const pending = cloudRoomGuard;
+    setCloudRoomGuard(null);
+    if (!pending) {
+      return;
+    }
+    if (pending.action === 'test') {
+      void testCloudWorker(cloudStateAction);
+      return;
+    }
+    void saveCloudSettings(cloudStateAction);
+  }
+
+  /** 主控「上传给其他电脑」：把本机赛事资料整体发到云端 */
+  async function pushCloudBundle() {
+    setCloudBusy('push');
+    try {
+      const result = await postCloud<{ data: { bytes: number; matchCount: number; tournamentCount: number }; version: CloudSyncVersion }>(
+        '/api/cloud-sync/push',
+      );
+      const info = `已上传第 ${result.version.v} 版 · ${formatDateTime(result.version.at)} · ${Math.max(1, Math.round(result.data.bytes / 1024))} KB · 含 ${result.data.matchCount} 场比赛 / ${result.data.tournamentCount} 个系列赛`;
+      setCloudDistInfo(info);
+      message.success('已上传，请让其他电脑等半分钟后点「从云端获取最新」');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy('');
+    }
+  }
+
+  /** 分控「从云端获取最新」：拉取 + 预览（确认后才合并，与「导入同步包」同一套界面） */
+  async function pullCloudBundle() {
+    setCloudBusy('pull');
+    try {
+      const result = await postCloud<{ preview: SyncImportPreview; data: { dist: string } }>('/api/cloud-sync/pull');
+      setCloudPreviewFlow('pull');
+      setSyncExcludedTournamentIds([]);
+      setSyncCollapsedGroupKeys([]);
+      setSyncPreview(result.preview);
+      setSyncSelectedKeys(defaultSyncSelection(result.preview));
+      setSyncActiveKey(defaultSyncActiveKey(result.preview));
+      setCloudDistInfo(`内容来自 ${result.data.dist} 号机`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy('');
+    }
+  }
+
+  /** 分控「交回赛果」：把本机已登记、还没被确认的赛果一起交回去 */
+  async function uploadCloudResults() {
+    setCloudBusy('upload');
+    try {
+      const result = await postCloud<{ data: { seq: number; count: number }; submittedAt: string }>(
+        '/api/cloud-sync/upload',
+      );
+      message.success(`已交回 ${result.data.count} 场赛果，等主控电脑确认`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy('');
+    }
+  }
+
+  /** 主控「查看其他电脑交回的赛果」：与导入预览同一套差异面板 */
+  async function checkCloudInbox(code?: string) {
+    setCloudBusy('check');
+    try {
+      const result = await postCloud<{ data: { sources: CloudSyncAckSource[]; source: CloudSyncAckSource | null } }>(
+        '/api/cloud-sync/check',
+        code ? { code } : {},
+      );
+      const sources = result.data.sources;
+      if (!sources.length) {
+        if (code !== AUTO_REFRESH_INBOX) {
+          message.info('暂时没有待确认的赛果：其他电脑还没交回，或都已经确认过了');
+        }
+        return;
+      }
+      // 后台自动刷新（确认/退回之后）只更新红点与待确认清单，不重新弹窗打断用户
+      if (code === AUTO_REFRESH_INBOX) {
+        setCloudAckSources(sources);
+        return;
+      }
+      const source = result.data.source ?? sources[0];
+      setCloudAckSources(sources);
+      setCloudAckSource(source);
+      setCloudAckCode(source.code);
+      const preview: SyncImportPreview = {
+        meta: { app: '', schema: 1, machine: source.code, exportedAt: source.submittedAt },
+        sameMachine: false,
+        mode: 'bundle',
+        matchItems: source.items.map((entry) => entry.item),
+        playerItems: [],
+        teamItems: [],
+        summary: {
+          match: countActions(source.items.map((entry) => entry.item)),
+          player: { add: 0, update: 0, skip: 0 },
+          team: { add: 0, update: 0, skip: 0 },
+        },
+        avatars: {
+          players: { fill: 0, existing: 0, unmatched: 0 },
+          teams: { fill: 0, existing: 0, unmatched: 0 },
+        },
+      };
+      setCloudPreviewFlow('incoming');
+      setSyncExcludedTournamentIds([]);
+      setSyncCollapsedGroupKeys([]);
+      setSyncPreview(preview);
+      setSyncSelectedKeys(source.selectableKeys);
+      setSyncActiveKey(defaultSyncActiveKey(preview));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy('');
+    }
+  }
+
+  /** 确认台切换分控端 */
+  async function switchCloudAckSource(code: string) {
+    const source = cloudAckSources.find((item) => item.code === code);
+    if (!source) {
+      return;
+    }
+    setCloudAckSource(source);
+    setCloudAckCode(code);
+    const preview: SyncImportPreview | null = syncPreview
+      ? {
+        ...syncPreview,
+        meta: { ...syncPreview.meta, machine: source.code, exportedAt: source.submittedAt },
+        matchItems: source.items.map((entry) => entry.item),
+        summary: {
+          ...syncPreview.summary,
+          match: countActions(source.items.map((entry) => entry.item)),
+        },
+      }
+      : null;
+    if (preview) {
+      setSyncPreview(preview);
+      setSyncSelectedKeys(source.selectableKeys);
+      setSyncActiveKey(defaultSyncActiveKey(preview));
+    }
+  }
+
+  /** 云同步确认（拉取合并 / 确认台确认）——都用同一套勾选结果 */
+  async function applyCloudPreview() {
+    if (!cloudPreviewFlow) {
+      return;
+    }
+    setCloudBusy('apply');
+    try {
+      if (cloudPreviewFlow === 'pull') {
+        const result = await postCloud<{ data: { applied: SyncImportPreview['summary']; warnings: string[] } }>(
+          '/api/cloud-sync/apply',
+          { accepted: syncSelectedKeys, mode: syncMode, excludeTournamentIds: syncExcludedTournamentIds },
+        );
+        const applied = result.data.applied;
+        message.success(`已更新本机数据：新增 ${applied.match.add} 场 / 更新 ${applied.match.update} 场 / 无变化 ${applied.match.skip} 场`);
+        result.data.warnings.forEach((warning) => message.warning(warning));
+        // 拉取下的数据可能带来新比赛/新系列赛，重新拉一次全量状态
+        void loadInitialData();
+      } else {
+        const result = await postCloud<{ data: { acked: string[]; warnings: string[] }; result: SyncImportResult }>(
+          '/api/cloud-sync/confirm',
+          { code: cloudAckCode, accepted: syncSelectedKeys },
+        );
+        applyServerState(result.result.profiles
+          ? { store: result.result.store, profiles: result.result.profiles }
+          : { store: result.result.store });
+        const updated = result.data.acked.length - result.result.applied.match.skip;
+        if (updated > 0) {
+          message.success(`已确认 ${result.data.acked.length} 场赛果（其中 ${updated} 场写入了本机），并自动推进了下一轮`);
+        } else {
+          message.success(`已确认 ${result.data.acked.length} 场赛果：本机内容本来就一致，只给对方回了「收到了」`);
+        }
+        result.data.warnings.forEach((warning) => message.warning(warning));
+        // 确认完先把弹窗关掉（曾漏掉这一步：确认后弹窗不关，还停在原条目上）
+        closeCloudPreview();
+        // 可能还有别的电脑交了赛果：后台刷新确认台状态，刷新结果只影响红点/列表，不重新弹窗
+        void checkCloudInbox(AUTO_REFRESH_INBOX);
+        return;
+      }
+      closeCloudPreview();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy('');
+    }
+  }
+
+  /** 主控驳回：不写本地、不通知对方，让对方改完再交一次 */
+  async function rejectCloudInbox() {
+    if (!cloudAckCode) {
+      return;
+    }
+    setCloudBusy('apply');
+    try {
+      await postCloud('/api/cloud-sync/reject', { code: cloudAckCode });
+      message.info(`已退回 ${cloudAckCode} 号机交回的赛果：本机数据没有任何改动，请对方改正后重新「交回赛果」`);
+      // 与确认一致：先关弹窗，再后台刷新收件箱（刷新不再重新弹窗）
+      closeCloudPreview();
+      void checkCloudInbox(AUTO_REFRESH_INBOX);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy('');
+    }
+  }
+
+  /** 分控「无需改动，标记为已处理」：预览里没有可写入内容时收尾状态，避免「有新内容」一直挂着 */
+  async function markCloudPullReviewed() {
+    setCloudBusy('apply');
+    try {
+      const result = await postCloud<{ data: { appliedVersion: number } }>('/api/cloud-sync/skip');
+      message.success(`已把这版云端内容标记为已处理（本机无需改动，当前第 ${result.data.appliedVersion} 版）`);
+      closeCloudPreview();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy('');
+    }
+  }
+
+  function closeCloudPreview() {
+    setCloudPreviewFlow(null);
+    setCloudAckSource(null);
+    setCloudAckCode('');
+    closeSyncPreview();
+  }
+
+  /** 指派工作台：打开时以当前指派规则为草稿 */
+  function openCloudAssign() {
+    setCloudAssignDraft({ ...(cloudStatus?.assignment ?? {}) });
+    setCloudAssignOpen(true);
+  }
+
+  async function saveCloudAssignDraft() {
+    setCloudBusy('assignment');
+    try {
+      const result = await postCloud<{ status: CloudSyncStatus }>('/api/cloud-sync/assignment', {
+        overrides: cloudAssignDraft,
+      });
+      applyCloudStatus(result.status);
+      setCloudAssignOpen(false);
+      message.success('已保存。记得点一次「上传给其他电脑」，对方才会收到最新的登记安排');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudBusy('');
+    }
+  }
+
+  /** 指派作用域：空 = 主控端自己登记（未指派的比赛一律归主控端） */
+  function cloudScopeOf(matchId: string): string {
+    return cloudStatus?.assignment[matchId] ?? '';
+  }
+
+  /** 本机能否登记某场比赛（分控电脑只允许登记主控安排给本机的比赛；没启用云同步时不干预） */
+  function cloudRegisterGate(matchId: string): { allowed: boolean; reason: string } {
+    const status = cloudStatus;
+    if (!status?.configured) {
+      return { allowed: true, reason: '' };
+    }
+    const scope = cloudScopeOf(matchId);
+    if (status.config.role === 'main') {
+      return scope === '' || scope === status.config.machineCode
+        ? { allowed: true, reason: '' }
+        : { allowed: false, reason: `这场已安排给 ${scope} 号机登记，请到那台电脑上登记` };
+    }
+    if (scope === status.config.machineCode) {
+      return { allowed: true, reason: '' };
+    }
+    return {
+      allowed: false,
+      reason: scope
+        ? `这场安排给 ${scope} 号机登记，本机不能登记`
+        : '这场没有安排给本机登记（没安排的默认由主控电脑登记）',
+    };
+  }
+
+  /** 已被主控确认的赛果，分控电脑不能再撤回（会让两边的比分对不上） */
+  function cloudUndoGate(matchId: string): { allowed: boolean; reason: string } {
+    if (cloudStatus?.config.role !== 'sub') {
+      return { allowed: true, reason: '' };
+    }
+    return cloudAckedMatchIds.includes(matchId)
+      ? { allowed: false, reason: '这场已经被主控电脑确认了：如果结果有误，请联系主控电脑退回这一轮，重新获取后再登记' }
+      : { allowed: true, reason: '' };
+  }
+
+  /** 本机在界面上的可读名称（备注名优先，没有就显示机器码） */
+  function cloudMachineText(entry: { code: string; label: string }): string {
+    return entry.label ? `${entry.label}（${entry.code}）` : `${entry.code} 号机`;
   }
 
   const SYNC_KIND_LABELS: Record<SyncImportItem['kind'], string> = { match: '比赛', player: '选手档案', team: '战队档案' };
@@ -3669,6 +4244,211 @@ function Dashboard() {
     : [];
   const syncActiveItem = syncPreviewItems.find((item) => item.key === syncActiveKey) ?? null;
   const syncConflictCount = syncPreview ? syncPreview.matchItems.filter((item) => item.conflict).length : 0;
+
+  // === 预览弹窗里的系列赛分组：让「这条系列赛包含哪些比赛」一眼可见，并可整条选择导不导入 ===
+  const syncTournamentGroups = syncPreview?.tournamentGroups ?? [];
+  const syncMatchRows = syncPreview?.matchItems ?? [];
+  /** 系列赛 id -> 该组（含普通对局组 id = ''） */
+  const syncGroupOfMatchKey = new Map<string, SyncImportTournamentGroup>();
+  syncTournamentGroups.forEach((group) => {
+    group.matchKeys.forEach((key) => syncGroupOfMatchKey.set(key, group));
+  });
+  /** 已取消勾选系列赛名下的比赛 key（这些行置灰、不可勾选） */
+  const syncExcludedMatchKeys = new Set<string>();
+  syncTournamentGroups.forEach((group) => {
+    if (group.id && syncExcludedTournamentIds.includes(group.id)) {
+      group.matchKeys.forEach((key) => syncExcludedMatchKeys.add(key));
+    }
+  });
+  /** 可勾选比赛的 key 集合（排除已取消勾选系列赛名下的比赛） */
+  const syncAvailableKeys = new Set(
+    [...syncMatchRows, ...(syncPreview?.playerItems ?? []), ...(syncPreview?.teamItems ?? [])]
+      .filter((item) => item.action !== 'skip' && !syncExcludedMatchKeys.has(item.key))
+      .map((item) => item.key),
+  );
+  /** 分控「从云端获取最新」但勾选后没有任何需要写入的条目（点过确认合并 / 云端与本机一致） */
+  const cloudPullNothingToMerge = cloudPreviewFlow === 'pull' && Boolean(syncPreview)
+    && syncSelectedKeys.every((key) => !syncAvailableKeys.has(key));
+
+  /** 取消/恢复整条系列赛：勾掉时不写入它的编排，也不写入它名下的比赛 */
+  function toggleSyncTournamentGroup(group: SyncImportTournamentGroup) {
+    const excluded = syncExcludedTournamentIds.includes(group.id);
+    if (excluded) {
+      setSyncExcludedTournamentIds((prev) => prev.filter((id) => id !== group.id));
+      setSyncSelectedKeys((prev) => Array.from(new Set([...prev, ...group.matchKeys])));
+      return;
+    }
+    setSyncExcludedTournamentIds((prev) => [...prev, group.id]);
+    setSyncSelectedKeys((prev) => prev.filter((key) => !group.matchKeys.includes(key)));
+  }
+
+  type SyncPreviewRow = SyncImportItem | (SyncImportTournamentGroup & { isGroup: true; rowKey: string });
+  /** 表格数据：系列赛分组标题行 + 组内比赛行（普通对局单独一组放最后），便于一眼区分归属 */
+  const syncPreviewRows: SyncPreviewRow[] = [];
+  const matchItemByKey = new Map(syncMatchRows.map((item) => [item.key, item]));
+  syncTournamentGroups.forEach((group) => {
+    const collapsed = syncCollapsedGroupKeys.includes(group.key);
+    syncPreviewRows.push({ ...group, isGroup: true, rowKey: group.key });
+    if (collapsed) {
+      return;
+    }
+    group.matchKeys.forEach((key) => {
+      const item = matchItemByKey.get(key);
+      if (item) {
+        syncPreviewRows.push(item);
+      }
+    });
+  });
+  // 兜底：没被任何分组收录的比赛条目（异常包）直接平铺，避免「预览里有却看不见」
+  const groupedKeys = new Set(syncTournamentGroups.flatMap((group) => group.matchKeys));
+  syncMatchRows.forEach((item) => {
+    if (!groupedKeys.has(item.key)) {
+      syncPreviewRows.push(item);
+    }
+  });
+  // === 云同步派生展示（红点 / 版本对比 / 最后通信时间） ===
+  const cloudInboxCount = cloudStatus?.inbox.reduce((sum, entry) => sum + entry.pending.length, 0) ?? 0;
+  const cloudLiveBadge = (() => {
+    const status = cloudStatus;
+    if (!status?.configured) {
+      return '';
+    }
+    if (status.config.role === 'main') {
+      return cloudInboxCount ? `有 ${cloudInboxCount} 场待确认` : '';
+    }
+    const hasNew = Boolean(status.version) && status.version!.v > status.appliedVersion;
+    const pending = status.pending.count;
+    if (hasNew) {
+      return '云端有新内容';
+    }
+    // 「已交回等确认」不是「新内容」：不要用同一句话，否则用户会以为红点清不掉
+    if (pending > 0) {
+      const unconfirmed = status.pending.unconfirmedCount;
+      return unconfirmed > 0 ? `${unconfirmed} 场已交回，等主控确认` : `${pending} 场待交回`;
+    }
+    return '';
+  })();
+  const cloudVersionText = (() => {
+    const status = cloudStatus;
+    if (!status) {
+      return '';
+    }
+    const version = status.version;
+    if (!version) {
+      return '云端还没有内容：等主控电脑上传后，点「从云端获取最新」';
+    }
+    const synced = version.v === status.appliedVersion ? '本机已是最新' : '本机还没更新，请点「从云端获取最新」';
+    const main = status.roster.find((entry) => entry.code === version.from);
+    return `云端第 ${version.v} 版 · ${formatDateTime(version.at)} · ${synced}`
+      + (main ? ` · 来自主控电脑 ${cloudMachineText(main)}` : '')
+      + (status.lastContact.pulledAt ? ` · 上次获取 ${formatDateTime(status.lastContact.pulledAt)}` : '');
+  })();
+
+  // === 云同步状态卡的展示数据（版本对比 / 待办 / 本机动作时间线） ===
+  /** 本机相对「云端最新版本」的同步状态：分控端用已处理版本判断，主控端本身没有可拉取的副本 */
+  const cloudSyncState = (() => {
+    const status = cloudStatus;
+    if (!status) {
+      return { tone: 'idle' as const, label: '未配置', hint: '' };
+    }
+    if (status.config.role === 'main') {
+      return {
+        tone: 'main' as const,
+        label: '主控电脑',
+        hint: '负责上传数据与确认其他电脑交回的赛果',
+      };
+    }
+    if (!status.version) {
+      return { tone: 'idle' as const, label: '云端暂无内容', hint: '等主控电脑上传后再获取' };
+    }
+    if (status.version.v > status.appliedVersion) {
+      return {
+        tone: 'warn' as const,
+        label: '本机不是最新',
+        hint: `本机已处理到第 ${status.appliedVersion} 版，点「从云端获取最新」`,
+      };
+    }
+    return {
+      tone: 'ok' as const,
+      label: '本机已是最新',
+      hint: status.appliedVersion ? `已处理第 ${status.appliedVersion} 版` : '',
+    };
+  })();
+  /** 本机待办（分控＝待交回/等确认，主控＝待确认其他电脑的赛果） */
+  const cloudTodo = (() => {
+    const status = cloudStatus;
+    if (!status?.configured) {
+      return { count: 0, label: '未启用', hint: '填好设置即可使用' };
+    }
+    if (status.config.role === 'main') {
+      return cloudInboxCount
+        ? { count: cloudInboxCount, label: `${cloudInboxCount} 场待确认`, hint: '点「查看其他电脑交回的赛果」' }
+        : { count: 0, label: '没有待确认', hint: '其他电脑交回赛果后会出现在这里' };
+    }
+    const pending = status.pending.count;
+    if (pending > 0) {
+      const unconfirmed = status.pending.unconfirmedCount;
+      return unconfirmed > 0
+        ? {
+          count: pending,
+          label: `${unconfirmed} 场已交回，等主控确认`,
+          hint: pending > unconfirmed ? `另有 ${pending - unconfirmed} 场待交回` : '等主控电脑确认后会自动清除',
+        }
+        : { count: pending, label: `${pending} 场待交回`, hint: '点「交回赛果」把登记结果发给主控' };
+    }
+    return { count: 0, label: '没有待办', hint: '本机登记并交回后会自动出现在这里' };
+  })();
+  /** 本机动作时间线（按时间倒序，只保留有记录的项） */
+  const cloudTimeline = (() => {
+    const status = cloudStatus;
+    if (!status?.configured) {
+      return [] as Array<{ key: string; label: string; at: string }>;
+    }
+    const items: Array<{ key: string; label: string; at: string }> = [];
+    if (status.lastContact.pushedAt) {
+      items.push({ key: 'push', label: '上传给其他电脑', at: status.lastContact.pushedAt });
+    }
+    if (status.lastContact.uploadedAt) {
+      items.push({ key: 'upload', label: '交回赛果', at: status.lastContact.uploadedAt });
+    }
+    if (status.lastContact.pulledAt) {
+      items.push({ key: 'pull', label: '从云端获取最新', at: status.lastContact.pulledAt });
+    }
+    if (status.lastContact.ackedAt) {
+      items.push({ key: 'ack', label: '确认对方的赛果', at: status.lastContact.ackedAt });
+    }
+    return items.sort((a, b) => (Date.parse(b.at) || 0) - (Date.parse(a.at) || 0)).slice(0, 4);
+  })();
+  // 指派工作台：只列出未结束的比赛（已完赛的指派没有意义），分控端码取自名册
+  const cloudAssignPeers = (cloudStatus?.roster ?? []).filter((entry) => entry.code !== cloudStatus?.config.machineCode);
+  const cloudAssignMatches = cloudStatus?.configured
+    ? matchStore.matches.filter((match) => match.status !== 'completed')
+    : [];
+  // 整轮安排分组：按「赛事 · 阶段 · 语义轮次」归组（W2 按选手首轮战绩拆胜者组/败者组），
+  // 编排缺失的孤儿引用兜底为「第 N 波」
+  const cloudAssignWaveGroups = (() => {
+    const groups = new Map<string, { key: string; label: string; matchIds: string[] }>();
+    cloudAssignMatches.forEach((match) => {
+      const ref = match.tournamentRef;
+      let key = 'plain';
+      let label = '普通对局';
+      if (ref) {
+        const name = tournamentNameMap.get(ref.tournamentId) ?? ref.tournamentId;
+        const tournament = tournamentRecordMap.get(ref.tournamentId);
+        const stageRound = tournament ? formatStageRoundLabel(tournament, ref) : null;
+        // 分组键用语义轮次 key：双败 W2 按选手首轮战绩拆胜者组/败者组两个批次
+        const roundKey = tournament
+          ? resolveMatchSemanticRound(tournament, ref).key
+          : `w${ref.waveIndex}`;
+        key = `${ref.tournamentId}|${ref.stageIndex}|${roundKey}`;
+        label = stageRound ? `${name} · ${stageRound}` : `${name} · 第 ${ref.waveIndex + 1} 波`;
+      }
+      const group = groups.get(key) ?? { key, label, matchIds: [] };
+      group.matchIds.push(match.id);
+      groups.set(key, group);
+    });
+    return Array.from(groups.values()).filter((group) => group.key !== 'plain');
+  })();
 
   return (
     <Layout className="admin-shell">
@@ -3763,36 +4543,34 @@ function Dashboard() {
                     }
                   >
                     <div className="match-list-scroll" onScroll={handleMatchListScroll}>
+                      {dashboardActiveMatch ? (
+                        <div className="match-list-current">
+                          <div className="match-list-group-title">当前比赛</div>
+                          {/* 独立 markup：List.Item 的 actions 是 ul，脱离 List 上下文会丢样式 */}
+                          <div className="match-list-current-card">
+                            <Badge status={dashboardActiveMatch.status === 'completed' ? 'success' : dashboardActiveMatch.status === 'in_progress' ? 'processing' : 'default'} />
+                            <span className="match-list-current-players">
+                              {dashboardActiveMatch.leftPlayer || '左侧'} vs {dashboardActiveMatch.rightPlayer || '右侧'}
+                            </span>
+                            <Space size={6} wrap>
+                              <Tag color="gold">BO{dashboardActiveMatch.bestOf}</Tag>
+                              <Tag color={getMatchStatusColor(dashboardActiveMatch.status)}>{getMatchStatusLabel(dashboardActiveMatch.status)}</Tag>
+                              <Tag bordered={false} className="match-list-score-tag">{dashboardActiveMatch.leftScore} : {dashboardActiveMatch.rightScore}</Tag>
+                            </Space>
+                          </div>
+                        </div>
+                      ) : null}
                       <List
-                        dataSource={visibleMatches}
+                        dataSource={visibleDashboardRows}
                         className="match-list"
-                        locale={{ emptyText: '暂无赛事，先创建一场比赛吧。' }}
-                        renderItem={(match) => (
-                          <List.Item
-                            className="match-list-item"
-                            actions={[
-                              <Button key="select" type={match.id === activeMatch?.id ? 'primary' : 'default'} onClick={() => void selectMatch(match.id)}>
-                                {match.id === activeMatch?.id ? '当前' : '选择'}
-                              </Button>,
-                            ]}
-                          >
-                            <List.Item.Meta
-                              avatar={<Badge status={match.status === 'completed' ? 'success' : match.status === 'in_progress' ? 'processing' : 'default'} />}
-                              title={`${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`}
-                              description={(
-                                <Space wrap>
-                                  <Tag color="gold">BO{match.bestOf}</Tag>
-                                  <Tag color={getMatchStatusColor(match.status)}>{getMatchStatusLabel(match.status)}</Tag>
-                                  <Tag bordered={false} className="match-list-score-tag">{match.leftScore} : {match.rightScore}</Tag>
-                                </Space>
-                              )}
-                            />
-                          </List.Item>
-                        )}
+                        locale={{ emptyText: dashboardActiveMatch ? '没有其他比赛了。' : '暂无赛事，先创建一场比赛吧。' }}
+                        renderItem={(row) => (row.rowType === 'group' ? (
+                          <div className="match-list-group-title">{row.title}（{row.count} 场）</div>
+                        ) : renderDashboardMatchItem(row.match))}
                       />
                       {hasMoreMatches ? (
                         <div className="match-list-more">
-                          下滑加载更多（已显示 {visibleMatches.length}/{matchStore.matches.length}）
+                          下滑加载更多（已显示 {visibleDashboardRows.filter((row) => row.rowType === 'match').length}/{dashboardNonActiveMatches.length}）
                         </div>
                       ) : null}
                     </div>
@@ -3980,13 +4758,38 @@ function Dashboard() {
                               <Button htmlType="submit">保存比赛信息</Button>
                             </Space>
                             <Space wrap size={12} className="current-match-action-group current-match-action-group-right">
-                              <Button type="dashed" onClick={() => void runMatchAction('winner', { winner: 'left' })} disabled={currentGame?.status !== 'in_progress'}>
-                                左侧赢了
-                              </Button>
-                              <Button type="dashed" onClick={() => void runMatchAction('winner', { winner: 'right' })} disabled={currentGame?.status !== 'in_progress'}>
-                                右侧赢了
-                              </Button>
-                              <Button onClick={() => void runMatchAction('undo')} disabled={!matchStore.undo.canUndo}>撤回上一步</Button>
+                              <Tooltip title={activeMatch ? cloudRegisterGate(activeMatch.id).reason : ''}>
+                                <span>
+                                  <Button
+                                    type="dashed"
+                                    onClick={() => void runMatchAction('winner', { winner: 'left' })}
+                                    disabled={currentGame?.status !== 'in_progress' || (activeMatch ? !cloudRegisterGate(activeMatch.id).allowed : false)}
+                                  >
+                                    左侧赢了
+                                  </Button>
+                                </span>
+                              </Tooltip>
+                              <Tooltip title={activeMatch ? cloudRegisterGate(activeMatch.id).reason : ''}>
+                                <span>
+                                  <Button
+                                    type="dashed"
+                                    onClick={() => void runMatchAction('winner', { winner: 'right' })}
+                                    disabled={currentGame?.status !== 'in_progress' || (activeMatch ? !cloudRegisterGate(activeMatch.id).allowed : false)}
+                                  >
+                                    右侧赢了
+                                  </Button>
+                                </span>
+                              </Tooltip>
+                              <Tooltip title={activeMatch ? cloudUndoGate(activeMatch.id).reason : ''}>
+                                <span>
+                                  <Button
+                                    onClick={() => void runMatchAction('undo')}
+                                    disabled={!matchStore.undo.canUndo || (activeMatch ? !cloudUndoGate(activeMatch.id).allowed : false)}
+                                  >
+                                    撤回上一步
+                                  </Button>
+                                </span>
+                              </Tooltip>
                               <Button onClick={() => void runMatchAction('redo')} disabled={!matchStore.undo.canRedo}>取消撤回</Button>
                             </Space>
                           </div>
@@ -4029,7 +4832,7 @@ function Dashboard() {
           {view === 'history' ? (
             <Space direction="vertical" size={18} className="page-stack">
               <Card
-                title="比赛历史"
+                title="比赛管理"
                 extra={(
                   <Space wrap>
                     <Button onClick={exportHistoryCsv} disabled={!filteredMatches.length}>导出 CSV</Button>
@@ -4042,30 +4845,64 @@ function Dashboard() {
                     <Button onClick={() => void undoDeletedHistoryMatches()} disabled={!matchStore.undo.canUndoDelete}>
                       撤回最近删除
                     </Button>
-                    <Button
-                      type="primary"
-                      loading={page6Pushing}
-                      onClick={() => void pushPage6Matches()}
-                    >
-                      推送比赛结果（{page6Draft.length}/{PAGE6_MAX_MATCHES}）
-                    </Button>
-                    <Button
-                      type="primary"
-                      loading={page7Pushing}
-                      onClick={() => void pushPage7Matches()}
-                    >
-                      推送对局推送（{page7Draft.length}）
-                    </Button>
-                    <Button
-                      type="primary"
-                      loading={page8Pushing}
-                      onClick={() => void pushPage8Matches()}
-                    >
-                      推送比赛预告（{page8Draft.length}/{PAGE8_MAX_MATCHES}）
-                    </Button>
                   </Space>
                 )}
               >
+                <Row gutter={[16, 16]} className="match-push-card-row">
+                  {page6 ? (
+                    <Col xs={24} md={6}>
+                      <MatchPushCard
+                        kind="page6"
+                        cardTitle="推送比赛结果"
+                        maxCount={PAGE6_MAX_MATCHES}
+                        matches={matchStore.matches}
+                        tournaments={tournaments}
+                        state={page6}
+                        pushing={Boolean(matchPushLoading.page6)}
+                        onPush={(payload) => pushMatchesForPage('page6', payload)}
+                      />
+                    </Col>
+                  ) : null}
+                  {page7 ? (
+                    <Col xs={24} md={6}>
+                      <MatchPushCard
+                        kind="page7"
+                        cardTitle="推送对局推送"
+                        maxCount={PAGE7_MAX_MATCHES}
+                        matches={matchStore.matches}
+                        tournaments={tournaments}
+                        state={page7}
+                        pushing={Boolean(matchPushLoading.page7)}
+                        onPush={(payload) => pushMatchesForPage('page7', payload)}
+                      />
+                    </Col>
+                  ) : null}
+                  {page8 ? (
+                    <Col xs={24} md={6}>
+                      <MatchPushCard
+                        kind="page8"
+                        cardTitle="推送比赛预告"
+                        maxCount={PAGE8_MAX_MATCHES}
+                        matches={matchStore.matches}
+                        tournaments={tournaments}
+                        state={page8}
+                        pushing={Boolean(matchPushLoading.page8)}
+                        onPush={(payload) => pushMatchesForPage('page8', payload)}
+                      />
+                    </Col>
+                  ) : null}
+                  {page14 ? (
+                    <Col xs={24} md={6}>
+                      <AdvanceRankCard
+                        tournaments={tournaments}
+                        state={page14}
+                        standings={page14Standings}
+                        saving={page14Saving}
+                        onSave={savePage14Settings}
+                      />
+                    </Col>
+                  ) : null}
+                </Row>
                 {historyNotice ? (
                   <Alert
                     showIcon
@@ -4084,11 +4921,31 @@ function Dashboard() {
                     allowClear
                     className="history-search-input"
                   />
+                  <Text type="secondary" className="history-filter-group-label">系列赛</Text>
+                  <Tag
+                    color={historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER ? 'purple' : 'default'}
+                    onClick={() => setHistoryTournamentFilter(
+                      historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER ? null : PLAIN_HISTORY_MATCH_FILTER,
+                    )}
+                  >
+                    普通对局
+                  </Tag>
+                  {historyTournamentFilters.map((item) => (
+                    <Tag
+                      key={item.id}
+                      color={historyTournamentFilter === item.id ? 'purple' : 'default'}
+                      onClick={() => setHistoryTournamentFilter(historyTournamentFilter === item.id ? null : item.id)}
+                    >
+                      🏆 {item.name}（{item.count}）
+                    </Tag>
+                  ))}
+                  <Divider type="vertical" className="history-filter-divider" />
+                  <Text type="secondary" className="history-filter-group-label">标签</Text>
                   <Tag
                     color={historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? 'processing' : 'default'}
                     onClick={() => setHistoryTagFilter(historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? null : UNCATEGORIZED_HISTORY_TAG)}
                   >
-                    未分类赛事
+                    无标签
                   </Tag>
                   <Tag color={!historyTagFilter ? 'processing' : 'default'} onClick={() => setHistoryTagFilter(null)}>全部</Tag>
                   {allHistoryTags.map((tag) => (
@@ -4097,6 +4954,27 @@ function Dashboard() {
                     </Tag>
                   ))}
                 </Space>
+                {/* 筛选状态要让用户看见：否则「刚同步过来的比赛没出现在列表里」会被当成丢失 */}
+                {historyFilterSummary ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    className="history-filter-hint"
+                    message={historyFilterSummary}
+                    action={(
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setHistoryTournamentFilter(null);
+                          setHistoryTagFilter(null);
+                          setHistorySearch('');
+                        }}
+                      >
+                        清除筛选
+                      </Button>
+                    )}
+                  />
+                ) : null}
                 <Table
                   rowKey={(record) => record.id}
                   columns={historyColumns}
@@ -4104,7 +4982,12 @@ function Dashboard() {
                   pagination={{
                     defaultPageSize: 10,
                     pageSizeOptions: ['10', '20', '50', '100'],
-                    showSizeChanger: true,
+                    showSizeChanger: {
+                      // 下拉挂到 body：表格在卡片底部，触发器父链上的层叠上下文/包含块会让下拉算错位置或被裁掉
+                      getPopupContainer: () => document.body,
+                      // 下拉宽度按选项内容自适应：跟随「10 条/页」这个很窄的触发器会把选项文字裁没
+                      popupMatchSelectWidth: false,
+                    },
                     showTotal: (total, range) => `${range[0]}-${range[1]} / 共 ${total} 条`,
                   }}
                   rowSelection={{
@@ -4290,51 +5173,418 @@ function Dashboard() {
                     </div>
                   </div>
                 </div>
+
+                <Divider className="sync-card-divider" />
+
+                {/* === 云同步（点击式）：主控「同步分发 / 检查回传 / 确认台」+ 分控「同步最新 / 回传」 === */}
+                <div className="sync-card-row sync-card-row-cloud">
+                  <div className="sync-card-label">
+                    云同步
+                    {cloudLiveBadge ? <span className="cloud-sync-badge">{cloudLiveBadge}</span> : null}
+                  </div>
+                  <div className="sync-card-content">
+                    <div className="sync-card-hint" style={{ marginTop: 0, marginBottom: 10 }}>
+                      <b>这是做什么的：</b>多台电脑各管一段赛程时用的。一台电脑（主控）负责抽签、编排、确认赛果；
+                      其他电脑（分控）负责现场登记比分。登记完点一下就能互相传过去，不用再导文件、发群聊。
+                    </div>
+                    <Space size={12} wrap align="center">
+                      <span className="cloud-sync-role-tag">
+                        {cloudRoleDraft === 'main'
+                          ? '当前身份：主控电脑（编排 + 确认赛果）'
+                          : '当前身份：分控电脑（现场登记赛果）'}
+                      </span>
+                      <Radio.Group
+                        value={cloudRoleDraft}
+                        optionType="button"
+                        buttonStyle="solid"
+                        options={[
+                          { label: '主控电脑', value: 'main' },
+                          { label: '分控电脑', value: 'sub' },
+                        ]}
+                        onChange={(event) => setCloudRoleDraft(event.target.value as CloudSyncRole)}
+                      />
+                      <Button onClick={() => void testCloudWorker()} loading={cloudTesting}>测试能否连上云端</Button>
+                      <Button onClick={() => void saveCloudSettings()} loading={cloudSaving}>保存设置</Button>
+                      <Button onClick={() => void pollCloudStatus(false)} loading={cloudBusy === 'poll'}>刷新同步状态</Button>
+                    </Space>
+
+                    <Row gutter={[12, 8]} className="cloud-sync-fields">
+                      <Col xs={24} md={12} xl={6}>
+                        <Input.Password
+                          value={cloudWorkerUrlDraft}
+                          onChange={(event) => setCloudWorkerUrlDraft(event.target.value)}
+                          placeholder="https://roco-sync.xxx.workers.dev"
+                          addonBefore="服务地址"
+                        />
+                      </Col>
+                      <Col xs={24} md={12} xl={6}>
+                        <Input
+                          value={cloudKeyDraft}
+                          onChange={(event) => setCloudKeyDraft(event.target.value)}
+                          placeholder="一组人填一样的，比如 luoke-8yue"
+                          addonBefore="房间号"
+                        />
+                      </Col>
+                      <Col xs={24} md={12} xl={6}>
+                        <Input.Password
+                          value={cloudTokenDraft}
+                          onChange={(event) => setCloudTokenDraft(event.target.value)}
+                          placeholder="主办方发给你的，两端一致"
+                          addonBefore="通行证"
+                        />
+                      </Col>
+                      <Col xs={12} md={6} xl={3}>
+                        <Input
+                          value={cloudLabelDraft}
+                          onChange={(event) => setCloudLabelDraft(event.target.value)}
+                          placeholder="如 主播机"
+                          maxLength={16}
+                          addonBefore="备注名"
+                        />
+                      </Col>
+                      <Col xs={12} md={6} xl={3}>
+                        {cloudRoleDraft === 'main' ? (
+                          <Input
+                            value={cloudPeerDraft}
+                            onChange={(event) => setCloudPeerDraft(event.target.value)}
+                            placeholder="如 B、C"
+                            addonBefore="对方机器码"
+                          />
+                        ) : null}
+                      </Col>
+                    </Row>
+
+                    <div className="sync-card-hint">
+                      <b>怎么填：</b>主办方（主控电脑）把「服务地址 / 房间号 / 通行证」发给其他电脑，三样照抄，
+                      再把角色选成<b>分控电脑</b>、本机标识（卡片最上面那个字母）改成<b>和别人不重复</b>的即可。
+                      「服务地址 / 通行证 / 备注名」填一次就存下来了，换比赛不用再填；只有「房间号」和角色是每场赛事确认一下
+                      （换房间号时会问一次：本机旧房间的同步记录要不要重置）。
+                    </div>
+                    <div className="sync-card-hint">
+                      <b>为什么要互不相同：</b>同一组人里两台电脑的「本机标识」必须不一样（比如 A / B），
+                      否则两边会互相覆盖数据、比赛编号也会撞车。
+                      <span className="cloud-sync-tech">（技术名：服务地址 = workerUrl，房间号 = syncKey，通行证 = SYNC_TOKEN）</span>
+                    </div>
+
+                    {/* 同步状态卡：一眼看清「云端是哪一版 / 本机是不是最新 / 有没有待办 / 本机都做过什么」 */}
+                    {cloudStatus?.configured ? (
+                      <div className="cloud-sync-status">
+                        <div className="cloud-sync-status-head">
+                          <Space size={8} align="center">
+                            <span className={`cloud-sync-dot cloud-sync-dot-${cloudSyncState.tone}`} />
+                            <Text strong>{cloudSyncState.label}</Text>
+                            {cloudSyncState.hint ? (
+                              <Text type="secondary" className="cloud-sync-status-note">{cloudSyncState.hint}</Text>
+                            ) : null}
+                          </Space>
+                          {cloudTodo.count > 0 ? <Tag color="orange">{cloudTodo.label}</Tag> : <Tag>{cloudTodo.label}</Tag>}
+                        </div>
+
+                        <div className="cloud-sync-status-grid">
+                          <div className="cloud-sync-tile">
+                            <div className="cloud-sync-tile-label">云端最新</div>
+                            {cloudStatus.version ? (
+                              <>
+                                <div className="cloud-sync-tile-value">
+                                  第 {cloudStatus.version.v} 版
+                                  <span className="cloud-sync-tile-sub">{formatDateTime(cloudStatus.version.at)}</span>
+                                </div>
+                                <div className="cloud-sync-tile-hint">
+                                  {cloudStatus.version.from
+                                    ? `由 ${cloudMachineText(
+                                      cloudStatus.roster.find((entry) => entry.code === cloudStatus.version!.from)
+                                      ?? { code: cloudStatus.version.from, label: '' },
+                                    )} 上传`
+                                    : ''}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="cloud-sync-tile-value">暂无内容</div>
+                                <div className="cloud-sync-tile-hint">等主控电脑点「上传给其他电脑」</div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="cloud-sync-tile">
+                            <div className="cloud-sync-tile-label">本机进度</div>
+                            <div className="cloud-sync-tile-value">
+                              {cloudStatus.appliedVersion ? `已处理第 ${cloudStatus.appliedVersion} 版` : '尚未获取'}
+                            </div>
+                            <div className="cloud-sync-tile-hint">
+                              {cloudStatus.config.role === 'main'
+                                ? '主控电脑不需要拉取'
+                                : cloudSyncState.tone === 'ok' ? '已是最新' : '有新内容时点「从云端获取最新」'}
+                            </div>
+                          </div>
+
+                          <div className="cloud-sync-tile">
+                            <div className="cloud-sync-tile-label">本机待办</div>
+                            <div className="cloud-sync-tile-value">{cloudTodo.label}</div>
+                            <div className="cloud-sync-tile-hint">{cloudTodo.hint}</div>
+                          </div>
+                        </div>
+
+                        <div className="cloud-sync-status-foot">
+                          {cloudTimeline.length ? (
+                            <>
+                              <Text type="secondary" className="cloud-sync-foot-title">本机记录</Text>
+                              <Space size={14} wrap>
+                                {cloudTimeline.map((item) => (
+                                  <span key={item.key} className="cloud-sync-foot-item">
+                                    <span className="cloud-sync-foot-label">{item.label}</span>
+                                    <span className="cloud-sync-foot-time">{formatDateTime(item.at)}</span>
+                                  </span>
+                                ))}
+                              </Space>
+                            </>
+                          ) : (
+                            <Text type="secondary">还没有同步记录：主控点「上传给其他电脑」、分控点「从云端获取最新」都会记在这里</Text>
+                          )}
+                          {cloudStatus.config.pollEnabled === false ? (
+                            <Text type="secondary">· 已关闭自动检查新内容（手动点「刷新同步状态」不受影响）</Text>
+                          ) : null}
+                        </div>
+                        <div className="cloud-sync-status-tip">
+                          云端有半分钟左右的延迟是正常的：刚上传完，另一台电脑可能要等 30 秒才能拉到新内容，等一会儿再点，别连续点。
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {cloudStatus?.lastError ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        className="cloud-sync-alert"
+                        message={cloudStatus.lastError}
+                      />
+                    ) : null}
+
+                    {cloudStatus?.configured ? (
+                      cloudRoleDraft === 'main' ? (
+                        <Space size={10} wrap align="center" className="cloud-sync-actions">
+                          <Button type="primary" onClick={() => void pushCloudBundle()} loading={cloudBusy === 'push'}>
+                            上传给其他电脑
+                          </Button>
+                          <Button
+                            onClick={() => void checkCloudInbox()}
+                            loading={cloudBusy === 'check'}
+                          >
+                            🔔 查看其他电脑交回的赛果{cloudInboxCount > 0 ? `（${cloudInboxCount}）` : ''}
+                          </Button>
+                          <Button onClick={openCloudAssign}>安排由哪台电脑登记…</Button>
+                          <Text type="secondary" className="cloud-sync-status-text">
+                            {cloudDistInfo || '还没有上传过'}
+                            {cloudAckSources.length
+                              ? ` · 还有 ${cloudAckSources.length} 台电脑的赛果等着确认`
+                              : ''}
+                          </Text>
+                        </Space>
+                      ) : (
+                        <Space size={10} wrap align="center" className="cloud-sync-actions">
+                          <Button type="primary" onClick={() => void pullCloudBundle()} loading={cloudBusy === 'pull'}>
+                            从云端获取最新
+                          </Button>
+                          <Button
+                            onClick={() => void uploadCloudResults()}
+                            loading={cloudBusy === 'upload'}
+                            disabled={!cloudStatus.pending.count}
+                          >
+                            交回赛果{cloudStatus.pending.count ? `（${cloudStatus.pending.count} 场）` : ''}
+                          </Button>
+                          <Text type="secondary" className="cloud-sync-status-text">
+                            {cloudVersionText}
+                          </Text>
+                        </Space>
+                      )
+                    ) : (
+                      <Text type="secondary">
+                        把上面的「服务地址 / 房间号 / 通行证」填好、本机标识设好，就能用了。先点「测试能否连上云端」确认网络通不通。
+                      </Text>
+                    )}
+
+                    {cloudStatus?.configured ? (
+                      <div className="sync-card-hint">
+                        {cloudRoleDraft === 'main'
+                          ? '点「上传给其他电脑」把赛事资料发到云端；对方在别处登记完赛果后点「交回赛果」，你点「查看其他电脑交回的赛果」逐场确认，确认后自动写进系列赛并推进下一轮。'
+                          : `本机可选登记并交回的赛果：${cloudStatus?.pending.count ?? 0} 场${cloudStatus?.pending.ackedAt ? `（上次被确认 ${formatDateTime(cloudStatus.pending.ackedAt)}）` : ''}；只有主控电脑安排给本机的比赛才能登记，其余比赛登记按钮是灰的。`}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </Card>
 
+              {/* 换房间守卫：房间号变了且本机还留着旧房间的同步状态时必须显式选一项，别默默带过去 */}
               <Modal
-                title="导入同步包预览"
+                title="房间号变了：本机旧房间的同步状态怎么处理？"
+                open={Boolean(cloudRoomGuard)}
+                onCancel={() => setCloudRoomGuard(null)}
+                footer={(
+                  <Space>
+                    <Button onClick={() => setCloudRoomGuard(null)}>先不改了</Button>
+                    <Button onClick={() => resolveCloudRoomGuard('keep')} loading={cloudSaving || cloudTesting}>
+                      保留旧状态，继续
+                    </Button>
+                    <Button
+                      type="primary"
+                      onClick={() => resolveCloudRoomGuard('reset')}
+                      loading={cloudSaving || cloudTesting}
+                    >
+                      重置旧状态，继续
+                    </Button>
+                  </Space>
+                )}
+              >
+                {cloudRoomGuard ? (
+                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    <Alert type="warning" showIcon message={cloudRoomGuard.guard.message} />
+                    <div className="sync-card-hint">
+                      <b>重置</b>＝ 清掉上面这些旧房间记录（换赛事、换一组人时选它）；
+                      <b>保留</b>＝ 只是改正房间号里的错字、数据其实还在同一个房间时选它。
+                    </div>
+                  </Space>
+                ) : null}
+              </Modal>
+
+              <Modal
+                title={cloudPreviewFlow === 'pull'
+                  ? '从云端获取 · 请确认要写入本机的内容'
+                  : cloudPreviewFlow === 'incoming'
+                    ? `${cloudAckCode} 号机交回的赛果 · 请确认`
+                    : '导入同步包预览'}
                 open={Boolean(syncPreview)}
                 width={1160}
                 style={{ top: 24 }}
                 className="sync-preview-modal"
-                onCancel={closeSyncPreview}
-                okText={`确认导入（${syncSelectedKeys.length} 项）`}
-                okButtonProps={{ disabled: !syncPreview || syncSelectedKeys.length === 0 }}
-                confirmLoading={syncImporting}
-                onOk={() => void applySyncPreview()}
+                onCancel={() => {
+                  if (cloudPreviewFlow) {
+                    closeCloudPreview();
+                    return;
+                  }
+                  closeSyncPreview();
+                }}
+                footer={cloudPreviewFlow === 'incoming' ? (
+                  <Space>
+                    <Button onClick={() => closeCloudPreview()}>稍后再看</Button>
+                    <Button danger onClick={() => void rejectCloudInbox()} loading={cloudBusy === 'apply'}>
+                      退回，让对方重填
+                    </Button>
+                    <Button
+                      type="primary"
+                      onClick={() => void applyCloudPreview()}
+                      loading={cloudBusy === 'apply'}
+                      disabled={!syncPreview || syncSelectedKeys.length === 0}
+                    >
+                      确认这 {syncSelectedKeys.length} 场
+                    </Button>
+                  </Space>
+                ) : cloudPullNothingToMerge ? (
+                  <Button
+                    type="primary"
+                    onClick={() => void markCloudPullReviewed()}
+                    loading={cloudBusy === 'apply'}
+                  >
+                    知道了，标记为已处理
+                  </Button>
+                ) : undefined}
+                okText={cloudPreviewFlow === 'pull'
+                  ? `确认写入本机（${syncSelectedKeys.length} 项）`
+                  : `确认导入（${syncSelectedKeys.length} 项）`}
+                okButtonProps={{
+                  disabled: !syncPreview || syncSelectedKeys.length === 0,
+                  style: cloudPreviewFlow === 'incoming' || cloudPullNothingToMerge ? { display: 'none' } : undefined,
+                }}
+                cancelButtonProps={{ style: cloudPreviewFlow === 'incoming' ? { display: 'none' } : undefined }}
+                confirmLoading={cloudPreviewFlow ? cloudBusy === 'apply' : syncImporting}
+                onOk={() => {
+                  if (cloudPreviewFlow) {
+                    void applyCloudPreview();
+                    return;
+                  }
+                  void applySyncPreview();
+                }}
               >
                 {syncPreview ? (
                   <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    {cloudPreviewFlow === 'incoming' ? (
+                      <Space wrap align="center" size={10}>
+                        <Text strong>哪台电脑交回的</Text>
+                        <Select
+                          value={cloudAckCode}
+                          style={{ minWidth: 200 }}
+                          options={cloudAckSources.map((source) => ({
+                            value: source.code,
+                            label: `${source.label ? `${source.label} · ` : ''}${source.code} 号机（${source.items.length} 场）`,
+                          }))}
+                          onChange={(value) => void switchCloudAckSource(value)}
+                        />
+                        {cloudAckSource ? (
+                          <Text type="secondary">
+                            交回时间 {formatDateTime(cloudAckSource.submittedAt)}；确认后写入本机、自动安排下一轮，并通知对方已收到
+                          </Text>
+                        ) : null}
+                      </Space>
+                    ) : null}
+
+                    {cloudPullNothingToMerge ? (
+                      <Alert
+                        type="success"
+                        showIcon
+                        message="云端这一版的内容本机已经是最新的，没有需要写入的东西"
+                        description="点下面的「知道了，标记为已处理」清掉红点即可；如果确实期待有新内容，等半分钟后再点一次「从云端获取最新」。"
+                      />
+                    ) : null}
+
+                    {cloudPreviewFlow === 'pull' && cloudDistInfo ? (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={`${cloudDistInfo}：默认只覆盖比本机旧的内容，本机较新的登记不会被冲掉`}
+                      />
+                    ) : null}
+
+                    {cloudPreviewFlow === 'incoming' ? (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="这些是对方电脑登记的赛果"
+                        description="勾选后点「确认这 N 场」：内容与本机不同的会写入本机（并推进系列赛），与本机已经一致的只回一个「收到了」的通知 —— 两种情况都会清掉对方的「等主控确认」。没勾的不会处理，对方仍保留待交回。"
+                      />
+                    ) : null}
+
                     {syncPreview.sameMachine ? (
                       <Alert
                         type="warning"
                         showIcon
                         message={syncPreview.meta.machine
-                          ? `源包与本机标识（${syncPreview.meta.machine}）相同，可能覆盖本机数据，请核对后再导入`
-                          : '源包与本机都未设置机器码，比赛编号可能相撞，建议两台机器分别设置 A / B'}
+                          ? `这份数据来自与本机相同标识（${syncPreview.meta.machine}）的电脑，可能互相覆盖，请核对后再导入`
+                          : '这份数据没有机器标识，比赛编号可能和本机撞车，建议每台电脑都设一个不同的本机标识（如 A / B）'}
                       />
                     ) : null}
 
                     <Space wrap align="center">
-                      <Text>冲突处理</Text>
-                      <Radio.Group
-                        value={syncMode}
-                        optionType="button"
-                        buttonStyle="solid"
-                        options={[
-                          { label: '较新覆盖', value: 'newer' },
-                          { label: '以包为准', value: 'bundle' },
-                        ]}
-                        onChange={(event) => {
-                          const nextMode = event.target.value as SyncConflictMode;
-                          setSyncMode(nextMode);
-                          if (syncFile) {
-                            void loadSyncPreview(syncFile, nextMode);
-                          }
-                        }}
-                      />
-                      <Text type="secondary">较新覆盖 = 按更新时间取最新；以包为准 = 不看时间，内容有差异即用包内版本</Text>
+                      {cloudPreviewFlow === 'incoming' ? null : (
+                        <>
+                          <Text>同一场都有内容时怎么处理</Text>
+                          <Radio.Group
+                            value={syncMode}
+                            optionType="button"
+                            buttonStyle="solid"
+                            options={[
+                              { label: '保留更新的', value: 'newer' },
+                              { label: '以这份为准', value: 'bundle' },
+                            ]}
+                            onChange={(event) => {
+                              const nextMode = event.target.value as SyncConflictMode;
+                              setSyncMode(nextMode);
+                              if (syncFile) {
+                                void loadSyncPreview(syncFile, nextMode);
+                              }
+                            }}
+                          />
+                          <Text type="secondary">保留更新的 = 看最后修改时间；以这份为准 = 不看时间，内容不同就用这份的</Text>
+                        </>
+                      )}
                     </Space>
 
                     {syncConflictCount > 0 ? (
@@ -4351,33 +5601,153 @@ function Dashboard() {
                       />
                     ) : null}
 
-                    <Space wrap align="center">
-                      <Checkbox checked={syncIncludeAvatars} onChange={(event) => setSyncIncludeAvatars(event.target.checked)}>
-                        缺失头像 / logo 一并补缺（{syncPreview.avatars.players.fill + syncPreview.avatars.teams.fill} 张，只补缺不覆盖）
-                      </Checkbox>
-                      <Text type="secondary">
-                        已有头像保持不动 {syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张 · 无法对应档案 {syncPreview.avatars.players.unmatched + syncPreview.avatars.teams.unmatched} 张
-                      </Text>
-                    </Space>
+                    {cloudPreviewFlow === 'incoming' ? null : (
+                      <Space wrap align="center">
+                        <Checkbox checked={syncIncludeAvatars} onChange={(event) => setSyncIncludeAvatars(event.target.checked)}>
+                          缺失头像 / logo 一并补缺（{syncPreview.avatars.players.fill + syncPreview.avatars.teams.fill} 张）
+                        </Checkbox>
+                        <Checkbox
+                          checked={syncOverwriteAvatars}
+                          disabled={!syncIncludeAvatars}
+                          onChange={(event) => setSyncOverwriteAvatars(event.target.checked)}
+                        >
+                          覆盖已有头像 / logo（{syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张，仅同档案）
+                        </Checkbox>
+                        <Text type="secondary">
+                          已有头像{syncOverwriteAvatars ? '将被包内覆盖' : '保持不动'} {syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张 · 无法对应档案 {syncPreview.avatars.players.unmatched + syncPreview.avatars.teams.unmatched} 张
+                        </Text>
+                      </Space>
+                    )}
+
+                    {syncTournamentGroups.some((group) => group.id) ? (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="带 🏆 的是系列赛：勾掉整条就不导入它（编排和它名下的比赛都不会写入本机）"
+                        description="系列赛编排会随比赛一起自动合并，不需要单独勾选；只想导其中几场时，直接勾比赛行即可。"
+                      />
+                    ) : null}
 
                     <div className="sync-preview-layout">
                       <div className="sync-preview-list">
-                        <Table<SyncImportItem>
-                          rowKey="key"
+                        <Table<SyncPreviewRow>
+                          rowKey={(record) => ('isGroup' in record ? record.rowKey : record.key)}
                           size="small"
-                          dataSource={syncPreviewItems}
-                          columns={syncPreviewColumns}
+                          dataSource={syncPreviewRows}
+                          columns={[
+                            {
+                              title: '类型',
+                              width: 88,
+                              render: (_value, record) => ('isGroup' in record
+                                ? (record.id ? '🏆 系列赛' : '普通对局')
+                                : SYNC_KIND_LABELS[record.kind]),
+                            },
+                            {
+                              title: '对象',
+                              render: (_value, record) => ('isGroup' in record ? (
+                                <Space size={6} wrap>
+                                  <Text strong>{record.id ? (record.name || record.id) : '不属于任何系列赛的比赛'}</Text>
+                                  {record.id ? <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text> : null}
+                                  {record.playerCount ? <Tag>{record.playerCount} 人</Tag> : null}
+                                  <Tag color={record.incoming ? 'purple' : 'default'}>
+                                    {record.incoming ? '包含系列赛编排' : '仅比赛，无编排'}
+                                  </Tag>
+                                  <Tag color={record.existsLocally ? 'blue' : 'green'}>
+                                    {record.existsLocally ? '本机已有' : '本机没有，将新建'}
+                                  </Tag>
+                                  {record.stageSummary ? <Tag>{record.stageSummary}</Tag> : null}
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    共 {record.matchKeys.length} 场（{record.selectableCount} 场待写入）
+                                  </Text>
+                                </Space>
+                              ) : (
+                                <Space direction="vertical" size={0}>
+                                  <Text>{record.label}</Text>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+                                </Space>
+                              )),
+                            },
+                            {
+                              title: '处理',
+                              width: 168,
+                              render: (_value, record) => ('isGroup' in record ? (
+                                record.id ? (
+                                  <Checkbox
+                                    checked={!syncExcludedTournamentIds.includes(record.id)}
+                                    onChange={() => toggleSyncTournamentGroup(record)}
+                                  >
+                                    一起导入
+                                  </Checkbox>
+                                ) : null
+                              ) : (() => {
+                                const group = syncGroupOfMatchKey.get(record.key);
+                                const excluded = Boolean(group?.id && syncExcludedTournamentIds.includes(group.id));
+                                // 确认台里的「跳过」含义是「本机已有一模一样的赛果」→ 说清楚确认它只是回执
+                                const label = excluded
+                                  ? '随系列赛跳过'
+                                  : record.action === 'skip' && cloudPreviewFlow === 'incoming'
+                                    ? '内容一致'
+                                    : SYNC_ACTION_LABELS[record.action];
+                                return (
+                                  <Space size={4}>
+                                    <Tag color={record.action === 'add' ? 'green' : record.action === 'update' ? 'gold' : 'default'}>
+                                      {label}
+                                    </Tag>
+                                    {record.conflict ? <Tag color="red">冲突</Tag> : null}
+                                  </Space>
+                                );
+                              })()),
+                            },
+                            {
+                              title: '说明',
+                              width: 148,
+                              ellipsis: true,
+                              render: (_value, record) => ('isGroup' in record
+                                ? (record.id && syncCollapsedGroupKeys.includes(record.key) ? '已折叠' : '')
+                                : <Text type="secondary">{record.reason || '—'}</Text>),
+                            },
+                          ]}
                           pagination={false}
                           scroll={{ y: 380 }}
                           onRow={(record) => ({
-                            onClick: () => setSyncActiveKey(record.key),
+                            onClick: () => {
+                              if ('isGroup' in record) {
+                                if (record.matchKeys.length) {
+                                  setSyncCollapsedGroupKeys((prev) => (
+                                    prev.includes(record.key)
+                                      ? prev.filter((key) => key !== record.key)
+                                      : [...prev, record.key]
+                                  ));
+                                }
+                                return;
+                              }
+                              setSyncActiveKey(record.key);
+                            },
                             style: { cursor: 'pointer' },
                           })}
-                          rowClassName={(record) => (record.key === syncActiveKey ? 'sync-preview-row-active' : '')}
+                          rowClassName={(record) => {
+                            if ('isGroup' in record) {
+                              return 'sync-preview-group-row';
+                            }
+                            if (syncExcludedMatchKeys.has(record.key)) {
+                              return 'sync-preview-row-excluded';
+                            }
+                            return record.key === syncActiveKey ? 'sync-preview-row-active' : '';
+                          }}
                           rowSelection={{
                             selectedRowKeys: syncSelectedKeys,
                             onChange: (keys) => setSyncSelectedKeys(keys.map(String)),
-                            getCheckboxProps: (record) => ({ disabled: record.action === 'skip' }),
+                            getCheckboxProps: (record) => {
+                              if ('isGroup' in record) {
+                                return { disabled: true, style: { display: 'none' } };
+                              }
+                              const group = syncGroupOfMatchKey.get(record.key);
+                              const excluded = Boolean(group?.id && syncExcludedTournamentIds.includes(group.id));
+                              // 确认台里连「内容一致（跳过）」的条目也要能勾：确认它只等于给对方回执，
+                              // 否则主控会卡在「没有需要更新的内容」，而对方永远显示「等主控确认」
+                              const selectable = cloudPreviewFlow === 'incoming' || record.action !== 'skip';
+                              return { disabled: !selectable || excluded };
+                            },
                           }}
                         />
                       </div>
@@ -4407,6 +5777,15 @@ function Dashboard() {
                             </Space>
 
                             {syncActiveItem.reason ? <Text type="secondary">原因：{syncActiveItem.reason}</Text> : null}
+
+                            {cloudPreviewFlow === 'incoming' && cloudAckSource
+                              ? (() => {
+                                const ackItem = cloudAckSource.items.find((entry) => entry.item.key === syncActiveItem.key);
+                                return ackItem?.impact ? (
+                                  <Alert type="info" showIcon message="写回影响" description={ackItem.impact} />
+                                ) : null;
+                              })()
+                              : null}
 
                             {syncActiveItem.diff.length ? (
                               <table className="sync-diff-table">
@@ -4482,6 +5861,124 @@ function Dashboard() {
                 ) : null}
               </Modal>
 
+              {/* 安排登记：主控决定哪几场交给哪台电脑登记（没安排的默认自己在主控电脑登记） */}
+              <Modal
+                title="安排由哪台电脑登记"
+                open={cloudAssignOpen}
+                width={980}
+                style={{ top: 24 }}
+                onCancel={() => setCloudAssignOpen(false)}
+                okText="保存安排"
+                confirmLoading={cloudBusy === 'assignment'}
+                onOk={() => void saveCloudAssignDraft()}
+              >
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="没有安排的比赛，默认由主控电脑自己登记；其他电脑上这些比赛的登记按钮会是灰的"
+                    description="保存后要点一次「上传给其他电脑」，对方才会收到最新的安排；随时可以改。"
+                  />
+                  <Space wrap size={8}>
+                    <Text type="secondary">整轮一起安排：</Text>
+                    {cloudAssignWaveGroups.map((group) => (
+                      <Space key={group.key} size={4}>
+                        <Text>{group.label}（{group.matchIds.length} 场）</Text>
+                        {cloudAssignPeers.length ? cloudAssignPeers.map((peer) => (
+                          <Button
+                            key={`${group.key}-${peer.code}`}
+                            size="small"
+                            onClick={() => setCloudAssignDraft((prev) => {
+                              const next = { ...prev };
+                              group.matchIds.forEach((matchId) => {
+                                next[matchId] = peer.code;
+                              });
+                              return next;
+                            })}
+                          >
+                            → 交给 {peer.code} 号机
+                          </Button>
+                        )) : <Text type="secondary">请先在上面「对方机器码」里填上其他电脑的标识</Text>}
+                        <Button
+                          size="small"
+                          onClick={() => setCloudAssignDraft((prev) => {
+                            const next = { ...prev };
+                            group.matchIds.forEach((matchId) => {
+                              next[matchId] = '';
+                            });
+                            return next;
+                          })}
+                        >
+                          → 主控电脑自己登记
+                        </Button>
+                      </Space>
+                    ))}
+                    {cloudAssignWaveGroups.length ? null : <Text type="secondary">暂时没有需要安排的比赛</Text>}
+                  </Space>
+                  <Table<MatchRecord>
+                    rowKey="id"
+                    size="small"
+                    dataSource={cloudAssignMatches}
+                    pagination={false}
+                    scroll={{ y: 360 }}
+                    columns={[
+                      { title: '比赛', dataIndex: 'id', width: 170 },
+                      {
+                        title: '对阵',
+                        key: 'players',
+                        render: (_value, record) => `${record.leftPlayer || '左侧'} vs ${record.rightPlayer || '右侧'}`,
+                      },
+                      {
+                        title: '系列赛',
+                        key: 'tournament',
+                        width: 240,
+                        render: (_value, record) => {
+                          const ref = record.tournamentRef;
+                          if (!ref) {
+                            return '普通对局';
+                          }
+                          const name = tournamentNameMap.get(ref.tournamentId) ?? ref.tournamentId;
+                          const tournament = tournamentRecordMap.get(ref.tournamentId);
+                          const stageRound = tournament ? formatStageRoundLabel(tournament, ref) : null;
+                          return stageRound ? `${name} · ${stageRound}` : name;
+                        },
+                      },
+                      {
+                        title: '比分 / 状态',
+                        key: 'status',
+                        width: 140,
+                        render: (_value, record) => (
+                          <Space size={6}>
+                            <Tag>{`${record.leftScore} : ${record.rightScore}`}</Tag>
+                            <Tag color={getMatchStatusColor(record.status)}>{getMatchStatusLabel(record.status)}</Tag>
+                          </Space>
+                        ),
+                      },
+                      {
+                        title: '由哪台电脑登记',
+                        key: 'scope',
+                        width: 220,
+                        render: (_value, record) => (
+                          <Select
+                            style={{ width: '100%' }}
+                            value={cloudAssignDraft[record.id] ?? ''}
+                            options={[
+                              { value: '', label: `主控电脑自己（${cloudStatus?.config.machineCode || '未设置'}）` },
+                              ...cloudAssignPeers.map((peer) => ({
+                                value: peer.code,
+                                label: `${peer.label ? `${peer.label} · ` : ''}${peer.code} 号机`,
+                              })),
+                            ]}
+                            onChange={(value) => setCloudAssignDraft((prev) => ({ ...prev, [record.id]: value }))}
+                          />
+                        ),
+                      },
+                    ]}
+                    locale={{ emptyText: '暂无比赛' }}
+                  />
+                </Space>
+              </Modal>
+
               <Modal
                 title="批量添加标签"
                 open={batchTagOpen}
@@ -4491,12 +5988,12 @@ function Dashboard() {
                 confirmLoading={batchTagSaving}
               >
                 <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  <Text>已选中 {selectedHistoryKeys.length} 场赛事，选择要添加的赛事标签（仅可选择一个）：</Text>
+                  <Text>已选中 {selectedHistoryKeys.length} 场赛事，选择要添加的标签（仅可选择一个）：</Text>
                   <Select
                     showSearch
                     autoFocus
                     value={batchTagValue ?? undefined}
-                    placeholder="选择赛事标签"
+                    placeholder="选择标签"
                     options={allHistoryTags.map((tag) => ({ value: tag, label: tag }))}
                     onChange={setBatchTagValue}
                     className="history-tag-select"
@@ -4848,13 +6345,16 @@ function Dashboard() {
             <StatsView
               matches={matchStore.matches}
               spriteMap={spriteMap}
+              tournaments={tournaments}
               metric={statsMetric}
               player={statsPlayer}
               tag={statsTag}
+              tournamentId={statsTournamentId}
               search={statsSearch}
               onMetricChange={setStatsMetric}
               onPlayerChange={setStatsPlayer}
               onTagChange={setStatsTag}
+              onTournamentChange={setStatsTournamentId}
               onSearchChange={setStatsSearch}
             />
           ) : null}
@@ -5365,22 +6865,22 @@ function Dashboard() {
                           <SettingField label="页面5标题：">
                             <Input
                               maxLength={40}
-                              placeholder="例如：洛克比赛（自动拼上赛事标签与精灵出场胜率）"
+                              placeholder="例如：洛克比赛（自动拼上系列赛名与精灵出场胜率）"
                               value={page5TitleDraft}
                               onChange={(event) => setPage5TitleDraft(event.target.value)}
                               onBlur={() => { void savePage5TitleNow(); }}
                             />
                           </SettingField>
-                          <SettingField label="赛事标签：">
+                          <SettingField label="系列赛：">
                             <Select
                               className="stage-page5-tag-select"
-                              value={stage?.page5Tag || undefined}
+                              value={stage?.page5TournamentId || undefined}
                               disabled={stageSaving}
                               options={[
                                 { value: '', label: '全部' },
-                                ...allHistoryTags.map((tag) => ({ value: tag, label: tag })),
+                                ...historyTournamentFilters.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
                               ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Tag: value ?? '' }); }}
+                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5TournamentId: value ?? '' }); }}
                             />
                           </SettingField>
                           <SettingField label="选手：">
@@ -5441,36 +6941,6 @@ function Dashboard() {
                         </Space>
                       </Card>
                     </Col>
-                    <Col xs={24} md={8}>
-                      <Card size="small" className="subtle-card" title="推流页面6-比赛结果标题与背景切换">
-                        <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="推流页面6副标题：">
-                            <Input
-                              maxLength={40}
-                              placeholder="页面6比赛结果页标题2内容，可留空"
-                              value={page6TitleDraft}
-                              onChange={(event) => setPage6TitleDraft(event.target.value)}
-                              onBlur={() => { void savePage6FieldNow({ title: page6TitleDraft }); }}
-                            />
-                          </SettingField>
-                          <SettingField label="推流页面6背景：">
-                            <Segmented
-                              block
-                              value={page6BackgroundDraft}
-                              options={[
-                                { value: 'image', label: '图片' },
-                                { value: 'image-2', label: '图片2' },
-                                { value: 'video', label: '视频' },
-                              ]}
-                              onChange={(value) => {
-                                setPage6BackgroundDraft(value as Page6Background);
-                                void savePage6FieldNow({ background: value as Page6Background });
-                              }}
-                            />
-                          </SettingField>
-                        </Space>
-                      </Card>
-                    </Col>
                   </Row>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} md={12} xl={8}>
@@ -5516,36 +6986,6 @@ function Dashboard() {
                             {stage?.page11RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
                           </Space>
                         </SettingField>
-                      </Card>
-                    </Col>
-                    <Col xs={24} md={12} xl={8}>
-                      <Card size="small" className="subtle-card stage-settings-card" title="推流页面7标题文本设置">
-                        <Space direction="vertical" size={12} className="page-stack" style={{ width: '100%' }}>
-                          <Row gutter={[16, 16]}>
-                            <Col xs={24} md={12}>
-                              <SettingField label="主标题：">
-                                <Input
-                                  maxLength={40}
-                                  placeholder="例如：S2洛克联赛，留空显示默认「对局推送」"
-                                  value={page7TitleDraft}
-                                  onChange={(event) => setPage7TitleDraft(event.target.value)}
-                                  onBlur={() => { void savePage7FieldNow(); }}
-                                />
-                              </SettingField>
-                            </Col>
-                            <Col xs={24} md={12}>
-                              <SettingField label="温馨提示：">
-                                <Input
-                                  maxLength={60}
-                                  placeholder="页面底部提示文字，留空使用默认内容"
-                                  value={page7NoticeDraft}
-                                  onChange={(event) => setPage7NoticeDraft(event.target.value)}
-                                  onBlur={() => { void savePage7FieldNow(); }}
-                                />
-                              </SettingField>
-                            </Col>
-                          </Row>
-                        </Space>
                       </Card>
                     </Col>
                   </Row>
@@ -5667,6 +7107,7 @@ function Dashboard() {
                       { value: 'page8', label: '推流页面8' },
                       { value: 'page9', label: '推流页面9' },
                       { value: 'page10', label: '推流页面10' },
+                      { value: 'page14', label: '推流页面14（晋级积分榜）' },
                     ]}
                     onChange={(value) => setPreviewSlot(value as PreviewSlotKey)}
                   />
@@ -5686,80 +7127,10 @@ function Dashboard() {
                       </Card>
                     </Col>
                   </Row>
-                  {previewSlot === 'page8' ? (
-                    <Card
-                      size="small"
-                      className="subtle-card"
-                      title="比赛预告设置（推流页面8）"
-                      extra={(
-                        <Space wrap>
-                          <Button
-                            type="primary"
-                            loading={page8Saving}
-                            onClick={() => void savePage8Settings()}
-                          >
-                            保存页面设置
-                          </Button>
-                        </Space>
-                      )}
-                    >
-                      <Space direction="vertical" size={12} className="page-stack" style={{ width: '100%' }}>
-                        {page8SettingsNotice ? (
-                          <Alert
-                            showIcon
-                            closable
-                            type={page8SettingsNotice.tone}
-                            message={page8SettingsNotice.text}
-                            onClose={() => setPage8SettingsNotice(null)}
-                          />
-                        ) : null}
-                        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                          对局勾选与推送在「比赛历史」中完成：勾选「预告」列（最多 {PAGE8_MAX_MATCHES} 场，可勾选待开始与进行中的对局，已完成不可选）后点击「推送比赛预告」。
-                        </Paragraph>
-                        <Row gutter={[16, 16]}>
-                          <Col xs={24} md={12}>
-                            <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>主标题：</Text>
-                            <Input
-                              maxLength={40}
-                              placeholder="例如：赛事预告，可留空隐藏"
-                              value={page8TitleDraft}
-                              onChange={(event) => setPage8TitleDraft(event.target.value)}
-                            />
-                          </Col>
-                          <Col xs={24} md={12}>
-                            <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>壁纸：</Text>
-                            <Space wrap>
-                              <Segmented
-                                value={page8BackgroundDraft}
-                                options={[
-                                  { value: 'image', label: '图片1' },
-                                  { value: 'image-2', label: '图片2' },
-                                  { value: 'custom', label: '自定义' },
-                                ]}
-                                onChange={(value) => setPage8BackgroundDraft(value as Page8Background)}
-                              />
-                              <Upload
-                                accept="image/*"
-                                showUploadList={false}
-                                beforeUpload={(file) => {
-                                  void uploadPage8Wallpaper(file);
-                                  return false;
-                                }}
-                              >
-                                <Button size="small" loading={page8WallpaperUploading} disabled={page8BackgroundDraft === 'custom'}>
-                                  上传壁纸
-                                </Button>
-                              </Upload>
-                              {page8BackgroundDraft === 'custom' ? (
-                                <Button size="small" danger loading={page8WallpaperUploading} onClick={() => void removePage8Wallpaper()}>
-                                  删除壁纸
-                                </Button>
-                              ) : null}
-                            </Space>
-                          </Col>
-                        </Row>
-                      </Space>
-                    </Card>
+                  {previewSlot === 'page6' || previewSlot === 'page7' || previewSlot === 'page8' ? (
+                    <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                      对局选择与推送在「比赛管理」视图顶部的功能卡片中完成：点击对应卡片，在弹窗内勾选比赛、调整场序{previewSlot === 'page6' || previewSlot === 'page8' ? '与场序时间' : ''}后确认推送（最多 {PAGE8_MAX_MATCHES} 场）。
+                    </Paragraph>
                   ) : null}
                   <div className="preview-frame-shell" ref={previewFrameShellRef}>
                     <div
@@ -5774,6 +7145,17 @@ function Dashboard() {
                 </Space>
               </Card>
             </Space>
+          ) : null}
+
+          {view === 'tournament' ? (
+            <TournamentView
+              tournaments={tournaments}
+              profiles={profiles}
+              matches={matchStore.matches}
+              sprites={sprites}
+              machineCode={machineCodeInput}
+              onJumpToRoster={() => setView('roster')}
+            />
           ) : null}
 
           {view === 'about' ? (
@@ -5956,12 +7338,12 @@ function Dashboard() {
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item label="赛事标签（可选）">
+              <Form.Item label="标签（可选）">
                 <Select
                   mode="multiple"
                   allowClear
                   style={{ width: '100%' }}
-                  placeholder="可选，选择赛事标签"
+                  placeholder="可选，选择标签"
                   value={quickCreateTags}
                   onChange={(value) => setQuickCreateTags(value as string[])}
                   options={allHistoryTags.map((tag) => ({ value: tag, label: tag }))}
@@ -6048,7 +7430,7 @@ function Dashboard() {
               onSelect={(value) => {
                 const player = (profiles?.players ?? []).find((item) => item.name === value);
                 if (player) {
-                  void reusePlayerProfile('left', player);
+                  reusePlayerProfile('left', player);
                 }
               }}
             />
@@ -6063,7 +7445,7 @@ function Dashboard() {
               onSelect={(value) => {
                 const player = (profiles?.players ?? []).find((item) => item.name === value);
                 if (player) {
-                  void reusePlayerProfile('right', player);
+                  reusePlayerProfile('right', player);
                 }
               }}
             />
@@ -6118,7 +7500,7 @@ function Dashboard() {
           </Row>
           <Row gutter={[16, 16]}>
             <Col xs={24} md={12}>
-              <Form.Item label="左侧选手头像（留空则使用默认）">
+              <Form.Item label="左侧选手头像（留空则用档案头像，无档案用默认）">
                 <div className="create-avatar-row">
                   <div className="player-avatar-circular">
                     {createLeftAvatarUrl ? (
@@ -6140,7 +7522,7 @@ function Dashboard() {
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
-              <Form.Item label="右侧选手头像（留空则使用默认）">
+              <Form.Item label="右侧选手头像（留空则用档案头像，无档案用默认）">
                 <div className="create-avatar-row">
                   <div className="player-avatar-circular">
                     {createRightAvatarUrl ? (
@@ -6173,12 +7555,12 @@ function Dashboard() {
               ]}
             />
           </Form.Item>
-          <Form.Item label="赛事标签" name="tags">
+          <Form.Item label="标签" name="tags">
             <Select
               mode="multiple"
               allowClear
               style={{ width: '100%' }}
-              placeholder="可选，选择赛事标签"
+              placeholder="可选，选择标签"
               options={allHistoryTags.map((tag) => ({ value: tag, label: tag }))}
             />
           </Form.Item>

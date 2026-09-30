@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>洛克王国PVP - 推流页面14（晋级积分榜）</title>
+    <link rel="stylesheet" href="/styles/roco-pvp-page14.css">
+    <link rel="stylesheet" href="/styles/stage-enter.css">
+    <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
+</head>
+<body>
+    <main class="page14-screen" id="page14Screen" aria-label="洛克王国PVP晋级积分榜">
+        <!-- 背景：蓝色渐变 + 光晕，纯 CSS（不依赖图片资源） -->
+        <div class="page14-bg" aria-hidden="true"></div>
+        <div class="page14-shade" aria-hidden="true"></div>
+
+        <!-- 大标题 + 副标题：均可在后台修改，留空时各自兜底 -->
+        <header class="page14-title fx-enter">
+            <h1 id="page14Title">晋级积分榜</h1>
+            <p id="page14Subtitle"></p>
+        </header>
+
+        <!-- 榜单：由 page14-display.js 分栏渲染（最多 3 栏，每页最多 32 行） -->
+        <section class="page14-board" id="page14Board"></section>
+
+        <!-- 未推送/系列赛缺失时的占位 -->
+        <div class="page14-empty fx-enter" id="page14Empty" hidden>
+            <span id="page14EmptyText">等待裁判端推送系列赛与阶段</span>
+        </div>
+
+        <!-- 分页提示：仅在当前阶段超过一页时显示（如 64进32 的 64 人分 2 页） -->
+        <footer class="page14-footer fx-enter" id="page14Footer" hidden>
+            <span class="page14-footer-stage" id="page14StageName"></span>
+            <span class="page14-footer-page" id="page14PageText"></span>
+        </footer>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/page14-display.js"></script>
+    <script src="/scripts/stage-enter.js"></script>
+</body>
+</html>

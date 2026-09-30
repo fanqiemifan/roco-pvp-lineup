@@ -23,6 +23,7 @@
      *   - page11        : 选手介绍-左侧选手             -> /roco-pvp-page11.html?mode=left
      *   - page12        : 选手介绍-右侧选手             -> /roco-pvp-page11.html?mode=right
      *   - page13        : 选手介绍-对战页               -> /roco-pvp-page11.html?mode=versus
+     *   - page14        : 推流页面14（晋级积分榜）       -> /roco-pvp-page14.html
      *   - blank         : 黑场（不加载任何画面）
      */
 
@@ -40,6 +41,7 @@
         'page11': { label: '选手介绍-左侧选手', path: '/roco-pvp-page11.html?mode=left' },
         'page12': { label: '选手介绍-右侧选手', path: '/roco-pvp-page11.html?mode=right' },
         'page13': { label: '选手介绍-对战页', path: '/roco-pvp-page11.html?mode=versus' },
+        'page14': { label: '推流页面14（晋级积分榜）', path: '/roco-pvp-page14.html' },
         'blank': { label: '黑场', path: null }
     };
 

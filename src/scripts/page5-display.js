@@ -9,15 +9,27 @@
     const rightRowsEl = document.getElementById('page5RowsRight');
 
     let currentEventTitle = '';
-    let currentTag = '';
+    let currentTournamentId = '';
+    let currentTournamentName = '';
 
-    function setTag(tag) {
-        currentTag = String(tag || '').trim();
+    // 换系列赛立即清掉旧名字（新名字随排行榜响应带回），避免标题短暂显示上一场的名字
+    function setTournamentId(tournamentId) {
+        const next = String(tournamentId || '').trim();
+        if (next === currentTournamentId) {
+            return;
+        }
+        currentTournamentId = next;
+        currentTournamentName = '';
+        refreshTitle();
     }
 
-    // 标题 = 赛事标题 + 赛事标签口径 + 「精灵出场胜率」（无 · 符号）
+    function setTournamentName(name) {
+        currentTournamentName = String(name || '').trim();
+    }
+
+    // 标题 = 赛事标题 + 所选系列赛名 + 「精灵出场胜率」（无 · 符号）
     function composeTitle() {
-        const part = [currentEventTitle, currentTag].filter(Boolean).join('');
+        const part = [currentEventTitle, currentTournamentName].filter(Boolean).join('');
         return part ? `${part}精灵出场胜率` : DEFAULT_TITLE;
     }
 
@@ -164,10 +176,11 @@
         });
     }
 
-    async function fetchRanking(tag, player) {
+    async function fetchRanking(tournamentId, player) {
+        setTournamentId(tournamentId);
         const query = new URLSearchParams();
-        if (tag) {
-            query.set('tag', tag);
+        if (tournamentId) {
+            query.set('tournamentId', tournamentId);
         }
         if (player) {
             query.set('player', player);
@@ -178,6 +191,9 @@
                 throw new Error(`HTTP ${response.status}`);
             }
             const data = await response.json();
+            // 系列赛名由服务端解析：改名/删除后页面标题与榜单口径自动一致
+            setTournamentName(data && data.tournamentName);
+            refreshTitle();
             renderRanking(data);
         } catch (error) {
             console.error('排行加载失败:', error);
@@ -190,21 +206,20 @@
                 fetch('/api/stage', { credentials: 'same-origin' }).then((r) => r.json()),
                 fetch('/api/scoreboard', { credentials: 'same-origin' }).then((r) => r.json()),
             ]);
-            setTag(stage && stage.page5Tag);
+            await fetchRanking(stage && stage.page5TournamentId, stage && stage.page5Player);
             applyTitle(scoreboard && scoreboard.page5Title);
-            await fetchRanking(stage && stage.page5Tag, stage && stage.page5Player);
         } catch (error) {
             console.error('page5 初始加载失败:', error);
         }
     }
 
     let refreshTimer = null;
-    function scheduleRefresh(tag, player) {
+    function scheduleRefresh(tournamentId, player) {
         if (refreshTimer) {
             window.clearTimeout(refreshTimer);
         }
         refreshTimer = window.setTimeout(() => {
-            void fetchRanking(tag, player);
+            void fetchRanking(tournamentId, player);
         }, 250);
     }
 
@@ -217,23 +232,21 @@
         socket.on('snapshot', (payload) => {
             const stage = payload && payload.stage ? payload.stage : null;
             const scoreboard = payload && payload.scoreboard ? payload.scoreboard : null;
-            setTag(stage && stage.page5Tag);
+            if (stage) {
+                void fetchRanking(stage.page5TournamentId, stage.page5Player);
+            }
             if (scoreboard) {
                 applyTitle(scoreboard.page5Title);
             } else {
                 refreshTitle();
-            }
-            if (stage) {
-                void fetchRanking(stage.page5Tag, stage.page5Player);
             }
         });
 
         socket.on('stage:update', (payload) => {
             const stage = payload && payload.stage ? payload.stage : null;
             if (stage) {
-                setTag(stage.page5Tag);
                 refreshTitle();
-                scheduleRefresh(stage.page5Tag, stage.page5Player);
+                scheduleRefresh(stage.page5TournamentId, stage.page5Player);
             }
         });
 
@@ -244,10 +257,10 @@
             }
         });
 
-        // matches:update 载荷为 { store }，比赛数据变化时用当前标签口径刷新排行
+        // matches:update 载荷为 { store }，比赛数据变化时用当前系列赛口径刷新排行
         socket.on('matches:update', () => {
             refreshTitle();
-            scheduleRefresh(currentTag, undefined);
+            scheduleRefresh(currentTournamentId, undefined);
         });
     }
 

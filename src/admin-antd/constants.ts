@@ -86,6 +86,11 @@ export const PREVIEW_PAGES: Record<PreviewSlotKey, PreviewConfig> = {
     fileName: 'roco-pvp-page11.html',
     path: '/roco-pvp-page11.html?mode=versus',
   },
+  page14: {
+    title: '推流页面14（晋级积分榜）',
+    fileName: 'roco-pvp-page14.html',
+    path: '/roco-pvp-page14.html',
+  },
 };
 
 export const STAGE_OPTIONS: Array<{ value: StagePageKey; label: string; description: string; previewPath: string }> = [
@@ -166,6 +171,12 @@ export const STAGE_OPTIONS: Array<{ value: StagePageKey; label: string; descript
     label: '选手介绍-对战页',
     description: '对战页：双方头像卡 + 当前阵容条 + 中央分割线',
     previewPath: '/roco-pvp-page11.html?mode=versus',
+  },
+  {
+    value: 'page14',
+    label: '推流页面14',
+    description: '晋级积分榜（按系列赛阶段统计选手胜负，每页最多 32 人，后台翻页）',
+    previewPath: '/roco-pvp-page14.html',
   },
 ];
 

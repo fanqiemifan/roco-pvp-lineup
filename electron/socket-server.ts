@@ -9,19 +9,19 @@ import { Server as SocketIOServer } from 'socket.io';
 
 import { SOCKET_EVENTS } from '../shared/events.js';
 import { SYNC_BUNDLE_MAX_BYTES } from '../shared/constants.js';
-import type { AvatarCollectionState, CountdownState, MatchStoreState, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
+import { computeScheduleTimes } from '../shared/match-schedule.js';
+import type { AvatarCollectionState, CloudSyncKeyGuardResult, CountdownState, LineupImportPreviewRow, MatchRecord, MatchStoreState, Page6State, Page7State, Page8State, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
 import { getSpriteRanking } from './services/stats-service.js';
 import {
   ensureRuntimeDirs,
-  getAvatarStates,
   saveAvatar,
-  savePage8Wallpaper,
   saveProfilePlayerAvatar,
   saveProfileTeamLogo,
   deleteAvatar,
   readAvatarMimeType,
 } from './services/image-service.js';
+import { createAvatarResolver, resolveMatchAvatars } from './services/avatar-resolver.js';
 import {
   getProfileStore,
   savePlayerProfile,
@@ -34,25 +34,53 @@ import {
 import { loadRuntimeConfig, saveRuntimeConfig } from './services/config-service.js';
 import { applySyncImport, exportSyncBundle, previewSyncImport } from './services/sync-service.js';
 import {
+  canRegisterMatch,
+  checkCloudSync,
+  checkMachineCodeChange,
+  checkSubUndoAllowed,
+  confirmCloudSync,
+  finalizeCloudPull,
+  getCloudSyncStatus,
+  pollCloudSync,
+  previewCloudPull,
+  pushCloudSync,
+  rejectCloudSync,
+  saveCloudAssignment,
+  saveCloudSyncConfig,
+  skipCloudPull,
+  testCloudConnection,
+  uploadCloudSync,
+} from './services/cloud-sync-service.js';
+import {
   getStageState,
   saveStageState,
 } from './services/stage-service.js';
 import {
   getPage6State,
+  PAGE6_MATCH_STATUSES,
+  prunePage6State,
   savePage6State,
 } from './services/page6-service.js';
 import {
   getPage7State,
+  prunePage7State,
   savePage7State,
 } from './services/page7-service.js';
 import {
   getPage8State,
+  PAGE8_MATCH_STATUSES,
+  prunePage8State,
   savePage8State,
 } from './services/page8-service.js';
 import {
   getPage9State,
   savePage9State,
 } from './services/page9-service.js';
+import {
+  getPage14State,
+  resolvePage14View,
+  savePage14State,
+} from './services/page14-service.js';
 import {
   getPage11State,
   savePage11State,
@@ -79,10 +107,13 @@ import {
   startCountdown,
 } from './services/countdown-service.js';
 import {
+  applyLineupImport,
   createMatch,
   deleteMatch,
   deleteMatches,
+  forfeitMatch,
   getMatchStore,
+  inspectLineupImportTargets,
   recordMatchWinner,
   redoMatchAction,
   saveDraftPanelStateForActiveMatch,
@@ -97,6 +128,22 @@ import {
   updateMatchTags,
   updateMatchesTags,
 } from './services/match-service.js';
+import {
+  advanceTournament,
+  createTournament,
+  deleteTournament,
+  getTournamentStore,
+  importPairings,
+  lockPairings,
+  onMatchCompleted,
+  onMatchUndo,
+  previewOpeningWave,
+  redrawTournament,
+  resolveTournamentLabels,
+  rollbackWave,
+  savePairingDraft,
+  startTournament,
+} from './services/tournament-service.js';
 import {
   clearPanelState,
   getPanelState,
@@ -132,7 +179,7 @@ const ROLE_ADMIN = 'admin';
 const KNOWN_SOCKET_ROLES = new Set([
   ROLE_ADMIN,
   'page1', 'page2', 'page3', 'page4', 'page5', 'page6',
-  'page7', 'page8', 'page9', 'page10', 'page11',
+  'page7', 'page8', 'page9', 'page10', 'page11', 'page14',
   'float', 'carrier', 'countdown',
 ]);
 const ROLE_ROOM_PREFIX = 'role:';
@@ -153,6 +200,7 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
   page7: ['page7'],
   page8: ['page8'],
   page9: ['page9'],
+  page14: ['page14'],
   page10: [],
   page11: [],
   float: ['panels'],
@@ -162,29 +210,38 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
 
 // 事件 → 需要该事件的角色（admin 房间始终收到全部）
 const ROLES_FOR_STAGE = ['page3', 'page5', 'page11', 'carrier'];
-const ROLES_FOR_AVATAR = ['page3', 'page4', 'page7', 'page8', 'page10', 'page11'];
-const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11'];
+const ROLES_FOR_AVATAR = ['page3', 'page4', 'page6', 'page7', 'page8', 'page10', 'page11'];
+const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11', 'page14'];
 const ROLES_FOR_SCOREBOARD = ['page2', 'page3', 'page5'];
 const ROLES_FOR_PANEL = ['page1', 'page2', 'page3', 'page11', 'float'];
 const ROLES_FOR_PROFILES = ['page3', 'page11'];
 
+/** 活跃比赛记录（头像解析需要选手名做档案兜底，故不只是取 id） */
+function findActiveMatch(store: MatchStoreState): MatchRecord | null {
+  return store.activeMatchId
+    ? store.matches.find((match) => match.id === store.activeMatchId) ?? null
+    : null;
+}
+
 function snapshotPayload(paths: AppPaths): SnapshotPayload {
-  const activeMatchId = getMatchStore(paths).activeMatchId;
+  const store = getMatchStore(paths);
   return {
     panels: [getPanelState(paths, 'left'), getPanelState(paths, 'right')],
     scoreboard: getScoreboardState(paths),
-    avatars: getAvatarStates(paths, activeMatchId),
-    store: getMatchStore(paths),
+    avatars: resolveMatchAvatars(paths, findActiveMatch(store)),
+    store,
     stage: getStageState(paths),
     page6: getPage6State(paths),
     page7: getPage7State(paths),
     page8: getPage8State(paths),
     page9: getPage9State(paths),
     page11: getPage11State(paths),
+    page14: getPage14State(paths),
     nextgame: getNextGamePayload(paths),
     profiles: getProfileStore(paths),
     countdown: getCountdownState(paths),
     mvp: getMvpState(paths),
+    tournaments: getTournamentStore(paths),
   };
 }
 
@@ -192,6 +249,26 @@ function sendPage(paths: AppPaths, response: Response, pageFile: string): void {
   // 页面随版本更新：禁止启发式缓存，避免升级后仍加载旧页面（资源文件名带 hash 不受影响）
   response.set('Cache-Control', 'no-cache');
   response.sendFile(path.join(paths.pagesDir, pageFile));
+}
+
+/**
+ * 卡片排位排名兜底：对局自身未填排名时，按选手名回退「信息录入」档案中的排名。
+ * 系列赛引擎早期自动建场的对局没有排名快照，避免比赛结果/比赛预告卡片 rank 区空显示；
+ * 对局已填排名时以对局值为准（不覆盖）。
+ */
+function withProfileRankFallback(paths: AppPaths, matches: MatchRecord[]): MatchRecord[] {
+  const rankByName = new Map(getProfileStore(paths).players.map((player) => [player.name, player.rank]));
+  if (rankByName.size === 0) {
+    return matches;
+  }
+  return matches.map((match) => {
+    const leftRank = match.leftRank || rankByName.get(match.leftPlayer) || '';
+    const rightRank = match.rightRank || rankByName.get(match.rightPlayer) || '';
+    if (leftRank === match.leftRank && rightRank === match.rightRank) {
+      return match;
+    }
+    return { ...match, leftRank, rightRank };
+  });
 }
 
 function sendAdminAntdPage(paths: AppPaths, response: Response): void {
@@ -399,8 +476,9 @@ export async function createLocalServer(
 
   // 广播当前赛事对应的头像（活跃赛事变化时推流页等需要同步）
   const emitAvatarUpdate = (): void => {
-    const matchId = getMatchStore(paths).activeMatchId;
-    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatars: getAvatarStates(paths, matchId) }, ROLES_FOR_AVATAR);
+    const store = getMatchStore(paths);
+    const matchId = store.activeMatchId;
+    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatars: resolveMatchAvatars(paths, findActiveMatch(store)) }, ROLES_FOR_AVATAR);
   };
 
   // 红光特效「立即显示」为一次性触发：进入下一局（换比赛 / 新小局开始）时自动清除并广播，
@@ -440,10 +518,68 @@ export async function createLocalServer(
     broadcast(SOCKET_EVENTS.stageUpdate, { stage: saved }, ROLES_FOR_STAGE);
   };
 
-  // 比赛数据统一广播出口：广播后检查红光特效「立即显示」是否已进入下一局需清除
-  const emitMatchesUpdate = (store: MatchStoreState): void => {
+  // 比赛数据统一广播出口：广播后检查红光特效「立即显示」是否已进入下一局需清除，
+  // 并同步推流选场（page6/7/8）——比赛删除/状态变更后清理不再可展示的引用，返回变化页面
+  const emitMatchesUpdate = (store: MatchStoreState): PagePushPruneResult => {
     broadcast(SOCKET_EVENTS.matchesUpdate, { store }, ROLES_FOR_MATCHES);
     clearRedLightInstantOnBoundary(store);
+    return prunePagePushSelections();
+  };
+
+  // 系列赛数据广播：admin（第 11 视图）与 page14（晋级积分榜按阶段重算榜单）消费
+  const emitTournamentUpdate = (): void => {
+    broadcast(SOCKET_EVENTS.tournamentUpdate, { tournaments: getTournamentStore(paths) }, ['page14']);
+  };
+
+  // 推流选场（page6/7/8）清理结果：仅含发生变化的页面
+  type PagePushPruneResult = Partial<Record<'page6' | 'page7' | 'page8', Page6State | Page7State | Page8State>>;
+
+  // GET 下发的选场 id 白名单过滤：只保留仍存在且状态符合页面收录口径的比赛（与落盘口径同源）
+  const filterSelectableMatchIds = (
+    matchIds: string[],
+    statuses: ReadonlySet<MatchRecord['status']>,
+  ): string[] => {
+    const allowed = new Set(
+      getMatchStore(paths).matches
+        .filter((match) => statuses.has(match.status))
+        .map((match) => match.id),
+    );
+    return matchIds.filter((id) => allowed.has(id));
+  };
+
+  // 对局推送（page7）不限状态：只过滤已被删除的悬空引用
+  const filterExistingMatchIds = (matchIds: string[]): string[] => {
+    const existing = new Set(getMatchStore(paths).matches.map((match) => match.id));
+    return matchIds.filter((id) => existing.has(id));
+  };
+
+  /**
+   * 推流选场（page6/7/8）与比赛数据保持一致：
+   * 比赛删除（悬空引用）或状态变更（不再符合页面收录状态）后清理选场清单，
+   * 只广播实际变化的页面（避免多余刷新），返回清理结果供删除类路由回传发起端。
+   */
+  const prunePagePushSelections = (): PagePushPruneResult => {
+    const next: PagePushPruneResult = {};
+
+    const page6 = prunePage6State(paths);
+    if (page6) {
+      broadcast(SOCKET_EVENTS.page6Update, { state: page6 }, ['page6']);
+      next.page6 = page6;
+    }
+
+    const page7 = prunePage7State(paths);
+    if (page7) {
+      broadcast(SOCKET_EVENTS.page7Update, { state: page7 }, ['page7']);
+      next.page7 = page7;
+    }
+
+    const page8 = prunePage8State(paths);
+    if (page8) {
+      broadcast(SOCKET_EVENTS.page8Update, { state: page8 }, ['page8']);
+      next.page8 = page8;
+    }
+
+    return next;
   };
 
   // 记录启动基线，保证服务启动后首次进入下一局也能被识别
@@ -505,6 +641,7 @@ export async function createLocalServer(
   app.get('/roco-pvp-page8.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page8.html'));
   app.get('/roco-pvp-page9.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page9.html'));
   app.get('/roco-pvp-page10.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page10.html'));
+  app.get('/roco-pvp-page14.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page14.html'));
   // 选手介绍（page11-13）：同一页面文件通过 ?mode=left/right/versus 区分三种画面
   app.get('/roco-pvp-page11.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page11.html'));
   app.get('/roco-pvp-page1.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page1.html'));
@@ -562,14 +699,20 @@ export async function createLocalServer(
       const isPublicStatic = publicStaticPrefixes.some(p =>
         req.path === p || req.path.startsWith(p + '/')
       );
-      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
+      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/roco-pvp-page14.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
       // 推流页面仅用于展示，所需的数据 GET 接口公开（含选手头像/录入信息），写操作仍受保护
-      const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/mvp', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
+      const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/page14', '/api/mvp', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
       // 头像图片公开访问（含按赛事隔离的 /api/avatar/{matchId}/{side}-avatar.png），推流页无需登录
       const isPublicAvatarImage = req.method === 'GET' && req.path.startsWith('/api/avatar/');
       const isAuthApi = req.path.startsWith('/api/auth/');
+      // 云同步涉及房间密钥读写与跨机赛果合并，必须在公开 GET 白名单之外（Node 模式下强制登录）
+      const isCloudSyncApi = req.path.startsWith('/api/cloud-sync/');
       const isFavicon = req.path === '/favicon.ico';
 
+      if (isCloudSyncApi) {
+        if (req.session?.isAuthenticated && req.session.sessionId === activeSessionId) return next();
+        return res.status(401).json({ success: false, error: '请先登录' });
+      }
       if (isPublicStatic || isPublicPage || isPublicPage5Api || isPublicAvatarImage || isAuthApi || isFavicon) return next();
       // Verify both authenticated flag AND single-session ID match
       if (req.session?.isAuthenticated && req.session.sessionId === activeSessionId) return next();
@@ -591,7 +734,8 @@ export async function createLocalServer(
   });
 
   app.get('/api/avatars', (_request, response) => {
-    response.json(getAvatarStates(paths, getMatchStore(paths).activeMatchId));
+    const store = getMatchStore(paths);
+    response.json(resolveMatchAvatars(paths, findActiveMatch(store)));
   });
 
   app.get('/api/scoreboard', (_request, response) => {
@@ -619,20 +763,38 @@ export async function createLocalServer(
   // 胜者结算画面（page10）：返回当前活跃比赛与双方头像，页面自行解析最近一个已分胜负的小局胜者
   app.get('/api/page10', (_request, response) => {
     const store = getMatchStore(paths);
-    const match = store.activeMatchId
-      ? store.matches.find((item) => item.id === store.activeMatchId) ?? null
-      : null;
-    const avatars = getAvatarStates(paths, store.activeMatchId);
+    const match = findActiveMatch(store);
+    const avatars = resolveMatchAvatars(paths, match);
     response.json({ match, avatars });
   });
 
   app.get('/api/page6', (_request, response) => {
-    const state = getPage6State(paths);
     const matchStore = getMatchStore(paths);
-    const matches = state.matchIds
-      .map((id) => matchStore.matches.find((match) => match.id === id))
-      .filter((match) => match && match.status === 'completed');
-    response.json({ state, matches });
+    const savedState = getPage6State(paths);
+    // 失效引用兜底：存量配置里已删或不再可展示（非已结束）的 id 不下发（state.matchIds 与 matches 需同源）
+    const state = { ...savedState, matchIds: filterSelectableMatchIds(savedState.matchIds, PAGE6_MATCH_STATUSES) };
+    // 排名兜底：对局未填排名时按选手名回退「信息录入」档案排名（系列赛早期对局无快照）
+    const matches = withProfileRankFallback(
+      paths,
+      state.matchIds
+        .map((id) => matchStore.matches.find((match) => match.id === id))
+        .filter((match): match is NonNullable<typeof match> => match !== undefined && match.status === 'completed'),
+    );
+    // 头像统一解析（赛事覆盖 > 档案头像兜底）：{ [matchId]: { left, right } }
+    const avatarResolver = createAvatarResolver(paths);
+    const avatars: Record<string, AvatarCollectionState> = {};
+    for (const match of matches) {
+      avatars[match.id] = avatarResolver.forMatch(match);
+    }
+    // 卡片场序时间：开始时间 + 按 BO×30 分钟累加（手动覆盖由 service 归一化在 state.matchTimes）
+    const scheduleTimes = computeScheduleTimes(
+      matches.map((match) => ({ id: match.id, bestOf: match.bestOf })),
+      state.startTime,
+      state.matchTimes,
+    );
+    // 系列赛阶段语义标签（仅系列赛对局有值，page6 卡片用它替换场序信息行）
+    const tournamentLabels = resolveTournamentLabels(paths, matches);
+    response.json({ state, matches, avatars, scheduleTimes, tournamentLabels });
   });
 
   app.post('/api/page6', (request, response) => {
@@ -647,15 +809,18 @@ export async function createLocalServer(
 
   // 对局推送（page7）：返回所选多场比赛完整数据（含每个小局阵容）与按赛事隔离的选手头像
   app.get('/api/page7', (_request, response) => {
-    const state = getPage7State(paths);
     const matchStore = getMatchStore(paths);
+    const savedState = getPage7State(paths);
+    // 悬空引用兜底：存量配置里指向已删比赛的 id 不下发（对局推送不限状态）
+    const state = { ...savedState, matchIds: filterExistingMatchIds(savedState.matchIds) };
     const matches = state.matchIds
       .map((id) => matchStore.matches.find((item) => item.id === id))
       .filter((match): match is NonNullable<typeof match> => Boolean(match));
-    // 头像按赛事隔离：{ [matchId]: { left, right } }
+    // 头像统一解析（赛事覆盖 > 档案头像兜底）：{ [matchId]: { left, right } }
+    const avatarResolver = createAvatarResolver(paths);
     const avatars: Record<string, AvatarCollectionState> = {};
     for (const match of matches) {
-      avatars[match.id] = getAvatarStates(paths, match.id);
+      avatars[match.id] = avatarResolver.forMatch(match);
     }
     response.json({ state, matches, avatars });
   });
@@ -672,52 +837,37 @@ export async function createLocalServer(
 
   // 比赛预告（page8）：返回所选比赛完整数据与按赛事隔离的选手头像
   app.get('/api/page8', (_request, response) => {
-    const state = getPage8State(paths);
     const matchStore = getMatchStore(paths);
-    const matches = state.matchIds
-      .map((id) => matchStore.matches.find((match) => match.id === id))
-      .filter((match): match is NonNullable<typeof match> => match != null && (match.status === 'pending' || match.status === 'in_progress'));
-    // 头像按赛事隔离：{ [matchId]: { left, right } }
+    const savedState = getPage8State(paths);
+    // 失效引用兜底：存量配置里已删或不再可展示（已结束）的 id 不下发（state.matchIds 与 matches 需同源）
+    const state = { ...savedState, matchIds: filterSelectableMatchIds(savedState.matchIds, PAGE8_MATCH_STATUSES) };
+    // 排名兜底：与 page6 同口径，按选手名回退「信息录入」档案排名
+    const matches = withProfileRankFallback(
+      paths,
+      state.matchIds
+        .map((id) => matchStore.matches.find((match) => match.id === id))
+        .filter((match): match is NonNullable<typeof match> => match != null && (match.status === 'pending' || match.status === 'in_progress')),
+    );
+    // 头像统一解析（赛事覆盖 > 档案头像兜底）：{ [matchId]: { left, right } }
+    const avatarResolver = createAvatarResolver(paths);
     const avatars: Record<string, AvatarCollectionState> = {};
     for (const match of matches) {
-      avatars[match.id] = getAvatarStates(paths, match.id);
+      avatars[match.id] = avatarResolver.forMatch(match);
     }
-    response.json({ state, matches, avatars });
+    // 卡片场序时间：开始时间 + 按 BO×30 分钟累加（手动覆盖由 service 归一化在 state.matchTimes）
+    const scheduleTimes = computeScheduleTimes(
+      matches.map((match) => ({ id: match.id, bestOf: match.bestOf })),
+      state.startTime,
+      state.matchTimes,
+    );
+    // 系列赛阶段语义标签（仅系列赛对局有值，page8 与 page6 同口径）
+    const tournamentLabels = resolveTournamentLabels(paths, matches);
+    response.json({ state, matches, avatars, scheduleTimes, tournamentLabels });
   });
 
   app.post('/api/page8', (request, response) => {
     try {
       const state = savePage8State(paths, request.body ?? {});
-      broadcast(SOCKET_EVENTS.page8Update, { state }, ["page8"]);
-      response.json({ success: true, state });
-    } catch (error) {
-      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  // 比赛预告（page8）自定义壁纸上传：魔数校验 + 1920x1080 压缩落盘
-  app.post('/api/page8/wallpaper', upload.single('file'), async (request, response) => {
-    if (!request.file?.buffer) {
-      response.status(400).json({ success: false, error: 'No file data' });
-      return;
-    }
-    try {
-      await savePage8Wallpaper(paths, request.file.buffer);
-      const state = savePage8State(paths, { background: 'custom', wallpaperUrl: '/runtime/page8-wallpaper.jpg' });
-      broadcast(SOCKET_EVENTS.page8Update, { state }, ["page8"]);
-      response.json({ success: true, state, wallpaperUrl: '/runtime/page8-wallpaper.jpg' });
-    } catch (error) {
-      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  // 删除自定义壁纸：回退到内置背景图
-  app.delete('/api/page8/wallpaper', (request, response) => {
-    try {
-      if (fs.existsSync(paths.page8WallpaperFile)) {
-        fs.unlinkSync(paths.page8WallpaperFile);
-      }
-      const state = savePage8State(paths, { background: 'image', wallpaperUrl: '' });
       broadcast(SOCKET_EVENTS.page8Update, { state }, ["page8"]);
       response.json({ success: true, state });
     } catch (error) {
@@ -739,18 +889,34 @@ export async function createLocalServer(
     }
   });
 
+  // === 晋级积分榜（page14） ===
+  // 榜单由服务端按系列赛阶段的现存节点重算（只统计系列赛内的比赛），页面只负责渲染。
+  app.get('/api/page14', (_request, response) => {
+    const view = resolvePage14View(paths);
+    response.json({ state: view.state, standings: view.standings });
+  });
+
+  app.post('/api/page14', (request, response) => {
+    try {
+      savePage14State(paths, request.body ?? {});
+      const view = resolvePage14View(paths);
+      broadcast(SOCKET_EVENTS.page14Update, { state: view.state }, ["page14"]);
+      response.json({ success: true, state: view.state, standings: view.standings });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   // === 选手介绍（page11-13） ===
   // 返回配置 + 信息录入 + 当前赛事（含头像）+ 实时阵容面板，页面按 mode 自行解析两侧选手
   app.get('/api/page11', (_request, response) => {
     const store = getMatchStore(paths);
-    const match = store.activeMatchId
-      ? store.matches.find((item) => item.id === store.activeMatchId) ?? null
-      : null;
+    const match = findActiveMatch(store);
     response.json({
       state: getPage11State(paths),
       profiles: getProfileStore(paths),
       match,
-      avatars: getAvatarStates(paths, store.activeMatchId),
+      avatars: resolveMatchAvatars(paths, match),
       panels: [getPanelState(paths, 'left'), getPanelState(paths, 'right')],
       stage: getStageState(paths),
     });
@@ -776,6 +942,8 @@ export async function createLocalServer(
     try {
       const profiles = savePlayerProfile(paths, request.body ?? {});
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
+      // 选手名是头像匹配键：档案变更后各页需重解析头像（赛事覆盖 > 档案头像）
+      emitAvatarUpdate();
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -793,6 +961,7 @@ export async function createLocalServer(
           : null;
       const result = importPlayerProfiles(paths, list);
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
+      emitAvatarUpdate();
       response.json({ success: true, profiles: result.profiles, review: result.review });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -803,6 +972,7 @@ export async function createLocalServer(
     try {
       const profiles = deletePlayerProfile(paths, request.params.playerId ?? '');
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
+      emitAvatarUpdate();
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -845,6 +1015,8 @@ export async function createLocalServer(
       await saveProfilePlayerAvatar(paths, playerId, request.file.buffer);
       const profiles = getProfileStore(paths);
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
+      // 档案头像变了：让 page3/4/6/7/8/10/11 立即重解析（不必等重新载入）
+      emitAvatarUpdate();
       response.json({ success: true, profiles });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -888,6 +1060,7 @@ export async function createLocalServer(
         })),
       );
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
+      emitAvatarUpdate();
       response.json({ success: true, ...result });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1109,7 +1282,10 @@ export async function createLocalServer(
 
   app.post('/api/matches', (request, response) => {
     try {
-      const matches = createMatch(paths, request.body ?? {});
+      // 公开入口不接受 tournamentRef：系列赛比赛只能由引擎锁定配对时内部创建，
+      // 剥离它防止普通手建比赛伪造关联
+      const { tournamentRef: _stripped, ...sanitizedBody } = (request.body ?? {}) as Record<string, unknown>;
+      const matches = createMatch(paths, sanitizedBody);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
@@ -1155,16 +1331,21 @@ export async function createLocalServer(
     }
   });
 
-  app.delete('/api/matches/:matchId', (_request, response) => {
+  app.delete('/api/matches/:matchId', (request, response) => {
     try {
-      const matches = deleteMatch(paths, _request.params.matchId);
+      const target = getMatchStore(paths).matches.find((match) => match.id === request.params.matchId);
+      if (target?.tournamentRef) {
+        throw new Error('系列赛关联比赛不能直接删除，请使用「回退上一波」');
+      }
+      const matches = deleteMatch(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      emitMatchesUpdate(matches);
+      // 广播出口同步清理推流选场（page6/7/8）中的该场引用，清理结果一并回传
+      const pagePush = emitMatchesUpdate(matches);
       emitAvatarUpdate();
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
-      response.json({ success: true, store: matches, scoreboard, panels });
+      response.json({ success: true, store: matches, scoreboard, panels, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
@@ -1172,14 +1353,21 @@ export async function createLocalServer(
 
   app.post('/api/matches/batch-delete', (request, response) => {
     try {
+      const guarded = getMatchStore(paths).matches.filter((match) =>
+        (request.body?.matchIds ?? []).includes(match.id) && match.tournamentRef,
+      );
+      if (guarded.length) {
+        throw new Error('选中的比赛含系列赛关联场次，不能直接删除，请使用「回退上一波」');
+      }
       const matches = deleteMatches(paths, request.body?.matchIds ?? []);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
-      emitMatchesUpdate(matches);
+      // 广播出口同步清理推流选场（page6/7/8）中的已删引用，清理结果一并回传
+      const pagePush = emitMatchesUpdate(matches);
       emitAvatarUpdate();
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
-      response.json({ success: true, store: matches, scoreboard, panels });
+      response.json({ success: true, store: matches, scoreboard, panels, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
@@ -1215,18 +1403,42 @@ export async function createLocalServer(
     }
   });
 
+  // ===== 云同步登记闸门：分控端只能登记指派给本机的比赛，已确认赛果禁止撤回 =====
+  // 从源头杜绝误操作（分控端登记了未指派的比赛 → 回传 → 主控还得驳回）。
+  const assertMatchRegistration = (matchId: string): void => {
+    const gate = canRegisterMatch(paths, matchId);
+    if (!gate.allowed) {
+      throw new Error(gate.reason);
+    }
+  };
+
+  const assertMatchUndoAllowed = (matchId: string): void => {
+    const gate = checkSubUndoAllowed(paths, matchId);
+    if (!gate.allowed) {
+      throw new Error(gate.reason);
+    }
+  };
+
   app.post('/api/matches/:matchId/winner', (request, response) => {
     try {
       const winner = request.body?.winner;
       if (winner !== 'left' && winner !== 'right') {
         throw new Error('winner must be left or right');
       }
+      assertMatchRegistration(request.params.matchId);
       const matches = recordMatchWinner(paths, request.params.matchId, winner);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
+      // 系列赛完成钩子：带 ref 且刚完成的比赛写回节点，可能触发下一波/下一阶段
+      const updatedTournament = onMatchCompleted(paths, request.params.matchId);
+      if (updatedTournament) {
+        // 钩子可能批量建场：再广播一次 matches，并广播 tournament:update
+        emitMatchesUpdate(getMatchStore(paths));
+        emitTournamentUpdate();
+      }
       // 登记本局胜负：当前画面是推流页面1-3 时自动切入胜者结算画面（page10）
       triggerWinnerStage();
       response.json({ success: true, store: matches, scoreboard, panels });
@@ -1237,6 +1449,7 @@ export async function createLocalServer(
 
   app.post('/api/matches/:matchId/start', (request, response) => {
     try {
+      assertMatchRegistration(request.params.matchId);
       const matches = startCurrentGame(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
@@ -1249,7 +1462,7 @@ export async function createLocalServer(
     }
   });
 
-  // 比赛历史「录入阵容」：只写指定赛事当前小局（待开始）的双方阵容记录，一次写入
+  // 比赛管理「录入阵容」：只写指定赛事当前小局（待开始）的双方阵容记录，一次写入
   // 单次广播 matchesUpdate（避免推流页因两次事件重渲染两遍产生闪烁），不触碰面板/比分栏
   app.post('/api/matches/:matchId/games/:gameNumber/lineup', (request, response) => {
     const selections = request.body?.selections;
@@ -1275,9 +1488,17 @@ export async function createLocalServer(
     }
   });
 
-  app.post('/api/matches/:matchId/undo', (_request, response) => {
+  app.post('/api/matches/:matchId/undo', (request, response) => {
     try {
-      const matches = undoMatchAction(paths, _request.params.matchId);
+      // 已 ack 的赛果在分控端禁止撤回（整条替换合并不会触发 onMatchUndo，单方面撤回会让状态分叉）
+      assertMatchUndoAllowed(request.params.matchId);
+      // 系列赛反向钩子必须先跑：无法回退时（后续波已开打/人工对阵）直接失败，
+      // 避免出现「比赛已撤回、系列赛仍显示晋级」的半吊子状态（后续登记还会被节点胜者幂等吞掉）
+      const undoneTournament = onMatchUndo(paths, request.params.matchId);
+      if (undoneTournament) {
+        emitTournamentUpdate();
+      }
+      const matches = undoMatchAction(paths, request.params.matchId);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
       emitMatchesUpdate(matches);
@@ -1300,6 +1521,243 @@ export async function createLocalServer(
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // ==================== 系列赛自动化管理（管理端，受鉴权保护） ====================
+  app.get('/api/tournaments', (_request, response) => {
+    response.json({ tournaments: getTournamentStore(paths) });
+  });
+
+  app.get('/api/tournaments/:tournamentId', (request, response) => {
+    const tournament = getTournamentStore(paths).find((item) => item.id === request.params.tournamentId);
+    if (!tournament) {
+      response.status(404).json({ success: false, error: '系列赛不存在' });
+      return;
+    }
+    response.json({ tournament });
+  });
+
+  // 系列赛阵容批量导入：dryRun 预览（名字解析 + 场次预检）/ 写入（一次 matchesUpdate 广播）。
+  // 门槛与单场「录入阵容」一致（比赛待开始 + 第 1 局尚未开赛），属比赛记录写入——任意机器可用
+  app.post('/api/tournaments/:tournamentId/lineup-import', (request, response) => {
+    const tournamentId = request.params.tournamentId;
+    const body = (request.body ?? {}) as { dryRun?: unknown; rows?: unknown };
+    const rows = Array.isArray(body.rows) ? body.rows : null;
+    if (!rows || rows.length === 0 || rows.length > 256) {
+      response.status(400).json({ success: false, error: 'rows 必须是非空数组（最多 256 场）' });
+      return;
+    }
+    if (!getTournamentStore(paths).some((record) => record.id === tournamentId)) {
+      response.status(404).json({ success: false, error: '系列赛不存在' });
+      return;
+    }
+
+    const normalized = rows.map((row) => {
+      const item = (row ?? {}) as Record<string, unknown>;
+      return {
+        matchId: String(item.matchId ?? '').trim(),
+        left: item.left,
+        right: item.right,
+      };
+    });
+    const sideToText = (value: unknown): string =>
+      Array.isArray(value)
+        ? value.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean).join('\n')
+        : '';
+
+    // 预览：场次级预检（归属 / 待开始 / 第 1 局）+ 逐格名字解析（与「快速填充」同一套匹配）
+    if (body.dryRun) {
+      const checks = inspectLineupImportTargets(paths, tournamentId, normalized.map((row) => row.matchId));
+      const preview: LineupImportPreviewRow[] = normalized.map((row, index) => {
+        const check = checks[index];
+        const left = buildQuickFillPreview(paths, sideToText(row.left)).matches;
+        const right = buildQuickFillPreview(paths, sideToText(row.right)).matches;
+        const cells = [...left, ...right].filter((cell) => cell.input);
+        const unmatchedCount = cells.filter((cell) => !cell.matched).length;
+        const reason = !check.ok
+          ? check.reason
+          : cells.length === 0
+            ? '两侧均无阵容'
+            : unmatchedCount > 0
+              ? `有 ${unmatchedCount} 个精灵未匹配`
+              : undefined;
+        return {
+          matchId: row.matchId,
+          ok: check.ok && cells.length > 0 && unmatchedCount === 0,
+          reason,
+          left,
+          right,
+        };
+      });
+      response.json({ success: true, rows: preview });
+      return;
+    }
+
+    try {
+      const { store, results } = applyLineupImport(paths, tournamentId, normalized);
+      emitMatchesUpdate(store);
+      response.json({ success: true, results });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments', (request, response) => {
+    try {
+      const tournament = createTournament(paths, request.body ?? {});
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/draw', (request, response) => {
+    try {
+      const tournament = redrawTournament(paths, request.params.tournamentId, request.body ?? {});
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 只读：按当前 seed 预览首波对阵（不建场），供 setup 抽签面板展示
+  app.get('/api/tournaments/:tournamentId/opening-wave', (request, response) => {
+    try {
+      response.json(previewOpeningWave(paths, request.params.tournamentId));
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/start', (request, response) => {
+    try {
+      const tournament = startTournament(paths, request.params.tournamentId);
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/advance', (request, response) => {
+    try {
+      const tournament = advanceTournament(paths, request.params.tournamentId);
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.put('/api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings', (request, response) => {
+    try {
+      const tournament = savePairingDraft(
+        paths,
+        request.params.tournamentId,
+        request.params.waveGlobalIndex,
+        request.body ?? {},
+      );
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/lock', (request, response) => {
+    try {
+      const tournament = lockPairings(
+        paths,
+        request.params.tournamentId,
+        request.params.waveGlobalIndex,
+        request.body ?? {},
+      );
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/import', (request, response) => {
+    try {
+      const result = importPairings(
+        paths,
+        request.params.tournamentId,
+        request.params.waveGlobalIndex,
+        request.body ?? {},
+      );
+      emitTournamentUpdate();
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/rollback-wave', (request, response) => {
+    try {
+      const tournament = rollbackWave(paths, request.params.tournamentId);
+      // 回退会删除未打的对局：广播出口同步清理推流选场里的引用
+      const pagePush = emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, tournament, pagePush });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post('/api/tournaments/:tournamentId/forfeit', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as { matchId?: unknown; loserSide?: unknown };
+      const matchId = String(body.matchId ?? '').trim();
+      if (!matchId) {
+        throw new Error('请指定弃权比赛 matchId');
+      }
+      if (body.loserSide !== 'left' && body.loserSide !== 'right') {
+        throw new Error('loserSide must be left or right');
+      }
+      const target = getMatchStore(paths).matches.find((match) => match.id === matchId);
+      if (!target) {
+        throw new Error('比赛不存在');
+      }
+      if (!target.tournamentRef || target.tournamentRef.tournamentId !== request.params.tournamentId) {
+        throw new Error('该比赛不属于本系列赛');
+      }
+
+      forfeitMatch(paths, matchId, body.loserSide);
+      const updated = onMatchCompleted(paths, matchId);
+      emitMatchesUpdate(getMatchStore(paths));
+      if (updated) {
+        emitTournamentUpdate();
+      }
+      const tournament = getTournamentStore(paths).find((item) => item.id === request.params.tournamentId);
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 删除系列赛：默认仅解绑关联比赛（保留为普通对局）；body.deleteMatches=true 连同比赛一起删
+  app.delete('/api/tournaments/:tournamentId', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as { deleteMatches?: unknown };
+      const result = deleteTournament(
+        paths,
+        request.params.tournamentId,
+        { deleteMatches: body.deleteMatches === true },
+      );
+      // 连同对局删除时由广播出口同步清理推流选场里的引用（仅解绑不影响选场）
+      const pagePush = emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, ...result, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
@@ -1334,7 +1792,12 @@ export async function createLocalServer(
   app.get('/api/stats/ranking', (request, response) => {
     const player = typeof request.query.player === 'string' ? request.query.player : '';
     const tag = typeof request.query.tag === 'string' ? request.query.tag : '';
-    response.json(getSpriteRanking(paths, { player: player || null, tag: tag || null }));
+    const tournamentId = typeof request.query.tournamentId === 'string' ? request.query.tournamentId : '';
+    response.json(getSpriteRanking(paths, {
+      player: player || null,
+      tag: tag || null,
+      tournamentId: tournamentId || null,
+    }));
   });
 
   app.post('/api/panels/:position', (request, response) => {
@@ -1512,7 +1975,8 @@ export async function createLocalServer(
       // HTML/etc. payloads are rejected before storage. Avatars are scoped
       // to the active match (cache/avatars/{matchId}).
       const avatar = await saveAvatar(paths, side, matchId, request.file.buffer);
-      broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatar, avatars: getAvatarStates(paths, matchId) }, ROLES_FOR_AVATAR);
+      const store = getMatchStore(paths);
+      broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, avatar, avatars: resolveMatchAvatars(paths, findActiveMatch(store)) }, ROLES_FOR_AVATAR);
       response.json({ success: true, side, matchId, avatar });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1532,23 +1996,304 @@ export async function createLocalServer(
     }
 
     const avatar = deleteAvatar(paths, side, matchId);
-    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, side, avatar, avatars: getAvatarStates(paths, matchId) }, ROLES_FOR_AVATAR);
+    const store = getMatchStore(paths);
+    broadcast(SOCKET_EVENTS.avatarUpdate, { matchId, side, avatar, avatars: resolveMatchAvatars(paths, findActiveMatch(store)) }, ROLES_FOR_AVATAR);
     response.json({ success: true, side, matchId, avatar });
   });
 
   app.get('/api/runtime-config', (_request, response) => {
-    response.json(loadRuntimeConfig(paths));
+    // 云同步状态也一并下发：前端「数据同步」卡片一次请求就能渲染设置区（含名册与最后通信时间）
+    response.json({
+      ...loadRuntimeConfig(paths),
+      syncConfig: getCloudSyncStatus(paths),
+    });
   });
 
   app.post('/api/runtime-config', (request, response) => {
     const body = (request.body ?? {}) as Record<string, unknown>;
     // 合并语义：只覆盖传入字段（单传 machineCode 不会把 port 重置为默认）
+    // 改机器码守卫：有 running 系列赛内嵌旧码直接拒绝；有其它系列赛内嵌旧码要求二次确认
+    let guard = { blocked: false, requireConfirm: false, tournamentIds: [] as string[], message: '' };
+    if (body.machineCode !== undefined) {
+      guard = checkMachineCodeChange(paths, String(body.machineCode));
+      if (guard.blocked) {
+        response.status(400).json({ success: false, error: guard.message, guard });
+        return;
+      }
+      if (guard.requireConfirm && body.confirmMachineCodeChange !== true) {
+        response.status(409).json({ success: false, error: guard.message, guard });
+        return;
+      }
+    }
+
     const config = saveRuntimeConfig(paths, {
       port: body.port === undefined ? undefined : Number(body.port),
       machineCode: body.machineCode === undefined ? undefined : String(body.machineCode),
     });
-    response.json({ success: true, config });
+    response.json({ success: true, config, guard, syncConfig: getCloudSyncStatus(paths) });
   });
+
+  // === 云同步（点击式）：主控「同步分发 / 检查回传 / 确认台」+ 分控「同步最新 / 回传」+ 红点轮询 ===
+
+  /** 云同步写操作必须带房间密钥与机器码（两道校验：键一致 + 本机已设置标识） */
+  const readCloudRequest = (request: Request): { key: string; machine: string } => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const config = loadRuntimeConfig(paths);
+    const key = String(body.syncKey ?? config.syncKey ?? '').trim();
+    const machine = String(body.machineCode ?? config.machineCode ?? '').trim();
+    if (!key) {
+      throw new Error('未配置房间密钥（syncKey），请先在「云同步设置区」填写并保存');
+    }
+    if (key !== config.syncKey) {
+      throw new Error('界面上的房间密钥与已保存的不一致，请重新保存云同步设置');
+    }
+    if (!machine) {
+      throw new Error('请先设置本机标识（machineCode）');
+    }
+    return { key, machine };
+  };
+
+  const readStringArray = (value: unknown): string[] => (
+    Array.isArray(value) ? value.map((item) => String(item ?? '')) : []
+  );
+
+  /**
+   * 保存云同步设置类接口的错误出口：换房间守卫回 409 + guard（前端据此弹「重置旧状态 / 原样保留」
+   * 二次确认，选了再重试一次），其余（字段非法等）照旧 400。
+   */
+  const respondCloudConfigError = (response: Response, error: unknown): void => {
+    const guard = (error as { guard?: CloudSyncKeyGuardResult }).guard;
+    const message = error instanceof Error ? error.message : String(error);
+    if (guard) {
+      response.status(409).json({ success: false, error: message, guard });
+      return;
+    }
+    response.status(400).json({ success: false, error: message });
+  };
+
+  /** multipart 表单里的字符串化 JSON 数组（accepted / excludeTournamentIds 都走这个） */
+  const readJsonArrayField = (value: unknown): string[] => {
+    if (typeof value !== 'string' || !value.trim()) {
+      return [];
+    }
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.map((item) => String(item ?? '')) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  /** 云同步状态（轮询用；只读本机状态，不产生任何云端请求） */
+  app.get('/api/cloud-sync/status', (_request, response) => {
+    response.json({ success: true, status: getCloudSyncStatus(paths) });
+  });
+
+  /** 红点轮询：只读云端小键（version / ack / uplink），绝不合并数据 */
+  app.post('/api/cloud-sync/poll', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await pollCloudSync(paths);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 云同步设置：房间密钥 / 角色 / Worker 地址 / 显示名 / 轮询开关 + 主控端分控码名册（改房间号见换房间守卫） */
+  app.post('/api/cloud-sync/config', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const status = saveCloudSyncConfig(paths, {
+        syncKey: body.syncKey,
+        syncToken: body.syncToken,
+        role: body.role,
+        workerUrl: body.workerUrl,
+        machineLabel: body.machineLabel,
+        pollEnabled: body.pollEnabled,
+        pollIntervalSeconds: body.pollIntervalSeconds,
+        peerCodes: body.peerCodes,
+        cloudStateAction: body.cloudStateAction,
+      });
+      response.json({ success: true, status });
+    } catch (error) {
+      respondCloudConfigError(response, error);
+    }
+  });
+
+  /**
+   * 「检测 Worker 在线」：打 /health，不碰 KV、**不需要房间密钥**。
+   * 只要求 workerUrl 已保存（本接口会先把界面上的地址存下来再测，省一步「保存设置」）。
+   */
+  app.post('/api/cloud-sync/test', async (request, response) => {
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      if (body.workerUrl !== undefined || body.syncKey !== undefined || body.syncToken !== undefined) {
+        // undefined = 界面没带该字段（保持已保存值）；空字符串 = 用户主动清空（照存）
+        // 这里同样会经过换房间守卫：测试连通性顺手保存的房间号也不许静默带走旧房间状态
+        saveCloudSyncConfig(paths, {
+          workerUrl: body.workerUrl,
+          syncKey: body.syncKey,
+          syncToken: body.syncToken,
+          cloudStateAction: body.cloudStateAction,
+        });
+      }
+      const result = await testCloudConnection(paths);
+      response.json({ success: result.ok, ...result });
+    } catch (error) {
+      respondCloudConfigError(response, error);
+    }
+  });
+
+  /** 主控「同步分发」：全量包（不带头像）+ 指派规则 + 名册 → downlink + version */
+  app.post('/api/cloud-sync/push', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await pushCloudSync(paths);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 分控「同步最新」：读 downlink → 配对校验 → 与现有导入一致的预览（不写入） */
+  app.post('/api/cloud-sync/pull', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await previewCloudPull(paths);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 分控「确认合并」：用落盘待合并包 + 勾选条目走现有 applySyncImport，合并后重算待回传集 */
+  app.post('/api/cloud-sync/apply', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const result = await finalizeCloudPull(
+        paths,
+        readStringArray(body.accepted),
+        body.mode === 'bundle' ? 'bundle' : 'newer',
+        readStringArray(body.excludeTournamentIds),
+      );
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /**
+   * 分控「无需改动，标记为已处理」：预览里全是「不用改」的条目时收尾状态用。
+   * 只推进本机记录的云端版本，不写入任何比赛/系列赛数据。
+   */
+  app.post('/api/cloud-sync/skip', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await skipCloudPull(paths);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 分控「回传」：现算所有未 ack 比赛的累计集合 → uplink:{本机码} */
+  app.post('/api/cloud-sync/upload', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const result = await uploadCloudSync(paths);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 主控「检查回传」：读各分控 uplink → 复用现有预览 + 写回影响说明（不写入） */
+  app.post('/api/cloud-sync/check', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const result = await checkCloudSync(paths, body.code === undefined ? null : String(body.code));
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 主控确认台：确认 = 合并被勾选赛果 + runTournamentWriteBack 推进波次 + 写回执 */
+  app.post('/api/cloud-sync/confirm', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const code = String(body.code ?? '').trim();
+      if (!code) {
+        throw new Error('请指定要确认的分控端机器码');
+      }
+      const result = await confirmCloudSync(paths, code, readStringArray(body.accepted));
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 主控驳回：不写本地、不写回执，分控端保持待回传 */
+  app.post('/api/cloud-sync/reject', async (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const code = String(body.code ?? '').trim();
+      if (!code) {
+        throw new Error('请指定要驳回的分控端机器码');
+      }
+      const result = await rejectCloudSync(paths, code);
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /** 主控指派：比赛 id -> 登记机器码（空字符串 = 主控端自己登记），随下次「同步分发」生效 */
+  app.post('/api/cloud-sync/assignment', (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const status = saveCloudAssignment(paths, body.overrides ?? {});
+      response.json({ success: true, status });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  /**
+   * 登记入口判定（分控端按指派范围置灰，未指派 = 主控端登记）：
+   * 一次问一批比赛（比赛管理列表逐行渲染，不能逐行打接口）。
+   * 同时下发待回传集与已确认集：前者用于「回传」按钮与列表标记，后者用于锁定分控端撤回。
+   */
+  app.post('/api/cloud-sync/registration-scope', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const matchIds = readStringArray(body.matchIds);
+      const scope: Record<string, { allowed: boolean; reason: string }> = {};
+      matchIds.forEach((matchId) => {
+        scope[matchId] = canRegisterMatch(paths, matchId);
+      });
+      const status = getCloudSyncStatus(paths);
+      response.json({
+        success: true,
+        scope,
+        role: status.config.role,
+        pending: status.pending,
+      });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
 
   // === 双机数据同步：导出 / 预览 / 导入（同步包为单个 JSON 文件，导入走 multipart 上传） ===
 
@@ -1601,27 +2346,29 @@ export async function createLocalServer(
       const { raw, mode } = readSyncRequest(request);
       const body = (request.body ?? {}) as Record<string, unknown>;
 
-      let accepted: string[] = [];
-      if (typeof body.accepted === 'string' && body.accepted.trim()) {
-        try {
-          const parsed: unknown = JSON.parse(body.accepted);
-          if (Array.isArray(parsed)) {
-            accepted = parsed.map((item) => String(item ?? ''));
-          }
-        } catch {
-          accepted = [];
-        }
-      }
+      let accepted: string[] = readJsonArrayField(body.accepted);
+
+      // 预览里被取消勾选的系列赛：整条不导入（编排不合并 + 其比赛不写入）
+      const excludeTournamentIds = readJsonArrayField(body.excludeTournamentIds);
 
       const result = await applySyncImport(paths, raw, {
         mode,
         acceptedKeys: accepted,
         includeAvatars: String(body.includeAvatars ?? 'true') !== 'false',
+        // 默认只补缺；用户勾选「覆盖已有头像」才会用包内图片覆盖本机同档案头像
+        overwriteAvatars: String(body.overwriteAvatars ?? '') === 'true',
+        excludeTournamentIds,
       });
 
       emitMatchesUpdate(result.store);
+      // 系列赛有变化（新副本 / 编排机写回推进，可能已自动生成下一波比赛 → store 已取最新）：广播刷新
+      if (result.tournaments.added || result.tournaments.updated || result.tournaments.advanced) {
+        emitTournamentUpdate();
+      }
       if (result.profiles) {
         broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
+        // 同步导入可能补写档案头像 / 变更选手名，头像匹配结果随之变化
+        emitAvatarUpdate();
       }
       response.json({ success: true, result });
     } catch (error) {

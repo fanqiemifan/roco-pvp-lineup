@@ -4,18 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>洛克王国PVP - 推流页面8（比赛预告）</title>
-    <link rel="stylesheet" href="/styles/roco-pvp-page8.css">
+    <link rel="stylesheet" href="/styles/match-prediction.css">
     <link rel="stylesheet" href="/styles/stage-enter.css">
     <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
 </head>
 <body>
-    <main class="page8-screen" id="page8Screen" aria-label="洛克王国PVP比赛预告">
-        <div class="page8-title fx-enter" id="page8Title"></div>
-
-        <div class="page8-grid fx-enter" id="page8Grid" style="--fx-delay:150ms"></div>
+    <main class="mp-screen" id="mpScreen" aria-label="洛克王国PVP比赛预告">
+        <!-- 主标题：后台可编辑，空值兜底「比赛预告」 -->
+        <div class="mp-title fx-enter" id="mpTitle"></div>
+        <!-- 副标题：固定内容 -->
+        <div class="mp-subtitle fx-enter" style="--fx-delay:100ms">Match Prediction</div>
+        <!-- 对局卡片网格：最多 9 张，顺序即后台选择的场序 -->
+        <div class="mp-grid fx-enter" id="mpGrid" style="--fx-delay:150ms"></div>
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/match-prediction.js"></script>
     <script src="/scripts/page8-display.js"></script>
     <script src="/scripts/stage-enter.js"></script>
 </body>

@@ -15,6 +15,7 @@ import type {
   SyncImportItem,
   SyncImportPreview,
   SyncImportResult,
+  SyncImportTournamentGroup,
   TeamProfile,
 } from '../../shared/types.js';
 import { loadRuntimeConfig } from './config-service.js';
@@ -28,6 +29,7 @@ import {
 import type { AppPaths } from './path-service.js';
 import type { ProfileImportDecision } from './profile-service.js';
 import { diffProfileRecords, getProfileStore, mergeProfileRecords } from './profile-service.js';
+import { getTournamentStore, mergeTournamentRecords, runTournamentWriteBack } from './tournament-service.js';
 
 /** 导出选项：头像只在包含档案时才有效（头像按档案 id 归属） */
 export interface SyncExportOptions {
@@ -36,10 +38,12 @@ export interface SyncExportOptions {
 }
 
 /** 解析后的同步包（包内条目保持 unknown，由各服务逐条规范化） */
-interface SyncBundlePayload {
+export interface SyncBundlePayload {
   machine: string;
   exportedAt: string;
   matches: unknown[];
+  /** 系列赛编排（旧包可能不含该字段，按空数组处理） */
+  tournaments: unknown[];
   profiles: { players: unknown[]; teams: unknown[] } | null;
   avatars: { players: Record<string, string>; teams: Record<string, string> } | null;
 }
@@ -49,6 +53,21 @@ export interface SyncApplyOptions {
   /** 前端勾选保留的 item.key 列表（服务端会重新分类后取交集，不信任客户端判定） */
   acceptedKeys: string[];
   includeAvatars: boolean;
+  /**
+   * 覆盖已有头像 / logo：默认只补缺（本地已有文件一律跳过），
+   * 勾选后用包内图片覆盖本机同档案的头像（预览里会提示「已有头像将被覆盖」的张数）。
+   */
+  overwriteAvatars?: boolean;
+  /**
+   * 跳过系列赛编排合并（云同步的主控确认台走这条路）：
+   * 确认赛果只合并比赛记录，编排结构由本机（编排机）自己持有，绝不能用分控端回传的副本覆盖。
+   */
+  skipTournaments?: boolean;
+  /**
+   * 用户在预览里取消勾选的系列赛 id：**其编排不合并，且它包含的比赛一律不写入**
+   * （不是过滤已勾选的比赛，而是「这整条系列赛本次不导入」）。
+   */
+  excludeTournamentIds?: string[];
 }
 
 function toBundlePlayer(player: PlayerProfile): SyncBundlePlayerProfile {
@@ -82,7 +101,7 @@ function readAvatarBase64(filePath: string): string | null {
 }
 
 /**
- * 导出同步包：比赛（全部场次，含空白/进行中，基线分发需要）+ 可选档案与头像。
+ * 导出同步包：比赛（全部场次，含空白/进行中，基线分发需要）+ 系列赛编排 + 可选档案与头像。
  * 头像只在 includeProfiles 时附带（按档案 id 归属）。
  */
 export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): SyncBundle {
@@ -92,6 +111,7 @@ export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): S
     machine: loadRuntimeConfig(paths).machineCode,
     exportedAt: new Date().toISOString(),
     matches: getMatchStore(paths).matches,
+    tournaments: getTournamentStore(paths),
   };
 
   if (!options.includeProfiles) {
@@ -141,7 +161,7 @@ function sanitizeAvatarMap(value: unknown): Record<string, string> {
 }
 
 /** 解析并校验同步包头部（app / schema / 结构），不合法抛中文错误供路由转 400 */
-function parseSyncBundle(raw: unknown): SyncBundlePayload {
+export function parseSyncBundle(raw: unknown): SyncBundlePayload {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('同步包内容不是有效的 JSON 对象');
   }
@@ -184,6 +204,7 @@ function parseSyncBundle(raw: unknown): SyncBundlePayload {
     machine: typeof payload.machine === 'string' ? payload.machine.trim().slice(0, 4) : '',
     exportedAt: typeof payload.exportedAt === 'string' ? payload.exportedAt : '',
     matches: payload.matches as unknown[],
+    tournaments: Array.isArray(payload.tournaments) ? payload.tournaments as unknown[] : [],
     profiles,
     avatars,
   };
@@ -217,15 +238,20 @@ function normalizeBundleId(value: unknown): string {
   return String(value ?? '').replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** 档案目标解析：源 id 命中 → 同名匹配（用于头像补缺与左右对照） */
+/**
+ * 档案目标解析：**id 别名（对方 id → 本机 id）→ 源 id 精确命中 → 同名匹配**。
+ * 头像 / logo 按「档案 id」归属，包内 key 往往是对方机器的 id（对方机器上导出时用的是它自己的 id），
+ * 所以必须先过别名表，否则只能靠同名兜底 —— 对方改了名字或本机改了名字就落不到本机档案上。
+ */
 function resolveLocalProfileEntry(
   localEntries: Array<PlayerProfile | TeamProfile>,
   sourceId: string,
   nameById: Map<string, string>,
+  aliases?: Record<string, string>,
 ): PlayerProfile | TeamProfile | undefined {
-  const byId = localEntries.find((entry) => entry.id === sourceId);
-  if (byId) {
-    return byId;
+  const byAlias = localEntries.find((entry) => entry.id === (aliases?.[sourceId] ?? sourceId));
+  if (byAlias) {
+    return byAlias;
   }
   const name = nameById.get(sourceId);
   return name ? localEntries.find((entry) => entry.name === name) : undefined;
@@ -252,9 +278,10 @@ function countAvatarFill(
 
   const localEntries = kind === 'player' ? profiles.players : profiles.teams;
   const nameById = buildBundleNameMap(payload, kind);
+  const aliases = kind === 'player' ? profiles.playerAliases : profiles.teamAliases;
 
   Object.keys(avatarMap).forEach((sourceId) => {
-    const local = resolveLocalProfileEntry(localEntries, sourceId, nameById);
+    const local = resolveLocalProfileEntry(localEntries, sourceId, nameById, aliases);
     // 包内新增的档案导入后会按源 id 落盘，头像同样能补缺
     if (!local && !addedIds.has(sourceId)) {
       counts.unmatched += 1;
@@ -297,18 +324,13 @@ function buildAvatarDiffInfo(
   const base64 = avatarMap[sourceId] ?? null;
   const label = kind === 'player' ? '头像' : 'logo';
   const localEntries = kind === 'player' ? profiles.players : profiles.teams;
-  const local = resolveLocalProfileEntry(localEntries, sourceId, buildBundleNameMap(payload, kind));
+  const aliases = kind === 'player' ? profiles.playerAliases : profiles.teamAliases;
+  const local = resolveLocalProfileEntry(localEntries, sourceId, buildBundleNameMap(payload, kind), aliases);
   const localExists = local ? avatarExistsOf(kind, local) : false;
 
   if (!base64 && !localExists) {
     return { diffField: null, compare: null };
   }
-
-  const localUrl = local && localExists
-    ? (kind === 'player'
-      ? `/runtime/profiles/players/${local.id}.png?v=${(local as PlayerProfile).avatarMtime ?? 0}`
-      : `/runtime/profiles/teams/${local.id}.png?v=${(local as TeamProfile).logoMtime ?? 0}`)
-    : null;
 
   if (base64 && !localExists) {
     const canFill = Boolean(local) || willBeAdded;
@@ -330,6 +352,98 @@ function buildAvatarDiffInfo(
     diffField: { label, local: '有（保持本机）', incoming: '无' },
     compare: null,
   };
+}
+
+/**
+ * 按系列赛给预览里的比赛分组（供预览弹窗展示「这条系列赛包含哪些比赛」）：
+ * 包内编排 + 本机已有编排两边都看，保证「包内没带编排、只有比赛挂了引用」的情况也能分组显示。
+ */
+function buildTournamentGroups(
+  paths: AppPaths,
+  payload: SyncBundlePayload,
+  matchItems: SyncImportItem[],
+): { groups: SyncImportTournamentGroup[]; hasTournaments: boolean } {
+  const localById = new Map(getTournamentStore(paths).map((record) => [record.id, record]));
+  const incomingById = new Map<string, Record<string, unknown>>();
+  payload.tournaments.forEach((raw) => {
+    const record = (raw ?? {}) as Record<string, unknown>;
+    const id = String(record.id ?? '').trim();
+    if (id) {
+      incomingById.set(id, record);
+    }
+  });
+
+  // 比赛 key -> 系列赛 id（来自包内的 tournamentRef；没有引用的归「普通对局」）
+  const matchItemById = new Map(matchItems.map((item) => [item.id, item]));
+  const tournamentIdOfMatch = new Map<string, string>();
+  payload.matches.forEach((raw) => {
+    const record = (raw ?? {}) as Record<string, unknown>;
+    const id = String(record.id ?? '').trim();
+    const ref = record.tournamentRef as { tournamentId?: unknown } | undefined;
+    const tournamentId = ref && typeof ref.tournamentId === 'string' ? ref.tournamentId.trim() : '';
+    if (id && tournamentId) {
+      tournamentIdOfMatch.set(id, tournamentId);
+    }
+  });
+
+  const groups = new Map<string, SyncImportTournamentGroup>();
+  const ensureGroup = (id: string): SyncImportTournamentGroup => {
+    const key = id ? `tournament:${id}` : 'plain';
+    const existing = groups.get(key);
+    if (existing) {
+      return existing;
+    }
+    const incoming = id ? incomingById.get(id) : undefined;
+    const local = id ? localById.get(id) : undefined;
+    const created: SyncImportTournamentGroup = {
+      key,
+      id,
+      name: String(incoming?.name ?? local?.name ?? '').trim(),
+      incoming: Boolean(incoming),
+      existsLocally: Boolean(local),
+      playerCount: Array.isArray(incoming?.playerIds)
+        ? (incoming!.playerIds as unknown[]).length
+        : (local?.playerIds.length ?? null),
+      stageSummary: local
+        ? `${local.stages[local.currentStageIndex]?.name ?? '阶段'} · 第 ${local.waves.filter((wave) => wave.stageIndex === local.currentStageIndex).length} 波`
+        : '',
+      matchKeys: [],
+      selectableCount: 0,
+    };
+    groups.set(key, created);
+    return created;
+  };
+
+  matchItems.forEach((item) => {
+    if (item.kind !== 'match') {
+      return;
+    }
+    const tournamentId = tournamentIdOfMatch.get(item.id) ?? '';
+    const group = ensureGroup(tournamentId);
+    group.matchKeys.push(item.key);
+    if (item.action !== 'skip' && matchItemById.has(item.id)) {
+      group.selectableCount += 1;
+    }
+  });
+
+  // 包内带了编排、但一场相关比赛都没进预览的系列赛也要显示（用户可以自己决定导不导）
+  incomingById.forEach((record, id) => {
+    const group = ensureGroup(id);
+    if (!group.name) {
+      group.name = String(record.name ?? '').trim();
+    }
+  });
+
+  const list = Array.from(groups.values()).filter((group) => group.id || group.matchKeys.length);
+  // 系列赛组在前（按名称），普通对局最后
+  list.sort((a, b) => {
+    if (!a.id !== !b.id) {
+      return a.id ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name, 'zh-CN');
+  });
+
+  return { groups: list, hasTournaments: payload.tournaments.length > 0 };
 }
 
 /** 组合预览：比赛 diff + 档案 diff + 头像统计（预览与应用共用，保证判定一致） */
@@ -423,6 +537,7 @@ function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncCon
   });
 
   const localMachine = loadRuntimeConfig(paths).machineCode;
+  const tournamentGrouping = buildTournamentGroups(paths, payload, matchItems);
 
   return {
     meta: {
@@ -436,6 +551,8 @@ function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncCon
     matchItems,
     playerItems,
     teamItems,
+    tournamentGroups: tournamentGrouping.groups,
+    hasTournaments: tournamentGrouping.hasTournaments,
     summary: {
       match: countActions(matchItems),
       player: countActions(playerItems),
@@ -453,11 +570,16 @@ export function previewSyncImport(paths: AppPaths, raw: unknown, mode: SyncConfl
   return buildPreview(paths, parseSyncBundle(raw), mode);
 }
 
-/** 头像补缺：只写本地缺失的文件（源 id → 同名匹配），单张失败不影响整体 */
-async function writeMissingAvatars(
+/**
+ * 头像 / logo 写入：目标档案解析走「别名 → 源 id → 同名」，落盘一律用**本机档案 id**。
+ * 默认只补缺（本机已有文件跳过）；overwrite = true 时用包内图片覆盖本机同档案的头像。
+ * 单张失败（图片格式不合法等）只记警告，不影响整体导入。
+ */
+async function writeSyncAvatars(
   paths: AppPaths,
   payload: SyncBundlePayload,
   warnings: string[],
+  overwrite: boolean,
 ): Promise<{ players: number; teams: number }> {
   const written = { players: 0, teams: 0 };
   if (!payload.avatars) {
@@ -465,20 +587,12 @@ async function writeMissingAvatars(
   }
 
   const profiles = getProfileStore(paths);
-  const playerById = new Map(profiles.players.map((entry) => [entry.id, entry]));
-  const playerByName = new Map(profiles.players.map((entry) => [entry.name, entry]));
-  const teamById = new Map(profiles.teams.map((entry) => [entry.id, entry]));
-  const teamByName = new Map(profiles.teams.map((entry) => [entry.name, entry]));
   const playerNameById = buildBundleNameMap(payload, 'player');
   const teamNameById = buildBundleNameMap(payload, 'team');
 
   for (const [sourceId, base64] of Object.entries(payload.avatars.players)) {
-    let target = playerById.get(sourceId);
-    if (!target) {
-      const name = playerNameById.get(sourceId);
-      target = name ? playerByName.get(name) : undefined;
-    }
-    if (!target || target.avatarExists) {
+    const target = resolveLocalProfileEntry(profiles.players, sourceId, playerNameById, profiles.playerAliases);
+    if (!target || (avatarExistsOf('player', target) && !overwrite)) {
       continue;
     }
     try {
@@ -490,12 +604,8 @@ async function writeMissingAvatars(
   }
 
   for (const [sourceId, base64] of Object.entries(payload.avatars.teams)) {
-    let target = teamById.get(sourceId);
-    if (!target) {
-      const name = teamNameById.get(sourceId);
-      target = name ? teamByName.get(name) : undefined;
-    }
-    if (!target || target.logoExists) {
+    const target = resolveLocalProfileEntry(profiles.teams, sourceId, teamNameById, profiles.teamAliases);
+    if (!target || (avatarExistsOf('team', target) && !overwrite)) {
       continue;
     }
     try {
@@ -511,7 +621,8 @@ async function writeMissingAvatars(
 
 /**
  * 应用导入：服务端重新分类（不信任客户端），按 acceptedKeys 取交集后合并比赛与档案，
- * 再按 includeAvatars 补缺头像；不改动 activeMatchId / 撤销栈 / 推流状态。
+ * 再按 includeAvatars 补缺头像；系列赛编排自动合并（不参与勾选）并补跑写回；
+ * 不改动 activeMatchId / 撤销栈 / 推流状态。
  */
 export async function applySyncImport(
   paths: AppPaths,
@@ -523,21 +634,65 @@ export async function applySyncImport(
   const accepted = new Set(options.acceptedKeys);
   const warnings: string[] = [];
 
-  // 比赛：只合并「被勾选且非跳过」的条目
+  // 用户在预览里取消勾选的系列赛：整条本次不导入（编排不合并 + 它包含的比赛不写入）
+  const excludedTournamentIds = new Set(
+    (options.excludeTournamentIds ?? []).map((id) => String(id ?? '').trim()).filter(Boolean),
+  );
+  const excludedMatchIds = new Set<string>();
+  if (excludedTournamentIds.size) {
+    (preview.tournamentGroups ?? []).forEach((group) => {
+      if (group.id && excludedTournamentIds.has(group.id)) {
+        group.matchKeys.forEach((key) => accepted.delete(key));
+        payload.matches.forEach((raw) => {
+          const record = (raw ?? {}) as Record<string, unknown>;
+          const ref = record.tournamentRef as { tournamentId?: unknown } | undefined;
+          if (ref && typeof ref.tournamentId === 'string' && ref.tournamentId === group.id) {
+            excludedMatchIds.add(String(record.id ?? ''));
+          }
+        });
+      }
+    });
+    if (excludedMatchIds.size) {
+      warnings.push(`已按你的选择跳过 ${excludedTournamentIds.size} 个系列赛（含其 ${excludedMatchIds.size} 场比赛）`);
+    }
+  }
+
+  // 比赛：只合并「被勾选且非跳过」的条目，且排除被取消勾选系列赛名下的比赛
   const normalized = normalizeImportedMatches(paths, payload.matches);
   const acceptedMatchIds = new Set(
     preview.matchItems
       .filter((item) => accepted.has(item.key) && item.action !== 'skip')
       .map((item) => item.id),
   );
-  const matchReport = mergeMatchRecords(
+  mergeMatchRecords(
     paths,
-    normalized.records.filter((record) => acceptedMatchIds.has(record.id)),
+    normalized.records.filter((record) => acceptedMatchIds.has(record.id) && !excludedMatchIds.has(record.id)),
     options.mode,
   );
   if (normalized.rejected.length) {
     warnings.push(`包内有 ${normalized.rejected.length} 条比赛因 id 不合法被忽略`);
   }
+
+  // 系列赛：编排数据随包流转（自动合并，不进勾选列表）。
+  // 只有编排机会修改系列赛，只读副本的本地版本不会反向覆盖编排机（见 tournament-service 所有权校验）。
+  const incomingTournaments = options.skipTournaments
+    ? []
+    : payload.tournaments.filter((raw) => {
+      const id = String(((raw ?? {}) as Record<string, unknown>).id ?? '').trim();
+      return !id || !excludedTournamentIds.has(id);
+    });
+  const tournamentReport = mergeTournamentRecords(paths, incomingTournaments, options.mode);
+  if (tournamentReport.rejected) {
+    warnings.push(`包内有 ${tournamentReport.rejected} 条系列赛记录不合法被忽略`);
+  }
+  if (!options.skipTournaments && incomingTournaments.length && !loadRuntimeConfig(paths).machineCode) {
+    warnings.push('本机未设置机器标识（machineCode），系列赛所有权无法区分，双机编排可能冲突');
+  }
+
+  // 写回补跑：把包内带来的「已完成」赛果在编排机上补写回系列赛（幂等；只读副本自动跳过）。
+  // 双机「各登记一半」流程在这里汇合：最后一场补齐时自动推进、生成下一波比赛。
+  const writeBack = runTournamentWriteBack(paths);
+  warnings.push(...writeBack.warnings);
 
   // 档案：只合并「被勾选且非跳过」的条目
   let profilesState: ProfileStoreState | null = null;
@@ -563,7 +718,7 @@ export async function applySyncImport(
   }
 
   const avatarsWritten = options.includeAvatars
-    ? await writeMissingAvatars(paths, payload, warnings)
+    ? await writeSyncAvatars(paths, payload, warnings, options.overwriteAvatars === true)
     : { players: 0, teams: 0 };
 
   const applied: SyncImportPreview['summary'] = {
@@ -588,10 +743,17 @@ export async function applySyncImport(
   });
 
   return {
-    store: matchReport.store,
+    store: getMatchStore(paths),
     profiles: profilesState,
     applied,
     avatarsWritten,
+    tournaments: {
+      added: tournamentReport.added.length,
+      updated: tournamentReport.updated.length,
+      skipped: tournamentReport.skipped.length,
+      rejected: tournamentReport.rejected,
+      advanced: writeBack.advanced,
+    },
     warnings,
   };
 }

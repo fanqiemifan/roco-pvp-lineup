@@ -1,0 +1,30 @@
+# 云同步信箱 Worker（Cloudflare Workers + KV）· 运营者一次性部署
+#
+# 部署步骤（只做一次，之后 Cloudflare 侧永久零操作）：
+#   1. 注册 Cloudflare 免费账号（邮箱验证即可，不用信用卡、不用买域名）
+#   2. npx wrangler login                      # 浏览器授权一次
+#   3. 一键：npm run cloud:deploy              # 创建 KV 空间 + 回填 id + 部署 + 生成访问令牌(SYNC_TOKEN)
+#      手动：npx wrangler kv namespace create SYNC_KV
+#            把打印出来的 id 填进下面的 id = "..."，再 npx wrangler deploy
+#            再 npx wrangler secret put SYNC_TOKEN（粘一个随机串）
+#   4. 把部署打印出来的 workerUrl 与「访问令牌」填进两台机器的后台「数据同步 → 云同步设置区」
+#      重设令牌：PowerShell 里 $env:ROCO_SYNC_TOKEN="新令牌"; npm run cloud:deploy
+#
+# 鉴权：X-Sync-Key（房间密钥，键空间隔离）+ X-Sync-Token（访问令牌 = SYNC_TOKEN，真正的大门）。
+# **没配 SYNC_TOKEN 时所有 /room 请求返回 503**，避免部署完忘记设密钥就成了公开可写的 KV。
+#
+# 注意：
+#   - 本目录不参与 Electron 构建（不进 electron-builder），运行时也不依赖它，
+#     只是运营者部署用的源码；exe 对使用者自包含。
+#   - 如需更换 Worker 地址/自定义域，改这里再 npx wrangler deploy 一次即可。
+name = "roco-sync"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# 兼容旧版：显式声明不要 Node.js 兼容层，Worker 只用 Web 标准 API
+compatibility_flags = []
+
+[[kv_namespaces]]
+binding = "SYNC_KV"
+# 由 `npm run cloud:deploy`（scripts/deploy-cloud-sync.mjs）自动回填；手动部署时自己粘贴
+id = "382128f1ed0b4a388c109d5fd95ab545"

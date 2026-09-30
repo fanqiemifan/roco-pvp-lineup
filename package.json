@@ -1,6 +1,6 @@
 {
   "name": "roco-pvp-lineup",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "private": true,
   "description": "洛克王国世界阵容同步推流 —— 洛克王国赛事推流控制台（Electron + React/Ant Design，免费开源）",
   "author": "463218006@qq.com",
@@ -9,6 +9,7 @@
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "sync:sprites": "node scripts/sync-spirits-assets.mjs",
+    "cloud:deploy": "node scripts/deploy-cloud-sync.mjs",
     "prebuild": "npm run sync:sprites",
     "build:electron": "tsc -p tsconfig.json",
     "build:renderer": "vite build",

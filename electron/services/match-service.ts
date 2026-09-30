@@ -1,7 +1,8 @@
 import fs from 'node:fs';
-import { DEFAULT_BEST_OF, MATCH_ID_REGEX, SUPPORTED_BEST_OF } from '../../shared/constants.js';
+import { DEFAULT_BEST_OF, MATCH_ID_REGEX, SUPPORTED_BEST_OF, TOURNAMENT_FORFEIT_TAG, TOURNAMENT_ID_REGEX } from '../../shared/constants.js';
 import type {
   GameRecord,
+  LineupImportApplyResult,
   MatchRecord,
   MatchSlotSnapshot,
   MatchStoreState,
@@ -117,6 +118,34 @@ function normalizeTags(value: unknown): string[] {
     .map((item) => (typeof item === 'string' ? item.trim() : ''))
     .filter(Boolean)
     .slice(0, 10);
+}
+
+/**
+ * 系列赛关联透传字段：tournamentId 必须为 T 前缀白名单形态，nodeId 只允许安全字符，
+ * stageIndex/waveIndex 必须为非负整数（waveIndex ≥1）；不合法即丢弃（普通比赛）。
+ */
+function normalizeTournamentRef(value: unknown): MatchRecord['tournamentRef'] {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const raw = value as Record<string, unknown>;
+  const tournamentId = String(raw.tournamentId ?? '').trim();
+  const nodeId = String(raw.nodeId ?? '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  const stageIndex = Number(raw.stageIndex);
+  const waveIndex = Number(raw.waveIndex);
+
+  if (!TOURNAMENT_ID_REGEX.test(tournamentId) || !nodeId) {
+    return undefined;
+  }
+  if (!Number.isInteger(stageIndex) || stageIndex < 0) {
+    return undefined;
+  }
+  if (!Number.isInteger(waveIndex) || waveIndex < 1) {
+    return undefined;
+  }
+
+  return { tournamentId, nodeId, stageIndex, waveIndex };
 }
 
 function winsNeeded(bestOf: number): number {
@@ -489,6 +518,7 @@ function normalizeMatchRecord(match: unknown, lookup?: Map<string, SpriteRecord>
     winner: raw.winner === 'left' || raw.winner === 'right' ? raw.winner : null,
     completedAt: raw.completedAt ? String(raw.completedAt) : null,
     tags: normalizeTags(raw.tags),
+    tournamentRef: normalizeTournamentRef(raw.tournamentRef),
   });
 }
 
@@ -1106,6 +1136,7 @@ export function createMatch(paths: AppPaths, payload: unknown): MatchStoreState 
   const rightTeamName = normalizeTeamName(raw.rightTeamName);
   const bestOf = normalizeBestOf(raw.bestOf);
   const tags = normalizeTags(raw.tags);
+  const tournamentRef = normalizeTournamentRef(raw.tournamentRef);
 
   if (!leftPlayer || !rightPlayer) {
     throw new Error('请输入左右两侧选手名称');
@@ -1141,6 +1172,7 @@ export function createMatch(paths: AppPaths, payload: unknown): MatchStoreState 
     winner: null,
     completedAt: null,
     tags,
+    tournamentRef,
   };
 
   store.activeMatchId = match.id;
@@ -1472,7 +1504,7 @@ export function saveDraftPanelSlotStateForActiveMatch(
 }
 
 /**
- * 比赛历史「录入阵容」：为指定赛事的当前小局（且必须尚未开始）写入双方阵容。
+ * 比赛管理「录入阵容」：为指定赛事的当前小局（且必须尚未开始）写入双方阵容。
  * 只写赛事记录并广播一次 matchesUpdate，不触碰面板/比分栏/activeMatchId——
  * 待开始小局的阵容本就不上推流画面，因此天然不影响当前对局的推流；
  * 双侧合并为一次写入，避免推流页（page7 等）因两次广播重渲染两遍产生闪烁。
@@ -1542,6 +1574,126 @@ export function saveGameLineupForMatch(
   };
 
   return writeStoreFile(paths, store);
+}
+
+/* ==================== 系列赛阵容批量导入（表格 / JSON 回填） ==================== */
+
+/**
+ * 场次级预检（不写盘）：对局存在、属于目标系列赛、比赛待开始、第 1 局尚未开赛。
+ * 门槛与单场「录入阵容」一致（待开始 + 第 1 局 = 当前小局 + 待开始），
+ * 批量导入天然不影响推流画面，也不会触碰进行中 / 已完赛的数据。
+ */
+export function inspectLineupImportTargets(
+  paths: AppPaths,
+  tournamentId: string,
+  matchIds: string[],
+): LineupImportApplyResult[] {
+  const { store } = readStoreFile(paths);
+  return matchIds.map((matchId) => checkLineupImportTarget(store, tournamentId, matchId));
+}
+
+function checkLineupImportTarget(
+  store: MatchStoreFile,
+  tournamentId: string,
+  matchId: string,
+): LineupImportApplyResult {
+  const match = store.matches.find((item) => item.id === matchId);
+  if (!match) {
+    return { matchId, ok: false, reason: '对局不存在' };
+  }
+  if (match.tournamentRef?.tournamentId !== tournamentId) {
+    return { matchId, ok: false, reason: '非本系列赛对局' };
+  }
+  if (match.status === 'completed') {
+    return { matchId, ok: false, reason: '该场已完赛' };
+  }
+  if (match.status !== 'pending') {
+    return { matchId, ok: false, reason: '该场已开赛（阵容请在赛事面板中修改）' };
+  }
+  const firstGame = match.games.find((game) => game.gameNumber === 1);
+  if (!firstGame || firstGame.status !== 'pending') {
+    return { matchId, ok: false, reason: '第 1 局已开始' };
+  }
+  return { matchId, ok: true };
+}
+
+/** 归一化导入侧阵容：数组 → 有效 pet_id 列表；空数组 / 非数组 → null（该侧保持原样不写） */
+function normalizeImportSide(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const petIds = value
+    .map((item) => normalizeStoredPetId(item))
+    .filter((item): item is string => Boolean(item))
+    .slice(0, MAX_GAME_SLOTS);
+  return petIds.length > 0 ? petIds : null;
+}
+
+/** 批量导入的逐场入参：left/right 为已解析的 pet_id 数组（null / 省略 = 不写该侧） */
+export interface LineupImportEntryInput {
+  matchId: string;
+  left?: unknown;
+  right?: unknown;
+}
+
+/**
+ * 批量写入第 1 局阵容：读一次 store → 逐场校验 + 覆盖（对局级原子） → 写一次盘。
+ * 广播交给调用方（一次 matchesUpdate），与单场「录入阵容」的「双侧合并一次写入」同思路。
+ */
+export function applyLineupImport(
+  paths: AppPaths,
+  tournamentId: string,
+  entries: LineupImportEntryInput[],
+): { store: MatchStoreState; results: LineupImportApplyResult[] } {
+  const { store, mtime } = readStoreFile(paths);
+  const lookup = spriteLookup(paths);
+  const results: LineupImportApplyResult[] = [];
+  let changed = false;
+
+  entries.forEach((entry) => {
+    const check = checkLineupImportTarget(store, tournamentId, entry.matchId);
+    if (!check.ok) {
+      results.push(check);
+      return;
+    }
+
+    const left = normalizeImportSide(entry.left);
+    const right = normalizeImportSide(entry.right);
+    if (!left && !right) {
+      results.push({ matchId: entry.matchId, ok: false, reason: '两侧均无阵容' });
+      return;
+    }
+    const unknownPetId = [...(left ?? []), ...(right ?? [])].find((petId) => !lookup.has(petId));
+    if (unknownPetId) {
+      results.push({ matchId: entry.matchId, ok: false, reason: `未知精灵 ${unknownPetId}` });
+      return;
+    }
+
+    const matchIndex = store.matches.findIndex((item) => item.id === entry.matchId);
+    const match = store.matches[matchIndex];
+    const gameIndex = match.games.findIndex((game) => game.gameNumber === 1);
+    const game = match.games[gameIndex];
+    const leftSlots = left ? parseSelectedSlots(paths, left.map((petId) => ({ sprite: petId }))) : game.leftSlots;
+    const rightSlots = right ? parseSelectedSlots(paths, right.map((petId) => ({ sprite: petId }))) : game.rightSlots;
+    const nextGames = [...match.games];
+    nextGames[gameIndex] = {
+      ...game,
+      leftSlots,
+      rightSlots,
+      leftLineup: lineupFromSlots(leftSlots),
+      rightLineup: lineupFromSlots(rightSlots),
+    };
+    store.matches[matchIndex] = {
+      ...match,
+      games: nextGames,
+      updatedAt: new Date().toISOString(),
+    };
+    changed = true;
+    results.push({ matchId: entry.matchId, ok: true });
+  });
+
+  const publicStore = changed ? writeStoreFile(paths, store) : toPublicStore(store, mtime);
+  return { store: publicStore, results };
 }
 
 export function startCurrentGame(paths: AppPaths, matchId: string): MatchStoreState {
@@ -1628,6 +1780,132 @@ export function recordMatchWinner(
   const publicStore = writeStoreFile(paths, store);
   syncAfterStoreChange(paths, publicStore);
   return getMatchStore(paths);
+}
+
+/**
+ * 弃权判负：仅未开始（pending、无任何小局结果）的比赛可用。
+ * 按决胜局数补已完成空阵容小局（BO1=1:0、BO3=2:0、BO5=3:0），负方为 loserSide，
+ * 加「弃权」标签后比赛即为 completed；入 undo 栈，当前波内仍可撤回。
+ */
+export function forfeitMatch(
+  paths: AppPaths,
+  matchId: string,
+  loserSide: 'left' | 'right',
+): MatchStoreState {
+  if (loserSide !== 'left' && loserSide !== 'right') {
+    throw new Error('loserSide must be left or right');
+  }
+
+  const { store } = readStoreFile(paths);
+  const index = store.matches.findIndex((match) => match.id === matchId);
+  if (index === -1) {
+    throw new Error('比赛不存在');
+  }
+
+  const current = store.matches[index];
+  if (current.status !== 'pending') {
+    throw new Error('仅未开始的比赛可弃权判负');
+  }
+  if (current.games.some((game) => game.status !== 'pending' || game.winner !== null)) {
+    throw new Error('该比赛已有小局结果，不能弃权判负');
+  }
+
+  pushMatchFlowUndo(store, current);
+  const winnerSide = loserSide === 'left' ? 'right' : 'left';
+  const neededWins = winsNeeded(current.bestOf);
+  const games: GameRecord[] = Array.from({ length: neededWins }, (_unused, gameIndex) => ({
+    ...createEmptyGameRecord(gameIndex + 1),
+    winner: winnerSide,
+    status: 'completed',
+  }));
+  const tags = Array.from(new Set([...current.tags, TOURNAMENT_FORFEIT_TAG]));
+
+  store.matches[index] = computeMatchProgress({
+    ...current,
+    games,
+    tags,
+    updatedAt: new Date().toISOString(),
+  });
+
+  const nextPublicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, nextPublicStore);
+  return getMatchStore(paths);
+}
+
+/**
+ * 系列赛波次回退专用：把一批比赛直接复位为未开始
+ * （pending、单个空小局、0:0、无胜者、completedAt 清空），并清空其 undo/redo 历史。
+ * 不进 deletedHistory/undo 栈——管理级动作，语义由调用方（tournament-service）保证。
+ */
+export function resetMatchesToPending(paths: AppPaths, matchIds: string[]): MatchStoreState {
+  if (!Array.isArray(matchIds) || !matchIds.length) {
+    return getMatchStore(paths);
+  }
+
+  const { store } = readStoreFile(paths);
+  const idSet = new Set(matchIds);
+  let changed = false;
+  const now = new Date().toISOString();
+
+  store.matches = store.matches.map((match) => {
+    if (!idSet.has(match.id)) {
+      return match;
+    }
+    changed = true;
+    return {
+      ...match,
+      status: 'pending' as const,
+      games: [createEmptyGameRecord(1)],
+      leftScore: 0,
+      rightScore: 0,
+      winner: null,
+      completedAt: null,
+      updatedAt: now,
+    };
+  });
+  matchIds.forEach((matchId) => {
+    delete store.flowHistory[matchId];
+  });
+
+  if (!changed) {
+    return getMatchStore(paths);
+  }
+
+  const publicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, publicStore);
+  return getMatchStore(paths);
+}
+
+/**
+ * 解除一批比赛与某系列赛的关联（删除 tournamentRef），比赛本身保留为普通对局。
+ * 删除系列赛前调用：即使随后 deleteMatches 把比赛放进撤销栈，撤回恢复的快照
+ * 也已经是无关联版本，不会留下指向不存在系列赛的孤儿引用。
+ * 管理级动作，不进 deletedHistory/undo 栈。返回实际解绑的比赛 id。
+ */
+export function detachMatchesFromTournament(
+  paths: AppPaths,
+  tournamentId: string,
+): { store: MatchStoreState; matchIds: string[] } {
+  const { store } = readStoreFile(paths);
+  const detachedIds: string[] = [];
+  const now = new Date().toISOString();
+
+  store.matches = store.matches.map((match) => {
+    if (match.tournamentRef?.tournamentId !== tournamentId) {
+      return match;
+    }
+    detachedIds.push(match.id);
+    const { tournamentRef: _unused, ...rest } = match;
+    return { ...rest, updatedAt: now };
+  });
+
+  if (!detachedIds.length) {
+    return { store: getMatchStore(paths), matchIds: [] };
+  }
+
+  const publicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, publicStore);
+  return { store: getMatchStore(paths), matchIds: detachedIds };
 }
 
 export function undoMatchAction(paths: AppPaths, matchId: string): MatchStoreState {
@@ -1945,4 +2223,45 @@ export function mergeMatchRecords(
 
   const nextState = writeStoreFile(paths, { ...store, matches });
   return { store: nextState, added, updated, skipped };
+}
+
+/**
+ * 撤回本机对指定比赛的登记（云同步专用：主控回退波次后，分控端保留的陈旧赛果必须被丢弃）。
+ *
+ * 语义 = 把该场退回「未登记」：只保留第 1 个待开始小局（含已录阵容），清掉其余小局与全部小局结果、
+ * 比分、胜者、完成时间与「弃权」标签；**保留 tournamentRef**（仍是系列赛对局，分控端重新登记后
+ * 才能再次回传给主控写回节点）。不走撤销栈（这不是用户操作，是被云端状态纠正）。
+ *
+ * 为什么不在 applySyncImport 里做：那是「合并外部包」的通用路径，回退语义只属于云同步回传链路。
+ */
+export function resetMatchRegistrations(paths: AppPaths, matchIds: string[]): MatchStoreState {
+  const targets = new Set(matchIds);
+  if (!targets.size) {
+    return getMatchStore(paths);
+  }
+
+  const { store } = readStoreFile(paths);
+  const matches = store.matches.map((match) => {
+    if (!targets.has(match.id)) {
+      return match;
+    }
+    const firstPending = match.games.find((game) => game.status === 'pending') ?? createEmptyGameRecord(1);
+    const resetGames: GameRecord[] = [{
+      ...firstPending,
+      gameNumber: 1,
+      winner: null,
+      status: 'pending',
+    }];
+    return computeMatchProgress({
+      ...match,
+      games: resetGames,
+      tags: (match.tags ?? []).filter((tag) => tag !== TOURNAMENT_FORFEIT_TAG),
+      completedAt: null,
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  const publicStore = writeStoreFile(paths, { ...store, matches });
+  syncAfterStoreChange(paths, publicStore);
+  return getMatchStore(paths);
 }

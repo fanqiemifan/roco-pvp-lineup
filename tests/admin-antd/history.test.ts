@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import type { GameRecord, MatchRecord, MatchSlotSnapshot } from '../../shared/types';
+import type {
+  GameRecord,
+  MatchRecord,
+  MatchSlotSnapshot,
+  TournamentRecord,
+} from '../../shared/types';
 import {
+  buildHistoryTournamentFilters,
+  getEffectiveTournamentId,
   getHistoryVisibleGames,
   getLineupEntryBlockReason,
   LINEUP_ENTRY_BLOCK_TEXT,
@@ -115,6 +122,80 @@ describe('getHistoryVisibleGames', () => {
     const visible = getHistoryVisibleGames(match);
     expect(visible).toHaveLength(1);
     expect(visible[0].gameNumber).toBe(1);
+  });
+});
+
+/** 最小系列赛夹具（纯函数只用 id/name） */
+function makeTournament(id: string, name: string): TournamentRecord {
+  return { id, name } as TournamentRecord;
+}
+
+describe('getEffectiveTournamentId', () => {
+  it('普通对局（无 tournamentRef）→ null', () => {
+    const match = makeMatch([makeGame(1, 'pending')]);
+    expect(getEffectiveTournamentId(match, new Set(['T20260928_A01']))).toBeNull();
+  });
+
+  it('有关联且系列赛存在 → 返回系列赛 id', () => {
+    const match = makeMatch([makeGame(1, 'pending')], {
+      tournamentRef: { tournamentId: 'T20260928_A01', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+    });
+    expect(getEffectiveTournamentId(match, new Set(['T20260928_A01']))).toBe('T20260928_A01');
+  });
+
+  it('关联指向已删除系列赛（孤儿引用）→ null，按普通对局处理', () => {
+    const match = makeMatch([makeGame(1, 'pending')], {
+      tournamentRef: { tournamentId: 'T20260928_A99', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+    });
+    expect(getEffectiveTournamentId(match, new Set(['T20260928_A01']))).toBeNull();
+  });
+});
+
+describe('buildHistoryTournamentFilters', () => {
+  it('只含有关联赛局的系列赛：名称/计数正确，0 场的不列', () => {
+    const matches = [
+      makeMatch([makeGame(1, 'pending')], {
+        id: 'm1',
+        tournamentRef: { tournamentId: 'T1', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+      }),
+      makeMatch([makeGame(1, 'pending')], {
+        id: 'm2',
+        tournamentRef: { tournamentId: 'T1', nodeId: 's0-w1-n01', stageIndex: 0, waveIndex: 1 },
+      }),
+      makeMatch([makeGame(1, 'pending')], { id: 'm3' }),
+      makeMatch([makeGame(1, 'pending')], {
+        id: 'm4',
+        tournamentRef: { tournamentId: 'T_GONE', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+      }),
+    ];
+    const tournaments = [makeTournament('T1', '星空杯'), makeTournament('T2', '无人杯')];
+
+    const filters = buildHistoryTournamentFilters(matches, tournaments);
+    expect(filters).toEqual([{ id: 'T1', name: '星空杯', count: 2 }]);
+  });
+
+  it('顺序按关联赛局首次出现位置（列表新对局在前，近期系列赛优先）', () => {
+    const matches = [
+      makeMatch([makeGame(1, 'pending')], {
+        id: 'm1',
+        tournamentRef: { tournamentId: 'TB', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+      }),
+      makeMatch([makeGame(1, 'pending')], {
+        id: 'm2',
+        tournamentRef: { tournamentId: 'TA', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+      }),
+      makeMatch([makeGame(1, 'pending')], {
+        id: 'm3',
+        tournamentRef: { tournamentId: 'TB', nodeId: 's0-w1-n01', stageIndex: 0, waveIndex: 1 },
+      }),
+    ];
+    const tournaments = [makeTournament('TA', '甲杯'), makeTournament('TB', '乙杯')];
+
+    expect(buildHistoryTournamentFilters(matches, tournaments).map((item) => item.id)).toEqual(['TB', 'TA']);
+  });
+
+  it('全部为普通对局时返回空列表', () => {
+    expect(buildHistoryTournamentFilters([makeMatch([makeGame(1, 'pending')])], [])).toEqual([]);
   });
 });
 

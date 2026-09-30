@@ -16,6 +16,7 @@
 | 更新推流配置 | saveStageState | electron/services/stage-service.ts |
 | 更新对局推送配置 | savePage7State | electron/services/page7-service.ts |
 | 更新团队积分榜配置 | savePage9State | electron/services/page9-service.ts |
+| 更新/读取晋级积分榜配置与榜单 | savePage14State / getPage14State / resolvePage14View | electron/services/page14-service.ts（榜单算在 tournament-service.resolveStageStandings） |
 | 选手介绍配置 | savePage11State | electron/services/page11-service.ts |
 | 下场对局显示/隐藏 | showNextGame / hideNextGame | electron/services/nextgame-service.ts |
 | 倒计时插件操作 | saveCountdownState / startCountdown 等 | electron/services/countdown-service.ts |
@@ -33,8 +34,11 @@
 | 悬浮窗/菜单窗口 | openFloatMenuWindow / createFloatWindow | electron/float-window.ts |
 | 数据统计聚合 | buildUsageStats | src/admin-antd/lib/stats.ts |
 | 管理后台视图 | RosterPanelEditor / StatsView | src/admin-antd/views/ |
-| 比赛历史录入阵容 | saveGameLineupForMatch | electron/services/match-service.ts |
+| 比赛管理录入阵容 | saveGameLineupForMatch | electron/services/match-service.ts |
 | 启动测试用服务器 | createLocalServer | electron/socket-server.ts |
+| 云同步（分发/拉取/回传/确认台/轮询） | pushCloudSync / previewCloudPull / uploadCloudSync / checkCloudSync / confirmCloudSync / pollCloudSync | electron/services/cloud-sync-service.ts |
+| 云同步 Worker 端点 | /room/:key/:box（GET/PUT/DELETE）+ /health | cloudflare/worker.js |
+| 云同步一键部署 Worker | npm run cloud:deploy | scripts/deploy-cloud-sync.mjs |
 | 跑测试 | npm test（vitest run） | tests/ + vitest.config.ts |
 
 ## 类型引用
@@ -49,11 +53,12 @@
 - PlayerProfile / TeamProfile / ProfileStoreState - 信息录入（选手/战队档案）
 - Page7State - 对局推送页配置
 - Page9State / Page9TeamEntry - 团队积分榜配置
+- Page14State / StageStandings / StageStandingRow - 晋级积分榜配置与阶段榜单
 - Page11State / Page11SideConfig - 选手介绍（page11-13）配置
 - NextGameState / NextGamePayload - 下场对局配置与载荷
 - CountdownState / CountdownPayload - 倒计时插件状态与载荷
 - MvpState / MvpSlotEntry / MvpWinnerSnapshot / MvpWinnerInfo - MVP 结算（page4）配置与胜方快照
-- SyncBundle / SyncConflictMode / SyncImportItem / SyncImportPreview / SyncImportResult - 双机数据同步（同步包、导入预览与结果）
+- SyncBundle / SyncConflictMode / SyncImportItem / SyncImportPreview / SyncImportResult / SyncTournamentReport - 双机数据同步（同步包含系列赛编排、导入预览与结果）
 - SpriteUsageRow / StatsMetricKey / StatsRangeKey（管理后台统计，src/admin-antd/lib/stats.ts）
 
 ## 文件索引

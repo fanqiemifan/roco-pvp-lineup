@@ -199,6 +199,11 @@ a {
   position: relative;
 }
 
+/* grid 子项默认 min-width:auto（= min-content），会被内部 max-content 内容（如晋级图列）撑开导致整页横向滚动 */
+.admin-content > * {
+  min-width: 0;
+}
+
 .admin-content .ant-card,
 .workspace-card {
   border-color: rgba(91, 67, 43, 0.12);
@@ -683,6 +688,39 @@ a {
   border-radius: 999px;
 }
 
+/* 比赛列表分组标题行（赛事 · 阶段 · 轮次） */
+.match-list-group-title {
+  font-size: 12px;
+  color: #8a7a5f;
+  padding: 2px 4px 0;
+  line-height: 1.6;
+}
+
+/* 当前比赛置顶卡：与分组列表间隔开，单行高亮 */
+.match-list-current {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed rgba(91, 67, 43, 0.2);
+}
+
+.match-list-current-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: rgba(22, 119, 255, 0.06);
+  border: 1px solid rgba(22, 119, 255, 0.18);
+  border-radius: 8px;
+}
+
+.match-list-current-players {
+  font-weight: 600;
+  color: #2f2418;
+  margin-right: auto;
+}
+
 /* 懒加载进度提示 */
 .match-list-more {
   text-align: center;
@@ -1016,6 +1054,16 @@ a {
 
 .history-filter-row {
   margin-bottom: 16px;
+}
+
+.history-filter-row .history-filter-group-label {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.history-filter-row .history-filter-divider {
+  height: 18px;
+  margin-inline: 4px;
 }
 
 .history-search-input {
@@ -1616,7 +1664,7 @@ a {
   min-height: 300px;
 }
 
-/* ===== 比赛历史「录入阵容」弹窗：提前录入当前小局阵容（不影响推流） ===== */
+/* ===== 比赛管理「录入阵容」弹窗：提前录入当前小局阵容（不影响推流） ===== */
 
 .lineup-entry-title {
   display: flex;
@@ -1974,6 +2022,206 @@ a {
   border-color: #EDE4D8;
 }
 
+/* ===== 云同步（点击式）：设置区字段行 + 状态提示 + 红点徽标 ===== */
+.cloud-sync-role-tag {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6B5944;
+}
+
+.cloud-sync-fields {
+  margin-top: 12px;
+}
+
+.cloud-sync-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* ===== 云同步状态卡：头部状态 + 三格信息 + 本机记录时间线 ===== */
+.cloud-sync-status {
+  margin-top: 12px;
+  border: 1px solid #EDE4D8;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #FFFDF9 0%, #FBF6EE 100%);
+  padding: 12px 14px 10px;
+}
+
+.cloud-sync-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed #EDE4D8;
+}
+
+.cloud-sync-status-note {
+  font-size: 12px;
+}
+
+.cloud-sync-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.cloud-sync-dot-ok {
+  background: #3fb950;
+  box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.16);
+}
+
+.cloud-sync-dot-warn {
+  background: #f0883e;
+  box-shadow: 0 0 0 3px rgba(240, 136, 62, 0.16);
+}
+
+.cloud-sync-dot-main {
+  background: #bc8cff;
+  box-shadow: 0 0 0 3px rgba(188, 140, 255, 0.16);
+}
+
+.cloud-sync-dot-idle {
+  background: #c9c0b4;
+  box-shadow: 0 0 0 3px rgba(201, 192, 180, 0.18);
+}
+
+.cloud-sync-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.cloud-sync-tile {
+  min-width: 0;
+}
+
+.cloud-sync-tile-label {
+  font-size: 12px;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.cloud-sync-tile-value {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #2f2418;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cloud-sync-tile-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.cloud-sync-tile-hint {
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.cloud-sync-status-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px dashed #EDE4D8;
+  font-size: 12px;
+}
+
+.cloud-sync-foot-title {
+  flex-shrink: 0;
+}
+
+.cloud-sync-foot-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.cloud-sync-foot-label {
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.cloud-sync-foot-time {
+  color: #2f2418;
+}
+
+.cloud-sync-status-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(47, 36, 24, 0.38);
+}
+
+.cloud-sync-actions {
+  margin-top: 12px;
+}
+
+.cloud-sync-status-text {
+  font-size: 12px;
+}
+
+/* 技术名词补充说明：视觉上弱化，不干扰「说人话」的主文案 */
+.cloud-sync-tech {
+  margin-left: 4px;
+  color: rgba(47, 36, 24, 0.32);
+}
+
+/* 预览弹窗里的系列赛分组标题行：与比赛行在视觉上分开，点行可折叠 */
+.sync-preview-group-row td {
+  background: #FBF5EC !important;
+  border-top: 1px solid #EDE4D8;
+  border-bottom: 1px solid #EDE4D8;
+}
+
+/* 已取消勾选的系列赛名下的比赛行：置灰表示本次不会导入 */
+.sync-preview-row-excluded td {
+  opacity: 0.45;
+}
+
+/* 比赛管理的筛选状态提示：提示被隐藏的场次，避免误判成「同步来的比赛丢了」 */
+.history-filter-hint.ant-alert {
+  margin-bottom: 12px;
+}
+
+
+.cloud-sync-alert {
+  margin-top: 10px;
+}
+
+.cloud-sync-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 10px;
+  background: rgba(199, 99, 47, 0.12);
+  color: #C7632F;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* 云同步区内容比标签高得多：标签贴顶对齐，不再垂直居中 */
+.sync-card-row-cloud .sync-card-label {
+  height: auto;
+  align-self: flex-start;
+}
+
 /* 导出行：勾选项靠左、导出按钮靠右 */
 .sync-export-bar {
   display: flex;
@@ -2125,3 +2373,741 @@ a {
   font-size: 12px;
   color: #7C6C5F;
 }
+
+/* ==================== 系列赛视图 ==================== */
+
+.tournament-stage-steps {
+  margin-top: 8px;
+}
+
+.tournament-waves {
+  margin-top: 8px;
+}
+
+/* setup 种子顺序标签流 */
+.tournament-seed-order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+/* setup 首波对阵预览（只读，按当前 seed 生成） */
+.tournament-opening-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tournament-opening-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 1px solid rgba(91, 67, 43, 0.16);
+  border-radius: 8px;
+}
+
+/* 向导第 2 步选手勾选区（固定高度滚动） */
+.tournament-player-pick {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid rgba(91, 67, 43, 0.16);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.tournament-player-pick .ant-list-item {
+  padding: 6px 12px;
+}
+
+/* 配对确认台桶容器 */
+.tournament-bucket-box {
+  border: 1px solid rgba(91, 67, 43, 0.16);
+  border-radius: 10px;
+  padding: 10px 12px;
+  height: 100%;
+}
+
+.tournament-bucket-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2f54eb;
+  margin-bottom: 8px;
+}
+
+.tournament-pair-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.tournament-pair-index {
+  width: 18px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+/* 校验信息汇总 */
+.tournament-validation-box {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.tournament-validation-errors {
+  background: rgba(255, 77, 79, 0.08);
+  color: #cf1322;
+}
+
+.tournament-validation-warnings {
+  background: rgba(250, 173, 20, 0.1);
+  color: #d48806;
+}
+
+/* 对局卡片基座（晋级图与波次列表共用 TournamentNodeCard；内部槽位样式见 .bracket-row） */
+.tournament-node-card {
+  border: 1px solid rgba(91, 67, 43, 0.16);
+  border-radius: 10px;
+  padding: 10px 12px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tournament-node-actions {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+/* 图例圆点 */
+.tournament-legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+.tournament-dot-promoted {
+  background: #52c41a;
+}
+
+.tournament-dot-alive {
+  background: #1677ff;
+}
+
+.tournament-dot-eliminated {
+  background: #bfbfbf;
+}
+
+/* 系列赛详情：晋级图 / 波次列表 视图切换 */
+.tournament-view-switch {
+  margin-top: 12px;
+}
+
+/* 晋级图：双败按战绩桶拆列（胜者组/败者组 R1、R2），单败一阶段一列，列间画晋级连线 */
+.bracket-board {
+  margin-top: 12px;
+  /* 允许收缩到卡片宽度以内，超宽部分交给 .bracket-board-scroller 内部横向滚动 */
+  min-width: 0;
+  max-width: 100%;
+}
+
+.bracket-board-empty {
+  margin-top: 24px;
+}
+
+.bracket-board-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+/* 图例：连线样式样例（实线 = 胜者晋级，虚线 = 败者下沉） */
+.bracket-wire-sample {
+  display: inline-block;
+  width: 24px;
+  height: 0;
+  margin: 0 6px 3px 12px;
+  border-top: 2.4px solid #2d7a58;
+}
+
+.bracket-wire-sample-loser {
+  border-top: 2px dashed #c24635;
+}
+
+/* 拖动平移：空白处显示抓手光标（卡片自身是 pointer），拖动中禁选文本 */
+.bracket-board-scroller {
+  position: relative;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  cursor: grab;
+}
+
+.bracket-board-scroller.is-dragging,
+.bracket-board-scroller.is-dragging .bracket-card-hitbox {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* 连线层（在卡片下层，仅穿过列间空隙） */
+.bracket-board-wires {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.bracket-board-columns {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  /* 阶段区块等高：配合组内列体 space-around，卡片少的列垂直居中分布，形成扇形/三角趋势 */
+  align-items: stretch;
+  gap: 20px;
+  width: max-content;
+}
+
+/* 阶段分组区块：同一阶段的列（双败按桶拆出的胜者组 R1 → 败者组 R1 → 胜者组 R2 → 败者组 R2）
+   共处一个淡色区块，相邻阶段轮换底色（stageIndex % 5 → -0..-4），
+   仅凭「胜者组 R2」这类各阶段重名的轮次文案也能定位所属阶段 */
+.bracket-stage-group {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--stage-group-border, rgba(91, 67, 43, 0.16));
+  border-radius: 14px;
+  background: var(--stage-group-bg, rgba(91, 67, 43, 0.03));
+}
+
+.bracket-stage-group-0 {
+  --stage-group-bg: rgba(22, 119, 255, 0.05);
+  --stage-group-border: rgba(22, 119, 255, 0.22);
+  --stage-group-accent: #1677ff;
+}
+
+.bracket-stage-group-1 {
+  --stage-group-bg: rgba(45, 122, 88, 0.055);
+  --stage-group-border: rgba(45, 122, 88, 0.24);
+  --stage-group-accent: #2d7a58;
+}
+
+.bracket-stage-group-2 {
+  --stage-group-bg: rgba(212, 136, 6, 0.06);
+  --stage-group-border: rgba(212, 136, 6, 0.26);
+  --stage-group-accent: #d48806;
+}
+
+.bracket-stage-group-3 {
+  --stage-group-bg: rgba(114, 46, 209, 0.05);
+  --stage-group-border: rgba(114, 46, 209, 0.22);
+  --stage-group-accent: #722ed1;
+}
+
+.bracket-stage-group-4 {
+  --stage-group-bg: rgba(19, 194, 194, 0.055);
+  --stage-group-border: rgba(19, 194, 194, 0.24);
+  --stage-group-accent: #13c2c2;
+}
+
+/* 阶段横幅：左侧序号圆标 + 阶段名 + 赛制·BO，状态 Tag 靠右 */
+.bracket-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--stage-group-border, rgba(91, 67, 43, 0.16));
+}
+
+.bracket-stage-index {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--stage-group-accent, #8c6a4a);
+}
+
+.bracket-stage-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.bracket-stage-meta {
+  font-size: 12px;
+}
+
+/* 阶段状态 Tag 靠右，并去掉 antd Tag 默认的右外边距 */
+.bracket-stage-status {
+  margin-left: auto;
+  margin-inline-end: 0;
+}
+
+/* 阶段内的列：列间距即晋级连线穿越的空隙 */
+.bracket-stage-columns {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+  gap: 56px;
+}
+
+.bracket-column {
+  width: 248px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bracket-column-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  /* 列头等高，保证阶段内各列卡片区起点一致 */
+  min-height: 48px;
+}
+
+.bracket-column-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.bracket-column-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 16px;
+}
+
+/* 卡片点击区：点击选中该场 → 只显示与它相关的晋级连线 */
+.bracket-card-hitbox {
+  display: block;
+  cursor: pointer;
+}
+
+/* 卡片选中态（连线高亮时） */
+.bracket-card.bracket-card-active {
+  border-color: #d48806;
+  box-shadow: 0 0 0 2px rgba(212, 136, 6, 0.28);
+}
+
+/* 选中某场链路时：不相关卡片压暗（仍可点击，点它即切换选中） */
+.bracket-board .bracket-card {
+  transition: opacity 0.15s ease;
+}
+
+.bracket-board .bracket-card.bracket-card-dimmed {
+  opacity: 0.4;
+}
+
+/* 图例提示文案 */
+.bracket-legend-hint {
+  margin-left: 8px;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+/* 卡片需有不透明底色，避免连线从卡片下透出；左右不设内边距，让槽位色条贴到卡片边缘 */
+.bracket-card {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #fbf5ec;
+}
+
+/* 卡框状态与参考实现一致：已结束 = 主题橙、进行中 = 胜者绿 */
+.bracket-card-completed {
+  border-color: rgba(199, 99, 47, 0.45);
+}
+
+.bracket-card-in_progress {
+  border-color: rgba(45, 122, 88, 0.55);
+}
+
+.bracket-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(91, 67, 43, 0.12);
+}
+
+.bracket-card-id {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.bracket-card-slots {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 槽位行：左侧 3px 状态色条 + 名称省略 + 比分块（参照 bracket-reference 的 .row） */
+.bracket-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  border-left: 3px solid transparent;
+}
+
+.bracket-row + .bracket-row {
+  border-top: 1px solid rgba(91, 67, 43, 0.12);
+}
+
+.bracket-row-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bracket-row-state {
+  flex: none;
+  font-size: 11px;
+  color: rgba(47, 36, 24, 0.45);
+}
+
+.bracket-row-score {
+  flex: none;
+  min-width: 22px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(91, 67, 43, 0.08);
+}
+
+/* 待定：名称置灰 */
+.bracket-row-tbd .bracket-row-name {
+  color: rgba(47, 36, 24, 0.4);
+}
+
+/* 胜者：绿色左条 + 绿字加粗 + 绿底深字比分 */
+.bracket-row-won {
+  border-left-color: #2d7a58;
+  color: #2d7a58;
+  font-weight: 700;
+}
+
+.bracket-row-won .bracket-row-score {
+  background: #2d7a58;
+  color: #f4fbf7;
+}
+
+/* 败者（输掉比赛）：红色左条 + 文字置灰 + 半透明 + 红底白字比分（与参考一致，无删除线） */
+.bracket-row-lost {
+  border-left-color: #c24635;
+  color: rgba(47, 36, 24, 0.5);
+  opacity: 0.5;
+}
+
+.bracket-row-lost .bracket-row-score {
+  background: #c24635;
+  color: #fff;
+}
+
+/* 卡片内操作区：卡片本身 padding 归零，这里补回内边距 */
+.bracket-card .tournament-node-actions {
+  margin-top: auto;
+  padding: 6px 10px;
+}
+
+/* 配对草稿波：只读候选配对（操作去波次列表的配对确认台） */
+.bracket-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(91, 67, 43, 0.3);
+  border-radius: 10px;
+}
+
+.bracket-draft-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+/* 向底部操作区 */
+.tournament-wizard-actions {
+  display: flex;
+  align-items: center;
+  margin-top: 20px;
+}
+
+/* ==================== 比赛管理：推流功能卡片（比赛结果 / 对局推送 / 比赛预告） ==================== */
+
+.match-push-card-row {
+  margin-bottom: 4px;
+}
+
+.match-push-card .ant-card-body {
+  padding: 14px 16px 16px;
+}
+
+.match-push-card-body {
+  width: 100%;
+}
+
+.match-push-summary {
+  min-height: 48px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px;
+}
+
+.match-push-summary-tag {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-push-empty-hint {
+  display: block;
+  min-height: 48px;
+  line-height: 48px;
+}
+
+/* 选场弹窗：左候选列表 + 右已选列表 */
+.match-push-modal-body {
+  width: 100%;
+}
+
+.match-push-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.match-push-candidates .ant-table-wrapper {
+  border: 1px solid rgba(91, 67, 43, 0.14);
+  border-radius: 8px;
+}
+
+/* 选场弹窗候选分组行：系列赛按「阶段/语义轮次」分组、普通对局一组（组头可整组勾选） */
+.match-push-group-row > td,
+.match-push-group-row:hover > td,
+.match-push-group-row > td.ant-table-cell-row-hover {
+  background: rgba(91, 67, 43, 0.06) !important;
+}
+
+.match-push-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.match-push-group-name {
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.78);
+}
+
+.match-push-group-count {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.match-push-selected {
+  border: 1px solid rgba(91, 67, 43, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 252, 248, 0.8);
+  padding: 12px;
+  min-height: 470px;
+}
+
+.match-push-selected-list {
+  width: 100%;
+}
+
+.match-push-selected-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid rgba(91, 67, 43, 0.12);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.match-push-index-tag.ant-tag {
+  flex: none;
+  margin: 0;
+  min-width: 24px;
+  text-align: center;
+}
+
+.match-push-selected-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.match-push-time-input {
+  flex: none;
+  width: 84px;
+}
+
+@media (max-width: 900px) {
+  .match-push-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 比赛管理第四张卡片（晋级积分榜）：阶段切换段控在窄列里横向滚动，不压扁换行 */
+.advance-rank-stages {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.advance-rank-stages .ant-segmented {
+  min-width: 100%;
+}
+
+/* ===== 系列赛「导入阵容」弹窗：解析预览（按对局聚合、可逐格消歧） ===== */
+.lineup-import-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lineup-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.lineup-import-row {
+  display: grid;
+  grid-template-columns: 210px 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid #e6d9c8;
+  border-radius: 10px;
+  background: #fbf8f3;
+}
+
+.lineup-import-row.is-skip {
+  opacity: 0.62;
+}
+
+.lineup-import-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.lineup-import-id {
+  font-family: Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #8a7d6e;
+  word-break: break-all;
+}
+
+.lineup-import-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lineup-import-side-title {
+  font-size: 11px;
+  color: #8a7d6e;
+}
+
+.lineup-import-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.lineup-import-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid #cbe3d3;
+  border-radius: 6px;
+  background: #fff;
+  color: #2f7d4f;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.lineup-import-chip.is-amb {
+  border-color: #f0dcb2;
+  background: #fdf3e2;
+  color: #b9791f;
+  cursor: pointer;
+}
+
+.lineup-import-chip.is-miss {
+  border-color: #f0cec6;
+  background: #fbeae7;
+  color: #a5372a;
+}
+
+.lineup-import-chip .origin {
+  color: #8a7d6e;
+  font-weight: 400;
+}
+
+.lineup-import-empty {
+  font-size: 12px;
+  color: #8a7d6e;
+}
+
+.lineup-import-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+@media (max-width: 900px) {
+  .lineup-import-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+

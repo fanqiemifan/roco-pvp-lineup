@@ -19,7 +19,8 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ATTRIBUTE_ICON_BY_LABEL } from '../constants';
-import type { MatchStoreState, SpriteRecord } from '../../../shared/types';
+import type { MatchStoreState, SpriteRecord, TournamentRecord } from '../../../shared/types';
+import { buildHistoryTournamentFilters } from '../lib/history';
 import {
   buildStatsCsv,
   buildUsageStats,
@@ -72,34 +73,41 @@ function StatsColumnTitle({ text, tip }: { text: string; tip: string }) {
 type StatsViewProps = {
   matches: MatchStoreState['matches'];
   spriteMap: Map<string, SpriteRecord>;
+  tournaments: TournamentRecord[];
   metric: StatsMetricKey;
   player: string | null;
   tag: string | null;
+  tournamentId: string | null;
   search: string;
   onMetricChange: (value: StatsMetricKey) => void;
   onPlayerChange: (value: string | null) => void;
   onTagChange: (value: string | null) => void;
+  onTournamentChange: (value: string | null) => void;
   onSearchChange: (value: string) => void;
 };
 
 export function StatsView({
   matches,
   spriteMap,
+  tournaments,
   metric,
   player,
   tag,
+  tournamentId,
   search,
   onMetricChange,
   onPlayerChange,
   onTagChange,
+  onTournamentChange,
   onSearchChange,
 }: StatsViewProps) {
   const { message } = App.useApp();
   // 合并后的明细卡片顶部切换：精灵排行 / 属性分布 / 各赛事阶段趋势
   const [chartMode, setChartMode] = React.useState<StatsChartMode>('rank');
-  const stats = buildUsageStats(matches, spriteMap, {
+  const stats = buildUsageStats(matches, spriteMap, tournaments, {
     player,
     tag,
+    tournamentId,
     metric,
   });
   const keyword = search.trim().toLowerCase();
@@ -113,18 +121,20 @@ export function StatsView({
     match.rightPlayer,
   ]).filter(Boolean)));
   const tagOptions = Array.from(new Set(matches.flatMap((match) => match.tags ?? [])));
+  const tournamentOptions = buildHistoryTournamentFilters(matches, tournaments);
+  const selectedTournamentName = tournamentOptions.find((item) => item.id === tournamentId)?.name ?? '';
   const trendColors = ['#d38b2d', '#4f8cff', '#c24635', '#2d7a58', '#8a5fd0'];
   const topTrendRows = stats.rows.slice(0, 5);
-  const tagOrder = stats.tagOrder;
+  const stageAxis = stats.stageAxis;
   const topUsageForTrend = Math.max(
     1,
-    ...topTrendRows.flatMap((row) => tagOrder.map((tag) => (stats.spriteTagRate.get(row.name)?.get(tag) ?? 0) * 100)),
+    ...topTrendRows.flatMap((row) => stageAxis.map((bucket) => (stats.spriteStageRate.get(row.name)?.get(bucket.key) ?? 0) * 100)),
   );
 
   // 基础折线图的数据点：x/y 为百分比坐标（相对绘图区），y 留出上下边距避免贴边
-  function trendPoint(rowName: string, tag: string, index: number) {
-    const rate = (stats.spriteTagRate.get(rowName)?.get(tag) ?? 0) * 100;
-    const x = tagOrder.length > 1 ? (index / (tagOrder.length - 1)) * 100 : 0;
+  function trendPoint(rowName: string, bucketKey: string, index: number) {
+    const rate = (stats.spriteStageRate.get(rowName)?.get(bucketKey) ?? 0) * 100;
+    const x = stageAxis.length > 1 ? (index / (stageAxis.length - 1)) * 100 : 0;
     const y = 100 - (rate / topUsageForTrend) * 100;
     return { x, y: Math.max(3, Math.min(97, y)) };
   }
@@ -277,20 +287,20 @@ export function StatsView({
     {
       title: (
         <StatsColumnTitle
-          text="标签趋势"
-          tip={`标签趋势 = 当前所选赛事标签下该精灵${metric === 'pickRate' ? '使用率' : '上场率'} − 全量${metric === 'pickRate' ? '使用率' : '上场率'}（百分点）；未选择赛事标签时不显示`}
+          text="系列赛趋势"
+          tip={`系列赛趋势 = 当前所选系列赛下该精灵${metric === 'pickRate' ? '使用率' : '上场率'} − 全量${metric === 'pickRate' ? '使用率' : '上场率'}（百分点）；未选择系列赛时不显示`}
         />
       ),
       key: 'tagTrend',
       width: 112,
       align: 'center',
       render: (_: unknown, record: SpriteUsageRow) => (
-        record.tagTrendDelta === null ? (
+        record.tournamentTrendDelta === null ? (
           <Text type="secondary">—</Text>
-        ) : record.tagTrendDelta > 0 ? (
-          <Text type="success">▲{record.tagTrendDelta.toFixed(1)}</Text>
-        ) : record.tagTrendDelta < 0 ? (
-          <Text type="danger">▼{Math.abs(record.tagTrendDelta).toFixed(1)}</Text>
+        ) : record.tournamentTrendDelta > 0 ? (
+          <Text type="success">▲{record.tournamentTrendDelta.toFixed(1)}</Text>
+        ) : record.tournamentTrendDelta < 0 ? (
+          <Text type="danger">▼{Math.abs(record.tournamentTrendDelta).toFixed(1)}</Text>
         ) : (
           <Text type="secondary">0.0</Text>
         )
@@ -332,7 +342,17 @@ export function StatsView({
           <Select
             showSearch
             allowClear
-            placeholder="搜索选择赛事标签"
+            placeholder="选择系列赛"
+            value={tournamentId ?? undefined}
+            options={tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` }))}
+            onChange={(value) => onTournamentChange(value ?? null)}
+            className="stats-filter-select"
+            optionFilterProp="label"
+          />
+          <Select
+            showSearch
+            allowClear
+            placeholder="搜索选择标签"
             value={tag ?? undefined}
             options={tagOptions.map((tagName) => ({ value: tagName, label: tagName }))}
             onChange={(value) => onTagChange(value ?? null)}
@@ -462,8 +482,12 @@ export function StatsView({
               </div>
             ) : (
               <div className="stats-trend-panel">
-                <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>按赛事标签</Text>
-                {topTrendRows.length && tagOrder.length > 1 ? (
+                <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+                  {tournamentId
+                    ? `按系列赛阶段（${selectedTournamentName || tournamentId}）`
+                    : '按系列赛阶段 · 未选择系列赛时按阶段名跨系列赛聚合，建议配合上方「系列赛」筛选查看'}
+                </Text>
+                {topTrendRows.length && stageAxis.length > 1 ? (
                   <Space direction="vertical" size={10} className="page-stack">
                     <div className="stats-trend-chart">
                       <div className="stats-trend-y" aria-hidden>
@@ -484,7 +508,7 @@ export function StatsView({
                             return <line key={tick} x1="0" x2="100" y1={y} y2={y} className="stats-trend-grid" />;
                           })}
                           {topTrendRows.map((row, rowIndex) => {
-                            const points = tagOrder.map((tag, index) => trendPoint(row.name, tag, index));
+                            const points = stageAxis.map((bucket, index) => trendPoint(row.name, bucket.key, index));
                             return (
                               <path
                                 key={row.key}
@@ -500,11 +524,11 @@ export function StatsView({
                           })}
                         </svg>
                         {topTrendRows.flatMap((row, rowIndex) => (
-                          tagOrder.map((tag, index) => {
-                            const point = trendPoint(row.name, tag, index);
+                          stageAxis.map((bucket, index) => {
+                            const point = trendPoint(row.name, bucket.key, index);
                             return (
                               <span
-                                key={`${row.key}-${tag}`}
+                                key={`${row.key}-${bucket.key}`}
                                 className="stats-trend-point"
                                 style={{ left: `${point.x}%`, top: `${point.y}%`, background: trendColors[rowIndex] }}
                               />
@@ -513,18 +537,18 @@ export function StatsView({
                         ))}
                       </div>
                       <div className="stats-trend-x">
-                        {tagOrder.map((tag, index) => {
-                          const pct = tagOrder.length > 1 ? (index / (tagOrder.length - 1)) * 100 : 0;
+                        {stageAxis.map((bucket, index) => {
+                          const pct = stageAxis.length > 1 ? (index / (stageAxis.length - 1)) * 100 : 0;
                           return (
                             <span
-                              key={tag}
+                              key={bucket.key}
                               className="stats-trend-xtick"
                               style={{
                                 left: `${pct}%`,
-                                transform: `translateX(${index === 0 ? '0%' : index === tagOrder.length - 1 ? '-100%' : '-50%'})`,
+                                transform: `translateX(${index === 0 ? '0%' : index === stageAxis.length - 1 ? '-100%' : '-50%'})`,
                               }}
                             >
-                              {tag}
+                              {bucket.label}
                             </span>
                           );
                         })}
@@ -541,7 +565,7 @@ export function StatsView({
                   </Space>
                 ) : (
                   <div className="stats-card-empty">
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="需要至少两个赛事阶段的登场数据" />
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="需要至少两个阶段（或轮次）的登场数据" />
                   </div>
                 )}
               </div>

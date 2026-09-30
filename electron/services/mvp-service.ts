@@ -7,7 +7,9 @@ import {
   SUPPORTED_STAGE_PAGES,
 } from '../../shared/constants.js';
 import type { MvpSlotEntry, MvpState, MvpWinnerInfo, MvpWinnerSnapshot, StagePageKey } from '../../shared/types.js';
-import { ensureRuntimeDirs, getAvatarStates } from './image-service.js';
+import { ensureRuntimeDirs } from './image-service.js';
+import { resolveMatchAvatars } from './avatar-resolver.js';
+import { getMatchStore } from './match-service.js';
 import type { AppPaths } from './path-service.js';
 
 function defaultMvpState(): MvpState {
@@ -141,7 +143,9 @@ export function getMvpWinnerInfo(paths: AppPaths): MvpWinnerInfo {
     return { side: null, playerName: '', avatarExists: false, avatarPath: '', avatarMtime: null };
   }
 
-  const avatar = getAvatarStates(paths, snapshot.matchId)[snapshot.side];
+  const store = getMatchStore(paths);
+  const match = store.matches.find((item) => item.id === snapshot.matchId) ?? null;
+  const avatar = resolveMatchAvatars(paths, match)[snapshot.side];
   return {
     side: snapshot.side,
     playerName: snapshot.playerName,

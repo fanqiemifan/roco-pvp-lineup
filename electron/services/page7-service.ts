@@ -11,6 +11,9 @@ export const PAGE7_DEFAULT_TITLE = '对局推送';
 /** 对局推送页（page7）默认温馨提示 */
 export const PAGE7_DEFAULT_NOTICE = '温馨提示：排名选自选手历史最高非实时';
 
+/** 对局推送页（page7）最多选择的比赛数量（画面按小局逐行滚动，结构不变） */
+export const PAGE7_MAX_MATCHES = 9;
+
 function defaultPage7State(): Page7State {
   return {
     matchIds: [],
@@ -31,6 +34,9 @@ function normalizeMatchIds(value: unknown): string[] {
     if (id && !seen.has(id)) {
       seen.add(id);
       ids.push(id);
+    }
+    if (ids.length >= PAGE7_MAX_MATCHES) {
+      break;
     }
   }
   return ids;
@@ -88,4 +94,18 @@ export function savePage7State(paths: AppPaths, payload: unknown): Page7State {
   const metadata = { matchIds: effectiveMatchIds, title, notice };
   fs.writeFileSync(paths.page7File, JSON.stringify(metadata, null, 2), 'utf-8');
   return getPage7State(paths);
+}
+
+/**
+ * 清理选场清单中已不存在的比赛引用（对局推送不限状态，只处理删除）。
+ * 比赛删除后由广播出口调用：有变化时落盘并返回新状态，无变化返回 null。
+ */
+export function prunePage7State(paths: AppPaths): Page7State | null {
+  const current = getPage7State(paths);
+  const knownIds = new Set(getMatchStore(paths).matches.map((match) => match.id));
+  const matchIds = current.matchIds.filter((id) => knownIds.has(id));
+  if (matchIds.length === current.matchIds.length) {
+    return null;
+  }
+  return savePage7State(paths, { matchIds });
 }
