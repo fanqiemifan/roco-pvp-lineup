@@ -9,7 +9,7 @@
     };
     // 红光特效：自动档任一侧阵亡精灵数达到阈值即显示；
     // 阵亡精灵中含下列可复活精灵（卡瓦重/卡卡虫/丢丢，任意形态）时阈值提升为 4
-    const RED_LIGHT_IMAGE_URL = '/assets/Effect/red-light.jpg';
+    const RED_LIGHT_IMAGE_URL = '/assets/Effect/red-light-01.jpg';
     const RED_LIGHT_SPECIAL_NAMES = new Set(['卡瓦重', '卡卡虫', '丢丢']);
     const RED_LIGHT_DEAD_THRESHOLD = 3;
     const RED_LIGHT_SPECIAL_DEAD_THRESHOLD = 4;
