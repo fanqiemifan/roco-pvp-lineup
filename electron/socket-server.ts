@@ -1471,8 +1471,12 @@ export async function createLocalServer(
         emitMatchesUpdate(getMatchStore(paths));
         emitTournamentUpdate();
       }
-      // 登记本局胜负：当前画面是推流页面1-3 时自动切入胜者结算画面（page10）
-      triggerWinnerStage();
+      // 登记本局胜负：当前画面是推流页面1-3 时自动切入胜者结算画面（page10）。
+      // 只在登记的就是「当前比赛」时触发——page10 的内容取活动比赛，系列赛里 headless
+      // 登记别的场次若也跟着切页，会把正在推流的那一场顶掉、播出别人的比分。
+      if (request.params.matchId === getMatchStore(paths).activeMatchId) {
+        triggerWinnerStage();
+      }
       response.json({ success: true, store: matches, scoreboard, panels });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });

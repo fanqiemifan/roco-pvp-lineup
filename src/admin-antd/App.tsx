@@ -13,6 +13,7 @@ import {
   Col,
   ConfigProvider,
   Divider,
+  Drawer,
   Empty,
   Form,
   Image,
@@ -172,6 +173,8 @@ import {
 import { buildPreviewUrl, getLocalAddressText, getPreviewPage } from './lib/preview';
 import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from './lib/request';
 import { buildSpriteLookup } from './lib/sprite';
+import { deriveMatchActionAvailability } from './lib/match-actions';
+import { CurrentMatchPanel } from './components/CurrentMatchPanel';
 import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
@@ -394,6 +397,7 @@ function Dashboard() {
       canRedo: false,
       canUndoDelete: false,
       deleteUndoCount: 0,
+      byMatch: {},
     },
     mtime: null,
   });
@@ -425,7 +429,11 @@ function Dashboard() {
   // 当前比赛战队修改：开一局创建时未选战队可在此补填
   const [teamEditOpen, setTeamEditOpen] = useState(false);
   const [teamEditSaving, setTeamEditSaving] = useState(false);
+  /** 战队修改的目标比赛（赛事面板即当前比赛；系列比赛 Drawer 里可能是别的场次） */
+  const [teamEditTargetId, setTeamEditTargetId] = useState<string | null>(null);
   const [teamEditForm] = Form.useForm<{ leftTeam?: string; rightTeam?: string }>();
+  /** 系列比赛对局卡片：右键菜单 / Drawer 弹窗正在操作的那一场（null = 未打开） */
+  const [matchPanelTargetId, setMatchPanelTargetId] = useState<string | null>(null);
   const [editingHistoryTagMatchId, setEditingHistoryTagMatchId] = useState<string | null>(null);
   const [editingHistoryTagValues, setEditingHistoryTagValues] = useState<string[]>([]);
   const [savingHistoryTagMatchId, setSavingHistoryTagMatchId] = useState<string | null>(null);
@@ -605,7 +613,6 @@ function Dashboard() {
   const [liveConfigEnabled, setLiveConfigEnabled] = useState(false);
   const [liveConfigLastModified, setLiveConfigLastModified] = useState<number | null>(null);
   const [liveConfigLastContent, setLiveConfigLastContent] = useState('');
-  const [matchForm] = Form.useForm<MatchFormValues>();
   const [createMatchForm] = Form.useForm<CreateMatchValues>();
   const [playerProfileForm] = Form.useForm<PlayerProfileFormValues>();
   const [teamProfileForm] = Form.useForm<TeamProfileFormValues>();
@@ -662,6 +669,10 @@ function Dashboard() {
   const activeMatchTournamentLocked = Boolean(
     activeMatch?.tournamentRef && tournamentRecordMap.has(activeMatch.tournamentRef.tournamentId),
   );
+  // 系列比赛卡片 Drawer 的目标对局（比赛被删 / 被同步替换掉时自动失效为空 → 抽屉自行关闭）
+  const matchPanelTarget = matchPanelTargetId
+    ? matchStore.matches.find((match) => match.id === matchPanelTargetId) ?? null
+    : null;
   const tournamentIdSet = useMemo(() => new Set(tournamentNameMap.keys()), [tournamentNameMap]);
   // 本机已「本机移除」的系列赛 id 集合：管理端操作面（比赛管理 / 推流选场）据此一并隐藏其关联对局
   const locallyRemovedIdSet = useMemo(
@@ -1040,21 +1051,6 @@ function Dashboard() {
   }, [matchStore, sprites]);
 
   useEffect(() => {
-    if (!activeMatch) {
-      matchForm.resetFields();
-      return;
-    }
-
-    matchForm.setFieldsValue({
-      leftPlayer: activeMatch.leftPlayer,
-      rightPlayer: activeMatch.rightPlayer,
-      leftRank: activeMatch.leftRank,
-      rightRank: activeMatch.rightRank,
-      bestOf: activeMatch.bestOf,
-    });
-  }, [activeMatch, matchForm]);
-
-  useEffect(() => {
     const socket = io({
       transports: ['websocket', 'polling'],
       query: { role: 'admin' },
@@ -1388,19 +1384,20 @@ function Dashboard() {
     setSpriteFilter(createSpriteFilterState());
   }
 
-  async function saveMatchMeta(values: MatchFormValues) {
-    if (!activeMatch) {
+  async function saveMatchMeta(matchId: string, values: MatchFormValues) {
+    const target = matchStore.matches.find((match) => match.id === matchId);
+    if (!target) {
       return;
     }
 
-    const nextBestOf = Number(values.bestOf) || activeMatch.bestOf;
-    const bestOfChanged = nextBestOf !== activeMatch.bestOf;
-    const projection = bestOfChanged ? summarizeSeriesForBestOf(activeMatch, nextBestOf) : null;
-    const endsMatchAfterBestOfChange = Boolean(projection?.winner && activeMatch.status !== 'completed');
+    const nextBestOf = Number(values.bestOf) || target.bestOf;
+    const bestOfChanged = nextBestOf !== target.bestOf;
+    const projection = bestOfChanged ? summarizeSeriesForBestOf(target, nextBestOf) : null;
+    const endsMatchAfterBestOfChange = Boolean(projection?.winner && target.status !== 'completed');
 
     const save = async () => {
       try {
-        const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState }>(`/api/matches/${encodeURIComponent(activeMatch.id)}`, {
+        const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState }>(`/api/matches/${encodeURIComponent(matchId)}`, {
           method: 'PATCH',
           json: values,
         });
@@ -1451,15 +1448,16 @@ function Dashboard() {
   }
 
   /** 切换当前赛事会把目标赛事的选手信息与当前小局阵容同步到推流画面（面板+比分栏被覆写），
-   *  首次切换前弹窗确认，可勾选「不再提示」（按浏览器本地记忆）。 */
-  function selectMatch(matchId: string) {
+   *  首次切换前弹窗确认，可勾选「不再提示」（按浏览器本地记忆）。
+   *  options.navigate=false 供系列比赛 Drawer 用：切换但不离开当前视图（不跳赛事面板）。 */
+  function selectMatch(matchId: string, options: { navigate?: boolean } = {}) {
     const targetMatch = matchStore.matches.find((match) => match.id === matchId);
     if (!targetMatch) {
       return;
     }
     // 已是当前赛事：重复点击不会改变推流指向，不弹确认
     if (matchId === activeMatch?.id || isSelectMatchConfirmSuppressed()) {
-      void doSelectMatch(matchId);
+      void doSelectMatch(matchId, options);
       return;
     }
 
@@ -1486,12 +1484,13 @@ function Dashboard() {
         if (suppressNextTime) {
           setSelectMatchConfirmSuppressed(true);
         }
-        return doSelectMatch(matchId);
+        return doSelectMatch(matchId, options);
       },
     });
   }
 
-  async function doSelectMatch(matchId: string) {
+  async function doSelectMatch(matchId: string, options: { navigate?: boolean } = {}) {
+    const shouldNavigate = options.navigate !== false;
     try {
       const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>(`/api/matches/${encodeURIComponent(matchId)}/select`, {
         method: 'POST',
@@ -1503,7 +1502,9 @@ function Dashboard() {
       });
       const nextAvatars = await requestJson<AvatarCollectionState>('/api/avatars');
       setAvatars(nextAvatars);
-      setView('roster');
+      if (shouldNavigate) {
+        setView('roster');
+      }
       const nextStore = data.store ?? matchStore;
       const nextActiveMatch = getActiveMatch(nextStore);
       const nextText = nextActiveMatch?.status === 'completed'
@@ -1618,21 +1619,24 @@ function Dashboard() {
     }
   }
 
-  // 战队修改：打开弹窗并回填当前比赛左右战队名称
-  function openTeamEdit() {
-    if (!activeMatch) {
+  // 战队修改：打开弹窗并回填目标比赛左右战队名称（系列比赛 Drawer 也能改非当前比赛）
+  function openTeamEdit(matchId: string) {
+    const target = matchStore.matches.find((match) => match.id === matchId);
+    if (!target) {
       return;
     }
+    setTeamEditTargetId(matchId);
     teamEditForm.setFieldsValue({
-      leftTeam: activeMatch.leftTeamName || undefined,
-      rightTeam: activeMatch.rightTeamName || undefined,
+      leftTeam: target.leftTeamName || undefined,
+      rightTeam: target.rightTeamName || undefined,
     });
     setTeamEditOpen(true);
   }
 
-  // 保存当前比赛所属战队：按名称匹配「信息录入」战队复用 id；手动输入则仅记名称
+  // 保存目标比赛所属战队：按名称匹配「信息录入」战队复用 id；手动输入则仅记名称
   async function saveTeamEdit(values: { leftTeam?: string; rightTeam?: string }) {
-    if (!activeMatch) {
+    const matchId = teamEditTargetId;
+    if (!matchId) {
       return;
     }
     const teamList = profiles?.teams ?? [];
@@ -1642,7 +1646,7 @@ function Dashboard() {
     const rightTeam = rightTeamName ? teamList.find((team) => team.name === rightTeamName) : undefined;
     setTeamEditSaving(true);
     try {
-      const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState }>(`/api/matches/${encodeURIComponent(activeMatch.id)}`, {
+      const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState }>(`/api/matches/${encodeURIComponent(matchId)}`, {
         method: 'PATCH',
         json: {
           leftTeamName,
@@ -1668,9 +1672,75 @@ function Dashboard() {
     const avatar = avatars[side];
     return avatar.exists
       ? `${avatar.path}?t=${avatar.mtime ?? 0}`
-      : side === 'left'
-        ? '/assets/ui/left-avatar.png'
-        : '/assets/ui/right-avatar.png';
+      : placeholderAvatarSrc(side);
+  }
+
+  /** 头像占位图：非当前比赛时用它（推流头像按当前比赛存储，不能借用别场的头像） */
+  function placeholderAvatarSrc(side: PanelSide): string {
+    return side === 'left' ? '/assets/ui/left-avatar.png' : '/assets/ui/right-avatar.png';
+  }
+
+  /**
+   * 阵容编辑器（赛事面板的卡片外那块）。它编辑的是**全局面板**，语义上属于当前比赛，
+   * 因此只在「目标比赛 = 当前比赛」时调用；match 为 null 时保持原样（空编辑器）。
+   */
+  function buildRosterEditor(match: MatchRecord | null): React.ReactElement {
+    return (
+      <RosterPanelEditor
+        panels={panels}
+        filter={spriteFilter}
+        locked={match?.status === 'completed'}
+        players={{ left: match?.leftPlayer, right: match?.rightPlayer }}
+        searchValue={rosterSearch}
+        deferredSearchValue={deferredRosterSearch}
+        sprites={sprites}
+        spriteFormOptions={spriteFormOptions}
+        onRosterSearchChange={setRosterSearch}
+        onMutatePanel={mutatePanel}
+        onRunQuickFill={runQuickFill}
+        onClearPanel={clearPanel}
+        onChooseQuickFillCandidate={chooseQuickFillCandidate}
+        onApplySprite={applySprite}
+        onToggleAttributeFilter={toggleAttributeFilter}
+        onToggleFinalFormFilter={toggleFinalFormFilter}
+        onToggleFormFilter={toggleFormFilter}
+        onClearSpriteFilters={clearSpriteFilters}
+      />
+    );
+  }
+
+  /**
+   * 「当前比赛」面板：赛事面板（inline，卡片外壳留在调用处）与系列比赛 Drawer（drawer）共用。
+   * 动作与云闸门都在这里按**目标比赛**绑定 —— headless 登记，不要求该场是当前比赛。
+   * 头像只对当前比赛可用（服务端按 activeMatchId 解析）；非当前比赛给占位图并禁用更换。
+   */
+  function buildCurrentMatchPanel(match: MatchRecord, variant: 'inline' | 'drawer'): React.ReactElement {
+    const availability = deriveMatchActionAvailability(match, matchStore.activeMatchId, matchStore.undo);
+    const isCurrent = availability.isCurrent;
+    return (
+      <CurrentMatchPanel
+        match={match}
+        variant={variant}
+        avatars={isCurrent ? avatars : null}
+        tournamentLocked={Boolean(match.tournamentRef && tournamentRecordMap.has(match.tournamentRef.tournamentId))}
+        canUndo={availability.canUndo}
+        canRedo={availability.canRedo}
+        registerGate={cloudRegisterGate(match.id)}
+        undoGate={cloudUndoGate(match.id)}
+        avatarPreviewSrc={isCurrent ? getAvatarPreviewSrc : placeholderAvatarSrc}
+        onUploadAvatar={(side, file) => void uploadAvatarFile(side, file)}
+        onDeleteAvatar={(side) => void deleteAvatarFile(side)}
+        onSaveMeta={(values) => void saveMatchMeta(match.id, values)}
+        onOpenTeamEdit={() => openTeamEdit(match.id)}
+        onAction={(action, extra) => void runMatchAction(match.id, action, extra)}
+        rosterEditor={isCurrent && variant === 'drawer' ? buildRosterEditor(match) : undefined}
+      />
+    );
+  }
+
+  /** 系列比赛卡片菜单：打开某一场的 Drawer 面板 */
+  function openMatchPanel(matchId: string): void {
+    setMatchPanelTargetId(matchId);
   }
 
   function pickCreateAvatar(side: PanelSide, file: File) {
@@ -2278,14 +2348,24 @@ function Dashboard() {
     }
   }
 
-  async function runMatchAction(action: 'start' | 'undo' | 'redo' | 'winner', extra?: Record<string, unknown>) {
-    if (!activeMatch) {
+  /**
+   * 对某一场对局执行流程动作（开始 / 登记胜负 / 撤回 / 取消撤回）。
+   * 服务端按 matchId 工作，因此**不必**先把该场设为当前比赛：系列比赛的右键菜单与 Drawer
+   * 都是 headless 登记（推流画面保持原样）；只有当前比赛才触发 page10 自动切入（服务端守卫）。
+   */
+  async function runMatchAction(
+    matchId: string,
+    action: 'start' | 'undo' | 'redo' | 'winner',
+    extra?: Record<string, unknown>,
+  ) {
+    const target = matchStore.matches.find((match) => match.id === matchId);
+    if (!target) {
       return;
     }
 
     try {
       const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>(
-        `/api/matches/${encodeURIComponent(activeMatch.id)}/${action}`,
+        `/api/matches/${encodeURIComponent(matchId)}/${action}`,
         {
           method: 'POST',
           json: extra,
@@ -2298,21 +2378,25 @@ function Dashboard() {
       });
 
       const nextStore = data.store ?? matchStore;
-      const nextMatch = getActiveMatch(nextStore);
+      const nextMatch = nextStore.matches.find((match) => match.id === matchId) ?? null;
+      // headless：推流画面没有跟着切，提示里必须说清楚，否则会被当成「没生效」
+      const headlessSuffix = nextStore.activeMatchId === matchId
+        ? ''
+        : '（未切换当前比赛，推流画面保持不变）';
       if (action === 'start') {
-        const nextText = '本局已开始，后续仍可继续编辑阵容、血量与能量值';
+        const nextText = `本局已开始，后续仍可继续编辑阵容、血量与能量值${headlessSuffix}`;
         setRosterNotice({ tone: 'success', text: nextText });
         message.success(nextText);
         return;
       }
       if (action === 'undo') {
-        const nextText = '已撤回上一步操作';
+        const nextText = `已撤回上一步操作${headlessSuffix}`;
         setRosterNotice({ tone: 'success', text: nextText });
         message.success(nextText);
         return;
       }
       if (action === 'redo') {
-        const nextText = '已恢复刚刚撤回的操作';
+        const nextText = `已恢复刚刚撤回的操作${headlessSuffix}`;
         setRosterNotice({ tone: 'success', text: nextText });
         message.success(nextText);
         return;
@@ -2321,8 +2405,8 @@ function Dashboard() {
         const winner = extra?.winner === 'left' || extra?.winner === 'right' ? extra.winner : null;
         const sideText = winner === 'left' ? '左侧' : '右侧';
         const nextText = nextMatch?.status === 'completed'
-          ? `比赛已结束，${sideText}拿下系列赛`
-          : `已记录${sideText}本局获胜，下一局等待开始`;
+          ? `比赛已结束，${sideText}拿下系列赛${headlessSuffix}`
+          : `已记录${sideText}本局获胜，下一局等待开始${headlessSuffix}`;
         setRosterNotice({ tone: 'success', text: nextText });
         message.success(nextText);
       }
@@ -4752,208 +4836,7 @@ function Dashboard() {
                     )}
                   >
                     {activeMatch ? (
-                      <Space direction="vertical" size={18} className="page-stack">
-                        <div className="current-match-overview">
-                          <div className="current-match-player current-match-player-left">
-                            <div className="player-avatar-wrap">
-                              <Upload
-                                showUploadList={false}
-                                beforeUpload={(file) => {
-                                  void uploadAvatarFile('left', file as File);
-                                  return false;
-                                }}
-                              >
-                                <div className="player-avatar-circular current-match-player-avatar">
-                                  <Image preview={false} src={getAvatarPreviewSrc('left')} alt="左侧选手头像" />
-                                  <span className="player-avatar-hint">更换</span>
-                                </div>
-                              </Upload>
-                              {avatars.left.exists ? (
-                                <Button
-                                  className="player-avatar-delete"
-                                  size="small"
-                                  danger
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void deleteAvatarFile('left');
-                                  }}
-                                >
-                                  删除
-                                </Button>
-                              ) : null}
-                            </div>
-                            <Text strong className="current-match-player-name current-match-player-name-left">
-                              {activeMatch.leftPlayer || '未设置'}
-                            </Text>
-                          </div>
-                          <div className="current-match-score-block">
-                            <Text type="secondary" className="current-match-score-label">当前比分</Text>
-
-                            <div
-                              className="current-match-score-card"
-                              aria-label={`当前比分 ${activeMatch.leftScore} 比 ${activeMatch.rightScore}`}
-                            >
-                              <div className="current-match-scoreline">
-                                <span className="current-match-score-value">{activeMatch.leftScore}</span>
-                                <span className="current-match-score-separator">:</span>
-                                <span className="current-match-score-value">{activeMatch.rightScore}</span>
-                              </div>
-                              
-                            </div>
-                            <Text type="secondary" className="current-match-meta">
-                              BO{activeMatch.bestOf} · {currentGame ? `第 ${currentGame.gameNumber} 局` : '暂无对局'}
-                            </Text>
-                          </div>
-                          <div className="current-match-player current-match-player-right">
-                            <div className="player-avatar-wrap">
-                              <Upload
-                                showUploadList={false}
-                                beforeUpload={(file) => {
-                                  void uploadAvatarFile('right', file as File);
-                                  return false;
-                                }}
-                              >
-                                <div className="player-avatar-circular current-match-player-avatar">
-                                  <Image preview={false} src={getAvatarPreviewSrc('right')} alt="右侧选手头像" />
-                                  <span className="player-avatar-hint">更换</span>
-                                </div>
-                              </Upload>
-                              {avatars.right.exists ? (
-                                <Button
-                                  className="player-avatar-delete"
-                                  size="small"
-                                  danger
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void deleteAvatarFile('right');
-                                  }}
-                                >
-                                  删除
-                                </Button>
-                              ) : null}
-                            </div>
-                            <Text strong className="current-match-player-name current-match-player-name-right">
-                              {activeMatch.rightPlayer || '未设置'}
-                            </Text>
-                          </div>
-                        </div>
-                        <div className="current-match-statusbar">
-                          <Steps current={progress.current} items={progress.items} responsive />
-                        </div>
-                        <Form
-                          form={matchForm}
-                          layout="vertical"
-                          className="current-match-form"
-                          onFinish={(values) => void saveMatchMeta(values)}
-                        >
-                          <Row gutter={[16, 16]}>
-                            <Col xs={24} md={10}>
-                              <Row gutter={8} wrap={false} className="current-match-player-inputs">
-                                <Col flex="auto" style={{ minWidth: 0 }}>
-                                  <Form.Item label="左侧选手" name="leftPlayer">
-                                    <Input maxLength={32} placeholder="输入左侧选手名字" disabled={activeMatchTournamentLocked} />
-                                  </Form.Item>
-                                </Col>
-                                <Col flex="112px">
-                                  <Form.Item
-                                    label="排位排名"
-                                    name="leftRank"
-                                    getValueFromEvent={(event: React.ChangeEvent<HTMLInputElement>) => event.target.value.replace(/\D/g, '')}
-                                  >
-                                    <Input maxLength={10} inputMode="numeric" placeholder="仅数字" />
-                                  </Form.Item>
-                                </Col>
-                              </Row>
-                            </Col>
-                            <Col xs={24} md={10}>
-                              <Row gutter={8} wrap={false} className="current-match-player-inputs">
-                                <Col flex="auto" style={{ minWidth: 0 }}>
-                                  <Form.Item label="右侧选手" name="rightPlayer">
-                                    <Input maxLength={32} placeholder="输入右侧选手名字" disabled={activeMatchTournamentLocked} />
-                                  </Form.Item>
-                                </Col>
-                                <Col flex="112px">
-                                  <Form.Item
-                                    label="排位排名"
-                                    name="rightRank"
-                                    getValueFromEvent={(event: React.ChangeEvent<HTMLInputElement>) => event.target.value.replace(/\D/g, '')}
-                                  >
-                                    <Input maxLength={10} inputMode="numeric" placeholder="仅数字" />
-                                  </Form.Item>
-                                </Col>
-                              </Row>
-                            </Col>
-                            <Col xs={24} md={4}>
-                              <Form.Item label="比赛赛制" name="bestOf">
-                                <Select
-                                  style={{ width: '100%' }}
-                                  disabled={activeMatchTournamentLocked}
-                                  options={[
-                                    { value: 1, label: 'BO1' },
-                                    { value: 3, label: 'BO3' },
-                                    { value: 5, label: 'BO5' },
-                                    { value: 7, label: 'BO7' },
-                                  ]}
-                                />
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                          {activeMatchTournamentLocked ? (
-                            <Text type="secondary" className="current-match-meta">
-                              这是系列赛对局：选手名与赛制由编排决定（登记胜负时按选手名写回对阵图），此处不可修改。
-                              需要改选手名请到「信息录入」，改赛制请在系列赛的阶段规则里调整；战队与排位排名仍可保存。
-                            </Text>
-                          ) : null}
-                          <div className="current-match-action-row">
-                            <Space wrap size={12} className="current-match-action-group">
-                              <Button
-                                type="primary"
-                                onClick={() => void runMatchAction('start')}
-                                disabled={!currentGame || currentGame.status !== 'pending' || !currentGame.leftLineup.length || !currentGame.rightLineup.length}
-                              >
-                                开始本次对局
-                              </Button>
-                              <Button type="dashed" onClick={openTeamEdit}>战队修改</Button>
-                              <Button htmlType="submit">保存比赛信息</Button>
-                            </Space>
-                            <Space wrap size={12} className="current-match-action-group current-match-action-group-right">
-                              <Tooltip title={activeMatch ? cloudRegisterGate(activeMatch.id).reason : ''}>
-                                <span>
-                                  <Button
-                                    type="dashed"
-                                    onClick={() => void runMatchAction('winner', { winner: 'left' })}
-                                    disabled={currentGame?.status !== 'in_progress' || (activeMatch ? !cloudRegisterGate(activeMatch.id).allowed : false)}
-                                  >
-                                    左侧赢了
-                                  </Button>
-                                </span>
-                              </Tooltip>
-                              <Tooltip title={activeMatch ? cloudRegisterGate(activeMatch.id).reason : ''}>
-                                <span>
-                                  <Button
-                                    type="dashed"
-                                    onClick={() => void runMatchAction('winner', { winner: 'right' })}
-                                    disabled={currentGame?.status !== 'in_progress' || (activeMatch ? !cloudRegisterGate(activeMatch.id).allowed : false)}
-                                  >
-                                    右侧赢了
-                                  </Button>
-                                </span>
-                              </Tooltip>
-                              <Tooltip title={activeMatch ? cloudUndoGate(activeMatch.id).reason : ''}>
-                                <span>
-                                  <Button
-                                    onClick={() => void runMatchAction('undo')}
-                                    disabled={!matchStore.undo.canUndo || (activeMatch ? !cloudUndoGate(activeMatch.id).allowed : false)}
-                                  >
-                                    撤回上一步
-                                  </Button>
-                                </span>
-                              </Tooltip>
-                              <Button onClick={() => void runMatchAction('redo')} disabled={!matchStore.undo.canRedo}>取消撤回</Button>
-                            </Space>
-                          </div>
-                        </Form>
-                      </Space>
+                      buildCurrentMatchPanel(activeMatch, 'inline')
                     ) : (
                       <Empty description="先创建或选择一场赛事" />
                     )}
@@ -4963,26 +4846,7 @@ function Dashboard() {
 
               <Row gutter={[18, 18]}>
                 <Col span={24}>
-                  <RosterPanelEditor
-                    panels={panels}
-                    filter={spriteFilter}
-                    locked={lineupLocked}
-                    players={{ left: activeMatch?.leftPlayer, right: activeMatch?.rightPlayer }}
-                    searchValue={rosterSearch}
-                    deferredSearchValue={deferredRosterSearch}
-                    sprites={sprites}
-                    spriteFormOptions={spriteFormOptions}
-                    onRosterSearchChange={setRosterSearch}
-                    onMutatePanel={mutatePanel}
-                    onRunQuickFill={runQuickFill}
-                    onClearPanel={clearPanel}
-                    onChooseQuickFillCandidate={chooseQuickFillCandidate}
-                    onApplySprite={applySprite}
-                    onToggleAttributeFilter={toggleAttributeFilter}
-                    onToggleFinalFormFilter={toggleFinalFormFilter}
-                    onToggleFormFilter={toggleFormFilter}
-                    onClearSpriteFilters={clearSpriteFilters}
-                  />
+                  {buildRosterEditor(activeMatch)}
                 </Col>
               </Row>
             </Space>
@@ -7117,6 +6981,70 @@ function Dashboard() {
           ) : null}
         </Content>
       </Layout>
+
+      {/* 系列比赛卡片：右键菜单 / 「⋯」打开的对局面板（复用「当前比赛」面板）。
+          mask=false：晋级图仍可点，点另一张卡片即切换目标 → 连续登记多场；
+          面板里的动作是 headless 登记（不切当前比赛、不覆写推流画面），只有「设为当前比赛」才切。 */}
+      <Drawer
+        title={matchPanelTarget
+          ? `对局面板 · ${matchPanelTarget.leftPlayer || '左侧'} vs ${matchPanelTarget.rightPlayer || '右侧'}`
+          : '对局面板'}
+        placement="right"
+        width={860}
+        open={Boolean(matchPanelTarget)}
+        onClose={() => setMatchPanelTargetId(null)}
+        mask={false}
+        destroyOnHidden
+        className="match-panel-drawer"
+      >
+        {matchPanelTarget ? (
+          <Space direction="vertical" size={16} className="page-stack">
+            {(() => {
+              const target = matchPanelTarget;
+              const isCurrent = target.id === activeMatch?.id;
+              const ref = target.tournamentRef;
+              const tournament = ref ? tournamentRecordMap.get(ref.tournamentId) : undefined;
+              const stageRound = ref && tournament ? formatStageRoundLabel(tournament, ref) : null;
+              return (
+                <div className={`match-panel-status${isCurrent ? ' is-current' : ''}`}>
+                  <Space wrap size={8} className="match-panel-status-head">
+                    {tournament ? <Tag color="purple">🏆 {tournament.name}</Tag> : null}
+                    {stageRound ? <Tag bordered={false}>{stageRound}</Tag> : null}
+                    <Tag color={getMatchStatusColor(target.status)}>{getMatchStatusLabel(target.status)}</Tag>
+                    {rosterNotice ? (
+                      <Tag
+                        closable
+                        bordered={false}
+                        color={getNoticeTagColor(rosterNotice.tone)}
+                        onClose={() => setRosterNotice(null)}
+                      >
+                        {rosterNotice.text}
+                      </Tag>
+                    ) : null}
+                  </Space>
+                  {isCurrent ? (
+                    <Text type="secondary">本场是当前比赛：推流画面（比分栏 / 阵容 / 记分牌）正在展示它。</Text>
+                  ) : (
+                    <Space wrap size={8} align="center">
+                      <Text type="secondary">
+                        本场不是当前比赛：登记 / 开始 / 撤回都直接写这场比赛，推流画面保持不变。
+                        当前推流：
+                        {activeMatch
+                          ? ` ${activeMatch.leftPlayer || '左侧'} vs ${activeMatch.rightPlayer || '右侧'}`
+                          : ' 未选择'}
+                      </Text>
+                      <Button size="small" onClick={() => selectMatch(target.id, { navigate: false })}>
+                        设为当前比赛（覆写推流画面）
+                      </Button>
+                    </Space>
+                  )}
+                </div>
+              );
+            })()}
+            {buildCurrentMatchPanel(matchPanelTarget, 'drawer')}
+          </Space>
+        ) : null}
+      </Drawer>
 
       {/* 顶栏弹窗：倒计时控制（原「直播推流 / 倒计时插件」卡片） */}
       <Modal

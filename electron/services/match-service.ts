@@ -828,9 +828,28 @@ function toPublicStore(store: MatchStoreFile, mtime: number | null): MatchStoreS
       canRedo: Boolean(activeHistory && activeHistory.redoStack.length > 0),
       canUndoDelete: store.deletedHistory.length > 0,
       deleteUndoCount: store.deletedHistory.length,
+      byMatch: summarizeFlowHistory(store),
     },
     mtime,
   };
+}
+
+/**
+ * 按比赛汇总撤销栈摘要（只透布尔）：撤回栈本来就按比赛存，但公开读模型此前只给当前比赛，
+ * 导致系列比赛的卡片菜单 / 面板无法在「不是当前比赛」的场次上判断能否撤回。
+ * 只收有栈的场次，绝不下发 flowHistory 的快照体（含 7 天 TTL 的小局数据）。
+ */
+function summarizeFlowHistory(store: MatchStoreFile): Record<string, { canUndo: boolean; canRedo: boolean }> {
+  const summary: Record<string, { canUndo: boolean; canRedo: boolean }> = {};
+  Object.entries(store.flowHistory).forEach(([matchId, history]) => {
+    if (history.undoStack.length || history.redoStack.length) {
+      summary[matchId] = {
+        canUndo: history.undoStack.length > 0,
+        canRedo: history.redoStack.length > 0,
+      };
+    }
+  });
+  return summary;
 }
 
 // 删除超过 7 天的撤销/重做快照（按 savedAt 判定），返回是否发生了清理

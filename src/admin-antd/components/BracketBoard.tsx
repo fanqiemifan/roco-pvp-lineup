@@ -5,6 +5,7 @@ import { buildBracketGraph, getStageState } from '../lib/tournament';
 import type { BracketCard, BracketColumn, BracketSlot } from '../lib/tournament';
 import { forfeitApi } from '../lib/tournament-api';
 import { TournamentNodeCard } from './TournamentNodeCard';
+import type { TournamentCardMenuHandlers } from './TournamentNodeCard';
 
 const { Text } = Typography;
 
@@ -53,6 +54,8 @@ export interface BracketBoardProps {
   onViewLineup?(matchId: string): void;
   /** 只读副本（系列赛由另一台机器编排）：隐藏弃权操作 */
   readOnly?: boolean;
+  /** 卡片右键 / 「⋯」菜单（未传则不显示菜单入口） */
+  cardMenu?: TournamentCardMenuHandlers;
 }
 
 /** 槽位 ref key：`${nodeId}#a` / `${nodeId}#b` */
@@ -75,6 +78,7 @@ export function BracketBoard({
   onSelectMatch,
   onViewLineup,
   readOnly = false,
+  cardMenu,
 }: BracketBoardProps): React.ReactElement {
   const { message } = App.useApp();
   const graph = useMemo(
@@ -482,6 +486,9 @@ export function BracketBoard({
           onSelectMatch={(matchId) => void onSelectMatch(matchId)}
           onViewLineup={onViewLineup}
           onForfeit={readOnly ? undefined : () => setForfeitNode(resolveNode(column, card.nodeId))}
+          menu={cardMenu?.menuFor(card.matchId)}
+          onOpenPanel={cardMenu?.onOpenPanel}
+          onRunAction={cardMenu?.onRunAction}
         />
       </div>
     );

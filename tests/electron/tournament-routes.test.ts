@@ -530,28 +530,28 @@ describe('本机移除 / 恢复（localOnly）', () => {
   });
 });
 
-describe('系列赛对局的选手名 / 赛制保护（赛事面板改不动，且登记前先校验）', () => {
-  /** 建一届 4 人单败（BO1，单局即可完赛）并开赛，返回首个对局与它对应的节点 */
-  async function startFourPlayerTournament(name: string, seed: number) {
-    const playerIds = seedPlayers(4);
-    const created = (await postJson('/api/tournaments', {
-      name,
-      playerIds,
-      seed,
-      stages: [
-        { name: '4进2', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
-        { name: '总决赛', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
-      ],
-    })).data.tournament;
-    await postJson(`/api/tournaments/${created.id}/start`);
-    const match = (await getJson('/api/matches')).data.matches.find(
-      (item: { tournamentRef?: { tournamentId: string } }) => item.tournamentRef?.tournamentId === created.id,
-    );
-    const record = (await getJson(`/api/tournaments/${created.id}`)).data.tournament;
-    const node = record.waves[0].nodes.find((item: { matchId: string }) => item.matchId === match.id);
-    return { created, match, node };
-  }
+/** 建一届 4 人单败（BO1，单局即可完赛）并开赛，返回首个对局与它对应的节点 */
+async function startFourPlayerTournament(name: string, seed: number) {
+  const playerIds = seedPlayers(4);
+  const created = (await postJson('/api/tournaments', {
+    name,
+    playerIds,
+    seed,
+    stages: [
+      { name: '4进2', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+      { name: '总决赛', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+    ],
+  })).data.tournament;
+  await postJson(`/api/tournaments/${created.id}/start`);
+  const match = (await getJson('/api/matches')).data.matches.find(
+    (item: { tournamentRef?: { tournamentId: string } }) => item.tournamentRef?.tournamentId === created.id,
+  );
+  const record = (await getJson(`/api/tournaments/${created.id}`)).data.tournament;
+  const node = record.waves[0].nodes.find((item: { matchId: string }) => item.matchId === match.id);
+  return { created, match, node };
+}
 
+describe('系列赛对局的选手名 / 赛制保护（赛事面板改不动，且登记前先校验）', () => {
   it('PATCH 改选手名 / 赛制：400 且落盘不变；战队与排位排名仍可改', async () => {
     const { match } = await startFourPlayerTournament('字段守卫杯', 21);
 
@@ -627,5 +627,76 @@ describe('系列赛对局的选手名 / 赛制保护（赛事面板改不动，�
     expect(healed.leftPlayer).not.toBe('历史脏数据');
     const record = (await getJson(`/api/tournaments/${created.id}`)).data.tournament;
     expect(record.waves[0].nodes.find((item: { id: string }) => item.id === node.id).winnerId).toBe(node.playerBId);
+  });
+});
+
+describe('headless 登记（不切换当前比赛也能打完整场）', () => {
+  /** 把推流画面停在 page3，并把 page10 停留时长设为 10 分钟（避免自动切回干扰断言） */
+  async function pinStageOnPage3(): Promise<void> {
+    const stage = (await getJson('/api/stage')).data;
+    await postJson('/api/stage', { ...stage, page: 'page3', page10Duration: 10, page10DurationUnit: 'minutes' });
+  }
+
+  /** 该场打完一局（BO1 即整场完赛） */
+  async function playOneGame(matchId: string, winnerSide: 'left' | 'right'): Promise<void> {
+    await postJson(`/api/matches/${matchId}/games/1/lineup`, {
+      selections: { left: [{ sprite: '3001' }], right: [{ sprite: '3002' }] },
+    });
+    await postJson(`/api/matches/${matchId}/start`);
+    await postJson(`/api/matches/${matchId}/winner`, { winner: winnerSide });
+  }
+
+  it('登记非当前比赛的胜负：赛果写回节点，但推流画面不被顶掉（不切 page10）', async () => {
+    const { created, match, node } = await startFourPlayerTournament('headless杯', 25);
+    // 同波的另一场设为当前比赛 → 目标是「非当前比赛」
+    const waveMatches = (await getJson('/api/matches')).data.matches.filter(
+      (item: { tournamentRef?: { tournamentId: string } }) => item.tournamentRef?.tournamentId === created.id,
+    );
+    const other = waveMatches.find((item: { id: string }) => item.id !== match.id);
+    await postJson(`/api/matches/${other.id}/select`);
+    await pinStageOnPage3();
+
+    await playOneGame(match.id, 'left');
+
+    // 系列赛节点已写回（晋级图会立刻更新）
+    const record = (await getJson(`/api/tournaments/${created.id}`)).data.tournament;
+    expect(record.waves[0].nodes.find((item: { id: string }) => item.id === node.id).winnerId).toBe(node.playerAId);
+    // 画面仍停在 page3：page10 的内容取当前比赛，headless 登记不能切页
+    expect((await getJson('/api/stage')).data.page).toBe('page3');
+  });
+
+  it('登记当前比赛的胜负：照旧自动切入 page10', async () => {
+    const { match } = await startFourPlayerTournament('page10杯', 26);
+    await postJson(`/api/matches/${match.id}/select`);
+    await pinStageOnPage3();
+
+    await playOneGame(match.id, 'left');
+
+    expect((await getJson('/api/stage')).data.page).toBe('page10');
+  });
+
+  it('headless 打完一场后：该场在 undo.byMatch 里可撤回，非当前比赛也能撤回', async () => {
+    const { created, match, node } = await startFourPlayerTournament('headless撤回杯', 27);
+    const waveMatches = (await getJson('/api/matches')).data.matches.filter(
+      (item: { tournamentRef?: { tournamentId: string } }) => item.tournamentRef?.tournamentId === created.id,
+    );
+    const other = waveMatches.find((item: { id: string }) => item.id !== match.id);
+    await postJson(`/api/matches/${other.id}/select`);
+
+    await playOneGame(match.id, 'left');
+    const store = (await getJson('/api/matches')).data;
+    expect(store.activeMatchId).toBe(other.id);
+    expect(store.undo.byMatch[match.id]).toEqual({ canUndo: true, canRedo: false });
+
+    // 非当前比赛也能撤回：赛果与晋级节点一起回退
+    expect((await postJson(`/api/matches/${match.id}/undo`)).status).toBe(200);
+    const record = (await getJson(`/api/tournaments/${created.id}`)).data.tournament;
+    expect(record.waves[0].nodes.find((item: { id: string }) => item.id === node.id).winnerId).toBeNull();
+    // 撤回一步 = 撤销「登记胜负」这一步（快照粒度为一次操作，不是整场复位）
+    const after = (await getJson('/api/matches')).data;
+    const reverted = after.matches.find((item: { id: string }) => item.id === match.id);
+    expect(reverted.status).toBe('in_progress');
+    expect(reverted.games[0].winner).toBeNull();
+    expect(after.undo.byMatch[match.id]).toEqual({ canUndo: true, canRedo: true });
   });
 });

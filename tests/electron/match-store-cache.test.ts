@@ -136,4 +136,16 @@ describe('撤销栈 7 天自动清理', () => {
       migrated.flowHistory[matchId].undoStack.every((snapshot: any) => typeof snapshot.savedAt === 'string'),
     ).toBe(true);
   });
+
+  it('undo.byMatch：按比赛透出撤销能力，只收有栈的场次且不含快照体', () => {
+    const withStack = prepareMatchWithUndoStack();
+    // 另一场没有任何操作：不应出现在摘要里
+    const untouched = createMatch(paths, { leftPlayer: '丙', rightPlayer: '丁' }).matches[0].id;
+
+    const store = getMatchStore(paths);
+    expect(store.undo.byMatch[withStack]).toEqual({ canUndo: true, canRedo: false });
+    expect(store.undo.byMatch[untouched]).toBeUndefined();
+    // 只透布尔：不能把 flowHistory 的快照体带进公开读模型
+    expect(JSON.stringify(store.undo.byMatch)).not.toContain('savedAt');
+  });
 });

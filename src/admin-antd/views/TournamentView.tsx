@@ -73,9 +73,11 @@ import {
   selectMatchApi,
   startTournamentApi,
 } from '../lib/tournament-api';
+import { deriveMatchActionAvailability } from '../lib/match-actions';
 import { readLastTournamentId, writeLastTournamentId } from '../lib/last-tournament';
 import { BracketBoard } from '../components/BracketBoard';
 import { TournamentNodeCard } from '../components/TournamentNodeCard';
+import type { TournamentCardMenuHandlers } from '../components/TournamentNodeCard';
 import { HistoryLineupEntryModal } from './HistoryLineupEntryModal';
 import { MatchLineupDetailModal } from './MatchLineupDetailModal';
 import { TournamentLineupExportModal } from './TournamentLineupExportModal';
@@ -114,6 +116,22 @@ export interface TournamentViewProps {
   tournaments: TournamentRecord[];
   profiles: ProfileStoreState | null;
   matches: MatchRecord[];
+  /** 当前比赛 id（判断卡片菜单里「已是当前比赛」，以及撤回可用性回落口径） */
+  activeMatchId: string | null;
+  /** 撤销栈读模型（含 byMatch：非当前比赛的撤回可用性） */
+  undo: MatchStoreState['undo'];
+  /** 对某场执行流程动作（开始 / 登记胜负 / 撤回 / 取消撤回）：headless，不切当前比赛 */
+  onMatchAction(
+    matchId: string,
+    action: 'start' | 'undo' | 'redo' | 'winner',
+    extra?: Record<string, unknown>,
+  ): void;
+  /** 打开某场的 Drawer 面板 */
+  onOpenMatchPanel(matchId: string): void;
+  /** 云同步登记闸门（分控端未指派 → 置灰） */
+  registerGate(matchId: string): { allowed: boolean; reason: string };
+  /** 云同步撤回闸门（分控端已确认 → 禁撤回） */
+  undoGate(matchId: string): { allowed: boolean; reason: string };
   /** 精灵索引：导出模板回显已有阵容名（与解析口径一致） */
   sprites: SpriteRecord[];
   /** 本机机器标识：判定系列赛是否归本机编排（只读副本禁用编排操作） */
@@ -130,6 +148,12 @@ export function TournamentView({
   tournaments,
   profiles,
   matches,
+  activeMatchId,
+  undo,
+  onMatchAction,
+  onOpenMatchPanel,
+  registerGate,
+  undoGate,
   sprites,
   machineCode,
   locallyRemoved,
@@ -137,6 +161,30 @@ export function TournamentView({
   onMatchesStore,
 }: TournamentViewProps): React.ReactElement {
   const { message } = App.useApp();
+  /**
+   * 卡片右键 / 「⋯」菜单三件套：可用性在这里一次算好（卡片本身只有 BracketCard，
+   * 拿不到 games / activeMatchId / 撤销栈），再逐层透传给晋级图与波次列表。
+   */
+  const cardMenu = useMemo<TournamentCardMenuHandlers>(() => ({
+    menuFor: (matchId) => {
+      const match = matchId ? matches.find((item) => item.id === matchId) ?? null : null;
+      if (!match) {
+        return undefined;
+      }
+      const availability = deriveMatchActionAvailability(match, activeMatchId, undo);
+      return {
+        isCurrent: availability.isCurrent,
+        canStart: availability.canStart,
+        canRegister: availability.canRegister,
+        canUndo: availability.canUndo,
+        canRedo: availability.canRedo,
+        registerGate: registerGate(match.id),
+        undoGate: undoGate(match.id),
+      };
+    },
+    onOpenPanel: onOpenMatchPanel,
+    onRunAction: onMatchAction,
+  }), [matches, activeMatchId, undo, registerGate, undoGate, onOpenMatchPanel, onMatchAction]);
   const [createOpen, setCreateOpen] = useState(false);
   // 详情默认打开「上次操作的系列赛」（本地记忆，见 lib/last-tournament）；无记忆/记录已失效时回退列表第一条
   const [selectedId, setSelectedId] = useState<string | null>(() => readLastTournamentId());
@@ -535,6 +583,8 @@ interface DetailProps {
   matches: MatchRecord[];
   sprites: SpriteRecord[];
   machineCode: string;
+  /** 卡片右键 / 「⋯」菜单三件套（可用性 + 打开面板 + 执行动作） */
+  cardMenu: TournamentCardMenuHandlers;
   onSelectMatch(matchId: string): Promise<void>;
   /** 阵容录入保存后回传最新赛事 store（App 统一应用） */
   onMatchesStore?: (store: MatchStoreState) => void;

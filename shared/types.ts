@@ -126,10 +126,17 @@ export interface MatchStoreState {
   matches: MatchRecord[];
   /** 操作撤销能力（与页面上的「比赛管理」无关，纯 UI 撤销栈状态） */
   undo: {
+    /** 当前比赛（activeMatchId）的撤销栈状态：赛事面板那对按钮用 */
     canUndo: boolean;
     canRedo: boolean;
     canUndoDelete: boolean;
     deleteUndoCount: number;
+    /**
+     * 按比赛分组的撤销栈摘要（只收有栈的场次，仅布尔、不含快照体）。
+     * 为什么需要：撤回栈本来就按比赛存，但上面两个字段只反映当前比赛，
+     * 系列比赛的右键菜单 / Drawer 面板要在「不是当前比赛」的场次上准确置灰撤回按钮。
+     */
+    byMatch: Record<string, { canUndo: boolean; canRedo: boolean }>;
   };
   mtime: number | null;
 }

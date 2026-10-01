@@ -841,6 +841,54 @@ a {
   justify-content: flex-end;
 }
 
+/* 系列比赛 Drawer 里的「当前比赛」面板：三列 grid 的收列断点是视口，弹窗里必须显式收成单列 */
+.current-match-panel-drawer .current-match-overview {
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.current-match-panel-drawer .current-match-score-card {
+  min-width: 0;
+  width: 100%;
+  padding: 12px 18px;
+}
+
+.current-match-panel-drawer .current-match-player-name.ant-typography {
+  font-size: 20px;
+}
+
+.current-match-panel-drawer .current-match-score-value {
+  min-width: 0;
+  font-size: 30px;
+}
+
+.current-match-panel-drawer .current-match-action-row {
+  justify-content: flex-start;
+}
+
+.current-match-panel-drawer .current-match-action-group-right {
+  margin-left: 0;
+}
+
+/* 对局面板顶部状态条：本场是否推流中的那一场 + 目标信息 */
+.match-panel-status {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(210, 153, 34, 0.4);
+  background: rgba(210, 153, 34, 0.1);
+}
+
+.match-panel-status.is-current {
+  border-color: rgba(63, 185, 80, 0.4);
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.match-panel-status-head {
+  align-items: center;
+}
+
 @media (max-width: 992px) {
   .current-match-overview {
     grid-template-columns: 1fr;
