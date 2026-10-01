@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { App, Button, Card, Checkbox, Empty, Input, Modal, Space, Table, Tag, Typography } from 'antd';
+import { Button, Card, Checkbox, Empty, Input, Modal, Space, Table, Tag, TimePicker, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import dayjs, { type Dayjs } from 'dayjs';
 
 import type { MatchRecord, Page6State, Page7State, Page8State, TournamentRecord } from '../../../shared/types';
 import { computeScheduleTimes, normalizeHHmm } from '../../../shared/match-schedule';
@@ -93,13 +94,22 @@ function versusText(match: MatchRecord): string {
   return `${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`;
 }
 
+/** HH:mm 文本 → TimePicker 的 dayjs 值（严格校验；空/非法返回 null，让输入框显示 placeholder） */
+function hhmmToDayjs(value: string): Dayjs | null {
+  const normalized = normalizeHHmm(value);
+  if (!normalized) {
+    return null;
+  }
+  const [hour, minute] = normalized.split(':').map(Number);
+  return dayjs().hour(hour).minute(minute).second(0).millisecond(0);
+}
+
 /**
  * 比赛管理上方的推流功能卡片：展示已选摘要，点击后弹出比赛管理详情选场弹窗。
  * 弹窗内候选按「系列赛阶段/轮次 + 普通对局」分组（组头可整组勾选），
  * 勾选（勾选顺序即卡片场序）、上移/下移调整、page6/8 可编辑标题与场序时间。
  */
 export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, tournaments, state, pushing, onPush }: MatchPushCardProps) {
-  const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>([]);
   const [titleDraft, setTitleDraft] = useState('');
@@ -267,22 +277,6 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
   }
 
   async function handleConfirm() {
-    // 手动时间必须为 HH:mm，非法时提示具体场次而不是静默丢弃
-    if (withSchedule) {
-      const invalidIndex = selectedMatches.findIndex((match) => {
-        const raw = matchTimesDraft[match.id];
-        return raw !== undefined && raw.trim() !== '' && !normalizeHHmm(raw);
-      });
-      if (invalidIndex >= 0) {
-        message.warning(`第 ${invalidIndex + 1} 场时间格式不正确，请填写 HH:mm（如 19:00）或清空使用自动时间`);
-        return;
-      }
-      if (startTimeDraft.trim() !== '' && !normalizeHHmm(startTimeDraft)) {
-        message.warning('开始时间格式不正确，请填写 HH:mm（如 19:00）或留空');
-        return;
-      }
-    }
-
     const matchTimes: Record<string, string> = {};
     if (withSchedule) {
       for (const match of selectedMatches) {
@@ -465,13 +459,14 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
                 <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
                   第一场开始时间（之后每场按 BO×30 分钟自动累加）：
                 </Text>
-                <Input
+                <TimePicker
                   allowClear
-                  maxLength={5}
+                  format="HH:mm"
+                  minuteStep={5}
                   style={{ width: 160 }}
                   placeholder="19:00"
-                  value={startTimeDraft}
-                  onChange={(event) => setStartTimeDraft(event.target.value)}
+                  value={hhmmToDayjs(startTimeDraft)}
+                  onChange={(value, timeString) => setStartTimeDraft(value ? String(timeString) : '')}
                 />
               </div>
             ) : null}
@@ -515,20 +510,20 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
                           <Tag color="gold" style={{ margin: 0 }}>BO{match.bestOf}</Tag>
                         </div>
                         {withSchedule ? (
-                          <Input
+                          <TimePicker
                             size="small"
                             className="match-push-time-input"
+                            format="HH:mm"
+                            minuteStep={5}
                             placeholder={autoTime || 'HH:mm'}
-                            value={manualTime}
-                            maxLength={5}
-                            onChange={(event) => {
-                              const value = event.target.value;
+                            value={hhmmToDayjs(manualTime)}
+                            onChange={(value, timeString) => {
                               setMatchTimesDraft((prev) => {
                                 const next = { ...prev };
-                                if (value.trim() === '') {
-                                  delete next[match.id];
+                                if (value) {
+                                  next[match.id] = String(timeString);
                                 } else {
-                                  next[match.id] = value;
+                                  delete next[match.id];
                                 }
                                 return next;
                               });
