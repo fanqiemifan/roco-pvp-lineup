@@ -294,6 +294,8 @@ describe('云同步设置与连通性', () => {
     const ok = await postMain('/api/cloud-sync/test', { syncKey: SYNC_KEY, workerUrl: worker.url });
     expect(ok.data.ok).toBe(true);
     expect(ok.data.message).toContain('可达');
+    // 成功提示不能回显 Worker 地址（后台界面可能出现在直播画面，防域名暴露）
+    expect(String(ok.data.message)).not.toContain(worker.url);
 
     const bad = await postMain('/api/cloud-sync/test', { syncKey: SYNC_KEY, workerUrl: 'http://127.0.0.1:1' });
     expect(bad.data.ok).toBe(false);

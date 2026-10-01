@@ -808,7 +808,8 @@ export async function testCloudConnection(paths: AppPaths): Promise<CloudSyncTes
     finish(paths);
     return {
       ok: true,
-      message: `Worker 可达且已启用访问令牌：${config.workerUrl}`,
+      // 不显示实际 Worker 地址：后台界面可能出现在直播画面里，域名容易暴露（测试通过只说成功）
+      message: '云同步测试通过：云端可达、访问令牌已启用',
       status: getCloudSyncStatus(paths),
       data: { ok: true },
       health,

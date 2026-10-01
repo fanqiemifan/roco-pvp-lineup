@@ -175,7 +175,7 @@
 | 计算待回传集 | computePendingQueue | (paths: AppPaths) => CloudSyncPendingQueue | 现算「已完赛 + 有胜者 + 按指派归本机码 + 主控未 ack」的比赛；每次「同步最新」合并后重算，防主控回退后陈旧登记被复活；本机自建系列赛的赛果（未指派，scope 为空）天然不进本集 → 不上行 |
 | 已确认比赛集合 | ackedMatchIdSet | (paths: AppPaths) => Set<string> | 主控回执里的 matchId 集合（分控端禁止撤回的判据） |
 | 保存云同步设置 | saveCloudSyncConfig | (paths: AppPaths, input: CloudSyncConfigInput) => CloudSyncStatus | syncKey/role/workerUrl/machineLabel/pollEnabled/pollIntervalSeconds 落 config.json；peerCodes（主控端分控码列表）并入名册并剔除本机码 |
-| 检测 Worker 在线 | testCloudConnection | (paths: AppPaths) => Promise<CloudSyncTestResult> | 打 `${workerUrl}/health`（不需要密钥、不碰 KV，避免为测通白扣读写额度）；超时/不可达返回 ok:false + 中文原因 |
+| 检测 Worker 在线 | testCloudConnection | (paths: AppPaths) => Promise<CloudSyncTestResult> | 打 `${workerUrl}/health`（不需要密钥、不碰 KV，避免为测通白扣读写额度）；超时/不可达返回 ok:false + 中文原因；**成功提示不含 Worker 地址**（后台界面可能出现在直播画面里，防域名暴露） |
 | 主控「同步分发」 | pushCloudSync | (paths: AppPaths) => Promise<CloudSyncActionResult<CloudSyncPushResult> & { version }> | 组包（不带头像）+ `bundle.cloud = {roster, assignment}` → 写 downlink → 写 version（v = 本机记录版本 + 1）。校验：角色必须是 main、机器码必须已设置、名册里不能出现本机码 |
 | 分控「同步最新」 | previewCloudPull | (paths: AppPaths) => Promise<CloudSyncPullResult> | 读 downlink → 配对校验（分发机码 == 本机码 → 400）→ 落盘 pending 文件 + 返回现有预览；同时把名册与指派规则并入本机状态（指派随分发下发） |
 | 分控「确认合并」 | finalizeCloudPull | (paths: AppPaths, acceptedKeys: string[], mode?: SyncConflictMode) => Promise<CloudSyncActionResult<{applied, warnings}>> | 用落盘包走 applySyncImport（默认 newer），记 appliedVersion（「已同步」判据）后删除 pending 文件。**回退防复活**：本机把某场系列赛对局登记为 completed，而包内同一场仍是 pending（无胜者）且本机该节点已无 winnerId → 判定主控回退过这一波，先 `resetMatchRegistrations` 撤回本机登记再合并（并把它从 ackedMatchIds 移除，否则该场永远不会再进待回传集），附中文 warning。只对系列赛对局生效（普通对局的 pending 分发不是回退信号） |
