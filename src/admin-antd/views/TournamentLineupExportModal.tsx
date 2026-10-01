@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Modal, Radio, Select, Space, Typography } from 'antd';
+import { App, Button, Modal, Radio, Select, Space, Table, Tag, Typography } from 'antd';
 import type { MatchRecord, SpriteRecord, TournamentRecord } from '../../../shared/types';
-import { buildLineupTemplateCsv, type LineupTemplateScope } from '../lib/lineup-sheet';
+import { buildLineupTemplateCsv, type LineupTemplateMatchRow, type LineupTemplateScope } from '../lib/lineup-sheet';
 
 const { Text } = Typography;
 
@@ -15,7 +15,8 @@ type TournamentLineupExportModalProps = {
 
 /**
  * 系列赛「导出阵容模板」弹窗：选范围过滤（整届 / 按阶段 / 仅当前波），
- * 生成「一场两行」CSV（只含待开始比赛的第 1 局，已录阵容回显预填）。
+ * **列出将要导出的具体对局**（阶段·轮次 / 左右选手 / 对局ID / 是否已有阵容回显）供用户确认，
+ * 再生成「一场两行」CSV（只含待开始比赛的第 1 局，已录阵容回显预填）。
  */
 export function TournamentLineupExportModal({
   open,
@@ -28,7 +29,7 @@ export function TournamentLineupExportModal({
   const [scopeKind, setScopeKind] = useState<'all' | 'stage' | 'current-wave'>('all');
   const [stageIndex, setStageIndex] = useState<number>(() => record.currentStageIndex ?? 0);
 
-  const { csv, count } = useMemo(() => {
+  const { csv, count, rows } = useMemo(() => {
     const scope: LineupTemplateScope = scopeKind === 'stage'
       ? { kind: 'stage', stageIndex }
       : { kind: scopeKind };
@@ -62,7 +63,7 @@ export function TournamentLineupExportModal({
   return (
     <Modal
       open={open}
-      width={520}
+      width={720}
       title={`导出阵容模板 · ${record.name}`}
       onCancel={onClose}
       footer={[
@@ -98,9 +99,45 @@ export function TournamentLineupExportModal({
         </div>
         <Text>
           {count > 0
-            ? <>共 <Text strong>{count}</Text> 场待开始对局（导出 {count * 2} 行，一场两行）</>
+            ? <>将导出 <Text strong>{count}</Text> 场待开始对局（{count * 2} 行，一场两行）：</>
             : <Text type="warning">该范围内没有「比赛待开始且第 1 局尚未开赛」的对局</Text>}
         </Text>
+        {rows.length ? (
+          <Table<LineupTemplateMatchRow>
+            size="small"
+            rowKey="matchId"
+            dataSource={rows}
+            pagination={false}
+            scroll={{ y: 260 }}
+            columns={[
+              {
+                title: '阶段 · 轮次',
+                dataIndex: 'stageLabel',
+                width: 150,
+                render: (value: string) => value || '—',
+              },
+              {
+                title: '对局（左 vs 右）',
+                key: 'players',
+                render: (_value, row) => `${row.leftPlayer} vs ${row.rightPlayer}`,
+              },
+              {
+                title: '对局ID',
+                dataIndex: 'matchId',
+                width: 160,
+                render: (value: string) => <Text type="secondary" style={{ fontSize: 12 }}>{value}</Text>,
+              },
+              {
+                title: '阵容回显',
+                key: 'lineup',
+                width: 84,
+                render: (_value, row) => (
+                  row.hasLineup ? <Tag color="green">已回显</Tag> : <Text type="secondary">—</Text>
+                ),
+              },
+            ]}
+          />
+        ) : null}
         <Text type="secondary" style={{ fontSize: 12 }}>
           模板只含待开始比赛的第 1 局；已开赛 / 已完赛不再导出（阵容修改走赛事面板）。第 1 局已录阵容会回显预填。
         </Text>
