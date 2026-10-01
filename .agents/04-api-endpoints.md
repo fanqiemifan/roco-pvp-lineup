@@ -233,5 +233,5 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取运行时配置 | GET | /api/runtime-config | 获取运行时配置（port、machineCode 本机标识、machineLabel 显示名、syncKey/syncRole/workerUrl/cloudPollEnabled/cloudPollInterval，并附 syncConfig = 完整 CloudSyncStatus，前端「数据同步」卡片一次请求即可渲染云同步区） | electron/socket-server.ts |
+| 获取运行时配置 | GET | /api/runtime-config | 获取运行时配置（port、machineCode 本机标识、machineLabel 显示名、syncKey/syncRole/workerUrl/cloudPollEnabled/cloudPollInterval，并附 syncConfig = 完整 CloudSyncStatus，前端「数据同步」视图一次请求即可渲染云同步区） | electron/socket-server.ts |
 | 保存运行时配置 | POST | /api/runtime-config | 保存运行时配置（合并语义：只覆盖传入字段——单传 machineCode 不会重置 port；machineCode 归一化为 1-2 位大写字母，空串 = 未设置）。**改机器码守卫**：有内嵌旧码的 running 系列赛 → 400 拒绝；仅有其它内嵌旧码的系列赛 → 409 要求 body.confirmMachineCodeChange=true 二次确认；响应带 guard 明细 | electron/socket-server.ts |

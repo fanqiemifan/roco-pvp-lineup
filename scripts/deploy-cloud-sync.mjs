@@ -92,7 +92,7 @@ function main() {
     console.log('   SYNC_TOKEN 已写入 Worker');
   }
 
-  console.log('\n完成。两台机器的「比赛管理 → 数据同步 → 云同步」都填：');
+  console.log('\n完成。两台机器的「数据同步 → 云同步」都填：');
   console.log(`  workerUrl = ${workerUrl || '（未从输出解析到地址，请复制上面的 URL）'}`);
   if (!alreadySet || process.env.ROCO_SYNC_TOKEN) {
     console.log(`  访问令牌  = ${token}`);

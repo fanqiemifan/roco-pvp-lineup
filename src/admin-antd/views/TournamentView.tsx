@@ -502,7 +502,7 @@ export function TournamentView({
           <Space direction="vertical" size={10} style={{ marginTop: 8 }}>
             <Paragraph style={{ marginBottom: 0 }}>
               导出一个<b>只包含这一届</b>的同步包（系列赛编排 + 名下全部对局 + 该届选手档案），
-              发给对端在「比赛管理 → 数据同步 → 导入」合并。包里不含其他系列赛与普通对局。
+              发给对端在「数据同步 → 导入」合并。包里不含其他系列赛与普通对局。
             </Paragraph>
             <Text type="secondary">
               {syncTarget.status === 'completed'

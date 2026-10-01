@@ -2040,7 +2040,7 @@ export async function createLocalServer(
   });
 
   app.get('/api/runtime-config', (_request, response) => {
-    // 云同步状态也一并下发：前端「数据同步」卡片一次请求就能渲染设置区（含名册与最后通信时间）
+    // 云同步状态也一并下发：前端「数据同步」视图一次请求就能渲染设置区（含名册与最后通信时间）
     response.json({
       ...loadRuntimeConfig(paths),
       syncConfig: getCloudSyncStatus(paths),

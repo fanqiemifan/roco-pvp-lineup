@@ -85,6 +85,17 @@ a {
   display: block;
 }
 
+/* 导航「数据同步」标签 + 云同步待办角标（入口搬到导航后待办状态仍要一眼可见） */
+.nav-label-with-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-menu.ant-menu-inline-collapsed .nav-label-with-badge {
+  display: none;
+}
+
 .brand-block {
   display: flex;
   align-items: center;
@@ -2272,9 +2283,30 @@ a {
 
 /* ===== 数据同步：导入预览弹窗（左列表 + 右差异面板） ===== */
 .sync-preview-modal .ant-modal-body {
-  max-height: min(760px, calc(100vh - 200px));
+  max-height: min(880px, calc(100vh - 150px));
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* 顶部两行：第一行选项、第二行计数 + 说明小字（原来是七八条 Alert 各占一行，把表格顶出可视区） */
+.sync-preview-options {
+  width: 100%;
+}
+
+.sync-preview-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #EBE2D7;
+  border-radius: 8px;
+  background: #FBF8F3;
+}
+
+.sync-preview-notes {
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .sync-preview-layout {
@@ -2283,21 +2315,28 @@ a {
   align-items: stretch;
 }
 
+/* 列表吃剩余宽度（宽屏不再固定 560px 空一半），右侧 diff 面板封顶 */
 .sync-preview-list {
-  flex: 0 0 560px;
+  flex: 1 1 640px;
   min-width: 0;
 }
 
 .sync-preview-detail {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-height: 424px;
+  flex: 0 1 460px;
+  min-width: 320px;
+  max-height: 552px;
   overflow-y: auto;
   padding-left: 14px;
   border-left: 1px solid #EBE2D7;
 }
 
-@media (max-width: 1200px) {
+/* 紧凑行：行内信息都在同一行，靠缩小上下内边距再多塞几行 */
+.sync-preview-list .ant-table-tbody > tr > td {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+@media (max-width: 1280px) {
   .sync-preview-layout {
     flex-direction: column;
   }
@@ -2305,6 +2344,8 @@ a {
     flex: 1 1 auto;
   }
   .sync-preview-detail {
+    flex: 1 1 auto;
+    min-width: 0;
     max-height: none;
     padding-left: 0;
     border-left: none;

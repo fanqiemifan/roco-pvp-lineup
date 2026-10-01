@@ -154,7 +154,7 @@ export async function localRestoreTournamentApi(tournamentId: string): Promise<T
 
 /**
  * 定向同步（P1-A「导出此系列赛」）：导出只含该届的范围包（编排 + 名下全部对局 + 该届选手档案），
- * 浏览器直接落盘为 JSON；对端在「比赛管理 → 数据同步 → 导入」合并。其他系列赛 / 普通对局不进包；
+ * 浏览器直接落盘为 JSON；对端在「数据同步 → 导入」合并。其他系列赛 / 普通对局不进包；
  * 若该届已删除，包内随行墓碑（= 定向删除指令）。返回包内比赛数供提示。
  */
 export async function exportTournamentSyncBundleApi(tournamentId: string): Promise<{ matches: number }> {
