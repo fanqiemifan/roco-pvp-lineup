@@ -135,4 +135,26 @@ describe('socket 角色分组：事件定向投递', () => {
       page9.close();
     }
   });
+
+  it('镜像反转广播投递页面1/2（stage:update，供三页实时镜像切换）', async () => {
+    const page1 = connectRole('page1');
+    const page2 = connectRole('page2');
+    await Promise.all([waitConnected(page1), waitConnected(page2)]);
+
+    const page1Events: any[] = [];
+    const page2Events: any[] = [];
+    page1.on('stage:update', (payload) => page1Events.push(payload));
+    page2.on('stage:update', (payload) => page2Events.push(payload));
+
+    try {
+      await post('/api/stage', { mirrorSides: true });
+      await vi.waitFor(() => expect(page1Events).toHaveLength(1), { timeout: 2000 });
+      await vi.waitFor(() => expect(page2Events).toHaveLength(1), { timeout: 2000 });
+      expect(page1Events[0].stage.mirrorSides).toBe(true);
+      expect(page2Events[0].stage.mirrorSides).toBe(true);
+    } finally {
+      page1.close();
+      page2.close();
+    }
+  });
 });

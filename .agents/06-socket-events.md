@@ -7,7 +7,7 @@
 | 记分牌更新通知 | scoreboard:update | Server → Client | 记分牌更新 | { scoreboard: ScoreboardState } |
 | 头像更新通知 | avatar:update | Server → Client | 头像需要重解析：既在**赛事头像**上传/删除、切换/新建比赛时广播，也在**档案头像**变更（选手上传头像 / 改档案 / 删选手 / 同步导入补写档案）时广播，让各展示页立即重解析（不必重新载入）。`avatars` 为当前活跃比赛解析后的左右头像 | { matchId, avatars, side?, avatar? }（side/avatar 仅赛事头像上传/删除时携带） |
 | 比赛记录更新通知 | matches:update | Server → Client | 比赛记录更新。注意：事件名叫 matches:update，但负载键是 `store` | { store: MatchStoreState } |
-| 推流配置更新通知 | stage:update | Server → Client | stage 配置更新 | { stage: StageConfig } |
+| 推流配置更新通知 | stage:update | Server → Client | stage 配置更新（page1/2/3 消费 mirrorSides 做阵容镜像反转实时切换） | { stage: StageConfig } |
 | 比赛结果页更新通知 | page6:update | Server → Client | page6 配置更新 | { state: Page6State } |
 | 对局推送页更新通知 | page7:update | Server → Client | page7 配置更新 | { state: Page7State } |
 | 比赛预告页更新通知 | page8:update | Server → Client | page8 配置更新 | { state: Page8State } |

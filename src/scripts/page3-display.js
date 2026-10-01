@@ -31,6 +31,19 @@
     const exitLayer = document.getElementById('page3LineupExitLayer');
     const redLightLayer = document.getElementById('page3RedLight');
 
+    // 阵容镜像反转（仅页面1-3 展示层左右互换，不改数据/胜负登记/红光判定口径）
+    let mirrorSides = false;
+    // 实际侧数据缓存：镜像切换时按新映射重渲染（panelDataCache 仍按视图侧缓存，供红光与退出动画使用）
+    const panelSourceCache = { left: null, right: null };
+    let avatarDataCache = null;
+
+    function mapSide(side) {
+        if (!mirrorSides) {
+            return side;
+        }
+        return side === 'left' ? 'right' : 'left';
+    }
+
     let scoreboardSignature = null;
     let avatarSignature = null;
     let nextGameSignature = null;
@@ -740,8 +753,13 @@
             }
         }
 
-        renderTeamSide('left', activeMatch ? activeMatch.leftTeamName : '', teamBySide.left);
-        renderTeamSide('right', activeMatch ? activeMatch.rightTeamName : '', teamBySide.right);
+        // 镜像反转：仅交换渲染侧别（战队数据口径不变）
+        renderTeamSide('left',
+            activeMatch ? (mirrorSides ? activeMatch.rightTeamName : activeMatch.leftTeamName) : '',
+            teamBySide[mapSide('left')]);
+        renderTeamSide('right',
+            activeMatch ? (mirrorSides ? activeMatch.leftTeamName : activeMatch.rightTeamName) : '',
+            teamBySide[mapSide('right')]);
     }
 
     function renderScoreboard(scoreboard) {
@@ -758,7 +776,9 @@
             scoreboardEnabled: data.scoreboardEnabled !== false,
             nameFontSize: scaleNameFont(data.nameFontSize),
             scoreFontSize: scaleScoreFont(data.scoreFontSize),
-            rankVisible: page3RankVisible
+            rankVisible: page3RankVisible,
+            // 镜像反转改变渲染左右，须进签名才能触发重渲染
+            mirrorSides
         });
 
         if (scoreboardSignature === nextSignature) {
@@ -773,8 +793,21 @@
         scoreboardEl.style.setProperty('--page3-name-size', `${nameFontBase}px`);
         scoreboardEl.style.setProperty('--page3-score-size', `${clamp(scaleScoreFont(data.scoreFontSize), 32, 60, 48)}px`);
 
-        const leftName = data.leftName || '';
-        const rightName = data.rightName || '';
+        // 镜像反转：仅交换渲染的左右数据（数据、胜负登记与统计口径不变）
+        const view = mirrorSides
+            ? {
+                ...data,
+                leftName: data.rightName,
+                rightName: data.leftName,
+                leftScore: data.rightScore,
+                rightScore: data.leftScore,
+                leftRank: data.rightRank,
+                rightRank: data.leftRank
+            }
+            : data;
+
+        const leftName = view.leftName || '';
+        const rightName = view.rightName || '';
 
         const leftNameEl = document.getElementById('page3LeftName');
         const rightNameEl = document.getElementById('page3RightName');
@@ -783,14 +816,14 @@
         // 超长名字阶梯缩小字号（36→28px），28px 仍放不下则保留省略号截断
         fitPlayerName(leftNameEl, nameFontBase);
         fitPlayerName(rightNameEl, nameFontBase);
-        document.getElementById('page3LeftScore').textContent = data.leftScore || '0';
-        document.getElementById('page3RightScore').textContent = data.rightScore || '0';
+        document.getElementById('page3LeftScore').textContent = view.leftScore || '0';
+        document.getElementById('page3RightScore').textContent = view.rightScore || '0';
         document.getElementById('page3BestOf').textContent = `BO${normalizeBestOf(data.bestOf)}`;
         document.getElementById('page3LeftAvatar').textContent = getInitial(leftName, 'L');
         document.getElementById('page3RightAvatar').textContent = getInitial(rightName, 'R');
 
-        renderRank('left', data.leftRank);
-        renderRank('right', data.rightRank);
+        renderRank('left', view.leftRank);
+        renderRank('right', view.rightRank);
     }
 
     function renderAvatar(side, avatarState) {
@@ -814,11 +847,14 @@
 
     function renderAvatars(avatars) {
         const data = avatars || {};
+        avatarDataCache = avatars || null;
         const nextSignature = JSON.stringify({
             leftPath: data.left && data.left.exists ? data.left.path : '',
             leftMtime: data.left && data.left.exists ? data.left.mtime : null,
             rightPath: data.right && data.right.exists ? data.right.path : '',
-            rightMtime: data.right && data.right.exists ? data.right.mtime : null
+            rightMtime: data.right && data.right.exists ? data.right.mtime : null,
+            // 镜像反转改变渲染左右，须进签名才能触发重渲染
+            mirrorSides
         });
 
         if (avatarSignature === nextSignature) {
@@ -826,13 +862,16 @@
         }
 
         avatarSignature = nextSignature;
-        renderAvatar('left', data.left);
-        renderAvatar('right', data.right);
+        renderAvatar('left', mirrorSides ? data.right : data.left);
+        renderAvatar('right', mirrorSides ? data.left : data.right);
     }
 
     function applySnapshot(payload) {
         const panels = payload && Array.isArray(payload.panels) ? payload.panels : [];
+        panelSourceCache.left = panels.find(panel => panel && panel.position === 'left') || null;
+        panelSourceCache.right = panels.find(panel => panel && panel.position === 'right') || null;
         observeMatchPhase(payload);
+        setPage3MirrorSides(payload && payload.stage ? payload.stage.mirrorSides === true : false);
         setPage3SpriteSource(payload && payload.stage ? payload.stage.page3SpriteSource : 'sprite');
         setPage3RankVisible(payload && payload.stage ? payload.stage.page3RankVisible === true : false);
         setPage3TeamVisible(payload && payload.stage ? payload.stage.page3TeamVisible === true : false);
@@ -844,8 +883,8 @@
         renderScoreboard(payload ? payload.scoreboard : null);
         renderAvatars(payload ? payload.avatars : null);
         renderNextGame(payload ? payload.nextgame : null);
-        renderPanel('left', panels.find(panel => panel && panel.position === 'left'));
-        renderPanel('right', panels.find(panel => panel && panel.position === 'right'));
+        renderPanel('left', panelSourceCache[mapSide('left')]);
+        renderPanel('right', panelSourceCache[mapSide('right')]);
     }
 
     function setPage3SpriteSource(source) {
@@ -876,6 +915,27 @@
         }
         page3TeamVisible = next;
         renderTeams();
+    }
+
+    // 镜像反转切换：清空渲染签名并按新映射立即重渲染（增量更新，不整页重载、不触发入场动画）
+    function setPage3MirrorSides(value) {
+        const next = value === true;
+        if (next === mirrorSides) {
+            return;
+        }
+        mirrorSides = next;
+        scoreboardSignature = null;
+        avatarSignature = null;
+        panelStates.left.signatures.fill(null);
+        panelStates.right.signatures.fill(null);
+        renderTeams();
+        renderScoreboard(scoreboardDataCache);
+        renderAvatars(avatarDataCache);
+        // 两侧都还没数据时只置标志，等首次快照渲染（避免触发空阵容的退出动画）
+        if (panelSourceCache.left || panelSourceCache.right) {
+            renderPanel('left', panelSourceCache[mapSide('left')]);
+            renderPanel('right', panelSourceCache[mapSide('right')]);
+        }
     }
 
     // 设置下场对局选手名字：超过 5 个字时开启横向滚动
@@ -1042,7 +1102,8 @@
 
         socket.on('panel:update', payload => {
             if (payload && payload.panel && payload.panel.position) {
-                renderPanel(payload.panel.position, payload.panel);
+                panelSourceCache[payload.panel.position] = payload.panel;
+                renderPanel(mapSide(payload.panel.position), payload.panel);
             }
         });
 
@@ -1062,6 +1123,7 @@
 
         socket.on('stage:update', payload => {
             const stage = payload && payload.stage ? payload.stage : payload;
+            setPage3MirrorSides(stage && stage.mirrorSides === true);
             setPage3SpriteSource(stage && stage.page3SpriteSource);
             setPage3RankVisible(stage && stage.page3RankVisible === true);
             setPage3TeamVisible(stage && stage.page3TeamVisible === true);
