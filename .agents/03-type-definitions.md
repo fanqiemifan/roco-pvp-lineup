@@ -58,7 +58,7 @@
 | MatchSlotSnapshot | 比赛格子快照（slot, pet_id, name, form 及外观/血量字段） | shared/types.ts |
 | GameRecord | 单局比赛记录（gameNumber, status, leftLineup, rightLineup, winner） | shared/types.ts |
 | MatchRecord | 完整比赛记录（id, createdAt, updatedAt, status, leftPlayer, rightPlayer, leftRank, rightRank, leftTeamId, leftTeamName, rightTeamId, rightTeamName, bestOf, games, leftScore, rightScore, winner, completedAt, tags, 可选 tournamentRef）。leftRank/rightRank 为左右选手排位排名（仅数字字符串，空 = 未输入）；leftTeamId/rightTeamId 为所属战队 id（命中「信息录入」战队时有值），leftTeamName/rightTeamName 为战队名称（空 = 未填写）；tournamentRef 为系列赛关联（tournamentId/nodeId/stageIndex/waveIndex），普通手建比赛无此字段 | shared/types.ts |
-| MatchStoreState | 比赛存储状态（matches, activeMatchId, mtime） | shared/types.ts |
+| MatchStoreState | 比赛存储状态（matches, activeMatchId, undo（当前比赛 canUndo/canRedo/canUndoDelete/deleteUndoCount + `byMatch` 按比赛撤回摘要：只收有栈场次、只透布尔）, mtime） | shared/types.ts |
 
 ## 头像
 

@@ -97,8 +97,8 @@ roco-pvp-lineup/
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、各系列赛阶段趋势；系列赛 / 标签 / 选手筛选） |
 | views/TournamentLineupExportModal.tsx | 系列赛「导出阵容模板」弹窗（范围过滤 → 一场两行 CSV） |
 | views/TournamentLineupImportModal.tsx | 系列赛「导入阵容」弹窗（CSV/TSV/JSON → 预览消歧 → 批量写入） |
-| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）等小组件 |
-| lib/ | format、history、last-tournament（系列赛「上次操作」本地记忆）、lineup-sheet（系列赛阵容表模板生成与回填解析）、live、match、panel、preview、request、sprite、stats 通用逻辑 |
+| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）、TournamentNodeCard（系列赛对局卡片，晋级图与波次列表共用）、CurrentMatchPanel（「当前比赛」面板，赛事面板与系列赛 Drawer 共用）等小组件 |
+| lib/ | format、history、last-tournament（系列赛「上次操作」本地记忆）、lineup-sheet（系列赛阵容表模板生成与回填解析）、match-actions（对局卡片动作可用性判据）、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
 | styles.css | 管理后台样式 |

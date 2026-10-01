@@ -9,6 +9,7 @@
 - **原子写**：`persistStoreFile` 先写 `matches.json.tmp-<pid>-<n>` 再 rename，防止写一半崩溃截断文件。
 - **版本号迁移**：落盘带 `__version: 1`；版本命中时跳过「全量序列化比对」，无版本旧文件首次读取时规范化回写一次。
 - **撤销栈 7 天过期**：`MatchFlowSnapshot.savedAt` 入栈时间；读（缓存命中时节流 6 小时）、写、迁移三条路径都会 prune 超过 `FLOW_HISTORY_TTL_MS`（7 天）的 undo/redo 快照；旧数据无 savedAt 时迁移补当前时间，给予完整 7 天保留期。
+- **撤销栈读模型按比赛摘要**：`toPublicStore` 的 `undo` 除当前比赛的 `canUndo/canRedo` 外，另带 `byMatch: Record<matchId, { canUndo; canRedo }>`（由内部 `summarizeFlowHistory` 组装，只收有栈的场次、只透两个布尔）——系列比赛的卡片菜单 / Drawer 要判断「非当前比赛」能否撤回，收回调用的接口本身也是按 matchId 的（`flowHistory[matchId]`）；**绝不下发 flowHistory 本体**（含 7 天 TTL 的快照体，体积大）。前端消费口径见 `.agents/09`，类型见 `.agents/03`。
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|

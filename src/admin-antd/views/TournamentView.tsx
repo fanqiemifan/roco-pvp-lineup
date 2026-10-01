@@ -419,6 +419,7 @@ export function TournamentView({
           matches={matches}
           sprites={sprites}
           machineCode={machineCode}
+          cardMenu={cardMenu}
           onSelectMatch={handleSelectMatch}
           onMatchesStore={onMatchesStore}
           onDelete={() => {
@@ -601,6 +602,7 @@ function TournamentDetail({
   matches,
   sprites,
   machineCode,
+  cardMenu,
   onSelectMatch,
   onMatchesStore,
   onDelete,
@@ -740,6 +742,7 @@ function TournamentDetail({
           onSelectMatch={onSelectMatch}
           onViewLineup={setLineupDetailMatchId}
           readOnly={readOnly}
+          cardMenu={cardMenu}
         />
       ) : (
         <div className="tournament-waves">
@@ -753,6 +756,7 @@ function TournamentDetail({
               onSelectMatch={onSelectMatch}
               onViewLineup={setLineupDetailMatchId}
               readOnly={readOnly}
+              cardMenu={cardMenu}
             />
           ))}
         </div>
@@ -947,6 +951,8 @@ interface WavePanelProps {
   onSelectMatch(matchId: string): Promise<void>;
   onViewLineup(matchId: string): void;
   readOnly: boolean;
+  /** 卡片右键 / 「⋯」菜单三件套（透传给波次卡片） */
+  cardMenu: TournamentCardMenuHandlers;
 }
 
 function WavePanel({
@@ -957,6 +963,7 @@ function WavePanel({
   onSelectMatch,
   onViewLineup,
   readOnly,
+  cardMenu,
 }: WavePanelProps): React.ReactElement {
   const stage = record.stages[wave.stageIndex];
   // 轮次表述与晋级图同一套术语：双败给「败者组 R1 / 胜者组 R2」，单败直接用阶段名
@@ -992,6 +999,7 @@ function WavePanel({
           onSelectMatch={onSelectMatch}
           onViewLineup={onViewLineup}
           readOnly={readOnly}
+          cardMenu={cardMenu}
         />
       )}
     </Card>
@@ -1485,6 +1493,7 @@ function NodeGrid({
   onSelectMatch,
   onViewLineup,
   readOnly = false,
+  cardMenu,
 }: {
   record: TournamentRecord;
   wave: TournamentWave;
@@ -1494,6 +1503,8 @@ function NodeGrid({
   onViewLineup(matchId: string): void;
   /** 只读副本：隐藏弃权操作（服务端也会拒绝） */
   readOnly?: boolean;
+  /** 卡片右键 / 「⋯」菜单三件套（波次列表与晋级图共用一份判据） */
+  cardMenu: TournamentCardMenuHandlers;
 }): React.ReactElement {
   const { message } = App.useApp();
   const [forfeitNode, setForfeitNode] = useState<TournamentNode | null>(null);
@@ -1526,6 +1537,9 @@ function NodeGrid({
           <Col xs={24} md={12} xl={8} key={card.nodeId}>
             <TournamentNodeCard
               card={card}
+              menu={cardMenu.menuFor(card.matchId)}
+              onOpenPanel={cardMenu.onOpenPanel}
+              onRunAction={cardMenu.onRunAction}
               onSelectMatch={(matchId) => void onSelectMatch(matchId)}
               onViewLineup={onViewLineup}
               onForfeit={readOnly ? undefined : () => setForfeitNode(
