@@ -4835,6 +4835,63 @@ function Dashboard() {
 
           {view === 'history' ? (
             <Space direction="vertical" size={18} className="page-stack">
+              {/* 四张推流功能卡片单独一行（不再内嵌进比赛管理卡片）；四卡等高，见 styles.css .match-push-card-row */}
+              <Row gutter={[16, 16]} className="match-push-card-row">
+                {page6 ? (
+                  <Col xs={24} md={6}>
+                    <MatchPushCard
+                      kind="page6"
+                      cardTitle="推送比赛结果"
+                      maxCount={PAGE6_MAX_MATCHES}
+                      matches={matchStore.matches}
+                      tournaments={tournaments}
+                      state={page6}
+                      pushing={Boolean(matchPushLoading.page6)}
+                      onPush={(payload) => pushMatchesForPage('page6', payload)}
+                    />
+                  </Col>
+                ) : null}
+                {page7 ? (
+                  <Col xs={24} md={6}>
+                    <MatchPushCard
+                      kind="page7"
+                      cardTitle="推送对局推送"
+                      maxCount={PAGE7_MAX_MATCHES}
+                      matches={matchStore.matches}
+                      tournaments={tournaments}
+                      state={page7}
+                      pushing={Boolean(matchPushLoading.page7)}
+                      onPush={(payload) => pushMatchesForPage('page7', payload)}
+                    />
+                  </Col>
+                ) : null}
+                {page8 ? (
+                  <Col xs={24} md={6}>
+                    <MatchPushCard
+                      kind="page8"
+                      cardTitle="推送比赛预告"
+                      maxCount={PAGE8_MAX_MATCHES}
+                      matches={matchStore.matches}
+                      tournaments={tournaments}
+                      state={page8}
+                      pushing={Boolean(matchPushLoading.page8)}
+                      onPush={(payload) => pushMatchesForPage('page8', payload)}
+                    />
+                  </Col>
+                ) : null}
+                {page14 ? (
+                  <Col xs={24} md={6}>
+                    <AdvanceRankCard
+                      tournaments={tournaments}
+                      state={page14}
+                      standings={page14Standings}
+                      saving={page14Saving}
+                      onSave={savePage14Settings}
+                    />
+                  </Col>
+                ) : null}
+              </Row>
+
               <Card
                 title="比赛管理"
                 extra={(
@@ -4852,61 +4909,6 @@ function Dashboard() {
                   </Space>
                 )}
               >
-                <Row gutter={[16, 16]} className="match-push-card-row">
-                  {page6 ? (
-                    <Col xs={24} md={6}>
-                      <MatchPushCard
-                        kind="page6"
-                        cardTitle="推送比赛结果"
-                        maxCount={PAGE6_MAX_MATCHES}
-                        matches={matchStore.matches}
-                        tournaments={tournaments}
-                        state={page6}
-                        pushing={Boolean(matchPushLoading.page6)}
-                        onPush={(payload) => pushMatchesForPage('page6', payload)}
-                      />
-                    </Col>
-                  ) : null}
-                  {page7 ? (
-                    <Col xs={24} md={6}>
-                      <MatchPushCard
-                        kind="page7"
-                        cardTitle="推送对局推送"
-                        maxCount={PAGE7_MAX_MATCHES}
-                        matches={matchStore.matches}
-                        tournaments={tournaments}
-                        state={page7}
-                        pushing={Boolean(matchPushLoading.page7)}
-                        onPush={(payload) => pushMatchesForPage('page7', payload)}
-                      />
-                    </Col>
-                  ) : null}
-                  {page8 ? (
-                    <Col xs={24} md={6}>
-                      <MatchPushCard
-                        kind="page8"
-                        cardTitle="推送比赛预告"
-                        maxCount={PAGE8_MAX_MATCHES}
-                        matches={matchStore.matches}
-                        tournaments={tournaments}
-                        state={page8}
-                        pushing={Boolean(matchPushLoading.page8)}
-                        onPush={(payload) => pushMatchesForPage('page8', payload)}
-                      />
-                    </Col>
-                  ) : null}
-                  {page14 ? (
-                    <Col xs={24} md={6}>
-                      <AdvanceRankCard
-                        tournaments={tournaments}
-                        state={page14}
-                        standings={page14Standings}
-                        saving={page14Saving}
-                        onSave={savePage14Settings}
-                      />
-                    </Col>
-                  ) : null}
-                </Row>
                 {historyNotice ? (
                   <Alert
                     showIcon
