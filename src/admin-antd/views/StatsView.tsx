@@ -19,6 +19,7 @@ import {
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ATTRIBUTE_ICON_BY_LABEL } from '../constants';
+import { SettingField } from '../components/SettingField';
 import type { MatchStoreState, SpriteRecord, TournamentRecord } from '../../../shared/types';
 import { buildHistoryTournamentFilters } from '../lib/history';
 import {
@@ -84,6 +85,14 @@ type StatsViewProps = {
   onTagChange: (value: string | null) => void;
   onTournamentChange: (value: string | null) => void;
   onSearchChange: (value: string) => void;
+  // 推流页面5 显示设置（由「直播推流」视图移入；控制推流画面内容，与上方统计筛选相互独立）
+  page5TitleDraft: string;
+  page5TournamentId: string;
+  page5Player: string;
+  stageSaving: boolean;
+  onPage5TitleChange: (value: string) => void;
+  onPage5TitleBlur: () => void;
+  onPage5DisplayChange: (patch: { page5TournamentId?: string; page5Player?: string }) => void;
 };
 
 export function StatsView({
@@ -100,6 +109,13 @@ export function StatsView({
   onTagChange,
   onTournamentChange,
   onSearchChange,
+  page5TitleDraft,
+  page5TournamentId,
+  page5Player,
+  stageSaving,
+  onPage5TitleChange,
+  onPage5TitleBlur,
+  onPage5DisplayChange,
 }: StatsViewProps) {
   const { message } = App.useApp();
   // 合并后的明细卡片顶部切换：精灵排行 / 属性分布 / 各赛事阶段趋势
@@ -360,6 +376,55 @@ export function StatsView({
             optionFilterProp="label"
           />
         </Space>
+      </Card>
+
+      <Card title="推流页面5 显示设置">
+        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          以下三项控制「推流页面5」的画面内容（标题、统计范围），与上方统计筛选相互独立；修改即时保存生效。
+        </Text>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} md={8}>
+            <SettingField label="页面5标题：">
+              <Input
+                maxLength={40}
+                placeholder="例如：洛克比赛（自动拼上系列赛名与精灵出场胜率）"
+                value={page5TitleDraft}
+                onChange={(event) => onPage5TitleChange(event.target.value)}
+                onBlur={onPage5TitleBlur}
+              />
+            </SettingField>
+          </Col>
+          <Col xs={24} md={8}>
+            <SettingField label="系列赛：">
+              <Select
+                style={{ width: '100%' }}
+                value={page5TournamentId || undefined}
+                disabled={stageSaving}
+                options={[
+                  { value: '', label: '全部' },
+                  ...tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
+                ]}
+                onChange={(value) => onPage5DisplayChange({ page5TournamentId: value ?? '' })}
+              />
+            </SettingField>
+          </Col>
+          <Col xs={24} md={8}>
+            <SettingField label="选手：">
+              <Select
+                showSearch
+                optionFilterProp="label"
+                style={{ width: '100%' }}
+                value={page5Player || undefined}
+                disabled={stageSaving}
+                options={[
+                  { value: '', label: '全部' },
+                  ...playerOptions.map((playerName) => ({ value: playerName, label: playerName })),
+                ]}
+                onChange={(value) => onPage5DisplayChange({ page5Player: value ?? '' })}
+              />
+            </SettingField>
+          </Col>
+        </Row>
       </Card>
 
       <Row gutter={[18, 18]}>
