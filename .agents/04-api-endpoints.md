@@ -47,7 +47,7 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 导出同步包 | POST | /api/sync/export | 导出同步包（body: includeProfiles / includeAvatars）；比赛含全部场次（含空白/进行中，基线分发需要）+ 系列赛编排全量，头像 base64 内嵌且仅在包含档案时附带 | electron/socket-server.ts |
+| 导出同步包 | POST | /api/sync/export | 导出同步包（body: includeProfiles / includeAvatars / **tournamentIds?**）；比赛含全部场次（含空白/进行中，基线分发需要）+ 系列赛编排全量，头像 base64 内嵌且仅在包含档案时附带。**tournamentIds = 定向同步范围导出（P1-A）**：只含指定系列赛（编排含其墓碑 + 名下全部比赛 + 该届选手档案；普通对局与其他系列赛不进包），供「系列比赛」列表「定向同步」一键导出 | electron/socket-server.ts |
 | 导入预览 | POST | /api/sync/preview | 只读解析同步包并返回逐条「新增/更新/跳过」（multipart: file + mode，mode = newer/bundle），不写入任何数据；另返回 `tournamentGroups`（按系列赛分组的比赛，含「普通对局」组）与 `hasTournaments`，供预览弹窗区分系列赛及其比赛 | electron/socket-server.ts |
 | 应用导入 | POST | /api/sync/import | 按勾选条目合并比赛与档案、按需写头像（目标档案按「id 别名 → 源 id → 同名」解析、用本机 id 落盘；默认只补缺，`overwriteAvatars=true` 才覆盖本机已有头像/logo）；系列赛编排自动合并（不参与勾选）并补跑写回（幂等，波打齐自动推进）（multipart: file + mode + accepted（JSON 数组）+ excludeTournamentIds（JSON 数组，取消勾选的系列赛整条不导入：编排不合并且其名下比赛不写入）+ includeAvatars + overwriteAvatars），成功后广播 matches:update（含档案变更时另广播 profiles:update + avatar:update；系列赛有新增/更新/推进时另广播 tournament:update） | electron/socket-server.ts |
 
@@ -66,7 +66,8 @@
 | 检测 Worker 在线 | POST | /api/cloud-sync/test | body 可带 workerUrl/syncKey/syncToken（先按当前草稿存下来，省一步「保存设置」；`undefined` = 保持已保存值，空串 = 主动清空）。打 Worker `/health`：**不需要令牌也不碰 KV**，避免为测通白扣读写额度；返回 `ok` + 中文原因 + `health.tokenConfigured`（Worker 没配 SYNC_TOKEN 时明确提示去 `wrangler secret put`） | electron/socket-server.ts |
 | 主控「同步分发」 | POST | /api/cloud-sync/push | 组包（matches + tournaments + profiles，**不带头像**）+ 指派规则 + 名册 → 写 downlink，再写 version（小键）。每次覆盖（幂等全量）；版本号 = 本机记录的版本 + 1 | electron/socket-server.ts |
 | 分控「同步最新」（拉取 + 预览） | POST | /api/cloud-sync/pull | 读 downlink → 配对校验（本机码不能等于分发机码，否则 400）→ 落盘 cache/cloud-pending.json 并返回与「导入同步包」完全一致的预览（字段级 diff、逐条勾选），**不写入任何数据** | electron/socket-server.ts |
-| 分控「确认合并」 | POST | /api/cloud-sync/apply | body: accepted（勾选 key 数组）+ mode（默认 newer：分控本地较新的登记不会被压掉）+ excludeTournamentIds（预览里取消勾选的系列赛：整条不导入，含其名下比赛）→ 走现有 applySyncImport 合并 → 重算待回传集 → 广播 matches:update + tournament:update | electron/socket-server.ts |
+| 分控「确认合并」 | POST | /api/cloud-sync/apply | body: accepted（勾选 key 数组）+ mode（默认 newer：分控本地较新的登记不会被压掉）+ excludeTournamentIds（预览里取消勾选的系列赛：整条不导入，含其名下比赛；**同时记入「默认排除」记忆，下次预览继续生效**）→ 走现有 applySyncImport 合并 → 重算待回传集 → 广播 matches:update + tournament:update | electron/socket-server.ts |
+| 分控「默认排除」管理 | POST | /api/cloud-sync/excluded-tournaments | body.tournamentIds 数组（空数组 = 清除记忆）：保存「下次拉取预览默认排除」的系列赛（B1「记住上次排除」；「确认合并」时也会自动把本次排除记入）。返回更新后的 status | electron/socket-server.ts |
 | 分控「无需改动，标记为已处理」 | POST | /api/cloud-sync/skip | 预览里全是「不用改」的条目时收尾状态（只推进 appliedVersion，不写入任何数据），避免红点一直挂着 | electron/socket-server.ts |
 | 分控「回传」 | POST | /api/cloud-sync/upload | **现算**所有未 ack 比赛的累计集合（不是增量）→ 写 uplink:{本机码}，seq + 1；无待回传 400「无待回传」 | electron/socket-server.ts |
 | 主控「检查回传」 | POST | /api/cloud-sync/check | body.code 可空（空取最近提交的分控端）；逐分控端读 uplink → 包装成 SyncBundle → 复用现有预览（matchItems）+ 每条附 impact 写回影响说明；**不写入任何数据** | electron/socket-server.ts |
@@ -95,6 +96,9 @@
 | 回退上一波 | POST | /api/tournaments/:tournamentId/rollback-wave | 管理级回退：仅最后波、且该波比赛全部 pending 无小局结果；删除未打比赛（deleteMatches 可恢复）、清节点胜者并复位战绩；跨阶段时 currentStageIndex 回落。广播 matches:update + tournament:update | electron/socket-server.ts |
 | 弃权判负 | POST | /api/tournaments/:tournamentId/forfeit | body: matchId + loserSide(left/right)；校验比赛属于本系列赛且 pending，补决胜小局（BO1=1:0、BO3=2:0）+「弃权」标签，completed 后走完成钩子写回节点 | electron/socket-server.ts |
 | 删除系列赛 | DELETE | /api/tournaments/:tournamentId | body.deleteMatches 可空：默认只删编排记录，关联比赛先解除 tournamentRef 再保留（转为普通对局，标签/战绩不动）；deleteMatches=true 时解绑后再 deleteMatches 连对局一起删（进删除栈，比赛管理可「撤回最近删除」，恢复后也是无关联普通对局）。广播 matches:update + tournament:update；不存在 400 | electron/socket-server.ts |
+| 本机移除 | POST | /api/tournaments/:tournamentId/local-remove | 分控端对「非本机编排」系列赛做视图层隐藏（幂等：已移除返回 changed=false）：写 localOnly 墓碑，立即从列表与对局列表隐藏、同步不复活；**不解绑/不删对局、不改 updatedAt、不传播**；本机编排 400 提示用「删除系列赛」；成功广播 tournament:update | electron/socket-server.ts |
+| 恢复本机移除 | POST | /api/tournaments/:tournamentId/local-restore | 清除 localOnly 墓碑标记，记录立即重新可见（内容一直保留在本机）；下一次同步按「较新覆盖」补齐编排机最新编排与赛果；非本机移除记录 400 | electron/socket-server.ts |
+| 已本机移除列表 | GET | /api/tournaments/local-removed | 本机已「本机移除」的系列赛（localOnly）：恢复弹窗数据源。**路由必须注册在 GET /api/tournaments/:tournamentId 之前**（否则被当成 id）；鉴权同其它管理端路由 | electron/socket-server.ts |
 
 > 系列赛关联保护：DELETE /api/matches/:matchId 与批量删除遇 tournamentRef 一律 400（提示用回退上一波）；POST /api/matches 公开入口会剥离 body.tournamentRef（系列赛比赛只能由引擎锁定时内部创建）。解除关联的唯一正规入口是 DELETE /api/tournaments/:tournamentId（删除系列赛）；onMatchCompleted/onMatchUndo 遇到已删除系列赛的孤儿引用时返回 null（按普通对局处理，不阻断比分登记/撤回）。
 
@@ -229,5 +233,5 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取运行时配置 | GET | /api/runtime-config | 获取运行时配置（port、machineCode 本机标识、machineLabel 显示名、syncKey/syncRole/workerUrl/cloudPollEnabled/cloudPollInterval，并附 syncConfig = 完整 CloudSyncStatus，前端「数据同步」卡片一次请求即可渲染云同步区） | electron/socket-server.ts |
+| 获取运行时配置 | GET | /api/runtime-config | 获取运行时配置（port、machineCode 本机标识、machineLabel 显示名、syncKey/syncRole/workerUrl/cloudPollEnabled/cloudPollInterval，并附 syncConfig = 完整 CloudSyncStatus，前端「数据同步」视图一次请求即可渲染云同步区） | electron/socket-server.ts |
 | 保存运行时配置 | POST | /api/runtime-config | 保存运行时配置（合并语义：只覆盖传入字段——单传 machineCode 不会重置 port；machineCode 归一化为 1-2 位大写字母，空串 = 未设置）。**改机器码守卫**：有内嵌旧码的 running 系列赛 → 400 拒绝；仅有其它内嵌旧码的系列赛 → 409 要求 body.confirmMachineCodeChange=true 二次确认；响应带 guard 明细 | electron/socket-server.ts |

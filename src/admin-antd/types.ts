@@ -1,7 +1,7 @@
 import type { ProfileStoreState, QuickFillMatch, SlotState } from '../../shared/types';
 
 export type PanelSide = 'left' | 'right';
-export type ViewKey = 'roster' | 'live' | 'mvp' | 'history' | 'stats' | 'preview' | 'stage' | 'profiles' | 'page11' | 'tournament' | 'about';
+export type ViewKey = 'roster' | 'live' | 'mvp' | 'history' | 'sync' | 'stats' | 'preview' | 'stage' | 'profiles' | 'page11' | 'tournament' | 'about';
 
 export type PreviewSlotKey = 'stage' | 'page1' | 'page2' | 'page3' | 'page4' | 'page5' | 'page6' | 'page7' | 'page8' | 'page9' | 'page10' | 'page11' | 'page12' | 'page13' | 'page14';
 

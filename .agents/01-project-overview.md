@@ -93,6 +93,7 @@ roco-pvp-lineup/
 | App.tsx | 主组件：九视图分发（roster/stage/live/history/profiles/page11/stats/preview/about）、可收缩 Sider 导航（SVG 图标 via `?raw`）、工具栏 |
 | views/RosterPanelEditor.tsx | 阵容编辑（左右面板、精灵搜索、快速填充） |
 | views/HistoryLineupEntryModal.tsx | 比赛管理「录入阵容」弹窗（为待开始小局录入双方阵容） |
+| views/MatchLineupDetailModal.tsx | 系列赛「阵容详情」弹窗（晋级图/波次卡片入口；逐局只读阵容 + 仅当前小局放开录入） |
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、各系列赛阶段趋势；系列赛 / 标签 / 选手筛选） |
 | views/TournamentLineupExportModal.tsx | 系列赛「导出阵容模板」弹窗（范围过滤 → 一场两行 CSV） |
 | views/TournamentLineupImportModal.tsx | 系列赛「导入阵容」弹窗（CSV/TSV/JSON → 预览消歧 → 批量写入） |

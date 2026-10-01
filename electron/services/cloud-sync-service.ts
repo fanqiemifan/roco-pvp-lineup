@@ -185,6 +185,11 @@ interface CloudSyncLocalState {
   ackedInboxSeq: Record<string, number>;
   /** 收件箱快照：分控端机器码 -> 最近一次读到的回传内容（主控端） */
   inbox: Record<string, CloudSyncUplinkPayload>;
+  /**
+   * 分控端 B1「记住上次排除」：最近一次「确认合并」时排除的系列赛 id。
+   * 下次拉取预览默认继续排除；空数组 = 无记忆。墓碑永不入列（删除指令不是可选项）。
+   */
+  excludedTournamentIds: string[];
   /** 分控端：本次拉取到的云端版本号（确认合并时写进 appliedVersion；用「拉取时」的版本而不是当前版本，
    *  否则主控在拉取后又上传了新版本，会把本机误标成「已是最新」） */
   pendingVersion: number | null;
@@ -207,11 +212,20 @@ const DEFAULT_LOCAL_STATE: CloudSyncLocalState = {
   assignmentUpdatedAt: null,
   ackedInboxSeq: {},
   inbox: {},
+  excludedTournamentIds: [],
   pendingVersion: null,
 };
 
 function emptyLocalState(): CloudSyncLocalState {
-  return { ...DEFAULT_LOCAL_STATE, roster: [], assignment: {}, ackedMatchIds: [], ackedInboxSeq: {}, inbox: {} };
+  return {
+    ...DEFAULT_LOCAL_STATE,
+    roster: [],
+    assignment: {},
+    ackedMatchIds: [],
+    ackedInboxSeq: {},
+    inbox: {},
+    excludedTournamentIds: [],
+  };
 }
 
 function normalizeVersion(value: unknown): CloudSyncVersion | null {
@@ -228,6 +242,23 @@ function normalizeVersion(value: unknown): CloudSyncVersion | null {
     at: typeof raw.at === 'string' ? raw.at : '',
     from: normalizeMachineCode(raw.from),
   };
+}
+
+/** 排除列表规范化（B1）：去空白、去重、保序 */
+function normalizeExcludedTournamentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  value.forEach((item) => {
+    const id = String(item ?? '').trim();
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  });
+  return ids;
 }
 
 function loadLocalState(paths: AppPaths): CloudSyncLocalState {
@@ -257,6 +288,7 @@ function loadLocalState(paths: AppPaths): CloudSyncLocalState {
       assignmentUpdatedAt: typeof raw.assignmentUpdatedAt === 'string' ? raw.assignmentUpdatedAt : null,
       ackedInboxSeq: normalizeSeqMap(raw.ackedInboxSeq),
       inbox: normalizeInbox(raw.inbox),
+      excludedTournamentIds: normalizeExcludedTournamentIds(raw.excludedTournamentIds),
       pendingVersion: Number.isFinite(Number(raw.pendingVersion))
         ? Math.max(0, Math.floor(Number(raw.pendingVersion)))
         : null,
@@ -570,6 +602,7 @@ export function getCloudSyncStatus(paths: AppPaths): CloudSyncStatus {
     inbox: role === 'main' ? inboxEntriesOf(paths) : [],
     roster: role === 'main' ? buildLocalRoster(paths) : state.roster,
     assignment: state.assignment,
+    excludedTournamentIds: state.excludedTournamentIds,
     ownedTournamentIds: ownedTournamentIds(paths),
     lastContact: {
       pushedAt: state.lastPushedAt,
@@ -808,7 +841,8 @@ export async function testCloudConnection(paths: AppPaths): Promise<CloudSyncTes
     finish(paths);
     return {
       ok: true,
-      message: `Worker 可达且已启用访问令牌：${config.workerUrl}`,
+      // 不显示实际 Worker 地址：后台界面可能出现在直播画面里，域名容易暴露（测试通过只说成功）
+      message: '云同步测试通过：云端可达、访问令牌已启用',
       status: getCloudSyncStatus(paths),
       data: { ok: true },
       health,
@@ -1059,6 +1093,9 @@ export async function finalizeCloudPull(
       ackedMatchIds: discarded.size
         ? state.ackedMatchIds.filter((id) => !discarded.has(id))
         : state.ackedMatchIds,
+      // B1「记住上次排除」：本次确认时排除的系列赛记下来，下次预览默认继续排除
+      // （墓碑不会出现在排除列表里——删除指令不是可选项，见 syncExcludedTournamentIds 的 UI 闸门）
+      excludedTournamentIds: normalizeExcludedTournamentIds(excludeTournamentIds),
     });
     try {
       fs.rmSync(paths.cloudPendingFile);
@@ -1448,6 +1485,16 @@ export function saveCloudAssignment(paths: AppPaths, overrides: unknown): CloudS
   return getCloudSyncStatus(paths);
 }
 
+/**
+ * B1「记住上次排除」：保存「下次拉取预览默认排除」的系列赛列表（空数组 = 清除记忆）。
+ * 每次「确认合并」也会自动把本次排除记入（见 finalizeCloudPull）；
+ * 墓碑永不入列（删除指令不是可选项，UI 也不允许勾除墓碑组）。
+ */
+export function saveCloudExcludedTournaments(paths: AppPaths, ids: unknown): CloudSyncStatus {
+  finish(paths, { excludedTournamentIds: normalizeExcludedTournamentIds(ids) });
+  return getCloudSyncStatus(paths);
+}
+
 /* ==================== 机器码变更守卫 ==================== */
 
 /**
@@ -1485,15 +1532,34 @@ export function checkMachineCodeChange(paths: AppPaths, nextCode: string): Machi
 
 /* ==================== 分控端：登记入口与撤回判定 ==================== */
 
+/** 比赛是否归本机所有：tournamentRef 指向内嵌本机机器码的系列赛（本机自建，「谁建谁管」） */
+function isMatchOwnedByLocal(paths: AppPaths, matchId: string): boolean {
+  const machine = localCode(paths);
+  if (!machine) {
+    return false;
+  }
+  const match = getMatchStore(paths).matches.find((item) => item.id === matchId);
+  if (!match?.tournamentRef) {
+    return false;
+  }
+  return tournamentOwnerCode(match.tournamentRef.tournamentId) === machine;
+}
+
 /**
  * 某场比赛在当前机器上能否登记（分控端按指派范围置灰入口）：
  * - 未启用云同步（没填 syncKey / 机器码）→ 不干预，保持单机行为
+ * - 归属本机的比赛（本机自建系列赛的对局）→ 一律放行：
+ *   自建系列赛不会出现在主控的指派表里，按「未指派默认主控」判会让本机自建赛事
+ *   走到登记就被拦的断头路；指派只约束「别人家的比赛」
  * - 主控端：未指派或指派给本机的可登记
  * - 分控端：只有指派给本机的可登记
  */
 export function canRegisterMatch(paths: AppPaths, matchId: string): { allowed: boolean; reason: string } {
   const config = loadRuntimeConfig(paths);
   if (!config.syncKey || !config.machineCode) {
+    return { allowed: true, reason: '' };
+  }
+  if (isMatchOwnedByLocal(paths, matchId)) {
     return { allowed: true, reason: '' };
   }
   const scope = assignmentScopeOf(paths, matchId);

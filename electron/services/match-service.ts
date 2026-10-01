@@ -1908,6 +1908,43 @@ export function detachMatchesFromTournament(
   return { store: getMatchStore(paths), matchIds: detachedIds };
 }
 
+/**
+ * 同步合并专用：按墓碑名单静默移除本机对局（不进撤销栈、缺失即跳过，返回实际移除数）。
+ *
+ * 上游「连同对局删除」的墓碑到达时，本机副本必须一并清掉——否则它们会以普通对局残留，
+ * 登记后还会尝试回传（被名单拦截后静默丢失），属于"能登记却发不出去"的孤儿。
+ * 只在新墓碑到达时调用一次；后续合并由名单过滤拦截，旧包不会把它们带回来。
+ */
+export function purgeMatchesByIds(paths: AppPaths, matchIds: unknown): number {
+  const targets = new Set(
+    (Array.isArray(matchIds) ? matchIds : [])
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean),
+  );
+  if (!targets.size) {
+    return 0;
+  }
+
+  const { store } = readStoreFile(paths);
+  const removedIds = store.matches.filter((match) => targets.has(match.id)).map((match) => match.id);
+  if (!removedIds.length) {
+    return 0;
+  }
+
+  const removedSet = new Set(removedIds);
+  store.matches = store.matches.filter((match) => !removedSet.has(match.id));
+  removedIds.forEach((id) => {
+    delete store.flowHistory[id];
+  });
+  if (store.activeMatchId && removedSet.has(store.activeMatchId)) {
+    store.activeMatchId = store.matches[0]?.id ?? null;
+  }
+
+  const publicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, publicStore);
+  return removedIds.length;
+}
+
 export function undoMatchAction(paths: AppPaths, matchId: string): MatchStoreState {
   const { store } = readStoreFile(paths);
   const history = ensureFlowHistory(store, matchId);

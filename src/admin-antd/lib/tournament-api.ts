@@ -2,6 +2,7 @@ import type {
   LineupImportApplyResult,
   LineupImportPreviewRow,
   StageRule,
+  SyncBundle,
   TournamentRecord,
   TournamentWave,
 } from '../../../shared/types';
@@ -126,7 +127,55 @@ export async function deleteTournamentApi(
   });
 }
 
-/** 切换为当前比赛（赛事面板跳转复用现有路由） */
+/** 本机已「本机移除」的系列赛（localOnly，仅本机存在）：恢复弹窗数据源 */
+export async function listLocallyRemovedApi(): Promise<TournamentRecord[]> {
+  const data = await requestJson<{ tournaments: TournamentRecord[] }>('/api/tournaments/local-removed');
+  return data.tournaments;
+}
+
+/**
+ * 本机移除：仅在本机隐藏该系列赛（不物理删除、不随同步传播、对局引用不动），幂等。
+ * 只允许对「非本机编排」的系列赛操作；恢复用 localRestoreTournamentApi。
+ */
+export async function localRemoveTournamentApi(
+  tournamentId: string,
+): Promise<{ tournamentId: string; changed: boolean }> {
+  return requestJson(`/api/tournaments/${tournamentId}/local-remove`, { method: 'POST' });
+}
+
+/** 恢复本机移除：记录立即重新可见，下一次同步自动补齐编排机的最新编排与赛果 */
+export async function localRestoreTournamentApi(tournamentId: string): Promise<TournamentRecord> {
+  const data = await requestJson<{ tournament: TournamentRecord }>(
+    `/api/tournaments/${tournamentId}/local-restore`,
+    { method: 'POST' },
+  );
+  return data.tournament;
+}
+
+/**
+ * 定向同步（P1-A「导出此系列赛」）：导出只含该届的范围包（编排 + 名下全部对局 + 该届选手档案），
+ * 浏览器直接落盘为 JSON；对端在「数据同步 → 导入」合并。其他系列赛 / 普通对局不进包；
+ * 若该届已删除，包内随行墓碑（= 定向删除指令）。返回包内比赛数供提示。
+ */
+export async function exportTournamentSyncBundleApi(tournamentId: string): Promise<{ matches: number }> {
+  const result = await requestJson<{ success: boolean; bundle: SyncBundle }>('/api/sync/export', {
+    method: 'POST',
+    json: { includeProfiles: true, includeAvatars: false, tournamentIds: [tournamentId] },
+  });
+
+  const blob = new Blob([JSON.stringify(result.bundle, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const stamp = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  link.href = url;
+  link.download = `roco-sync-${result.bundle.machine || 'X'}-${tournamentId}-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+  return { matches: result.bundle.matches.length };
+}
+
+/** 卡片「进入管理」：切换为当前比赛（赛事面板跳转复用现有路由） */
 export async function selectMatchApi(matchId: string): Promise<void> {
   await requestJson<{ success: boolean }>(`/api/matches/${matchId}/select`, { method: 'POST' });
 }

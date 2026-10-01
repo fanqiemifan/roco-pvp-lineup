@@ -486,6 +486,8 @@ export interface SnapshotPayload {
   countdown: CountdownState;
   mvp: MvpState;
   tournaments: TournamentRecord[];
+  /** 本机已「本机移除」（localOnly 墓碑）的系列赛：只在本机读取口径出现，绝不外传 */
+  locallyRemoved: TournamentRecord[];
 }
 
 /**
@@ -654,6 +656,12 @@ export interface SyncImportItem {
   diff: SyncImportDiffField[];
   /** 仅档案项：头像 / logo 的左右对照（无差异或包内不含头像时不提供） */
   avatarCompare?: SyncImportAvatarCompare;
+  /**
+   * 命中本机「已删除系列赛」的对局名单（防"已删对局回魂"）：合并时不会写入本机。
+   * 预览据此标注为「已删名单拦截」（action = skip），不再显示为「新增」——避免
+   * "预览说新增 N 场、合并后一场都看不到"的误导（预览与应用共用判定）。
+   */
+  blocked?: boolean;
 }
 
 export interface SyncImportCounts {
@@ -685,6 +693,12 @@ export interface SyncImportTournamentGroup {
   matchKeys: string[];
   /** 其中可勾选（新增/更新）的比赛数 */
   selectableCount: number;
+  /** 本包携带的该系列赛是删除墓碑：随导入自动清理本机副本，不可取消勾选（删除指令不是可选项） */
+  tombstone?: boolean;
+  /** 该系列赛在本机已被「本机移除」（localOnly 墓碑）：导入后仍保持隐藏，可在系列比赛「已本机移除」中恢复 */
+  localRemoved?: boolean;
+  /** 本机已有该系列赛的真实墓碑（已删除）：组内名单对局会被合并侧拦截、不会写入（预览与应用同口径） */
+  localTombstone?: boolean;
 }
 
 /** 头像 / logo 处理统计 */
@@ -847,6 +861,8 @@ export interface CloudSyncStatus {
   roster: CloudSyncRosterEntry[];
   /** 指派规则（比赛 id -> 机器码；空字符串 = 主控端登记） */
   assignment: Record<string, string>;
+  /** 分控端 B1「记住上次排除」：最近一次确认合并时排除的系列赛（下次预览默认继续排除；墓碑永不入列） */
+  excludedTournamentIds: string[];
   /** 主控端：本机为编排机的系列赛 id（分控端为空数组） */
   ownedTournamentIds: string[];
   /** 最后一次成功通信时间（本机记录，不做心跳） */
@@ -1070,6 +1086,22 @@ export interface TournamentRecord {
   entries: TournamentEntry[];
   waves: TournamentWave[];
   result?: { championId: string; runnerUpId: string; thirdIds?: string[] };
+  /**
+   * 删除墓碑：非空表示该系列赛已被编排机删除（记录作为墓碑保留而不物理移除）。
+   * 对外读取路径过滤墓碑（getTournamentStore），墓碑随同步包传播：接收端据此清本机副本、
+   * 解绑对局，且墓碑永远优先于存活副本（防旧包把已删系列赛带回来复活）。
+   */
+  deletedAt?: string | null;
+  /** 墓碑携带：删除时关联的对局 id 名单（接收端据此清本地副本，两端据此拦截"已删对局回魂"） */
+  deletedMatchIds?: string[];
+  /** 墓碑携带：删除时是否"连同对局删除"（决定 deletedMatchIds 是否要在接收端一并移除） */
+  deletedMatches?: boolean;
+  /**
+   * 本机移除标记（仅本机存在，**绝不随同步包外传**）：分控端对「非本机编排」的系列赛做视图层隐藏，
+   * 立即隐藏且同步不复活；「恢复」时清除。对局引用与内容保留不动（不 detach、不删对局、不改 updatedAt）。
+   * 编排机的真墓碑到达时，整条被替换并清除本标记（随之走正常解绑 / 清理收口）。
+   */
+  localOnly?: boolean;
 }
 
 /** 配对草稿校验结果（配对确认台锁定前） */

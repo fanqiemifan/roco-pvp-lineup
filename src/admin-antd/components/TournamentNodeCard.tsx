@@ -13,9 +13,13 @@ const STATUS_COLOR: Record<BracketCard['status'], string> = {
 export interface TournamentNodeCardProps {
   card: BracketCard;
   onSelectMatch(matchId: string): void;
+  /** 查看阵容详情（晋级图与波次列表共用入口，由父级打开弹窗；未建场时禁用） */
+  onViewLineup?(matchId: string): void;
   onForfeit?(): void;
   /** 晋级图选中态（显示该场连线时高亮卡片） */
   isActive?: boolean;
+  /** 晋级图单人链路选中态：高亮对应选手槽位行（null / 未传 = 未选中单人） */
+  activeSide?: 'a' | 'b' | null;
   /** 晋级图压暗态（选中某场链路时，其余不相关卡片弱化） */
   isDimmed?: boolean;
   /** 卡片根元素 ref（晋级图量测连线用） */
@@ -32,8 +36,10 @@ export interface TournamentNodeCardProps {
 export function TournamentNodeCard({
   card,
   onSelectMatch,
+  onViewLineup,
   onForfeit,
   isActive,
+  activeSide,
   isDimmed,
   cardRef,
   slotRef,
@@ -46,11 +52,13 @@ export function TournamentNodeCard({
       !slot.playerId ? 'bracket-row-tbd' : '',
       slot.isWinner ? 'bracket-row-won' : '',
       isLost ? 'bracket-row-lost' : '',
+      activeSide === side ? 'bracket-row-active' : '',
     ].filter(Boolean).join(' ');
     return (
       <div
         className={className}
         key={side}
+        data-side={side}
         ref={slotRef ? (element) => slotRef(side, element) : undefined}
       >
         <span className="bracket-row-name" title={slot.name || undefined}>
@@ -82,7 +90,14 @@ export function TournamentNodeCard({
           disabled={!card.matchId}
           onClick={() => card.matchId && onSelectMatch(card.matchId)}
         >
-          切换为当前比赛
+          进入管理
+        </Button>
+        <Button
+          size="small"
+          disabled={!card.matchId}
+          onClick={() => card.matchId && onViewLineup?.(card.matchId)}
+        >
+          查看阵容
         </Button>
         {onForfeit && card.canForfeit ? (
           <Button size="small" danger onClick={onForfeit}>

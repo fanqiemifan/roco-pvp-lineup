@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { App, Button, Card, Checkbox, Empty, Input, Modal, Space, Table, Tag, Typography } from 'antd';
+import { Button, Card, Checkbox, Empty, Input, Modal, Space, Table, Tag, TimePicker, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import dayjs, { type Dayjs } from 'dayjs';
 
 import type { MatchRecord, Page6State, Page7State, Page8State, TournamentRecord } from '../../../shared/types';
 import { computeScheduleTimes, normalizeHHmm } from '../../../shared/match-schedule';
@@ -33,8 +34,16 @@ interface MatchPushCardProps {
   /** 功能卡片标题，如「推送比赛结果」 */
   cardTitle: string;
   maxCount: number;
-  /** 全部比赛（候选池，组件内部做搜索与资格过滤） */
+  /**
+   * 候选池：管理端可见的比赛（已剔除「本机移除」系列赛的对局）——组件内部做搜索与资格过滤。
+   * 已选 / 摘要的解析必须走 allMatches，否则已推送的隐藏对局会「解析不到」导致索引错位。
+   */
   matches: MatchRecord[];
+  /**
+   * 全量比赛（仅用于解析已选与摘要）：已推送过的「本机移除」对局仍要能显示、排序、
+   * 编辑场序时间并保留在推送里（隐藏是视图层语义，不动已推送内容）。
+   */
+  allMatches: MatchRecord[];
   /** 系列赛列表（候选分组用：解析阶段名与语义轮次，与 page6 卡片标签同口径） */
   tournaments: TournamentRecord[];
   /** 服务端当前配置（打开弹窗时作为初始值） */
@@ -85,13 +94,22 @@ function versusText(match: MatchRecord): string {
   return `${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`;
 }
 
+/** HH:mm 文本 → TimePicker 的 dayjs 值（严格校验；空/非法返回 null，让输入框显示 placeholder） */
+function hhmmToDayjs(value: string): Dayjs | null {
+  const normalized = normalizeHHmm(value);
+  if (!normalized) {
+    return null;
+  }
+  const [hour, minute] = normalized.split(':').map(Number);
+  return dayjs().hour(hour).minute(minute).second(0).millisecond(0);
+}
+
 /**
  * 比赛管理上方的推流功能卡片：展示已选摘要，点击后弹出比赛管理详情选场弹窗。
  * 弹窗内候选按「系列赛阶段/轮次 + 普通对局」分组（组头可整组勾选），
  * 勾选（勾选顺序即卡片场序）、上移/下移调整、page6/8 可编辑标题与场序时间。
  */
-export function MatchPushCard({ kind, cardTitle, maxCount, matches, tournaments, state, pushing, onPush }: MatchPushCardProps) {
-  const { message } = App.useApp();
+export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, tournaments, state, pushing, onPush }: MatchPushCardProps) {
   const [open, setOpen] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>([]);
   const [titleDraft, setTitleDraft] = useState('');
@@ -117,11 +135,14 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, tournaments,
     setSearch('');
   }, [open, state, maxCount]);
 
+  // 解析池用全量 allMatches（不是候选池）：已推送的「本机移除」对局不在候选表里，
+  // 但必须能解析出名称/BO 参与已选排序与手动时间——否则 draftIds 与渲染列表索引错位
+  // （上移/下移移动错项、确认推送时手动时间被清掉）
   const matchById = useMemo(() => {
     const map = new Map<string, MatchRecord>();
-    matches.forEach((match) => map.set(match.id, match));
+    allMatches.forEach((match) => map.set(match.id, match));
     return map;
-  }, [matches]);
+  }, [allMatches]);
 
   /** 弹窗内已选（本地草稿，仅打开弹窗时从服务端初始化） */
   const selectedMatches = useMemo(
@@ -256,22 +277,6 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, tournaments,
   }
 
   async function handleConfirm() {
-    // 手动时间必须为 HH:mm，非法时提示具体场次而不是静默丢弃
-    if (withSchedule) {
-      const invalidIndex = selectedMatches.findIndex((match) => {
-        const raw = matchTimesDraft[match.id];
-        return raw !== undefined && raw.trim() !== '' && !normalizeHHmm(raw);
-      });
-      if (invalidIndex >= 0) {
-        message.warning(`第 ${invalidIndex + 1} 场时间格式不正确，请填写 HH:mm（如 19:00）或清空使用自动时间`);
-        return;
-      }
-      if (startTimeDraft.trim() !== '' && !normalizeHHmm(startTimeDraft)) {
-        message.warning('开始时间格式不正确，请填写 HH:mm（如 19:00）或留空');
-        return;
-      }
-    }
-
     const matchTimes: Record<string, string> = {};
     if (withSchedule) {
       for (const match of selectedMatches) {
@@ -454,13 +459,14 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, tournaments,
                 <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
                   第一场开始时间（之后每场按 BO×30 分钟自动累加）：
                 </Text>
-                <Input
+                <TimePicker
                   allowClear
-                  maxLength={5}
+                  format="HH:mm"
+                  minuteStep={5}
                   style={{ width: 160 }}
                   placeholder="19:00"
-                  value={startTimeDraft}
-                  onChange={(event) => setStartTimeDraft(event.target.value)}
+                  value={hhmmToDayjs(startTimeDraft)}
+                  onChange={(value, timeString) => setStartTimeDraft(value ? String(timeString) : '')}
                 />
               </div>
             ) : null}
@@ -504,20 +510,20 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, tournaments,
                           <Tag color="gold" style={{ margin: 0 }}>BO{match.bestOf}</Tag>
                         </div>
                         {withSchedule ? (
-                          <Input
+                          <TimePicker
                             size="small"
                             className="match-push-time-input"
+                            format="HH:mm"
+                            minuteStep={5}
                             placeholder={autoTime || 'HH:mm'}
-                            value={manualTime}
-                            maxLength={5}
-                            onChange={(event) => {
-                              const value = event.target.value;
+                            value={hhmmToDayjs(manualTime)}
+                            onChange={(value, timeString) => {
                               setMatchTimesDraft((prev) => {
                                 const next = { ...prev };
-                                if (value.trim() === '') {
-                                  delete next[match.id];
+                                if (value) {
+                                  next[match.id] = String(timeString);
                                 } else {
-                                  next[match.id] = value;
+                                  delete next[match.id];
                                 }
                                 return next;
                               });

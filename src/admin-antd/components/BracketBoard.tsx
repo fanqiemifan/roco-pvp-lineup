@@ -49,6 +49,8 @@ export interface BracketBoardProps {
   names: Map<string, string>;
   matches: MatchRecord[];
   onSelectMatch(matchId: string): Promise<void>;
+  /** 查看阵容详情：透传给卡片按钮（与波次列表共用同一弹窗） */
+  onViewLineup?(matchId: string): void;
   /** 只读副本（系列赛由另一台机器编排）：隐藏弃权操作 */
   readOnly?: boolean;
 }
@@ -71,6 +73,7 @@ export function BracketBoard({
   names,
   matches,
   onSelectMatch,
+  onViewLineup,
   readOnly = false,
 }: BracketBoardProps): React.ReactElement {
   const { message } = App.useApp();
@@ -108,8 +111,12 @@ export function BracketBoard({
   const [wires, setWires] = useState<BracketWire[]>([]);
   const [canvas, setCanvas] = useState({ width: 0, height: 0 });
   const [forfeitNode, setForfeitNode] = useState<TournamentNode | null>(null);
-  /** 当前选中的卡片：仅显示与它相关的连线，避免整图连线交叉杂乱（null = 不显示任何连线） */
-  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  /**
+   * 当前选中目标：显示与它相关的连线，避免整图连线交叉杂乱（null = 不显示任何连线）。
+   * side = 'a' | 'b' 表示点的是某位选手的槽位行（只看该选手的链路）；
+   * side = null 表示点的是卡片其他区域（整场链路，两名选手合并，原行为）。
+   */
+  const [activeTarget, setActiveTarget] = useState<{ nodeId: string; side: 'a' | 'b' | null } | null>(null);
   /** 拖动平移状态（用于切换 grab/grabbing 光标与拖动中禁选文本） */
   const [panning, setPanning] = useState(false);
   const panDragRef = useRef<PanDragState | null>(null);
@@ -135,11 +142,16 @@ export function BracketBoard({
   }, []);
 
   /**
-   * 选中卡片时高亮的连线：上游链路（沿 slot.from 递归全部祖先）+ 从它出发的下游连线。
-   * 连线 key 形如 `${来源nodeId}->${目标nodeId}#${来源槽位}`，这里按 `${来源}->${目标}` 去重匹配。
+   * 选中目标时高亮的连线：上游链路 + 从它出发的下游连线。连线 key 形如
+   * `${来源nodeId}->${目标nodeId}#${来源槽位}`，这里按 `${来源}->${目标}` 去重匹配。
+   * - 选中卡片（side=null）：上游沿两侧槽位合并递归（整场谱系，原行为）；
+   * - 选中选手行（side='a'|'b'）：上游只沿该选手出场链递归（单人谱系），下游在
+   *   卡片已分出胜负时按来源侧过滤（精确到该选手的下一场）；未决卡片两条出发连线
+   *   在画布上锚定同一侧（连线推导的近似），此时不过滤——两条线本就代表该场两名
+   *   选手各自的可能去向。
    */
   const activeEdges = useMemo(() => {
-    if (!activeNodeId) {
+    if (!activeTarget) {
       return null;
     }
     const edges = new Set<string>();
@@ -161,24 +173,65 @@ export function BracketBoard({
         walkUpstream(slot.from.nodeId);
       });
     };
-    walkUpstream(activeNodeId);
-    wires.forEach((wire) => {
-      if (wire.key.startsWith(`${activeNodeId}->`)) {
-        edges.add(wire.key.slice(0, wire.key.indexOf('#')));
+    /** 单人谱系：沿该选手出场链回溯（上游卡片里按 playerId 定位其所在侧） */
+    const walkPlayerUpstream = (nodeId: string, side: 'a' | 'b'): void => {
+      let currentCard = cardIndex.get(nodeId);
+      let currentSide: 'a' | 'b' = side;
+      while (currentCard) {
+        const slot = currentSide === 'a' ? currentCard.playerA : currentCard.playerB;
+        if (!slot.from) {
+          break;
+        }
+        const edge = `${slot.from.nodeId}->${currentCard.nodeId}`;
+        if (seen.has(edge)) {
+          break;
+        }
+        seen.add(edge);
+        edges.add(edge);
+        const fromCard = cardIndex.get(slot.from.nodeId);
+        if (!fromCard) {
+          break;
+        }
+        if (fromCard.playerA.playerId === slot.playerId) {
+          currentSide = 'a';
+        } else if (fromCard.playerB.playerId === slot.playerId) {
+          currentSide = 'b';
+        } else {
+          break;
+        }
+        currentCard = fromCard;
       }
+    };
+
+    if (activeTarget.side) {
+      walkPlayerUpstream(activeTarget.nodeId, activeTarget.side);
+    } else {
+      walkUpstream(activeTarget.nodeId);
+    }
+
+    const activeCard = cardIndex.get(activeTarget.nodeId);
+    const decided = Boolean(activeCard && (activeCard.playerA.isWinner || activeCard.playerB.isWinner));
+    wires.forEach((wire) => {
+      if (!wire.key.startsWith(`${activeTarget.nodeId}->`)) {
+        return;
+      }
+      if (activeTarget.side && decided && !wire.key.endsWith(`#${activeTarget.side}`)) {
+        return;
+      }
+      edges.add(wire.key.slice(0, wire.key.indexOf('#')));
     });
     return edges;
-  }, [activeNodeId, cardIndex, wires]);
+  }, [activeTarget, cardIndex, wires]);
 
   /**
-   * 选中卡片时保持正常亮度的节点集合（选中卡片 + 全部祖先 + 其下游一场），其余卡片压暗。
+   * 选中目标时保持正常亮度的节点集合（选中卡片 + 全部祖先 + 其下游一场），其余卡片压暗。
    * 直接由 activeEdges 的 `上游->下游` 两端推导，与连线高亮范围完全一致。
    */
   const relatedNodeIds = useMemo(() => {
-    if (!activeNodeId || !activeEdges) {
+    if (!activeTarget || !activeEdges) {
       return null;
     }
-    const ids = new Set<string>([activeNodeId]);
+    const ids = new Set<string>([activeTarget.nodeId]);
     activeEdges.forEach((edge) => {
       const separator = edge.indexOf('->');
       if (separator === -1) {
@@ -188,7 +241,7 @@ export function BracketBoard({
       ids.add(edge.slice(separator + 2));
     });
     return ids;
-  }, [activeEdges, activeNodeId]);
+  }, [activeEdges, activeTarget]);
 
   /** 量测各节点/槽位真实位置，重算连线与画布尺寸 */
   const measure = useCallback(() => {
@@ -404,20 +457,30 @@ export function BracketBoard({
           if (consumeSuppressedClick()) {
             return;
           }
-          // 卡片内按钮（切换为当前比赛 / 弃权判负）不触发选中
+          // 卡片内按钮（进入管理 / 查看阵容 / 弃权判负）不触发选中
           if ((event.target as HTMLElement).closest('button')) {
             return;
           }
-          setActiveNodeId((current) => (current === card.nodeId ? null : card.nodeId));
+          // 点选手槽位行（data-side）且该侧确有选手 → 单人链路；点其余区域 → 整场链路
+          const rowSide = (event.target as HTMLElement).closest('.bracket-row')?.getAttribute('data-side');
+          const slot = rowSide === 'a' ? card.playerA : rowSide === 'b' ? card.playerB : null;
+          const nextSide: 'a' | 'b' | null = slot?.playerId ? (rowSide as 'a' | 'b') : null;
+          setActiveTarget((current) => (
+            current && current.nodeId === card.nodeId && current.side === nextSide
+              ? null
+              : { nodeId: card.nodeId, side: nextSide }
+          ));
         }}
       >
         <TournamentNodeCard
           card={card}
-          isActive={activeNodeId === card.nodeId}
+          isActive={activeTarget?.nodeId === card.nodeId}
+          activeSide={activeTarget?.nodeId === card.nodeId ? activeTarget.side : null}
           isDimmed={relatedNodeIds !== null && !relatedNodeIds.has(card.nodeId)}
           cardRef={(element) => registerCard(card.nodeId, element)}
           slotRef={(side, element) => registerSlot(slotKey(card.nodeId, side), element)}
           onSelectMatch={(matchId) => void onSelectMatch(matchId)}
+          onViewLineup={onViewLineup}
           onForfeit={readOnly ? undefined : () => setForfeitNode(resolveNode(column, card.nodeId))}
         />
       </div>
@@ -483,7 +546,7 @@ export function BracketBoard({
         if ((event.target as HTMLElement).closest('.bracket-card-hitbox')) {
           return;
         }
-        setActiveNodeId(null);
+        setActiveTarget(null);
       }}
     >
       <div className="bracket-board-legend">
@@ -492,7 +555,7 @@ export function BracketBoard({
           胜者晋级
           <i className="bracket-wire-sample bracket-wire-sample-loser" />
           败者下沉
-          <span className="bracket-legend-hint">（点击卡片查看该场的晋级连线；按住拖动可平移视图）</span>
+          <span className="bracket-legend-hint">（点击选手行看单人链路、点卡片其他区域看整场；按住拖动可平移视图）</span>
         </Text>
         <Space size={8}>
           <Text type="secondary">

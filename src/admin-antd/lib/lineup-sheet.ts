@@ -1,4 +1,5 @@
 import type {
+  GameRecord,
   MatchRecord,
   MatchSlotSnapshot,
   SpriteRecord,
@@ -40,15 +41,29 @@ export interface LineupTemplateOptions {
   scope: LineupTemplateScope;
 }
 
-/**
- * 生成「一场两行」阵容填写模板（UTF-8 CSV，前端自行拼接 BOM 后下载）。
- * 只收「已建场 + 比赛待开始 + 第 1 局尚未开赛」的对局；行序 = 阶段 → 波次 → 节点顺序；
- * 第 1 局已录阵容按 displayName 回显（与解析口径一致，可直接复用）。
- */
-export function buildLineupTemplateCsv(options: LineupTemplateOptions): { csv: string; count: number } {
-  const { record, matches, sprites, scope } = options;
+/** 模板将导出的一场对局（导出弹窗的确认列表行；与 CSV 生成共用同一份筛选结果） */
+export interface LineupTemplateMatchRow {
+  matchId: string;
+  /** 阶段 · 轮次标签（单败仅阶段名；双败带胜者组/败者组等，与 CSV 的「阶段」列同口径） */
+  stageLabel: string;
+  /** 左侧选手名（空则「左侧」） */
+  leftPlayer: string;
+  rightPlayer: string;
+  /** 第 1 局是否已有阵容（导出时按 displayName 回显预填） */
+  hasLineup: boolean;
+}
+
+/** 内部：模板要导出的对局（含第 1 局），rows 与 CSV 都由它生成，保证确认列表 = 实际导出 */
+interface LineupTemplateTarget {
+  match: MatchRecord;
+  firstGame: GameRecord;
+  stageLabel: string;
+}
+
+/** 收集模板要导出的对局（只收「已建场 + 比赛待开始 + 第 1 局尚未开赛」；行序 = 阶段 → 波次 → 节点） */
+function collectLineupTemplateTargets(options: LineupTemplateOptions): LineupTemplateTarget[] {
+  const { record, matches, scope } = options;
   const matchById = new Map(matches.map((match) => [match.id, match]));
-  const spriteByPetId = new Map(sprites.map((sprite) => [sprite.id, sprite]));
 
   const orderedWaves = [...record.waves].sort(
     (left, right) => left.stageIndex - right.stageIndex || left.waveIndex - right.waveIndex,
@@ -56,18 +71,8 @@ export function buildLineupTemplateCsv(options: LineupTemplateOptions): { csv: s
   const latestWave = orderedWaves[orderedWaves.length - 1];
   const latestWaveKey = latestWave ? `${latestWave.stageIndex}:${latestWave.waveIndex}` : '';
 
-  const visibleNames = (slots: MatchSlotSnapshot[]): string[] =>
-    slots
-      .map((slot) => (
-        slot.pet_id ? (spriteByPetId.get(slot.pet_id)?.displayName ?? slot.name ?? '') : ''
-      ))
-      .filter(Boolean)
-      .slice(0, 6);
-
-  const header = ['系列赛', '阶段', '对局ID', '位置', '选手', '精灵1', '精灵2', '精灵3', '精灵4', '精灵5', '精灵6'];
-  const lines: string[][] = [header];
+  const targets: LineupTemplateTarget[] = [];
   const seenMatchIds = new Set<string>();
-  let count = 0;
 
   orderedWaves.forEach((wave) => {
     if (scope.kind === 'stage' && wave.stageIndex !== scope.stageIndex) {
@@ -89,32 +94,71 @@ export function buildLineupTemplateCsv(options: LineupTemplateOptions): { csv: s
       if (!firstGame || firstGame.status !== 'pending') {
         return;
       }
-      count += 1;
       const stageLabel = match.tournamentRef
         ? (formatStageRoundLabel(record, match.tournamentRef) ?? '')
         : '';
-      const sides = [
-        { side: '左', player: match.leftPlayer || '左侧', slots: firstGame.leftSlots },
-        { side: '右', player: match.rightPlayer || '右侧', slots: firstGame.rightSlots },
-      ];
-      sides.forEach(({ side, player, slots }) => {
-        const names = visibleNames(slots);
-        lines.push([
-          record.name,
-          stageLabel,
-          match.id,
-          side,
-          player,
-          ...Array.from({ length: 6 }, (_, index) => names[index] ?? ''),
-        ]);
-      });
+      targets.push({ match, firstGame, stageLabel });
+    });
+  });
+  return targets;
+}
+
+/**
+ * 生成「一场两行」阵容填写模板（UTF-8 CSV，前端自行拼接 BOM 后下载）。
+ * 只收「已建场 + 比赛待开始 + 第 1 局尚未开赛」的对局；行序 = 阶段 → 波次 → 节点顺序；
+ * 第 1 局已录阵容按 displayName 回显（与解析口径一致，可直接复用）。
+ * 同时返回 rows（导出确认列表：具体是哪几场、各自阶段与阵容回显状态），与 CSV 内容同源。
+ */
+export function buildLineupTemplateCsv(options: LineupTemplateOptions): {
+  csv: string;
+  count: number;
+  rows: LineupTemplateMatchRow[];
+} {
+  const { record, sprites } = options;
+  const spriteByPetId = new Map(sprites.map((sprite) => [sprite.id, sprite]));
+
+  const visibleNames = (slots: MatchSlotSnapshot[]): string[] =>
+    slots
+      .map((slot) => (
+        slot.pet_id ? (spriteByPetId.get(slot.pet_id)?.displayName ?? slot.name ?? '') : ''
+      ))
+      .filter(Boolean)
+      .slice(0, 6);
+
+  const header = ['系列赛', '阶段', '对局ID', '位置', '选手', '精灵1', '精灵2', '精灵3', '精灵4', '精灵5', '精灵6'];
+  const lines: string[][] = [header];
+  const targets = collectLineupTemplateTargets(options);
+
+  targets.forEach(({ match, firstGame, stageLabel }) => {
+    const sides = [
+      { side: '左', player: match.leftPlayer || '左侧', slots: firstGame.leftSlots },
+      { side: '右', player: match.rightPlayer || '右侧', slots: firstGame.rightSlots },
+    ];
+    sides.forEach(({ side, player, slots }) => {
+      const names = visibleNames(slots);
+      lines.push([
+        record.name,
+        stageLabel,
+        match.id,
+        side,
+        player,
+        ...Array.from({ length: 6 }, (_, index) => names[index] ?? ''),
+      ]);
     });
   });
 
   const csv = lines
     .map((cells) => cells.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
     .join('\n');
-  return { csv, count };
+  const rows: LineupTemplateMatchRow[] = targets.map(({ match, firstGame, stageLabel }) => ({
+    matchId: match.id,
+    stageLabel,
+    leftPlayer: match.leftPlayer || '左侧',
+    rightPlayer: match.rightPlayer || '右侧',
+    hasLineup: firstGame.leftSlots.some((slot) => Boolean(slot.pet_id))
+      || firstGame.rightSlots.some((slot) => Boolean(slot.pet_id)),
+  }));
+  return { csv, count: targets.length, rows };
 }
 
 /* ---------- 回填解析（CSV / TSV / JSON） ---------- */
@@ -250,7 +294,11 @@ export function parseLineupJsonText(
 
 /* ---------- 内部工具 ---------- */
 
-/** RFC4180 风格的分隔文本拆分：支持引号包裹与 "" 转义（Excel 导出的 CSV 可直接解析） */
+/**
+ * RFC4180 风格的分隔文本拆分：支持引号包裹与 "" 转义（Excel 导出的 CSV 可直接解析）。
+ * 引号仅在「字段开头」开启包裹；字段中间游离的引号按字面保留，
+ * 避免手滑多打一个引号就把后续整段文本吞进同一个单元格。
+ */
 function splitDelimitedRows(text: string, delimiter: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -272,7 +320,7 @@ function splitDelimitedRows(text: string, delimiter: string): string[][] {
       }
       continue;
     }
-    if (char === '"') {
+    if (char === '"' && cell === '') {
       inQuotes = true;
       continue;
     }

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import { SYNC_APP_ID, SYNC_BUNDLE_SCHEMA } from '../../shared/constants.js';
+import { SYNC_APP_ID, SYNC_BUNDLE_SCHEMA, TOURNAMENT_ID_REGEX } from '../../shared/constants.js';
 import type {
   PlayerProfile,
   ProfileStoreState,
@@ -21,20 +21,35 @@ import type {
 import { loadRuntimeConfig } from './config-service.js';
 import { saveProfilePlayerAvatar, saveProfileTeamLogo } from './image-service.js';
 import {
+  detachMatchesFromTournament,
   diffMatchRecords,
   getMatchStore,
   mergeMatchRecords,
   normalizeImportedMatches,
+  purgeMatchesByIds,
 } from './match-service.js';
 import type { AppPaths } from './path-service.js';
 import type { ProfileImportDecision } from './profile-service.js';
 import { diffProfileRecords, getProfileStore, mergeProfileRecords } from './profile-service.js';
-import { getTournamentStore, mergeTournamentRecords, runTournamentWriteBack } from './tournament-service.js';
+import {
+  getLocallyRemovedTournaments,
+  getTournamentRecordsIncludingTombstones,
+  getTournamentStore,
+  getTournamentTombstones,
+  mergeTournamentRecords,
+  runTournamentWriteBack,
+} from './tournament-service.js';
 
 /** 导出选项：头像只在包含档案时才有效（头像按档案 id 归属） */
 export interface SyncExportOptions {
   includeProfiles: boolean;
   includeAvatars: boolean;
+  /**
+   * 定向同步（P1-A「导出此系列赛」）：只含指定系列赛——该届编排（含其墓碑，即"定向删除"指令）+
+   * 名下全部比赛 + 该届选手档案（战队档案数量小、包内选手条目不带 teamId 无法反查归属，故全量附带）。
+   * 省略 / 空数组 = 全量导出（现有行为）；普通对局与其他系列赛不进范围包，范围外的墓碑也不进（不扩大作用域）。
+   */
+  tournamentIds?: string[];
 }
 
 /** 解析后的同步包（包内条目保持 unknown，由各服务逐条规范化） */
@@ -105,13 +120,33 @@ function readAvatarBase64(filePath: string): string | null {
  * 头像只在 includeProfiles 时附带（按档案 id 归属）。
  */
 export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): SyncBundle {
+  // 墓碑必须随包导出（含从别机传播留存的），否则"删除"传播不出去；
+  // 「连同对局删除」名单里的对局不再进包，旧副本不会随新包继续流转
+  // （主控事后从撤销栈撤回恢复的对局同理不再回流分控，见墓碑方案的已知语义）。
+  // 「本机移除」（localOnly）只属于本机：整条剔除，绝不外传（否则接收端会误判成删除指令）。
+  // 定向同步（tournamentIds）：只保留指定系列赛——其编排（含墓碑 = 定向删除指令）+ 名下全部比赛；
+  // 普通对局与其他系列赛不进包，范围外的墓碑也不进（作用域严格等于所选的届）。
+  const scopeIds = new Set((options.tournamentIds ?? []).map((id) => String(id ?? '').trim()).filter(Boolean));
+  const scoped = scopeIds.size > 0;
+  const tombstoneMatchIds = new Set(
+    getTournamentTombstones(paths)
+      .filter((record) => !scoped || scopeIds.has(record.id))
+      .filter((record) => record.deletedMatches)
+      .flatMap((record) => record.deletedMatchIds ?? []),
+  );
+  const tournaments = getTournamentRecordsIncludingTombstones(paths)
+    .filter((record) => !record.localOnly)
+    .filter((record) => !scoped || scopeIds.has(record.id));
   const bundle: SyncBundle = {
     app: SYNC_APP_ID,
     schema: SYNC_BUNDLE_SCHEMA,
     machine: loadRuntimeConfig(paths).machineCode,
     exportedAt: new Date().toISOString(),
-    matches: getMatchStore(paths).matches,
-    tournaments: getTournamentStore(paths),
+    matches: getMatchStore(paths).matches.filter((match) => (
+      !tombstoneMatchIds.has(match.id)
+      && (!scoped || scopeIds.has(match.tournamentRef?.tournamentId ?? ''))
+    )),
+    tournaments,
   };
 
   if (!options.includeProfiles) {
@@ -119,14 +154,19 @@ export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): S
   }
 
   const profiles = getProfileStore(paths);
+  // 范围导出：只带该届选手档案（对端缺档案时会只显示一串 id）；战队档案全量附带（数量小、无法反查归属）
+  const scopedPlayerIds = scoped
+    ? new Set(tournaments.flatMap((record) => record.playerIds))
+    : null;
+  const exportPlayers = profiles.players.filter((player) => !scopedPlayerIds || scopedPlayerIds.has(player.id));
   bundle.profiles = {
-    players: profiles.players.map((player) => toBundlePlayer(player)),
+    players: exportPlayers.map((player) => toBundlePlayer(player)),
     teams: profiles.teams.map((team) => toBundleTeam(team)),
   };
 
   if (options.includeAvatars) {
     const players: Record<string, string> = {};
-    profiles.players.forEach((player) => {
+    exportPlayers.forEach((player) => {
       const base64 = readAvatarBase64(paths.profilePlayerAvatarFile(player.id));
       if (base64) {
         players[player.id] = base64;
@@ -364,6 +404,10 @@ function buildTournamentGroups(
   matchItems: SyncImportItem[],
 ): { groups: SyncImportTournamentGroup[]; hasTournaments: boolean } {
   const localById = new Map(getTournamentStore(paths).map((record) => [record.id, record]));
+  // 本机移除（localOnly）的记录不进 getTournamentStore：单独取一份用于「保持隐藏」标记与名称兜底
+  const localRemovedById = new Map(getLocallyRemovedTournaments(paths).map((record) => [record.id, record]));
+  // 本机真实墓碑（已删除）：组上标「本机已删除」，提示名单内对局会被拦截
+  const localTombstoneById = new Map(getTournamentTombstones(paths).map((record) => [record.id, record]));
   const incomingById = new Map<string, Record<string, unknown>>();
   payload.tournaments.forEach((raw) => {
     const record = (raw ?? {}) as Record<string, unknown>;
@@ -395,10 +439,12 @@ function buildTournamentGroups(
     }
     const incoming = id ? incomingById.get(id) : undefined;
     const local = id ? localById.get(id) : undefined;
+    const locallyRemoved = id ? localRemovedById.get(id) : undefined;
+    const localTombstone = id ? localTombstoneById.get(id) : undefined;
     const created: SyncImportTournamentGroup = {
       key,
       id,
-      name: String(incoming?.name ?? local?.name ?? '').trim(),
+      name: String(incoming?.name ?? local?.name ?? locallyRemoved?.name ?? '').trim(),
       incoming: Boolean(incoming),
       existsLocally: Boolean(local),
       playerCount: Array.isArray(incoming?.playerIds)
@@ -409,6 +455,9 @@ function buildTournamentGroups(
         : '',
       matchKeys: [],
       selectableCount: 0,
+      tombstone: Boolean(incoming?.deletedAt),
+      localRemoved: Boolean(locallyRemoved),
+      localTombstone: Boolean(localTombstone),
     };
     groups.set(key, created);
     return created;
@@ -446,26 +495,69 @@ function buildTournamentGroups(
   return { groups: list, hasTournaments: payload.tournaments.length > 0 };
 }
 
+/**
+ * 「已删对局名单」拦截集合（与 applySyncImport 合并侧同口径，供预览提前标注）：
+ * 本机现有真墓碑 + 包内将被接受的真墓碑（鉴权同 mergeTournamentRecords：包作者需与 id 内嵌码一致）
+ * 里 deletedMatches=true 的名单并集。名单里的比赛合并时一律被过滤——预览若不提前标出，
+ * 它们会永远显示为「新增」却从不写入（如：本机已删除该系列赛、上游旧包仍在带这些对局）。
+ */
+function collectBlockedMatchIds(paths: AppPaths, payload: SyncBundlePayload): Set<string> {
+  const ids = new Set<string>();
+  const addList = (deletedMatches: unknown, deletedMatchIds: unknown) => {
+    if (deletedMatches !== true || !Array.isArray(deletedMatchIds)) {
+      return;
+    }
+    deletedMatchIds.forEach((item) => {
+      const id = String(item ?? '').trim();
+      if (id) {
+        ids.add(id);
+      }
+    });
+  };
+  getTournamentTombstones(paths).forEach((record) => addList(record.deletedMatches, record.deletedMatchIds));
+  const author = String(payload.machine ?? '').trim().toUpperCase();
+  payload.tournaments.forEach((raw) => {
+    const record = (raw ?? {}) as Record<string, unknown>;
+    const id = String(record.id ?? '').trim();
+    if (!id || !String(record.deletedAt ?? '').trim()) {
+      return;
+    }
+    const owner = (TOURNAMENT_ID_REGEX.exec(id)?.[2] ?? '').toUpperCase();
+    if (owner && author && author !== owner) {
+      return; // 该墓碑会被合并侧忽略（来源不是编排机），不能提前拦截
+    }
+    addList(record.deletedMatches, record.deletedMatchIds);
+  });
+  return ids;
+}
+
 /** 组合预览：比赛 diff + 档案 diff + 头像统计（预览与应用共用，保证判定一致） */
 function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncConflictMode): SyncImportPreview {
   const normalized = normalizeImportedMatches(paths, payload.matches);
   const decisions = diffMatchRecords(paths, normalized.records, mode);
   const recordById = new Map(normalized.records.map((record) => [record.id, record]));
+  // 预览与应用同口径：命中「已删对局名单」的比赛合并时不会写入，预览先标为跳过，不再算「新增」
+  const blockedMatchIds = collectBlockedMatchIds(paths, payload);
 
   const matchItems: SyncImportItem[] = decisions.map((decision) => {
     const record = recordById.get(decision.id);
-    return {
+    const blocked = blockedMatchIds.has(decision.id);
+    const item: SyncImportItem = {
       key: `match:${decision.id}`,
       kind: 'match',
       id: decision.id,
       label: record ? `${record.leftPlayer} vs ${record.rightPlayer}` : '',
-      action: decision.action,
-      reason: decision.reason,
+      action: blocked ? 'skip' : decision.action,
+      reason: blocked ? '已被本机「已删除系列赛」的对局名单拦截，不会写入' : decision.reason,
       localUpdatedAt: decision.localUpdatedAt,
       incomingUpdatedAt: decision.incomingUpdatedAt,
       conflict: decision.conflict,
       diff: decision.diff,
     };
+    if (blocked) {
+      item.blocked = true;
+    }
+    return item;
   });
   normalized.rejected.forEach((rejected) => {
     matchItems.push({
@@ -657,7 +749,37 @@ export async function applySyncImport(
     }
   }
 
-  // 比赛：只合并「被勾选且非跳过」的条目，且排除被取消勾选系列赛名下的比赛
+  // 系列赛：编排数据随包流转（自动合并，不进勾选列表）。
+  // 只有编排机会修改系列赛，只读副本的本地版本不会反向覆盖编排机（见 tournament-service 所有权校验）。
+  // 墓碑不参与「取消勾选」：删除指令不是可选项，否则被取消勾选的旧副本永远清不掉。
+  const tombstonesBefore = new Set(getTournamentTombstones(paths).map((record) => record.id));
+  const incomingTournaments = options.skipTournaments
+    ? []
+    : payload.tournaments.filter((raw) => {
+      const record = (raw ?? {}) as Record<string, unknown>;
+      const id = String(record.id ?? '').trim();
+      return !id || !excludedTournamentIds.has(id) || Boolean(record.deletedAt);
+    });
+  const tournamentReport = mergeTournamentRecords(paths, incomingTournaments, options.mode, {
+    authoredBy: payload.machine,
+  });
+  if (tournamentReport.rejected) {
+    warnings.push(`包内有 ${tournamentReport.rejected} 条系列赛记录不合法被忽略`);
+  }
+  if (!options.skipTournaments && incomingTournaments.length && !loadRuntimeConfig(paths).machineCode) {
+    warnings.push('本机未设置机器标识（machineCode），系列赛所有权无法区分，双机编排可能冲突');
+  }
+
+  // 墓碑对局名单：全部本机墓碑（含本次合入）里「连同对局删除」的名单——
+  // 这些对局不再从外部包合入、不再导出 / 回传，旧包与在途回传都带不回来（防"已删对局回魂"）。
+  const tombstones = getTournamentTombstones(paths);
+  const tombstoneMatchIds = new Set(
+    tombstones
+      .filter((record) => record.deletedMatches)
+      .flatMap((record) => record.deletedMatchIds ?? []),
+  );
+
+  // 比赛：只合并「被勾选且非跳过」的条目；排除被取消勾选系列赛名下的比赛与墓碑名单里的已删对局
   const normalized = normalizeImportedMatches(paths, payload.matches);
   const acceptedMatchIds = new Set(
     preview.matchItems
@@ -666,27 +788,33 @@ export async function applySyncImport(
   );
   mergeMatchRecords(
     paths,
-    normalized.records.filter((record) => acceptedMatchIds.has(record.id) && !excludedMatchIds.has(record.id)),
+    normalized.records.filter((record) => (
+      acceptedMatchIds.has(record.id)
+      && !excludedMatchIds.has(record.id)
+      && !tombstoneMatchIds.has(record.id)
+    )),
     options.mode,
   );
   if (normalized.rejected.length) {
     warnings.push(`包内有 ${normalized.rejected.length} 条比赛因 id 不合法被忽略`);
   }
 
-  // 系列赛：编排数据随包流转（自动合并，不进勾选列表）。
-  // 只有编排机会修改系列赛，只读副本的本地版本不会反向覆盖编排机（见 tournament-service 所有权校验）。
-  const incomingTournaments = options.skipTournaments
-    ? []
-    : payload.tournaments.filter((raw) => {
-      const id = String(((raw ?? {}) as Record<string, unknown>).id ?? '').trim();
-      return !id || !excludedTournamentIds.has(id);
-    });
-  const tournamentReport = mergeTournamentRecords(paths, incomingTournaments, options.mode);
-  if (tournamentReport.rejected) {
-    warnings.push(`包内有 ${tournamentReport.rejected} 条系列赛记录不合法被忽略`);
-  }
-  if (!options.skipTournaments && incomingTournaments.length && !loadRuntimeConfig(paths).machineCode) {
-    warnings.push('本机未设置机器标识（machineCode），系列赛所有权无法区分，双机编排可能冲突');
+  // 解绑 / 拦截不变量：每次合并后统一收口（不只"收到墓碑那一刻"）——
+  // 引用墓碑系列赛的比赛一律解绑（旧包能把 tournamentRef 带回来，靠这里再解一次）；
+  // 本次新收到的墓碑若"连同对局删除"，按名单在本机一并移除
+  // （复制的既成事实，不进撤销栈；只在新墓碑到达时执行一次，之后由名单过滤拦截）。
+  let tombstoneDetached = 0;
+  tombstones.forEach((record) => {
+    tombstoneDetached += detachMatchesFromTournament(paths, record.id).matchIds.length;
+  });
+  const freshlyDeletedMatchIds = tombstones
+    .filter((record) => !tombstonesBefore.has(record.id) && record.deletedMatches)
+    .flatMap((record) => record.deletedMatchIds ?? []);
+  const tombstonePurged = purgeMatchesByIds(paths, freshlyDeletedMatchIds);
+  if (tombstoneDetached || tombstonePurged) {
+    warnings.push(
+      `已按上游墓碑清理本机数据：解绑 ${tombstoneDetached} 场对局${tombstonePurged ? `、移除 ${tombstonePurged} 场已删对局` : ''}`,
+    );
   }
 
   // 写回补跑：把包内带来的「已完成」赛果在编排机上补写回系列赛（幂等；只读副本自动跳过）。

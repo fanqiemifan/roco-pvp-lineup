@@ -193,6 +193,21 @@ describe('parseLineupSheetText（表格回填 → 规范化对局）', () => {
     ]);
   });
 
+  it('字段中间游离的引号按字面处理（引号仅在字段开头生效）：不会吞掉后续行', () => {
+    const text = [
+      '对局ID,位置,选手,精灵1,精灵2,精灵3,精灵4,精灵5,精灵6',
+      '20260928_A001,左,小"明,迪莫,,,,,',
+      '20260928_A002,左,小红,雪绒鸟,,,,,',
+    ].join('\n');
+
+    const result = parseLineupSheetText(text);
+    expect(result.errors).toEqual([]);
+    expect(result.entries).toEqual([
+      { matchId: '20260928_A001', left: ['迪莫'], right: null },
+      { matchId: '20260928_A002', left: ['雪绒鸟'], right: null },
+    ]);
+  });
+
   it('位置列无法识别 → 忽略该行并给出警示；表头缺列 → 整份报错', () => {
     const ignoreResult = parseLineupSheetText([
       '对局ID,位置,选手,精灵1,精灵2,精灵3,精灵4,精灵5,精灵6',
@@ -318,5 +333,26 @@ describe('buildLineupTemplateCsv（模板生成：一场两行）', () => {
     const { csv } = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'all' } });
     expect(csv).toContain('"4进2"');
     expect(csv).toContain('"总决赛"');
+  });
+
+  it('返回导出确认列表 rows：具体对局、阶段-轮次、选手与阵容回显（与 CSV 同源）', () => {
+    const { rows, count } = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'all' } });
+    expect(rows).toHaveLength(count);
+    expect(rows.map((row) => row.matchId)).toEqual(['20260928_A001', '20260928_A003']);
+    expect(rows[0]).toEqual({
+      matchId: '20260928_A001',
+      stageLabel: '4进2',
+      leftPlayer: '小明',
+      rightPlayer: '小红',
+      hasLineup: true,
+    });
+    expect(rows[1].stageLabel).toBe('总决赛');
+    expect(rows[1].hasLineup).toBe(false);
+    // 第 1 局已开始的场不出现
+    expect(rows.some((row) => row.matchId === '20260928_A002')).toBe(false);
+
+    // 范围切换时确认列表与 CSV 同步收窄
+    const stage1 = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'stage', stageIndex: 1 } });
+    expect(stage1.rows.map((row) => row.matchId)).toEqual(['20260928_A003']);
   });
 });

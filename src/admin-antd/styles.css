@@ -85,6 +85,17 @@ a {
   display: block;
 }
 
+/* 导航「数据同步」标签 + 云同步待办角标（入口搬到导航后待办状态仍要一眼可见） */
+.nav-label-with-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-menu.ant-menu-inline-collapsed .nav-label-with-badge {
+  display: none;
+}
+
 .brand-block {
   display: flex;
   align-items: center;
@@ -1166,6 +1177,18 @@ a {
   place-items: center;
   color: #7d624e;
   font-size: 12px;
+}
+
+/* ===== 系列赛「阵容详情」弹窗（晋级图 / 波次卡片入口）：逐局只读阵容，槽位沿用 history-slot 样式 ===== */
+.lineup-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.lineup-detail-empty.ant-empty {
+  margin: 4px 0;
 }
 
 .preview-frame-shell {
@@ -2260,9 +2283,30 @@ a {
 
 /* ===== 数据同步：导入预览弹窗（左列表 + 右差异面板） ===== */
 .sync-preview-modal .ant-modal-body {
-  max-height: min(760px, calc(100vh - 200px));
+  max-height: min(880px, calc(100vh - 150px));
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* 顶部两行：第一行选项、第二行计数 + 说明小字（原来是七八条 Alert 各占一行，把表格顶出可视区） */
+.sync-preview-options {
+  width: 100%;
+}
+
+.sync-preview-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #EBE2D7;
+  border-radius: 8px;
+  background: #FBF8F3;
+}
+
+.sync-preview-notes {
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .sync-preview-layout {
@@ -2271,21 +2315,28 @@ a {
   align-items: stretch;
 }
 
+/* 列表吃剩余宽度（宽屏不再固定 560px 空一半），右侧 diff 面板封顶 */
 .sync-preview-list {
-  flex: 0 0 560px;
+  flex: 1 1 640px;
   min-width: 0;
 }
 
 .sync-preview-detail {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-height: 424px;
+  flex: 0 1 460px;
+  min-width: 320px;
+  max-height: 552px;
   overflow-y: auto;
   padding-left: 14px;
   border-left: 1px solid #EBE2D7;
 }
 
-@media (max-width: 1200px) {
+/* 紧凑行：行内信息都在同一行，靠缩小上下内边距再多塞几行 */
+.sync-preview-list .ant-table-tbody > tr > td {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+@media (max-width: 1280px) {
   .sync-preview-layout {
     flex-direction: column;
   }
@@ -2293,6 +2344,8 @@ a {
     flex: 1 1 auto;
   }
   .sync-preview-detail {
+    flex: 1 1 auto;
+    min-width: 0;
     max-height: none;
     padding-left: 0;
     border-left: none;
@@ -2448,6 +2501,96 @@ a {
   width: 18px;
   flex-shrink: 0;
   text-align: right;
+}
+
+/* 配对确认台「桶内随机重排」抽卡动画 */
+.tournament-shuffle-dice {
+  display: inline-block;
+}
+
+.tournament-shuffle-btn.is-drawing .tournament-shuffle-dice {
+  animation: tournament-dice-shake 0.45s ease-in-out infinite;
+}
+
+.tournament-bucket-box.is-drawing {
+  animation: tournament-bucket-glow 1.2s ease-in-out infinite;
+}
+
+/* 滚动期间选择框是 disabled 态（锁定编辑），覆写成暖金色让名字可读、更有开奖氛围 */
+.tournament-bucket-box.is-drawing .ant-select-disabled .ant-select-selector {
+  background: rgba(250, 219, 20, 0.1);
+  border-color: rgba(250, 173, 20, 0.5);
+}
+
+.tournament-bucket-box.is-drawing .ant-select-disabled .ant-select-selection-item {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.tournament-pair-row.is-revealed {
+  position: relative;
+  border-radius: 8px;
+  animation: tournament-pair-reveal 0.55s ease-out;
+}
+
+.tournament-pair-row.is-revealed::after {
+  content: '✨';
+  position: absolute;
+  top: -8px;
+  right: 34px;
+  font-size: 14px;
+  pointer-events: none;
+  animation: tournament-pair-sparkle 0.6s ease-out forwards;
+}
+
+@keyframes tournament-dice-shake {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-14deg) scale(1.1);
+  }
+  75% {
+    transform: rotate(14deg) scale(1.1);
+  }
+}
+
+@keyframes tournament-bucket-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(250, 173, 20, 0);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(250, 173, 20, 0.35);
+  }
+}
+
+@keyframes tournament-pair-reveal {
+  0% {
+    transform: scale(0.97);
+    background: rgba(250, 219, 20, 0.5);
+    box-shadow: 0 0 0 2px rgba(250, 173, 20, 0.8);
+  }
+  55% {
+    transform: scale(1.02);
+    background: rgba(250, 219, 20, 0.18);
+  }
+  100% {
+    transform: scale(1);
+    background: rgba(250, 219, 20, 0);
+    box-shadow: 0 0 0 0 rgba(250, 173, 20, 0);
+  }
+}
+
+@keyframes tournament-pair-sparkle {
+  0% {
+    opacity: 1;
+    transform: translateY(4px) scale(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px) scale(1.25);
+  }
 }
 
 /* 校验信息汇总 */
@@ -2828,6 +2971,12 @@ a {
   color: #fff;
 }
 
+/* 单人链路选中：高亮该选手的槽位行（点击选手行走单人视图，与卡片选中同色系） */
+.bracket-row-active {
+  background: rgba(212, 136, 6, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(212, 136, 6, 0.35);
+}
+
 /* 卡片内操作区：卡片本身 padding 归零，这里补回内边距 */
 .bracket-card .tournament-node-actions {
   margin-top: auto;
@@ -2859,10 +3008,21 @@ a {
   margin-top: 20px;
 }
 
-/* ==================== 比赛管理：推流功能卡片（比赛结果 / 对局推送 / 比赛预告） ==================== */
+/* ==================== 比赛管理视图：推流功能卡片行（比赛结果 / 对局推送 / 比赛预告 / 晋级积分榜） ==================== */
+/* 四张卡片单独成行（在「比赛管理」卡片之外），不再内嵌 */
 
 .match-push-card-row {
   margin-bottom: 4px;
+}
+
+/* 四卡等高：任一卡片内容变高时（如晋级积分榜选中系列赛后展开阶段切换 / 翻页快捷控制），
+   同排其它卡片一起拉伸到同高，避免高度参差 */
+.match-push-card-row > .ant-col {
+  display: flex;
+}
+
+.match-push-card-row .match-push-card {
+  width: 100%;
 }
 
 .match-push-card .ant-card-body {
