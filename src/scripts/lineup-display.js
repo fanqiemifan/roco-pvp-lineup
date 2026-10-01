@@ -24,6 +24,37 @@
         right: { signature: new Array(MAX_SLOTS).fill(null), selected: new Array(MAX_SLOTS).fill(null) }
     };
 
+    // 阵容镜像反转（仅页面1-3 展示层左右互换，不改数据）：开启后视图侧渲染实际另一侧的数据
+    let mirrorSides = false;
+    // 实际侧数据缓存：镜像切换时按新映射重渲染（panelStates / scoreboardSignature 仍按视图侧缓存）
+    const latestPanels = { left: null, right: null };
+    let latestScoreboard = null;
+
+    function mapSide(side) {
+        if (!mirrorSides) {
+            return side;
+        }
+        return side === 'left' ? 'right' : 'left';
+    }
+
+    function renderPanels() {
+        renderPanel('left', latestPanels[mapSide('left')]);
+        renderPanel('right', latestPanels[mapSide('right')]);
+    }
+
+    function setMirrorSides(value) {
+        const next = value === true;
+        if (next === mirrorSides) {
+            return;
+        }
+        mirrorSides = next;
+        scoreboardSignature = null;
+        panelStates.left.signature.fill(null);
+        panelStates.right.signature.fill(null);
+        renderScoreboard(latestScoreboard);
+        renderPanels();
+    }
+
     let lookup = null;
     let scoreboardSignature = null;
     let currentLineupDisplayMode = DEFAULT_LINEUP_DISPLAY_MODE;
@@ -569,6 +600,7 @@
 
     function renderScoreboard(scoreboard) {
         const data = scoreboard || {};
+        latestScoreboard = scoreboard || null;
         const nextLineupDisplayMode = normalizeLineupDisplayMode(data.page2LineupDisplayMode);
         const nextSignature = JSON.stringify({
             leftName: data.leftName || '',
@@ -579,7 +611,9 @@
             scoreboardEnabled: data.scoreboardEnabled !== false,
             eventTitle: data.eventTitle || DEFAULT_EVENT_TITLE,
             eventTitleEnabled: data.eventTitleEnabled !== false,
-            page2LineupDisplayMode: nextLineupDisplayMode
+            page2LineupDisplayMode: nextLineupDisplayMode,
+            // 镜像反转改变渲染左右，须进签名才能触发重渲染
+            mirrorSides
         });
 
         if (scoreboardSignature === nextSignature) {
@@ -591,9 +625,14 @@
         scoreboardSignature = nextSignature;
         document.body.dataset.page2LineupDisplayMode = currentLineupDisplayMode;
 
-        document.getElementById('leftPlayerName').textContent = data.leftName || '';
-        document.getElementById('rightPlayerName').textContent = data.rightName || '';
-        document.getElementById('matchScore').textContent = buildScoreValue(data);
+        // 镜像反转：仅交换渲染的左右数据（数据、胜负登记与统计口径不变）
+        const view = mirrorSides
+            ? { ...data, leftName: data.rightName, rightName: data.leftName, leftScore: data.rightScore, rightScore: data.leftScore }
+            : data;
+
+        document.getElementById('leftPlayerName').textContent = view.leftName || '';
+        document.getElementById('rightPlayerName').textContent = view.rightName || '';
+        document.getElementById('matchScore').textContent = buildScoreValue(view);
         const eventTitleEl = document.getElementById('eventTitle');
         const eventTitleEnabled = data.eventTitleEnabled !== false;
         const eventTitleText = data.eventTitle || DEFAULT_EVENT_TITLE;
@@ -602,12 +641,12 @@
 
         updateRoundBoxes(
             document.querySelector('.player-summary-left .player-rounds'),
-            Number(data.leftScore),
+            Number(view.leftScore),
             data.bestOf
         );
         updateRoundBoxes(
             document.querySelector('.player-summary-right .player-rounds'),
-            Number(data.rightScore),
+            Number(view.rightScore),
             data.bestOf
         );
 
@@ -621,9 +660,10 @@
 
     function applySnapshot(payload) {
         const panels = payload && Array.isArray(payload.panels) ? payload.panels : [];
+        latestPanels.left = panels.find(panel => panel && panel.position === 'left') || null;
+        latestPanels.right = panels.find(panel => panel && panel.position === 'right') || null;
         renderScoreboard(payload ? payload.scoreboard : null);
-        renderPanel('left', panels.find(panel => panel && panel.position === 'left'));
-        renderPanel('right', panels.find(panel => panel && panel.position === 'right'));
+        renderPanels();
     }
 
     async function loadSpiritIndex() {
@@ -639,16 +679,19 @@
     }
 
     async function loadInitialState() {
-        const [imagesResponse, scoreboardResponse] = await Promise.all([
+        const [stageResponse, imagesResponse, scoreboardResponse] = await Promise.all([
+            fetch('api/stage'),
             fetch('api/panels'),
             fetch('api/scoreboard')
         ]);
 
-        const [imagesData, scoreboardData] = await Promise.all([
+        const [stageData, imagesData, scoreboardData] = await Promise.all([
+            stageResponse.json(),
             imagesResponse.json(),
             scoreboardResponse.json()
         ]);
 
+        setMirrorSides(stageData && stageData.mirrorSides === true);
         applySnapshot({
             panels: imagesData.panels || [],
             scoreboard: scoreboardData
@@ -672,8 +715,15 @@
 
         socket.on('panel:update', payload => {
             if (payload && payload.panel && payload.panel.position) {
-                renderPanel(payload.panel.position, payload.panel);
+                latestPanels[payload.panel.position] = payload.panel;
+                renderPanel(mapSide(payload.panel.position), payload.panel);
             }
+        });
+
+        // 镜像反转实时切换（页面2 其余渲染不依赖 stage 配置，仅消费 mirrorSides）
+        socket.on('stage:update', payload => {
+            const stage = payload && payload.stage ? payload.stage : payload;
+            setMirrorSides(stage && stage.mirrorSides === true);
         });
 
         socket.on('scoreboard:update', payload => {

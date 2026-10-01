@@ -34,6 +34,7 @@ import {
   Steps,
   Switch,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -379,7 +380,10 @@ function Dashboard() {
   // 导航栏收起状态：收起后仅显示 SVG 图标
   const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // 顶栏弹窗开关：倒计时 / 下一场预告 / 画面设置（页面2、页面3、选手介绍、画面切换行为）
+  const [countdownModalOpen, setCountdownModalOpen] = useState(false);
+  const [nextgameModalOpen, setNextgameModalOpen] = useState(false);
+  const [screenSettingsModalOpen, setScreenSettingsModalOpen] = useState(false);
   const [pageError, setPageError] = useState('');
   const [scoreboard, setScoreboard] = useState<ScoreboardState | null>(null);
   const [matchStore, setMatchStore] = useState<MatchStoreState>({
@@ -669,10 +673,6 @@ function Dashboard() {
   );
   // 「实时控制 → 下场对局」待开始下拉：同口径隐藏「本机移除」系列赛的对局（adminVisibleMatches）
   const pendingMatches = adminVisibleMatches.filter((match) => match.status === 'pending');
-  const allPlayers = Array.from(new Set(matchStore.matches.flatMap((match) => [
-    match.leftPlayer,
-    match.rightPlayer,
-  ]).filter(Boolean)));
   // MVP 结算（推流页面4）：胜者阵容（口径同推流页面10）+ 标记完成度
   const mvpWinnerLineup = useMemo(() => getRecentWinnerLineup(activeMatch), [activeMatch]);
   // 结算画面只收最终形态精灵：可点选与「载入当前对局胜方」同一口径（非最终形态不进结算页）
@@ -925,7 +925,6 @@ function Dashboard() {
   }
 
   async function loadInitialData(showToast = false) {
-    setRefreshing(true);
     setPageError('');
 
     try {
@@ -999,7 +998,6 @@ function Dashboard() {
       setPageError(nextMessage);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }
 
@@ -2516,11 +2514,12 @@ function Dashboard() {
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5TournamentId?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5TournamentId?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
     const transition = normalizeStageTransition(options?.transition ?? stage?.transition);
+    const mirrorSides = options?.mirrorSides ?? stage?.mirrorSides ?? false;
     const page3SpriteSource = options?.page3SpriteSource ?? stage?.page3SpriteSource ?? 'sprite';
     const page3RankVisible = options?.page3RankVisible ?? stage?.page3RankVisible ?? false;
     const page3TeamVisible = options?.page3TeamVisible ?? stage?.page3TeamVisible ?? false;
@@ -2532,12 +2531,12 @@ function Dashboard() {
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -4619,7 +4618,7 @@ function Dashboard() {
           items={menuItems}
           onClick={({ key }) => {
             setView(key as ViewKey);
-            // 进入「对局推送」视图时同步预览槽位，方便顶栏「打开当前预览」直达页面7
+            // 进入「对局推送」视图时同步预览槽位，方便「页面预览」视图直达页面7
             if (key === 'page7') {
               setPreviewSlot('page7');
             }
@@ -4656,11 +4655,18 @@ function Dashboard() {
             >
               阵容悬浮窗
             </Button>
-            <Button href={buildPreviewUrl(previewSlot)} target="_blank">打开当前预览</Button>
-            <Button onClick={() => void handleCopyPreviewLink()}>复制预览链接</Button>
-            <Button type="primary" loading={refreshing} onClick={() => void loadInitialData(true)}>
-              刷新全部数据
-            </Button>
+            <Tooltip title="导播切视角用：仅交换推流页面1-3的画面左右展示，不影响数据、阵容与胜负登记">
+              <Button
+                type={stage?.mirrorSides ? 'primary' : 'default'}
+                disabled={stageSaving}
+                onClick={() => { void saveStage(stage?.page ?? 'page3', { silent: true, mirrorSides: !(stage?.mirrorSides ?? false) }); }}
+              >
+                {stage?.mirrorSides ? '镜像中' : '镜像反转'}
+              </Button>
+            </Tooltip>
+            <Button onClick={() => setCountdownModalOpen(true)}>倒计时</Button>
+            <Button onClick={() => setNextgameModalOpen(true)}>下一场预告</Button>
+            <Button onClick={() => setScreenSettingsModalOpen(true)}>画面设置</Button>
           </Space>
         </Header>
 
@@ -6517,6 +6523,13 @@ function Dashboard() {
               onTagChange={setStatsTag}
               onTournamentChange={setStatsTournamentId}
               onSearchChange={setStatsSearch}
+              page5TitleDraft={page5TitleDraft}
+              page5TournamentId={stage?.page5TournamentId ?? ''}
+              page5Player={stage?.page5Player ?? ''}
+              stageSaving={stageSaving}
+              onPage5TitleChange={setPage5TitleDraft}
+              onPage5TitleBlur={() => { void savePage5TitleNow(); }}
+              onPage5DisplayChange={(patch) => { void saveStage(stage?.page ?? 'page3', { silent: true, ...patch }); }}
             />
           ) : null}
 
@@ -6813,188 +6826,8 @@ function Dashboard() {
               >
                 <Space direction="vertical" size={16} className="page-stack">
                   <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    推流软件（OBS 等）只需固定捕获根路径 <code>/</code>。在此切换后，推流页面会实时加载所选画面，无需修改推流来源；下列各项设置修改后即时保存生效（团队积分榜为批量录入，仍需点击保存）。
+                    推流软件（OBS 等）只需固定捕获根路径 <code>/</code>。在此切换后，推流页面会实时加载所选画面，无需修改推流来源；画面与倒计时等设置已收进顶栏（倒计时 / 下一场预告 / 画面设置），页面5统计口径改到「数据统计」中设置；团队积分榜为批量录入，仍需点击保存。
                   </Paragraph>
-                  <Row gutter={[16, 16]} className="stage-config-cards">
-                    <Col xs={24} md={12} xl={8}>
-                      <Card size="small" className="subtle-card" title="推流页面3设置">
-                        <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="精灵图片：">
-                            <Segmented
-                              block
-                              value={stage?.page3SpriteSource ?? 'sprite'}
-                              disabled={stageSaving}
-                              options={[
-                                { value: 'sprite', label: '精灵原图' },
-                                { value: 'thumbnail', label: '精灵头像' },
-                              ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3SpriteSource: value as Page3SpriteSource }); }}
-                            />
-                          </SettingField>
-                          <SettingField
-                            label="红光特效："
-                            hint="自动开启：任一选手一侧精灵阵亡 3 只时显示，若阵亡的精灵中含卡瓦重、卡卡虫、丢丢则需 4 只；立即显示：一次性提前触发，进入下一局自动失效，不影响关闭/自动开启。"
-                          >
-                            <Space wrap>
-                              <Segmented
-                                value={stage?.page3RedLightMode ?? 'off'}
-                                disabled={stageSaving}
-                                options={[
-                                  { value: 'off', label: '关闭' },
-                                  { value: 'auto', label: '自动开启' },
-                                ]}
-                                onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightMode: value as Page3RedLightMode }); }}
-                              />
-                              <Button
-                                type={stage?.page3RedLightInstant ? 'default' : 'primary'}
-                                danger={Boolean(stage?.page3RedLightInstant)}
-                                disabled={stageSaving}
-                                loading={stageSaving}
-                                onClick={() => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightInstant: !(stage?.page3RedLightInstant ?? false) }); }}
-                              >
-                                {stage?.page3RedLightInstant ? '取消显示' : '立即显示'}
-                              </Button>
-                              {stage?.page3RedLightInstant ? <Tag color="red">显示中</Tag> : null}
-                            </Space>
-                          </SettingField>
-                          <Row gutter={[16, 12]}>
-                            <Col xs={24} md={12}>
-                              <SettingField label="排位图标：">
-                                <Space wrap>
-                                  <Switch
-                                    checked={stage?.page3RankVisible ?? false}
-                                    disabled={stageSaving}
-                                    loading={stageSaving}
-                                    onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RankVisible: checked }); }}
-                                  />
-                                  {stage?.page3RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                                </Space>
-                              </SettingField>
-                            </Col>
-                            <Col xs={24} md={12}>
-                              <SettingField label="战队标识：">
-                                <Space wrap>
-                                  <Switch
-                                    checked={stage?.page3TeamVisible ?? false}
-                                    disabled={stageSaving}
-                                    loading={stageSaving}
-                                    onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3TeamVisible: checked }); }}
-                                  />
-                                  {stage?.page3TeamVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                                </Space>
-                              </SettingField>
-                            </Col>
-                          </Row>
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={24} md={12} xl={8}>
-                      <Card size="small" className="subtle-card" title="倒计时插件">
-                        <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="倒计时时长（分钟）：">
-                            <InputNumber
-                              style={{ width: '100%' }}
-                              min={1}
-                              max={60}
-                              value={countdown?.duration ?? 5}
-                              disabled={countdownSaving}
-                              onChange={(value) => {
-                                void saveCountdown({ duration: value === null || value === undefined ? 5 : Number(value) });
-                              }}
-                            />
-                          </SettingField>
-                          <SettingField label="配色：">
-                            <Segmented
-                              block
-                              value={countdown?.theme ?? 'dark'}
-                              disabled={countdownSaving}
-                              options={[
-                                { value: 'dark', label: '深色' },
-                                { value: 'light', label: '浅色' },
-                              ]}
-                              onChange={(value) => { void saveCountdown({ theme: value as 'dark' | 'light' }); }}
-                            />
-                          </SettingField>
-                          <Space wrap>
-                            {countdown?.visible ? (
-                              <>
-                                {countdown.running ? (
-                                  <Button disabled={countdownSaving} onClick={() => void countdownAction('pause')}>暂停倒计时</Button>
-                                ) : (
-                                  <Button type="primary" disabled={countdownSaving} onClick={() => void countdownAction('start')}>开始倒计时</Button>
-                                )}
-                                <Button disabled={countdownSaving} onClick={() => void countdownAction('reset')}>重置</Button>
-                                <Button danger disabled={countdownSaving} onClick={() => void countdownAction('hide')}>关闭显示</Button>
-                              </>
-                            ) : (
-                              <Button type="primary" disabled={countdownSaving} onClick={() => void countdownAction('show')}>开启显示</Button>
-                            )}
-                          </Space>
-                          <Space size={8} wrap>
-                            {countdown?.visible ? <Tag color="green">显示中</Tag> : <Tag>已关闭</Tag>}
-                            {countdown?.running ? <Tag color="blue">倒计时中</Tag> : <Tag>时间静止</Tag>}
-                            {countdown ? <CountdownRemainingText state={countdown} clockOffsetMs={countdownClockRef.current.offset} /> : null}
-                          </Space>
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={24} md={12} xl={8}>
-                      <Card size="small" className="subtle-card" title="下场对局">
-                        <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="待开始比赛：">
-                            <Select
-                              className="stage-page5-tag-select"
-                              style={{ width: '100%' }}
-                              showSearch
-                              optionFilterProp="label"
-                              placeholder="选择待开始的比赛"
-                              value={nextgame?.matchId || undefined}
-                              disabled={nextgameSaving}
-                              options={pendingMatches.map((match) => ({
-                                value: match.id,
-                                label: `${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}（BO${match.bestOf}）`,
-                              }))}
-                              onChange={(value) => { void saveNextGame({ matchId: value ?? null }); }}
-                            />
-                          </SettingField>
-                          <SettingField label="开启后停留时长（分钟）：">
-                            <InputNumber
-                              style={{ width: '100%' }}
-                              min={1}
-                              max={60}
-                              value={nextgame?.duration ?? 1}
-                              disabled={nextgameSaving}
-                              onChange={(value) => {
-                                void saveNextGame({
-                                  duration: value === null || value === undefined ? 1 : Number(value),
-                                  durationUnit: 'minutes',
-                                });
-                              }}
-                            />
-                          </SettingField>
-                          <Space wrap>
-                            <Button
-                              type="primary"
-                              disabled={!nextgame?.matchId || !pendingMatches.some((match) => match.id === nextgame.matchId)}
-                              loading={nextgameSaving}
-                              onClick={() => void showNextGame({})}
-                            >
-                              显示下场对局
-                            </Button>
-                            <Button
-                              danger
-                              disabled={!nextgame?.visible}
-                              loading={nextgameSaving}
-                              onClick={() => void hideNextGameFromAdmin()}
-                            >
-                              关闭
-                            </Button>
-                            {nextgame?.visible ? <Tag color="green">正在显示</Tag> : <Tag>已隐藏</Tag>}
-                          </Space>
-                        </Space>
-                      </Card>
-                    </Col>
-                  </Row>
                   <Row gutter={[16, 16]}>
                     {STAGE_OPTIONS.map((option) => {
                       const active = (stage?.page ?? null) === option.value;
@@ -7018,137 +6851,6 @@ function Dashboard() {
                         </Col>
                       );
                     })}
-                  </Row>
-                  <Row gutter={[16, 16]} className="stage-config-cards">
-                    <Col xs={24} md={8}>
-                      <Card size="small" className="subtle-card" title="推流页面5-精灵出场胜率-统计口径">
-                        <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="页面5标题：">
-                            <Input
-                              maxLength={40}
-                              placeholder="例如：洛克比赛（自动拼上系列赛名与精灵出场胜率）"
-                              value={page5TitleDraft}
-                              onChange={(event) => setPage5TitleDraft(event.target.value)}
-                              onBlur={() => { void savePage5TitleNow(); }}
-                            />
-                          </SettingField>
-                          <SettingField label="系列赛：">
-                            <Select
-                              className="stage-page5-tag-select"
-                              value={stage?.page5TournamentId || undefined}
-                              disabled={stageSaving}
-                              options={[
-                                { value: '', label: '全部' },
-                                ...historyTournamentFilters.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
-                              ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5TournamentId: value ?? '' }); }}
-                            />
-                          </SettingField>
-                          <SettingField label="选手：">
-                            <Select
-                              showSearch
-                              className="stage-page5-tag-select"
-                              value={stage?.page5Player || undefined}
-                              disabled={stageSaving}
-                              options={[
-                                { value: '', label: '全部' },
-                                ...allPlayers.map((playerName) => ({ value: playerName, label: playerName })),
-                              ]}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page5Player: value ?? '' }); }}
-                            />
-                          </SettingField>
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Card size="small" className="subtle-card" title="画面切换行为">
-                        <Space direction="vertical" size={12} className="control-stack">
-                          <SettingField label="切换过渡效果：" hint="切换直播推流画面时的过渡动效。">
-                            <Segmented
-                              block
-                              value={normalizeStageTransition(stage?.transition)}
-                              disabled={stageSaving}
-                              options={STAGE_TRANSITION_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-                              onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, transition: value as StageTransitionType }); }}
-                            />
-                          </SettingField>
-                          <SettingField label="胜者结算停留时长（推流页面10）：" hint="赛事面板登记本局胜负时自动显示">
-                            <Space wrap>
-                              <InputNumber
-                                min={1}
-                                max={stage?.page10DurationUnit === 'minutes' ? 60 : 3600}
-                                value={stage?.page10Duration ?? 10}
-                                disabled={stageSaving}
-                                onChange={(value) => {
-                                  void saveStage(stage?.page ?? 'page3', {
-                                    silent: true,
-                                    page10Duration: value === null || value === undefined ? 1 : Number(value),
-                                  });
-                                }}
-                              />
-                              <Segmented
-                                value={stage?.page10DurationUnit ?? 'seconds'}
-                                disabled={stageSaving}
-                                options={[
-                                  { value: 'seconds', label: '秒' },
-                                  { value: 'minutes', label: '分钟' },
-                                ]}
-                                onChange={(value) => {
-                                  void saveStage(stage?.page ?? 'page3', { silent: true, page10DurationUnit: value as 'seconds' | 'minutes' });
-                                }}
-                              />
-                            </Space>
-                          </SettingField>
-                        </Space>
-                      </Card>
-                    </Col>
-                  </Row>
-                  <Row gutter={[16, 16]} className="stage-config-cards">
-                    <Col xs={24} md={12} xl={8}>
-                      <Card size="small" className="subtle-card stage-settings-card" title="推流页面2设置">
-                        <Row gutter={[16, 16]}>
-                          <Col xs={24} md={12}>
-                            <SettingField label="页面2赛事标题：">
-                              <Input
-                                maxLength={40}
-                                value={page2EventTitleDraft}
-                                onChange={(event) => setPage2EventTitleDraft(event.target.value)}
-                                onBlur={() => { void savePage2FieldNow({ eventTitle: page2EventTitleDraft }); }}
-                              />
-                            </SettingField>
-                          </Col>
-                          <Col xs={24} md={12}>
-                            <SettingField label="页面2阵容展示：">
-                              <Select
-                                style={{ width: '100%' }}
-                                value={scoreboard?.page2LineupDisplayMode ?? 'default'}
-                                disabled={!scoreboard}
-                                options={[
-                                  { value: 'default', label: '默认血量展示' },
-                                  { value: 'avatar-only', label: '仅头像展示' },
-                                ]}
-                                onChange={(value) => { void savePage2FieldNow({ page2LineupDisplayMode: value as 'default' | 'avatar-only' }); }}
-                              />
-                            </SettingField>
-                          </Col>
-                        </Row>
-                      </Card>
-                    </Col>
-                    <Col xs={24} md={12} xl={8}>
-                      <Card size="small" className="subtle-card stage-settings-card" title="选手介绍显示（推流页面11-13）">
-                        <SettingField label="排位排名：" hint="关闭后选手介绍三种画面均不显示排位排名；开启时选手有排名才显示。">
-                          <Space wrap>
-                            <Switch
-                              checked={stage?.page11RankVisible ?? true}
-                              disabled={stageSaving}
-                              loading={stageSaving}
-                              onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page11RankVisible: checked }); }}
-                            />
-                            {stage?.page11RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                          </Space>
-                        </SettingField>
-                      </Card>
-                    </Col>
                   </Row>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24}>
@@ -7403,6 +7105,295 @@ function Dashboard() {
           ) : null}
         </Content>
       </Layout>
+
+      {/* 顶栏弹窗：倒计时控制（原「直播推流 / 倒计时插件」卡片） */}
+      <Modal
+        title="倒计时控制"
+        open={countdownModalOpen}
+        onCancel={() => setCountdownModalOpen(false)}
+        footer={null}
+        width={420}
+      >
+        <Space direction="vertical" size={12} className="control-stack">
+          <SettingField label="倒计时时长（分钟）：">
+            <InputNumber
+              style={{ width: '100%' }}
+              min={1}
+              max={60}
+              value={countdown?.duration ?? 5}
+              disabled={countdownSaving}
+              onChange={(value) => {
+                void saveCountdown({ duration: value === null || value === undefined ? 5 : Number(value) });
+              }}
+            />
+          </SettingField>
+          <SettingField label="配色：">
+            <Segmented
+              block
+              value={countdown?.theme ?? 'dark'}
+              disabled={countdownSaving}
+              options={[
+                { value: 'dark', label: '深色' },
+                { value: 'light', label: '浅色' },
+              ]}
+              onChange={(value) => { void saveCountdown({ theme: value as 'dark' | 'light' }); }}
+            />
+          </SettingField>
+          <Space wrap>
+            {countdown?.visible ? (
+              <>
+                {countdown.running ? (
+                  <Button disabled={countdownSaving} onClick={() => void countdownAction('pause')}>暂停倒计时</Button>
+                ) : (
+                  <Button type="primary" disabled={countdownSaving} onClick={() => void countdownAction('start')}>开始倒计时</Button>
+                )}
+                <Button disabled={countdownSaving} onClick={() => void countdownAction('reset')}>重置</Button>
+                <Button danger disabled={countdownSaving} onClick={() => void countdownAction('hide')}>关闭显示</Button>
+              </>
+            ) : (
+              <Button type="primary" disabled={countdownSaving} onClick={() => void countdownAction('show')}>开启显示</Button>
+            )}
+          </Space>
+          <Space size={8} wrap>
+            {countdown?.visible ? <Tag color="green">显示中</Tag> : <Tag>已关闭</Tag>}
+            {countdown?.running ? <Tag color="blue">倒计时中</Tag> : <Tag>时间静止</Tag>}
+            {countdown ? <CountdownRemainingText state={countdown} clockOffsetMs={countdownClockRef.current.offset} /> : null}
+          </Space>
+        </Space>
+      </Modal>
+
+      {/* 顶栏弹窗：下一场预告（原「直播推流 / 下场对局」卡片） */}
+      <Modal
+        title="下一场预告"
+        open={nextgameModalOpen}
+        onCancel={() => setNextgameModalOpen(false)}
+        footer={null}
+        width={460}
+      >
+        <Space direction="vertical" size={12} className="control-stack">
+          <SettingField label="待开始比赛：">
+            <Select
+              className="stage-page5-tag-select"
+              style={{ width: '100%' }}
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择待开始的比赛"
+              value={nextgame?.matchId || undefined}
+              disabled={nextgameSaving}
+              options={pendingMatches.map((match) => ({
+                value: match.id,
+                label: `${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}（BO${match.bestOf}）`,
+              }))}
+              onChange={(value) => { void saveNextGame({ matchId: value ?? null }); }}
+            />
+          </SettingField>
+          <SettingField label="开启后停留时长（分钟）：">
+            <InputNumber
+              style={{ width: '100%' }}
+              min={1}
+              max={60}
+              value={nextgame?.duration ?? 1}
+              disabled={nextgameSaving}
+              onChange={(value) => {
+                void saveNextGame({
+                  duration: value === null || value === undefined ? 1 : Number(value),
+                  durationUnit: 'minutes',
+                });
+              }}
+            />
+          </SettingField>
+          <Space wrap>
+            <Button
+              type="primary"
+              disabled={!nextgame?.matchId || !pendingMatches.some((match) => match.id === nextgame.matchId)}
+              loading={nextgameSaving}
+              onClick={() => void showNextGame({})}
+            >
+              显示下场对局
+            </Button>
+            <Button
+              danger
+              disabled={!nextgame?.visible}
+              loading={nextgameSaving}
+              onClick={() => void hideNextGameFromAdmin()}
+            >
+              关闭
+            </Button>
+            {nextgame?.visible ? <Tag color="green">正在显示</Tag> : <Tag>已隐藏</Tag>}
+          </Space>
+        </Space>
+      </Modal>
+
+      {/* 顶栏弹窗：画面设置（原「直播推流」的四张设置卡片按 Tab 归并） */}
+      <Modal
+        title="画面设置"
+        open={screenSettingsModalOpen}
+        onCancel={() => setScreenSettingsModalOpen(false)}
+        footer={null}
+        width={720}
+      >
+        <Tabs
+          items={[
+            {
+              key: 'page2',
+              label: '推流页面2设置',
+              children: (
+                <Space direction="vertical" size={12} className="control-stack">
+                  <SettingField label="页面2赛事标题：">
+                    <Input
+                      maxLength={40}
+                      value={page2EventTitleDraft}
+                      onChange={(event) => setPage2EventTitleDraft(event.target.value)}
+                      onBlur={() => { void savePage2FieldNow({ eventTitle: page2EventTitleDraft }); }}
+                    />
+                  </SettingField>
+                  <SettingField label="页面2阵容展示：">
+                    <Select
+                      style={{ width: '100%' }}
+                      value={scoreboard?.page2LineupDisplayMode ?? 'default'}
+                      disabled={!scoreboard}
+                      options={[
+                        { value: 'default', label: '默认血量展示' },
+                        { value: 'avatar-only', label: '仅头像展示' },
+                      ]}
+                      onChange={(value) => { void savePage2FieldNow({ page2LineupDisplayMode: value as 'default' | 'avatar-only' }); }}
+                    />
+                  </SettingField>
+                </Space>
+              ),
+            },
+            {
+              key: 'page3',
+              label: '推流页面3设置',
+              children: (
+                <Space direction="vertical" size={12} className="control-stack">
+                  <SettingField label="精灵图片：">
+                    <Segmented
+                      block
+                      value={stage?.page3SpriteSource ?? 'sprite'}
+                      disabled={stageSaving}
+                      options={[
+                        { value: 'sprite', label: '精灵原图' },
+                        { value: 'thumbnail', label: '精灵头像' },
+                      ]}
+                      onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3SpriteSource: value as Page3SpriteSource }); }}
+                    />
+                  </SettingField>
+                  <SettingField
+                    label="红光特效："
+                    hint="自动开启：任一选手一侧精灵阵亡 3 只时显示，若阵亡的精灵中含卡瓦重、卡卡虫、丢丢则需 4 只；立即显示：一次性提前触发，进入下一局自动失效，不影响关闭/自动开启。"
+                  >
+                    <Space wrap>
+                      <Segmented
+                        value={stage?.page3RedLightMode ?? 'off'}
+                        disabled={stageSaving}
+                        options={[
+                          { value: 'off', label: '关闭' },
+                          { value: 'auto', label: '自动开启' },
+                        ]}
+                        onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightMode: value as Page3RedLightMode }); }}
+                      />
+                      <Button
+                        type={stage?.page3RedLightInstant ? 'default' : 'primary'}
+                        danger={Boolean(stage?.page3RedLightInstant)}
+                        disabled={stageSaving}
+                        loading={stageSaving}
+                        onClick={() => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightInstant: !(stage?.page3RedLightInstant ?? false) }); }}
+                      >
+                        {stage?.page3RedLightInstant ? '取消显示' : '立即显示'}
+                      </Button>
+                      {stage?.page3RedLightInstant ? <Tag color="red">显示中</Tag> : null}
+                    </Space>
+                  </SettingField>
+                  <SettingField label="排位图标：">
+                    <Space wrap>
+                      <Switch
+                        checked={stage?.page3RankVisible ?? false}
+                        disabled={stageSaving}
+                        loading={stageSaving}
+                        onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RankVisible: checked }); }}
+                      />
+                      {stage?.page3RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
+                    </Space>
+                  </SettingField>
+                  <SettingField label="战队标识：">
+                    <Space wrap>
+                      <Switch
+                        checked={stage?.page3TeamVisible ?? false}
+                        disabled={stageSaving}
+                        loading={stageSaving}
+                        onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3TeamVisible: checked }); }}
+                      />
+                      {stage?.page3TeamVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
+                    </Space>
+                  </SettingField>
+                </Space>
+              ),
+            },
+            {
+              key: 'page11',
+              label: '选手介绍显示（11-13）',
+              children: (
+                <SettingField label="排位排名：" hint="关闭后选手介绍三种画面均不显示排位排名；开启时选手有排名才显示。">
+                  <Space wrap>
+                    <Switch
+                      checked={stage?.page11RankVisible ?? true}
+                      disabled={stageSaving}
+                      loading={stageSaving}
+                      onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page11RankVisible: checked }); }}
+                    />
+                    {stage?.page11RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
+                  </Space>
+                </SettingField>
+              ),
+            },
+            {
+              key: 'transition',
+              label: '画面切换行为',
+              children: (
+                <Space direction="vertical" size={12} className="control-stack">
+                  <SettingField label="切换过渡效果：" hint="切换直播推流画面时的过渡动效。">
+                    <Segmented
+                      block
+                      value={normalizeStageTransition(stage?.transition)}
+                      disabled={stageSaving}
+                      options={STAGE_TRANSITION_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                      onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, transition: value as StageTransitionType }); }}
+                    />
+                  </SettingField>
+                  <SettingField label="胜者结算停留时长（推流页面10）：" hint="赛事面板登记本局胜负时自动显示">
+                    <Space wrap>
+                      <InputNumber
+                        min={1}
+                        max={stage?.page10DurationUnit === 'minutes' ? 60 : 3600}
+                        value={stage?.page10Duration ?? 10}
+                        disabled={stageSaving}
+                        onChange={(value) => {
+                          void saveStage(stage?.page ?? 'page3', {
+                            silent: true,
+                            page10Duration: value === null || value === undefined ? 1 : Number(value),
+                          });
+                        }}
+                      />
+                      <Segmented
+                        value={stage?.page10DurationUnit ?? 'seconds'}
+                        disabled={stageSaving}
+                        options={[
+                          { value: 'seconds', label: '秒' },
+                          { value: 'minutes', label: '分钟' },
+                        ]}
+                        onChange={(value) => {
+                          void saveStage(stage?.page ?? 'page3', { silent: true, page10DurationUnit: value as 'seconds' | 'minutes' });
+                        }}
+                      />
+                    </Space>
+                  </SettingField>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      </Modal>
 
       <Modal
         title="快速创建比赛"

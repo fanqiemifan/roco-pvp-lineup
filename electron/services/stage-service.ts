@@ -35,6 +35,11 @@ function normalizeStageTransition(value: unknown): StageTransitionType {
   return DEFAULT_STAGE_TRANSITION as StageTransitionType;
 }
 
+/** 页面1-3：阵容镜像反转（仅展示层开关，默认关闭；非布尔值一律归一为 false） */
+function normalizeMirrorSides(value: unknown): boolean {
+  return value === true;
+}
+
 function normalizePage5Player(value: unknown): string {
   return String(value ?? '').trim().slice(0, 40);
 }
@@ -92,6 +97,7 @@ function defaultStageState(): StageConfig {
   return {
     page: DEFAULT_STAGE_PAGE as StagePageKey,
     transition: DEFAULT_STAGE_TRANSITION as StageTransitionType,
+    mirrorSides: false,
     page3SpriteSource: DEFAULT_PAGE3_SPRITE_SOURCE,
     page3RankVisible: DEFAULT_PAGE3_RANK_VISIBLE,
     page3TeamVisible: DEFAULT_PAGE3_TEAM_VISIBLE,
@@ -118,6 +124,7 @@ export function getStageState(paths: AppPaths): StageConfig {
     return {
       page: normalizeStagePage(metadata.page),
       transition: normalizeStageTransition(metadata.transition),
+      mirrorSides: normalizeMirrorSides(metadata.mirrorSides),
       page3SpriteSource: normalizePage3SpriteSource(metadata.page3SpriteSource),
       page3RankVisible: normalizePage3RankVisible(metadata.page3RankVisible),
       page3TeamVisible: normalizePage3TeamVisible(metadata.page3TeamVisible),
@@ -151,6 +158,7 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
   const metadata = {
     page: normalizeStagePage(raw.page),
     transition: normalizeStageTransition(raw.transition ?? current.transition),
+    mirrorSides: normalizeMirrorSides(raw.mirrorSides ?? current.mirrorSides),
     page3SpriteSource: normalizePage3SpriteSource(raw.page3SpriteSource ?? current.page3SpriteSource),
     page3RankVisible: normalizePage3RankVisible(raw.page3RankVisible ?? current.page3RankVisible),
     page3TeamVisible: normalizePage3TeamVisible(raw.page3TeamVisible ?? current.page3TeamVisible),

@@ -11,6 +11,35 @@
         right: { signatures: new Array(MAX_SLOTS).fill(null) }
     };
 
+    // 阵容镜像反转（仅页面1-3 展示层左右互换，不改数据）：开启后视图侧渲染实际另一侧的数据
+    let mirrorSides = false;
+    // 实际侧面板缓存：镜像切换时按新映射重渲染（panelStates 仍按视图侧缓存签名）
+    const latestPanels = { left: null, right: null };
+
+    function mapSide(side) {
+        if (!mirrorSides) {
+            return side;
+        }
+        return side === 'left' ? 'right' : 'left';
+    }
+
+    function renderPanels() {
+        renderPanel('left', latestPanels[mapSide('left')]);
+        renderPanel('right', latestPanels[mapSide('right')]);
+    }
+
+    function setMirrorSides(value) {
+        const next = value === true;
+        if (next === mirrorSides) {
+            return;
+        }
+        mirrorSides = next;
+        // 左右映射变化：清空槽位签名，强制按新映射重渲染
+        panelStates.left.signatures.fill(null);
+        panelStates.right.signatures.fill(null);
+        renderPanels();
+    }
+
     function basename(value) {
         return String(value || '').split('/').filter(Boolean).pop() || '';
     }
@@ -153,14 +182,22 @@
 
     function applySnapshot(payload) {
         const panels = payload && Array.isArray(payload.panels) ? payload.panels : [];
-        renderPanel('left', panels.find((panel) => panel && panel.position === 'left'));
-        renderPanel('right', panels.find((panel) => panel && panel.position === 'right'));
+        latestPanels.left = panels.find((panel) => panel && panel.position === 'left') || null;
+        latestPanels.right = panels.find((panel) => panel && panel.position === 'right') || null;
+        renderPanels();
     }
 
     async function loadInitialState() {
-        const response = await fetch('/api/panels');
-        const data = await response.json();
-        applySnapshot({ panels: data.panels || [] });
+        const [stageResponse, panelsResponse] = await Promise.all([
+            fetch('/api/stage'),
+            fetch('/api/panels')
+        ]);
+        const [stageData, panelsData] = await Promise.all([
+            stageResponse.json(),
+            panelsResponse.json()
+        ]);
+        setMirrorSides(stageData && stageData.mirrorSides === true);
+        applySnapshot({ panels: panelsData.panels || [] });
     }
 
     function connectSocket() {
@@ -179,8 +216,15 @@
 
         socket.on('panel:update', (payload) => {
             if (payload && payload.panel && payload.panel.position) {
-                renderPanel(payload.panel.position, payload.panel);
+                latestPanels[payload.panel.position] = payload.panel;
+                renderPanel(mapSide(payload.panel.position), payload.panel);
             }
+        });
+
+        // 镜像反转实时切换（页面1 其余渲染不依赖 stage 配置，仅消费 mirrorSides）
+        socket.on('stage:update', (payload) => {
+            const stage = payload && payload.stage ? payload.stage : payload;
+            setMirrorSides(stage && stage.mirrorSides === true);
         });
     }
 

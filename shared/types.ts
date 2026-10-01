@@ -187,6 +187,8 @@ export type Page3RedLightMode = 'off' | 'auto';
 export interface StageConfig {
   page: StagePageKey;
   transition: StageTransitionType;
+  /** 页面1-3：阵容镜像反转（仅展示层左右互换，不改数据与胜负登记；开启后画面左侧展示实际右侧选手） */
+  mirrorSides: boolean;
   /** 推流页面3：精灵主体图片来源 */
   page3SpriteSource: Page3SpriteSource;
   /** 推流页面3：是否显示比分栏中央两侧的排位排名图标 */

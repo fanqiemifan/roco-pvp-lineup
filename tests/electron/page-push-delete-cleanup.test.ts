@@ -178,6 +178,39 @@ describe('推流选场（page6/7/8）删除比赛后的状态同步', () => {
     }
   });
 
+  it('场序时间固化：page8 掉场后剩余比赛的固定时间不重排', async () => {
+    // 模拟后台「确认推送」：把 19:00 起按 BO×30 分钟累加的结果整份写入 matchTimes（固化）
+    const first = await createMatch('固化甲', '固化乙');
+    const second = await createMatch('固化丙', '固化丁');
+    const third = await createMatch('固化戊', '固化己');
+    const pushed = await postJson('/api/page8', {
+      matchIds: [first, second, third],
+      startTime: '19:00',
+      matchTimes: { [first]: '19:00', [second]: '19:30', [third]: '20:00' },
+    });
+    expect(pushed.status).toBe(200);
+
+    const client = await connectClient();
+    try {
+      const page8Events: Array<{ state: { matchTimes: Record<string, string> } }> = [];
+      client.on('page8:update', (payload) => page8Events.push(payload));
+
+      // 第一场完赛被移出选场：固化值（19:30 / 20:00）跟随比赛 id 保留，
+      // 不按剩余列表从头重算（否则第二场会回退成 19:00）
+      await playMatchHttp(first);
+
+      await vi.waitFor(() => expect(page8Events).toHaveLength(1), { timeout: 2000 });
+      expect(page8Events[0].state.matchTimes).toEqual({ [second]: '19:30', [third]: '20:00' });
+
+      const page8 = await getJson('/api/page8');
+      expect(page8.data.state.matchIds).toEqual([second, third]);
+      expect(page8.data.scheduleTimes[second]).toBe('19:30');
+      expect(page8.data.scheduleTimes[third]).toBe('20:00');
+    } finally {
+      client.close();
+    }
+  });
+
   it('状态变更：page6 选中的已结束比赛被撤回后自动移出选场并广播', async () => {
     const match = await createMatch('结果撤回甲', '结果撤回乙');
     await playMatchHttp(match);
