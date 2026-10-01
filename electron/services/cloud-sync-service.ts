@@ -1485,15 +1485,34 @@ export function checkMachineCodeChange(paths: AppPaths, nextCode: string): Machi
 
 /* ==================== 分控端：登记入口与撤回判定 ==================== */
 
+/** 比赛是否归本机所有：tournamentRef 指向内嵌本机机器码的系列赛（本机自建，「谁建谁管」） */
+function isMatchOwnedByLocal(paths: AppPaths, matchId: string): boolean {
+  const machine = localCode(paths);
+  if (!machine) {
+    return false;
+  }
+  const match = getMatchStore(paths).matches.find((item) => item.id === matchId);
+  if (!match?.tournamentRef) {
+    return false;
+  }
+  return tournamentOwnerCode(match.tournamentRef.tournamentId) === machine;
+}
+
 /**
  * 某场比赛在当前机器上能否登记（分控端按指派范围置灰入口）：
  * - 未启用云同步（没填 syncKey / 机器码）→ 不干预，保持单机行为
+ * - 归属本机的比赛（本机自建系列赛的对局）→ 一律放行：
+ *   自建系列赛不会出现在主控的指派表里，按「未指派默认主控」判会让本机自建赛事
+ *   走到登记就被拦的断头路；指派只约束「别人家的比赛」
  * - 主控端：未指派或指派给本机的可登记
  * - 分控端：只有指派给本机的可登记
  */
 export function canRegisterMatch(paths: AppPaths, matchId: string): { allowed: boolean; reason: string } {
   const config = loadRuntimeConfig(paths);
   if (!config.syncKey || !config.machineCode) {
+    return { allowed: true, reason: '' };
+  }
+  if (isMatchOwnedByLocal(paths, matchId)) {
     return { allowed: true, reason: '' };
   }
   const scope = assignmentScopeOf(paths, matchId);

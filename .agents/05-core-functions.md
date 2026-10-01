@@ -172,7 +172,7 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 读云同步状态 | getCloudSyncStatus | (paths: AppPaths) => CloudSyncStatus | 组装界面所需的全部状态（config/configured/version/appliedVersion/pending/inbox/roster/assignment/ownedTournamentIds/lastContact/lastError），不产生云端请求 |
-| 计算待回传集 | computePendingQueue | (paths: AppPaths) => CloudSyncPendingQueue | 现算「已完赛 + 有胜者 + 按指派归本机码 + 主控未 ack」的比赛；每次「同步最新」合并后重算，防主控回退后陈旧登记被复活 |
+| 计算待回传集 | computePendingQueue | (paths: AppPaths) => CloudSyncPendingQueue | 现算「已完赛 + 有胜者 + 按指派归本机码 + 主控未 ack」的比赛；每次「同步最新」合并后重算，防主控回退后陈旧登记被复活；本机自建系列赛的赛果（未指派，scope 为空）天然不进本集 → 不上行 |
 | 已确认比赛集合 | ackedMatchIdSet | (paths: AppPaths) => Set<string> | 主控回执里的 matchId 集合（分控端禁止撤回的判据） |
 | 保存云同步设置 | saveCloudSyncConfig | (paths: AppPaths, input: CloudSyncConfigInput) => CloudSyncStatus | syncKey/role/workerUrl/machineLabel/pollEnabled/pollIntervalSeconds 落 config.json；peerCodes（主控端分控码列表）并入名册并剔除本机码 |
 | 检测 Worker 在线 | testCloudConnection | (paths: AppPaths) => Promise<CloudSyncTestResult> | 打 `${workerUrl}/health`（不需要密钥、不碰 KV，避免为测通白扣读写额度）；超时/不可达返回 ok:false + 中文原因 |
@@ -187,7 +187,7 @@
 | 主控驳回 | rejectCloudSync | (paths: AppPaths, code: string) => Promise<CloudSyncRejectResult> | 不写本地、不写回执；分控端保持「待回传」，修正后重新点「回传」 |
 | 保存指派规则 | saveCloudAssignment | (paths: AppPaths, overrides: unknown) => CloudSyncStatus | 比赛 id -> 机器码（空串 = 主控端自己登记）；自动清理已不存在比赛的条目；随下次分发写入 downlink |
 | 改机器码守卫 | checkMachineCodeChange | (paths: AppPaths, nextCode: string) => MachineCodeGuardResult | 有内嵌旧码的 running 系列赛 → blocked（堵「改码丢所有权，自己锁死自己」）；仅有其它内嵌旧码系列赛 → requireConfirm；**不做自动迁移 id**（引用、头像目录名都会断） |
-| 登记入口判定 | canRegisterMatch | (paths: AppPaths, matchId: string) => {allowed, reason} | 未启用云同步（没填 syncKey/机器码）→ 放行（保持单机行为）；主控端未指派/指派给本机可登记；分控端只有指派给本机的可登记 |
+| 登记入口判定 | canRegisterMatch | (paths: AppPaths, matchId: string) => {allowed, reason} | 未启用云同步（没填 syncKey/机器码）→ 放行（保持单机行为）；**归属本机的比赛（tournamentRef 内嵌本机码，即本机自建系列赛的对局）一律放行**——自建系列赛不会出现在主控指派表里，按「未指派默认主控」判会让自建赛事登记被误拦，指派只约束「别人家的比赛」；主控端未指派/指派给本机可登记；分控端只有指派给本机的可登记 |
 | 撤回判定 | checkSubUndoAllowed | (paths: AppPaths, matchId: string) => {allowed, reason} | 分控端对已 ack 的比赛禁止撤回（合并是整条替换、不触发 onMatchUndo，单方面撤回会让比赛回 pending 而节点胜者还在，状态分叉） |
 
 > `machineCode` 一码三责（id 命名空间 / 编排所有权闸门 / 同步包来源标识）与两个坑（改码丢所有权、两机撞码）见 AGENTS.md「注意事项」与 docs/cloud-sync-plan.html ④。

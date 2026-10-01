@@ -482,6 +482,31 @@ describe('指派规则与登记入口', () => {
     // 未被指派闸门拦下（200 表示放行，说明未启用云同步时不干预单机行为）
     expect(result.status).toBe(200);
   });
+
+  it('分控端自建系列赛：登记入口按归属放行，自建赛果不进待回传集', async () => {
+    configureRoom();
+    // 分控 B 自建系列赛（id 内嵌 B）并开赛——它不会出现在主控的指派表里
+    const playerIds = Array.from({ length: 8 }, (_unused, index) => {
+      savePlayerProfile(subPaths, { id: `p${index}`, name: `选手${index}` });
+      return `p${index}`;
+    });
+    const created = createTournament(subPaths, { name: '现场自建杯', playerIds, seed: 42 });
+    expect(created.id).toMatch(/^T\d{8}_B\d+$/);
+    startTournament(subPaths, created.id);
+    const matchId = getMatchStore(subPaths).matches
+      .find((match) => match.tournamentRef?.tournamentId === created.id)!.id;
+
+    // 登记入口不再误判「未指派」：归属本机一律放行
+    const scope = await postSub('/api/cloud-sync/registration-scope', { matchIds: [matchId] });
+    expect(scope.data.scope[matchId].allowed).toBe(true);
+
+    // 能完整登记完赛（不能出现「能建能打、一登记就 400」的断头路）
+    await playMatchOnSub(matchId, 'left');
+
+    // 自建赛果默认不上行：待回传集只收「指派给本机」的场次
+    const status = (await get(subBase, '/api/cloud-sync/status')).data.status as CloudSyncStatus;
+    expect(status.pending.count).toBe(0);
+  });
 });
 
 /* ==================== 上行链路 ==================== */
