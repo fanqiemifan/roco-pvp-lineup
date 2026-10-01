@@ -491,6 +491,45 @@ describe('删除墓碑的跨机传播', () => {
   });
 });
 
+describe('定向同步 · 范围导出（P1-A）', () => {
+  it('只含指定系列赛：编排 + 名下全部比赛 + 该届选手档案，其他系列赛不进包', () => {
+    const { id } = createRunningSeries(machineA);
+    const other = createRunningSeries(machineA);
+
+    const scoped = exportSyncBundle(machineA, { includeProfiles: true, includeAvatars: false, tournamentIds: [id] });
+    expect(scoped.tournaments.map((record) => record.id)).toEqual([id]);
+    expect(scoped.matches.length).toBeGreaterThan(0);
+    expect(scoped.matches.every((match) => match.tournamentRef?.tournamentId === id)).toBe(true);
+    // 另一届的比赛与编排都不在包里
+    expect(scoped.matches.some((match) => match.tournamentRef?.tournamentId === other.id)).toBe(false);
+    expect(scoped.tournaments.some((record) => record.id === other.id)).toBe(false);
+    // 档案只带该届选手（对端缺档案时晋级图会只显示一串 id）
+    const playerIds = new Set(scoped.tournaments[0].playerIds);
+    expect(scoped.profiles?.players.length).toBe(playerIds.size);
+    expect(scoped.profiles?.players.every((player) => playerIds.has(player.id))).toBe(true);
+    // 全量导出不受影响（仍含两届）
+    const full = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false });
+    expect(full.tournaments.map((record) => record.id).sort()).toEqual([id, other.id].sort());
+  });
+
+  it('已删除的届：范围包只带墓碑与对局名单（定向删除指令），比赛不再进包', () => {
+    const { id } = createRunningSeries(machineA);
+    const alive = createRunningSeries(machineA);
+    deleteTournament(machineA, id, { deleteMatches: true });
+
+    const scoped = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false, tournamentIds: [id] });
+    expect(scoped.tournaments).toHaveLength(1);
+    expect(scoped.tournaments[0].id).toBe(id);
+    expect(scoped.tournaments[0].deletedAt).toBeTruthy();
+    expect(scoped.tournaments[0].deletedMatches).toBe(true);
+    expect(scoped.tournaments[0].deletedMatchIds?.length ?? 0).toBeGreaterThan(0);
+    expect(scoped.matches).toEqual([]);
+    // 作用域严格等于所选的届：其他届（含存活副本与它们的墓碑）都不进包
+    const full = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false });
+    expect(full.tournaments.some((record) => record.id === alive.id)).toBe(true);
+  });
+});
+
 describe('本机移除（localOnly）不传播 / 不复活', () => {
   /** 机器 B 导入一份包（返回预览与合并报告） */
   async function importToB(bundle: ReturnType<typeof exportSyncBundle>, mode: 'newer' | 'bundle' = 'newer') {

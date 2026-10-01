@@ -60,6 +60,7 @@ import {
   createTournamentApi,
   deleteTournamentApi,
   drawTournamentApi,
+  exportTournamentSyncBundleApi,
   forfeitApi,
   importPairingsApi,
   listTournamentsApi,
@@ -146,6 +147,9 @@ export function TournamentView({
   // 本机移除：恢复弹窗（已移除清单）+ 单条恢复的进行态
   const [localRemovedOpen, setLocalRemovedOpen] = useState(false);
   const [restoreSavingId, setRestoreSavingId] = useState<string | null>(null);
+  // 定向同步（P1-A）：导出只含该届的范围包（弹窗目标 + 导出中状态）
+  const [syncTarget, setSyncTarget] = useState<TournamentRecord | null>(null);
+  const [syncExporting, setSyncExporting] = useState(false);
 
   /** 打开某个系列赛详情：同时写入本地记忆，下次进入本视图自动打开它 */
   function openTournament(tournamentId: string): void {
@@ -200,6 +204,23 @@ export function TournamentView({
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setRestoreSavingId(null);
+    }
+  }
+
+  /** 定向同步（P1-A）：导出只含该届的同步包（编排 + 名下对局 + 该届选手档案），对端导入即合并 */
+  async function handleExportScopedBundle(): Promise<void> {
+    if (!syncTarget) {
+      return;
+    }
+    setSyncExporting(true);
+    try {
+      const result = await exportTournamentSyncBundleApi(syncTarget.id);
+      message.success(`已导出「${syncTarget.name || syncTarget.id}」定向同步包（${result.matches} 场对局），发给对端在「数据同步」中导入即可`);
+      setSyncTarget(null);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSyncExporting(false);
     }
   }
 
@@ -259,7 +280,7 @@ export function TournamentView({
     },
     {
       title: '操作',
-      width: 240,
+      width: 300,
       render: (_value, record) => {
         const owned = isTournamentOwnedByLocal(record.id, machineCode);
         const ownerCode = getTournamentOwnerCode(record.id);
@@ -299,6 +320,8 @@ export function TournamentView({
                 <Button type="link" style={{ padding: 0 }}>本机移除</Button>
               </Popconfirm>
             )}
+            {/* 定向同步（P1-A）：导出只含该届的范围包，发给对端导入；不涉及其他系列赛与普通对局 */}
+            <Button type="link" style={{ padding: 0 }} onClick={() => setSyncTarget(record)}>定向同步</Button>
           </Space>
         );
       },
@@ -355,6 +378,7 @@ export function TournamentView({
             setDeleteTarget(selected);
           }}
           onLocalRemove={() => void handleLocalRemove(selected)}
+          onSync={() => setSyncTarget(selected)}
         />
       ) : null}
 
@@ -464,6 +488,31 @@ export function TournamentView({
         </Paragraph>
       </Modal>
 
+      {/* 定向同步（P1-A）：导出只含该届的范围包；对端导入即合并，不涉及其他系列赛与普通对局 */}
+      <Modal
+        title={`定向同步 · ${syncTarget?.name ?? ''}`}
+        open={Boolean(syncTarget)}
+        okText="导出同步包"
+        okButtonProps={{ loading: syncExporting }}
+        cancelText="取消"
+        onCancel={() => setSyncTarget(null)}
+        onOk={() => void handleExportScopedBundle()}
+      >
+        {syncTarget ? (
+          <Space direction="vertical" size={10} style={{ marginTop: 8 }}>
+            <Paragraph style={{ marginBottom: 0 }}>
+              导出一个<b>只包含这一届</b>的同步包（系列赛编排 + 名下全部对局 + 该届选手档案），
+              发给对端在「比赛管理 → 数据同步 → 导入」合并。包里不含其他系列赛与普通对局。
+            </Paragraph>
+            <Text type="secondary">
+              {syncTarget.status === 'completed'
+                ? '已结束的届：用于把最终对阵与赛果同步给对方存档。'
+                : '进行中的届：对端导入后即可看到最新对阵与赛果，继续协作推进。'}
+            </Text>
+          </Space>
+        ) : null}
+      </Modal>
+
       <CreateTournamentModal
         open={createOpen}
         profiles={profiles}
@@ -492,6 +541,8 @@ interface DetailProps {
   onDelete(): void;
   /** 本机移除（仅只读副本可用：仅本机视图隐藏、可恢复） */
   onLocalRemove(): void;
+  /** 定向同步：导出只含该届的范围包（父组件弹窗） */
+  onSync(): void;
 }
 
 function TournamentDetail({
@@ -504,6 +555,7 @@ function TournamentDetail({
   onMatchesStore,
   onDelete,
   onLocalRemove,
+  onSync,
 }: DetailProps): React.ReactElement {
   const { message, modal } = App.useApp();
   // 只读副本（系列赛由另一台机器编排）：可查看与登记对局，编排/推进由服务端拒绝
@@ -557,6 +609,7 @@ function TournamentDetail({
           </Tag>
           <Button onClick={() => setLineupExportOpen(true)}>导出阵容模板</Button>
           <Button onClick={() => setLineupImportOpen(true)}>导入阵容</Button>
+          <Button onClick={onSync}>定向同步</Button>
           <Popconfirm
             title="回退上一波"
             description="将删除最后波未开始的比赛并复位战绩，确定？"

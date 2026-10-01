@@ -46,6 +46,7 @@ import {
   pushCloudSync,
   rejectCloudSync,
   saveCloudAssignment,
+  saveCloudExcludedTournaments,
   saveCloudSyncConfig,
   skipCloudPull,
   testCloudConnection,
@@ -2237,6 +2238,18 @@ export async function createLocalServer(
     }
   });
 
+  /** 分控「默认排除」管理（B1）：保存下次拉取预览默认排除的系列赛（空数组 = 清除记忆） */
+  app.post('/api/cloud-sync/excluded-tournaments', (request, response) => {
+    try {
+      readCloudRequest(request);
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const status = saveCloudExcludedTournaments(paths, body.tournamentIds);
+      response.json({ success: true, status });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   /** 分控「回传」：现算所有未 ack 比赛的累计集合 → uplink:{本机码} */
   app.post('/api/cloud-sync/upload', async (request, response) => {
     try {
@@ -2360,6 +2373,10 @@ export async function createLocalServer(
       const bundle = exportSyncBundle(paths, {
         includeProfiles: body.includeProfiles !== false,
         includeAvatars: body.includeAvatars === true,
+        // 定向同步（系列赛列表「定向同步」入口）：只导出指定系列赛的范围包
+        tournamentIds: Array.isArray(body.tournamentIds)
+          ? body.tournamentIds.map((id) => String(id ?? '').trim()).filter(Boolean)
+          : undefined,
       });
       response.json({ success: true, bundle });
     } catch (error) {

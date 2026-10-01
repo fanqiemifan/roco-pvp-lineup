@@ -2,6 +2,7 @@ import type {
   LineupImportApplyResult,
   LineupImportPreviewRow,
   StageRule,
+  SyncBundle,
   TournamentRecord,
   TournamentWave,
 } from '../../../shared/types';
@@ -149,6 +150,29 @@ export async function localRestoreTournamentApi(tournamentId: string): Promise<T
     { method: 'POST' },
   );
   return data.tournament;
+}
+
+/**
+ * 定向同步（P1-A「导出此系列赛」）：导出只含该届的范围包（编排 + 名下全部对局 + 该届选手档案），
+ * 浏览器直接落盘为 JSON；对端在「比赛管理 → 数据同步 → 导入」合并。其他系列赛 / 普通对局不进包；
+ * 若该届已删除，包内随行墓碑（= 定向删除指令）。返回包内比赛数供提示。
+ */
+export async function exportTournamentSyncBundleApi(tournamentId: string): Promise<{ matches: number }> {
+  const result = await requestJson<{ success: boolean; bundle: SyncBundle }>('/api/sync/export', {
+    method: 'POST',
+    json: { includeProfiles: true, includeAvatars: false, tournamentIds: [tournamentId] },
+  });
+
+  const blob = new Blob([JSON.stringify(result.bundle, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const stamp = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  link.href = url;
+  link.download = `roco-sync-${result.bundle.machine || 'X'}-${tournamentId}-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+  return { matches: result.bundle.matches.length };
 }
 
 /** 卡片「进入管理」：切换为当前比赛（赛事面板跳转复用现有路由） */

@@ -185,6 +185,11 @@ interface CloudSyncLocalState {
   ackedInboxSeq: Record<string, number>;
   /** 收件箱快照：分控端机器码 -> 最近一次读到的回传内容（主控端） */
   inbox: Record<string, CloudSyncUplinkPayload>;
+  /**
+   * 分控端 B1「记住上次排除」：最近一次「确认合并」时排除的系列赛 id。
+   * 下次拉取预览默认继续排除；空数组 = 无记忆。墓碑永不入列（删除指令不是可选项）。
+   */
+  excludedTournamentIds: string[];
   /** 分控端：本次拉取到的云端版本号（确认合并时写进 appliedVersion；用「拉取时」的版本而不是当前版本，
    *  否则主控在拉取后又上传了新版本，会把本机误标成「已是最新」） */
   pendingVersion: number | null;
@@ -207,11 +212,20 @@ const DEFAULT_LOCAL_STATE: CloudSyncLocalState = {
   assignmentUpdatedAt: null,
   ackedInboxSeq: {},
   inbox: {},
+  excludedTournamentIds: [],
   pendingVersion: null,
 };
 
 function emptyLocalState(): CloudSyncLocalState {
-  return { ...DEFAULT_LOCAL_STATE, roster: [], assignment: {}, ackedMatchIds: [], ackedInboxSeq: {}, inbox: {} };
+  return {
+    ...DEFAULT_LOCAL_STATE,
+    roster: [],
+    assignment: {},
+    ackedMatchIds: [],
+    ackedInboxSeq: {},
+    inbox: {},
+    excludedTournamentIds: [],
+  };
 }
 
 function normalizeVersion(value: unknown): CloudSyncVersion | null {
@@ -228,6 +242,23 @@ function normalizeVersion(value: unknown): CloudSyncVersion | null {
     at: typeof raw.at === 'string' ? raw.at : '',
     from: normalizeMachineCode(raw.from),
   };
+}
+
+/** 排除列表规范化（B1）：去空白、去重、保序 */
+function normalizeExcludedTournamentIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  value.forEach((item) => {
+    const id = String(item ?? '').trim();
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  });
+  return ids;
 }
 
 function loadLocalState(paths: AppPaths): CloudSyncLocalState {
@@ -257,6 +288,7 @@ function loadLocalState(paths: AppPaths): CloudSyncLocalState {
       assignmentUpdatedAt: typeof raw.assignmentUpdatedAt === 'string' ? raw.assignmentUpdatedAt : null,
       ackedInboxSeq: normalizeSeqMap(raw.ackedInboxSeq),
       inbox: normalizeInbox(raw.inbox),
+      excludedTournamentIds: normalizeExcludedTournamentIds(raw.excludedTournamentIds),
       pendingVersion: Number.isFinite(Number(raw.pendingVersion))
         ? Math.max(0, Math.floor(Number(raw.pendingVersion)))
         : null,
@@ -570,6 +602,7 @@ export function getCloudSyncStatus(paths: AppPaths): CloudSyncStatus {
     inbox: role === 'main' ? inboxEntriesOf(paths) : [],
     roster: role === 'main' ? buildLocalRoster(paths) : state.roster,
     assignment: state.assignment,
+    excludedTournamentIds: state.excludedTournamentIds,
     ownedTournamentIds: ownedTournamentIds(paths),
     lastContact: {
       pushedAt: state.lastPushedAt,
@@ -1060,6 +1093,9 @@ export async function finalizeCloudPull(
       ackedMatchIds: discarded.size
         ? state.ackedMatchIds.filter((id) => !discarded.has(id))
         : state.ackedMatchIds,
+      // B1「记住上次排除」：本次确认时排除的系列赛记下来，下次预览默认继续排除
+      // （墓碑不会出现在排除列表里——删除指令不是可选项，见 syncExcludedTournamentIds 的 UI 闸门）
+      excludedTournamentIds: normalizeExcludedTournamentIds(excludeTournamentIds),
     });
     try {
       fs.rmSync(paths.cloudPendingFile);
@@ -1446,6 +1482,16 @@ export function saveCloudAssignment(paths: AppPaths, overrides: unknown): CloudS
     }
   });
   finish(paths, { assignment: cleaned, assignmentUpdatedAt: new Date().toISOString() });
+  return getCloudSyncStatus(paths);
+}
+
+/**
+ * B1「记住上次排除」：保存「下次拉取预览默认排除」的系列赛列表（空数组 = 清除记忆）。
+ * 每次「确认合并」也会自动把本次排除记入（见 finalizeCloudPull）；
+ * 墓碑永不入列（删除指令不是可选项，UI 也不允许勾除墓碑组）。
+ */
+export function saveCloudExcludedTournaments(paths: AppPaths, ids: unknown): CloudSyncStatus {
+  finish(paths, { excludedTournamentIds: normalizeExcludedTournamentIds(ids) });
   return getCloudSyncStatus(paths);
 }
 

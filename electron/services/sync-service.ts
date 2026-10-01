@@ -44,6 +44,12 @@ import {
 export interface SyncExportOptions {
   includeProfiles: boolean;
   includeAvatars: boolean;
+  /**
+   * 定向同步（P1-A「导出此系列赛」）：只含指定系列赛——该届编排（含其墓碑，即"定向删除"指令）+
+   * 名下全部比赛 + 该届选手档案（战队档案数量小、包内选手条目不带 teamId 无法反查归属，故全量附带）。
+   * 省略 / 空数组 = 全量导出（现有行为）；普通对局与其他系列赛不进范围包，范围外的墓碑也不进（不扩大作用域）。
+   */
+  tournamentIds?: string[];
 }
 
 /** 解析后的同步包（包内条目保持 unknown，由各服务逐条规范化） */
@@ -118,19 +124,29 @@ export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): S
   // 「连同对局删除」名单里的对局不再进包，旧副本不会随新包继续流转
   // （主控事后从撤销栈撤回恢复的对局同理不再回流分控，见墓碑方案的已知语义）。
   // 「本机移除」（localOnly）只属于本机：整条剔除，绝不外传（否则接收端会误判成删除指令）。
+  // 定向同步（tournamentIds）：只保留指定系列赛——其编排（含墓碑 = 定向删除指令）+ 名下全部比赛；
+  // 普通对局与其他系列赛不进包，范围外的墓碑也不进（作用域严格等于所选的届）。
+  const scopeIds = new Set((options.tournamentIds ?? []).map((id) => String(id ?? '').trim()).filter(Boolean));
+  const scoped = scopeIds.size > 0;
   const tombstoneMatchIds = new Set(
     getTournamentTombstones(paths)
+      .filter((record) => !scoped || scopeIds.has(record.id))
       .filter((record) => record.deletedMatches)
       .flatMap((record) => record.deletedMatchIds ?? []),
   );
+  const tournaments = getTournamentRecordsIncludingTombstones(paths)
+    .filter((record) => !record.localOnly)
+    .filter((record) => !scoped || scopeIds.has(record.id));
   const bundle: SyncBundle = {
     app: SYNC_APP_ID,
     schema: SYNC_BUNDLE_SCHEMA,
     machine: loadRuntimeConfig(paths).machineCode,
     exportedAt: new Date().toISOString(),
-    matches: getMatchStore(paths).matches.filter((match) => !tombstoneMatchIds.has(match.id)),
-    tournaments: getTournamentRecordsIncludingTombstones(paths)
-      .filter((record) => !record.localOnly),
+    matches: getMatchStore(paths).matches.filter((match) => (
+      !tombstoneMatchIds.has(match.id)
+      && (!scoped || scopeIds.has(match.tournamentRef?.tournamentId ?? ''))
+    )),
+    tournaments,
   };
 
   if (!options.includeProfiles) {
@@ -138,14 +154,19 @@ export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): S
   }
 
   const profiles = getProfileStore(paths);
+  // 范围导出：只带该届选手档案（对端缺档案时会只显示一串 id）；战队档案全量附带（数量小、无法反查归属）
+  const scopedPlayerIds = scoped
+    ? new Set(tournaments.flatMap((record) => record.playerIds))
+    : null;
+  const exportPlayers = profiles.players.filter((player) => !scopedPlayerIds || scopedPlayerIds.has(player.id));
   bundle.profiles = {
-    players: profiles.players.map((player) => toBundlePlayer(player)),
+    players: exportPlayers.map((player) => toBundlePlayer(player)),
     teams: profiles.teams.map((team) => toBundleTeam(team)),
   };
 
   if (options.includeAvatars) {
     const players: Record<string, string> = {};
-    profiles.players.forEach((player) => {
+    exportPlayers.forEach((player) => {
       const base64 = readAvatarBase64(paths.profilePlayerAvatarFile(player.id));
       if (base64) {
         players[player.id] = base64;

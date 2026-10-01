@@ -6,7 +6,7 @@
  *     → 断言 GET /api/matches 含新比赛，且按前端的过滤/排序逻辑它排在可见位置
  * 另外覆盖：筛选到「只看普通对局」时系列赛对局会被隐藏（所以界面必须显示筛选提示）
  */
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AddressInfo } from 'node:net';
@@ -14,7 +14,14 @@ import { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createLocalServer, type LocalServer } from '../../electron/socket-server';
-import { computePendingQueue, saveCloudAssignment, saveCloudSyncConfig } from '../../electron/services/cloud-sync-service';
+import {
+  computePendingQueue,
+  finalizeCloudPull,
+  getCloudSyncStatus,
+  saveCloudAssignment,
+  saveCloudExcludedTournaments,
+  saveCloudSyncConfig,
+} from '../../electron/services/cloud-sync-service';
 import { saveRuntimeConfig } from '../../electron/services/config-service';
 import { getMatchStore, recordMatchWinner, saveGameLineupForMatch, startCurrentGame } from '../../electron/services/match-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
@@ -248,5 +255,23 @@ describe('本机移除与回传（分控端）', () => {
     saveCloudAssignment(subPaths, { [completed!.id]: 'B' });
     const pending = computePendingQueue(subPaths);
     expect(pending.matches.map((item) => item.matchId)).toContain(completed!.id);
+  });
+});
+
+describe('B1 · 记住上次排除（默认排除记忆）', () => {
+  it('确认合并记录本次排除；可一键清除；status 回带且做规范化', async () => {
+    // 造一个最小待合并包：finalize 会把本次「排除的系列赛」记入本机状态
+    const emptyBundle = exportSyncBundle(mainPaths, { includeProfiles: false, includeAvatars: false });
+    writeFileSync(subPaths.cloudPendingFile, JSON.stringify(emptyBundle), 'utf-8');
+
+    await finalizeCloudPull(subPaths, [], 'newer', ['T20260101_ZZ9']);
+    expect(getCloudSyncStatus(subPaths).excludedTournamentIds).toEqual(['T20260101_ZZ9']);
+
+    // 「全部恢复导入」走这里：清空记忆
+    expect(saveCloudExcludedTournaments(subPaths, []).excludedTournamentIds).toEqual([]);
+
+    // 规范化：去空白、去重、保序
+    expect(saveCloudExcludedTournaments(subPaths, [' T_A ', 'T_A', 'T_B', '']).excludedTournamentIds)
+      .toEqual(['T_A', 'T_B']);
   });
 });

@@ -861,6 +861,8 @@ export interface CloudSyncStatus {
   roster: CloudSyncRosterEntry[];
   /** 指派规则（比赛 id -> 机器码；空字符串 = 主控端登记） */
   assignment: Record<string, string>;
+  /** 分控端 B1「记住上次排除」：最近一次确认合并时排除的系列赛（下次预览默认继续排除；墓碑永不入列） */
+  excludedTournamentIds: string[];
   /** 主控端：本机为编排机的系列赛 id（分控端为空数组） */
   ownedTournamentIds: string[];
   /** 最后一次成功通信时间（本机记录，不做心跳） */

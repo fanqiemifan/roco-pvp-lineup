@@ -106,7 +106,7 @@
 | CloudSyncAckPayload | 主控回执（ackedMatchIds/ackedSeq/at；逐场确认时只带已确认的 matchId） | shared/types.ts |
 | CloudSyncPendingMatch / CloudSyncPendingQueue | 待回传集（分控现算：已完赛 + 归本机登记 + 未 ack）及其序号、回执 id | shared/types.ts |
 | CloudSyncInboxEntry | 主控收件箱条目（按分控端分组：code/label/seq/submittedAt/pending） | shared/types.ts |
-| CloudSyncStatus | 云同步状态（config/configured/version/appliedVersion/pending/inbox/roster/assignment/ownedTournamentIds/lastContact/lastError），两端共用 | shared/types.ts |
+| CloudSyncStatus | 云同步状态（config/configured/version/appliedVersion/pending/inbox/roster/assignment/excludedTournamentIds B1 记忆的默认排除/lastContact/lastError），两端共用 | shared/types.ts |
 | CloudSyncPollResult | 红点轮询结果（version/changed/inbox/status），只读小键、绝不合并 | shared/types.ts |
 | CloudSyncAckItem / CloudSyncAckSource | 确认台条目（item = 复用 SyncImportItem，record = 待合并比赛，impact = 写回影响说明）与分控端分组 | shared/types.ts |
 | CloudSyncPushResult / CloudSyncPullResult / CloudSyncUploadResult / CloudSyncCheckResult / CloudSyncConfirmResult / CloudSyncRejectResult / CloudSyncTestResult | 四类点击动作与自检的结果载荷 | shared/types.ts |

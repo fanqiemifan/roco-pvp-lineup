@@ -161,7 +161,7 @@
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
-| 导出同步包 | exportSyncBundle | (paths: AppPaths, options: SyncExportOptions) => SyncBundle | 打包全部比赛（含空白/进行中）+ 系列赛编排全量（**含墓碑**，否则删除传播不出去）+ 可选档案与头像（base64，仅在包含档案时附带；缺失头像文件不产生键）；墓碑「连同对局删除」名单内的对局不进包；**剔除 localOnly 本机移除记录**（仅本机语义，绝不外传） |
+| 导出同步包 | exportSyncBundle | (paths: AppPaths, options: SyncExportOptions) => SyncBundle | 打包全部比赛（含空白/进行中）+ 系列赛编排全量（**含墓碑**，否则删除传播不出去）+ 可选档案与头像（base64，仅在包含档案时附带；缺失头像文件不产生键）；墓碑「连同对局删除」名单内的对局不进包；**剔除 localOnly 本机移除记录**（仅本机语义，绝不外传）；**可选 tournamentIds 范围导出（定向同步 P1-A）**：只含指定系列赛（含其墓碑=定向删除）+ 名下全部比赛 + 该届选手档案（战队档案全量附带），普通对局与他届不进包 |
 | 导入预览 | previewSyncImport | (paths: AppPaths, raw: unknown, mode: SyncConflictMode) => SyncImportPreview | 校验 app/schema（不符抛中文错误）后组合比赛与档案 diff，统计头像 补缺/已有/无法对应；只读不写入（系列赛不进预览的勾选列表，导入时自动合并）。另产出 `tournamentGroups`（按 `match.tournamentRef.tournamentId` 把比赛归到各系列赛 + 「普通对局」组，带 name/playerCount/incoming/existsLocally/stageSummary/matchKeys；包内是墓碑时带 `tombstone: true`，UI 显示「已删除」且不可取消勾选）与 `hasTournaments`，供预览弹窗显示「这条系列赛包含哪些比赛」。**头像统计口径与落盘一致**：包内头像 key（档案 id）先按「id 别名 → 源 id → 同名」解析成本机档案，命中不了才算「无法对应」；本机已「本机移除」的系列赛在 tournamentGroups 里带 `localRemoved: true`（UI 显示「已在本机移除，保持隐藏」，不显示「本机已有 / 将新建」）。**「已删对局名单」拦截已计入预览**（与应用合并侧同口径：本机真墓碑 + 包内将被接受的真墓碑的 deletedMatches 名单并集）——命中比赛标 `action=skip` + `blocked=true`（UI 显示「已删名单拦截」），组带 `localTombstone: true`；否则这类比赛会永远显示「新增」却从不写入 |
 | 应用导入 | applySyncImport | (paths: AppPaths, raw: unknown, options: SyncApplyOptions) => Promise<SyncImportResult> | 服务端重新分类（不信任客户端判定），按 acceptedKeys 取交集合并比赛与档案，系列赛编排自动合并（不参与勾选）后补跑写回（runTournamentWriteBack，幂等，波打齐自动推进），按 includeAvatars 写头像（复用 saveProfilePlayerAvatar / saveProfileTeamLogo，自带魔数校验；头像目标档案按「**id 别名 → 源 id → 同名**」解析后**一律用本机 id 落盘**）；返回 store（写回后最新、可能含新生成的下一波比赛）/profiles/avatarsWritten/tournaments/warnings。`options.skipTournaments`（云同步主控确认台用）= 不合并包内系列赛编排（编排结构由本机自己持有），只合并比赛并照跑写回；`options.excludeTournamentIds`（预览里被取消勾选的系列赛）= 该系列赛编排不合并且**其名下比赛一律不写入**（从 acceptedKeys 里剔除并统计 warning）；`options.overwriteAvatars`（导入预览勾选「覆盖已有头像」）= 用包内图片覆盖本机同档案已有头像，**默认 false 只补缺**（跨机一致性靠档案头像，覆盖是显式例外）。**墓碑行为**：合并顺序为 编排（墓碑不参与「取消勾选」）→ 按墓碑名单过滤比赛 → 解绑/清理不变量（引用墓碑的比赛一律解绑——旧包能把 tournamentRef 带回来；**新墓碑**且 deletedMatches 时按名单在本机静默移除对局，并记 warning「已按上游墓碑清理本机数据」） |
 | 解析同步包（供云同步复用） | parseSyncBundle | (raw: unknown) => SyncBundlePayload | 校验 app/schema/结构并产出 {machine, exportedAt, matches, tournaments, profiles, avatars}，不合法抛中文错误（云同步服务与路由共用同一校验口径） |
@@ -174,7 +174,7 @@
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
-| 读云同步状态 | getCloudSyncStatus | (paths: AppPaths) => CloudSyncStatus | 组装界面所需的全部状态（config/configured/version/appliedVersion/pending/inbox/roster/assignment/ownedTournamentIds/lastContact/lastError），不产生云端请求 |
+| 读云同步状态 | getCloudSyncStatus | (paths: AppPaths) => CloudSyncStatus | 组装界面所需的全部状态（config/configured/version/appliedVersion/pending/inbox/roster/assignment/excludedTournamentIds/ownedTournamentIds/lastContact/lastError），不产生云端请求 |
 | 计算待回传集 | computePendingQueue | (paths: AppPaths) => CloudSyncPendingQueue | 现算「已完赛 + 有胜者 + 按指派归本机码 + 主控未 ack」的比赛；每次「同步最新」合并后重算，防主控回退后陈旧登记被复活；本机自建系列赛的赛果（未指派，scope 为空）天然不进本集 → 不上行 |
 | 已确认比赛集合 | ackedMatchIdSet | (paths: AppPaths) => Set<string> | 主控回执里的 matchId 集合（分控端禁止撤回的判据） |
 | 保存云同步设置 | saveCloudSyncConfig | (paths: AppPaths, input: CloudSyncConfigInput) => CloudSyncStatus | syncKey/role/workerUrl/machineLabel/pollEnabled/pollIntervalSeconds 落 config.json；peerCodes（主控端分控码列表）并入名册并剔除本机码 |
@@ -189,6 +189,7 @@
 | 主控确认 | confirmCloudSync | (paths: AppPaths, code: string, acceptedKeys: string[]) => Promise<CloudSyncConfirmResult> | 服务端重分类取交集 → 有可写入项时 applySyncImport（mode:'bundle' + `skipTournaments:true`，编排结构绝不用分控副本覆盖）→ 内部 runTournamentWriteBack 推进波次 → 写 ack:{code} → 从收件箱移除已确认条目。**被勾选项里的 `action='skip'`（本机与对方内容一致）也算确认**：这类不写数据、只回执 + 幂等补跑一次写回；否则对方会永远停在「等主控确认」（确认动作的本质是一次回执） |
 | 主控驳回 | rejectCloudSync | (paths: AppPaths, code: string) => Promise<CloudSyncRejectResult> | 不写本地、不写回执；分控端保持「待回传」，修正后重新点「回传」 |
 | 保存指派规则 | saveCloudAssignment | (paths: AppPaths, overrides: unknown) => CloudSyncStatus | 比赛 id -> 机器码（空串 = 主控端自己登记）；自动清理已不存在比赛的条目；随下次分发写入 downlink |
+| 保存默认排除记忆 | saveCloudExcludedTournaments | (paths: AppPaths, ids: unknown) => CloudSyncStatus | B1「记住上次排除」：保存下次拉取预览默认排除的系列赛（空数组 = 清除记忆）；finalizeCloudPull「确认合并」时也会自动记入本次排除；去空白/去重；墓碑永不入列（删除指令不是可选项） |
 | 改机器码守卫 | checkMachineCodeChange | (paths: AppPaths, nextCode: string) => MachineCodeGuardResult | 有内嵌旧码的 running 系列赛 → blocked（堵「改码丢所有权，自己锁死自己」）；仅有其它内嵌旧码系列赛 → requireConfirm；**不做自动迁移 id**（引用、头像目录名都会断） |
 | 登记入口判定 | canRegisterMatch | (paths: AppPaths, matchId: string) => {allowed, reason} | 未启用云同步（没填 syncKey/机器码）→ 放行（保持单机行为）；**归属本机的比赛（tournamentRef 内嵌本机码，即本机自建系列赛的对局）一律放行**——自建系列赛不会出现在主控指派表里，按「未指派默认主控」判会让自建赛事登记被误拦，指派只约束「别人家的比赛」；主控端未指派/指派给本机可登记；分控端只有指派给本机的可登记 |
 | 撤回判定 | checkSubUndoAllowed | (paths: AppPaths, matchId: string) => {allowed, reason} | 分控端对已 ack 的比赛禁止撤回（合并是整条替换、不触发 onMatchUndo，单方面撤回会让比赛回 pending 而节点胜者还在，状态分叉） |

@@ -3954,16 +3954,37 @@ function Dashboard() {
     try {
       const result = await postCloud<{ preview: SyncImportPreview; data: { dist: string } }>('/api/cloud-sync/pull');
       setCloudPreviewFlow('pull');
-      setSyncExcludedTournamentIds([]);
+      // B1「记住上次排除」：上次确认合并时排除的系列赛，本次预览默认继续排除（墓碑永不入列——删除指令不可取消）
+      const remembered = new Set(result.status.excludedTournamentIds ?? []);
+      const defaultExcludedGroups = (result.preview.tournamentGroups ?? [])
+        .filter((group) => group.id && remembered.has(group.id) && !group.tombstone);
+      const defaultExcludedIds = defaultExcludedGroups.map((group) => group.id);
+      const defaultExcludedKeys = new Set(defaultExcludedGroups.flatMap((group) => group.matchKeys));
+      setSyncExcludedTournamentIds(defaultExcludedIds);
       setSyncCollapsedGroupKeys([]);
       setSyncPreview(result.preview);
-      setSyncSelectedKeys(defaultSyncSelection(result.preview));
+      setSyncSelectedKeys(defaultSyncSelection(result.preview).filter((key) => !defaultExcludedKeys.has(key)));
       setSyncActiveKey(defaultSyncActiveKey(result.preview));
       setCloudDistInfo(`内容来自 ${result.data.dist} 号机`);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setCloudBusy('');
+    }
+  }
+
+  /** B1：清除「默认排除」记忆（本机持久化），并把本次预览的排除全部恢复导入 */
+  async function clearRememberedExclusions(): Promise<void> {
+    try {
+      await postCloud('/api/cloud-sync/excluded-tournaments', { tournamentIds: [] });
+      setSyncExcludedTournamentIds([]);
+      setSyncSelectedKeys((prev) => Array.from(new Set([
+        ...prev,
+        ...syncTournamentGroups.flatMap((group) => group.matchKeys),
+      ])));
+      message.success('已清除默认排除记忆，本次预览已全部恢复导入');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -5665,6 +5686,19 @@ function Dashboard() {
                         type="warning"
                         showIcon
                         message="包内含已删除的系列赛（墓碑）：导入时会自动清理本机对应副本与名单内的对局，该项不可取消"
+                      />
+                    ) : null}
+
+                    {cloudPreviewFlow === 'pull' && syncExcludedTournamentIds.length > 0 ? (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={`已按上次选择默认排除 ${syncExcludedTournamentIds.length} 届系列赛（记在本机，下次预览继续生效）`}
+                        action={(
+                          <Button size="small" onClick={() => void clearRememberedExclusions()}>
+                            全部恢复导入
+                          </Button>
+                        )}
                       />
                     ) : null}
 
