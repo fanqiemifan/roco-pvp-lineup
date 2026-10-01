@@ -131,6 +131,7 @@ import {
 } from './services/match-service.js';
 import {
   advanceTournament,
+  assertTournamentMatchFieldsEditable,
   createTournament,
   deleteTournament,
   getLocallyRemovedTournaments,
@@ -139,6 +140,7 @@ import {
   lockPairings,
   onMatchCompleted,
   onMatchUndo,
+  prepareTournamentWriteBack,
   previewOpeningWave,
   redrawTournament,
   removeLocalTournament,
@@ -147,6 +149,7 @@ import {
   rollbackWave,
   savePairingDraft,
   startTournament,
+  syncTournamentMatchNames,
 } from './services/tournament-service.js';
 import {
   clearPanelState,
@@ -952,6 +955,11 @@ export async function createLocalServer(
   app.post('/api/profiles/players', (request, response) => {
     try {
       const profiles = savePlayerProfile(paths, request.body ?? {});
+      // 选手名是系列赛对局的名字快照来源，也是完成钩子写回的比对依据：改名后必须回写，
+      // 否则该场登记胜负会被「比赛选手与系列赛节点不一致」拒绝（档案改名本身不该让人发现不了）
+      if (syncTournamentMatchNames(paths)) {
+        emitMatchesUpdate(getMatchStore(paths));
+      }
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles }, ROLES_FOR_PROFILES);
       // 选手名是头像匹配键：档案变更后各页需重解析头像（赛事覆盖 > 档案头像）
       emitAvatarUpdate();
@@ -1311,6 +1319,9 @@ export async function createLocalServer(
 
   app.patch('/api/matches/:matchId', (request, response) => {
     try {
+      // 系列赛对局的选手名 / 赛制由编排与档案决定（选手名是完成钩子写回的比对依据、赛制决定完赛局数），
+      // 面板只允许改战队 / 排位排名等展示字段（与 DELETE 的系列赛守卫同口径）
+      assertTournamentMatchFieldsEditable(paths, request.params.matchId, request.body ?? {});
       const matches = updateMatch(paths, request.params.matchId, request.body ?? {});
       const scoreboard = getScoreboardState(paths);
       emitMatchesUpdate(matches);
@@ -1430,6 +1441,15 @@ export async function createLocalServer(
     }
   };
 
+  // 系列赛写回前置校验：必须在比分落盘前跑，否则钩子抛错会留下
+  // 「比分已写入、系列赛没推进」且无法再登记的半吊子状态
+  const assertTournamentWriteBack = (matchId: string): void => {
+    const gate = prepareTournamentWriteBack(paths, matchId);
+    if (!gate.allowed) {
+      throw new Error(gate.reason);
+    }
+  };
+
   app.post('/api/matches/:matchId/winner', (request, response) => {
     try {
       const winner = request.body?.winner;
@@ -1437,6 +1457,7 @@ export async function createLocalServer(
         throw new Error('winner must be left or right');
       }
       assertMatchRegistration(request.params.matchId);
+      assertTournamentWriteBack(request.params.matchId);
       const matches = recordMatchWinner(paths, request.params.matchId, winner);
       const scoreboard = getScoreboardState(paths);
       const panels = [getPanelState(paths, 'left'), getPanelState(paths, 'right')];
@@ -1748,6 +1769,8 @@ export async function createLocalServer(
       if (!target.tournamentRef || target.tournamentRef.tournamentId !== request.params.tournamentId) {
         throw new Error('该比赛不属于本系列赛');
       }
+      // 同登记胜负：弃权也走完成钩子，先校验再落盘，避免半吊子状态
+      assertTournamentWriteBack(matchId);
 
       forfeitMatch(paths, matchId, body.loserSide);
       const updated = onMatchCompleted(paths, matchId);

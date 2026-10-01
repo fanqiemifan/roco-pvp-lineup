@@ -30,14 +30,14 @@
 |-------------|------|------|------|------|
 | 获取所有比赛 | GET | /api/matches | 获取所有比赛记录 | electron/socket-server.ts |
 | 创建比赛 | POST | /api/matches | 创建新比赛（payload 可含 leftRank/rightRank 排位排名，仅数字、可选） | electron/socket-server.ts |
-| 更新比赛 | PATCH | /api/matches/:matchId | 更新比赛信息（含选手名、排位排名、赛制，以及所属战队 leftTeamId/leftTeamName/rightTeamId/rightTeamName 可选，未传时保留原值；后台「保存比赛信息」与「战队修改」都走此接口） | electron/socket-server.ts |
+| 更新比赛 | PATCH | /api/matches/:matchId | 更新比赛信息（含选手名、排位排名、赛制，以及所属战队 leftTeamId/leftTeamName/rightTeamId/rightTeamName 可选，未传时保留原值；后台「保存比赛信息」与「战队修改」都走此接口）。**系列赛对局守卫**：`leftPlayer/rightPlayer/bestOf` 由编排与档案决定（名字是完成钩子的写回比对依据、赛制决定完赛局数），值真被改动时 400 拒绝；原值回填、普通对局、系列赛已删除（孤儿引用）一律放行 | electron/socket-server.ts |
 | 更新比赛标签 | PATCH | /api/matches/:matchId/tags | 更新比赛标签 | electron/socket-server.ts |
 | 批量添加标签 | POST | /api/matches/batch-tags | 为多场比赛追加标签（合并保留原有，body: matchIds/tags） | electron/socket-server.ts |
 | 删除比赛 | DELETE | /api/matches/:matchId | 删除单个比赛；响应额外回带 pagePush（推流选场清理结果，仅含发生变化的页面） | electron/socket-server.ts |
 | 选择活动比赛 | POST | /api/matches/:matchId/select | 选择活动比赛 | electron/socket-server.ts |
 | 开始小局 | POST | /api/matches/:matchId/start | 开始当前小局 | electron/socket-server.ts |
 | 录入小局阵容 | POST | /api/matches/:matchId/games/:gameNumber/lineup | 为当前小局（待开始）录入双方阵容（body: selections.left/right；双侧合并一次写入 + 单次广播 matches:update，不触碰面板/记分牌/activeMatchId；比赛管理「录入阵容」用） | electron/socket-server.ts |
-| 记录胜负 | POST | /api/matches/:matchId/winner | 记录本局胜负 | electron/socket-server.ts |
+| 记录胜负 | POST | /api/matches/:matchId/winner | 记录本局胜负；系列赛对局**先跑 `prepareTournamentWriteBack` 前置校验再落盘**（节点选手档案缺失 → 400 且比分一点不动，杜绝「比分已写入、系列赛没推进」的半吊子状态；名字快照与档案不一致时先自愈回写） | electron/socket-server.ts |
 | 撤销操作 | POST | /api/matches/:matchId/undo | 撤销操作；系列赛对局会先跑 onMatchUndo 反向钩子（清节点胜者、必要时级联丢弃「自动锁定且未开打」的后续波），钩子失败则整个撤回 400、比赛不动（避免「比赛撤了、系列赛仍显示晋级」） | electron/socket-server.ts |
 | 恢复操作 | POST | /api/matches/:matchId/redo | 恢复操作 | electron/socket-server.ts |
 | 批量删除比赛 | POST | /api/matches/batch-delete | 批量删除比赛（body: matchIds）；响应额外回带 pagePush（推流选场清理结果，仅含发生变化的页面） | electron/socket-server.ts |
@@ -94,7 +94,7 @@
 | 导入外部对阵 | POST | /api/tournaments/:tournamentId/waves/:waveGlobalIndex/pairings/import | body.text（每行 `A vs B`）或 body.pairs（名字数组）；匹配池仅本波选手，先精确后子串模糊，未唯一匹配的行进入 unmatched，已匹配的回填草稿（不锁定） | electron/socket-server.ts |
 | 阵容表批量导入 | POST | /api/tournaments/:tournamentId/lineup-import | 系列赛阵容表回填（导出模板的线下收集）：body.dryRun=true 预览——按「对局ID」定位 + 逐格名字解析（复用快速填充匹配，支持 `3004 迪莫` pet_id / `011 鸭吉吉` 编号写法）+ 场次预检，不写数据；写入时 body.rows[].left/right 为 pet_id 数组（null = 该侧不写），对局级原子、一次落盘 + 单次 matches:update 广播，逐场返回结果。门槛与「录入小局阵容」一致（比赛待开始 + 第 1 局未开赛）且不再放宽：已开赛/已完赛/非本系列赛整场跳过；任意机器可用（属比赛记录写入） | electron/socket-server.ts |
 | 回退上一波 | POST | /api/tournaments/:tournamentId/rollback-wave | 管理级回退：仅最后波、且该波比赛全部 pending 无小局结果；删除未打比赛（deleteMatches 可恢复）、清节点胜者并复位战绩；跨阶段时 currentStageIndex 回落。广播 matches:update + tournament:update | electron/socket-server.ts |
-| 弃权判负 | POST | /api/tournaments/:tournamentId/forfeit | body: matchId + loserSide(left/right)；校验比赛属于本系列赛且 pending，补决胜小局（BO1=1:0、BO3=2:0）+「弃权」标签，completed 后走完成钩子写回节点 | electron/socket-server.ts |
+| 弃权判负 | POST | /api/tournaments/:tournamentId/forfeit | body: matchId + loserSide(left/right)；校验比赛属于本系列赛且 pending，补决胜小局（BO1=1:0、BO3=2:0）+「弃权」标签，completed 后走完成钩子写回节点（与登记胜负同样**先跑写回前置校验再落盘**） | electron/socket-server.ts |
 | 删除系列赛 | DELETE | /api/tournaments/:tournamentId | body.deleteMatches 可空：默认只删编排记录，关联比赛先解除 tournamentRef 再保留（转为普通对局，标签/战绩不动）；deleteMatches=true 时解绑后再 deleteMatches 连对局一起删（进删除栈，比赛管理可「撤回最近删除」，恢复后也是无关联普通对局）。广播 matches:update + tournament:update；不存在 400 | electron/socket-server.ts |
 | 本机移除 | POST | /api/tournaments/:tournamentId/local-remove | 分控端对「非本机编排」系列赛做视图层隐藏（幂等：已移除返回 changed=false）：写 localOnly 墓碑，立即从列表与对局列表隐藏、同步不复活；**不解绑/不删对局、不改 updatedAt、不传播**；本机编排 400 提示用「删除系列赛」；成功广播 tournament:update | electron/socket-server.ts |
 | 恢复本机移除 | POST | /api/tournaments/:tournamentId/local-restore | 清除 localOnly 墓碑标记，记录立即重新可见（内容一直保留在本机）；下一次同步按「较新覆盖」补齐编排机最新编排与赛果；非本机移除记录 400 | electron/socket-server.ts |
@@ -202,7 +202,7 @@
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
 | 获取录入列表 | GET | /api/profiles | 获取选手与战队录入（公开 GET，推流页9 战队联想/页面3 战队标识依赖） | electron/socket-server.ts |
-| 保存选手录入 | POST | /api/profiles/players | 新增/更新选手（未传 id 但同名视为更新；name 必填） | electron/socket-server.ts |
+| 保存选手录入 | POST | /api/profiles/players | 新增/更新选手（未传 id 但同名视为更新；name 必填）。保存后跑 `syncTournamentMatchNames` 把系列赛对局的名字快照回写为新档案名（有改动才广播 matches:update）——不回写会让该场登记胜负被「比赛选手与系列赛节点不一致」拒绝 | electron/socket-server.ts |
 | 导入选手（JSON 批量） | POST | /api/profiles/players/import | 接受数组或 `{players:[...]}`；每条仅识别白名单 name/rank/declaration/pets（其余键忽略防注入），rank 仅纯数字、缺 name 跳过、同名沿用旧 id 更新；pets 仅命中 pets.json 才录入，未命中返回 `review`（每条最多 5 个候选）由前端兜底人工确认；响应 `{ success, profiles, review }`，成功广播 profiles:update | electron/socket-server.ts |
 | 删除选手录入 | DELETE | /api/profiles/players/:playerId | 删除选手（连同头像文件） | electron/socket-server.ts |
 | 保存战队录入 | POST | /api/profiles/teams | 新增/更新战队（未传 id 但同名视为更新；name 必填） | electron/socket-server.ts |

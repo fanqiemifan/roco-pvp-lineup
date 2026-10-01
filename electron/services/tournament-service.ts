@@ -30,7 +30,10 @@ import {
   deleteMatches,
   detachMatchesFromTournament,
   getMatchStore,
+  normalizeBestOf,
+  normalizePlayerName,
   resetMatchesToPending,
+  updateMatch,
 } from './match-service.js';
 import { getProfileStore } from './profile-service.js';
 import { loadRuntimeConfig } from './config-service.js';
@@ -1192,6 +1195,141 @@ function progressFromWave(
   // 双败后续波（W1→W2→W3）
   if (record.stages[wave.stageIndex].format === 'double-life' && wave.waveIndex < 3) {
     materializeWave(paths, record, wave.stageIndex, wave.waveIndex + 1);
+  }
+}
+
+/* ==================== 系列赛对局：字段守卫 / 名字快照回写 / 写回前置校验 ==================== */
+
+/** 定位对局对应的节点：键 = 系列赛 id + 阶段 + 波次 + 节点 id（ref 四元组的字符串形式） */
+function nodeKey(tournamentId: string, stageIndex: number, waveIndex: number, nodeId: string): string {
+  return `${tournamentId}|${stageIndex}|${waveIndex}|${nodeId}`;
+}
+
+/**
+ * 系列赛对局的选手名快照回写：把对局记录里的 leftPlayer/rightPlayer 对齐到节点档案名。
+ *
+ * 为什么需要：对局名字是建场时从档案拍的快照，而完成钩子按名字比对节点（防错改名字后错误写回），
+ * 于是「信息录入」改名后不回写，该场登记胜负就会被「比赛选手与系列赛节点不一致」拒绝。
+ * 只改名字，不动比分 / 状态 / 对手与节点的关联；onlyMatchId 传入时只处理这一场（登记前的自愈）。
+ * 返回实际改动的对局数。
+ */
+export function syncTournamentMatchNames(paths: AppPaths, onlyMatchId?: string): number {
+  const profileNames = new Map(getProfileStore(paths).players.map((player) => [player.id, player.name]));
+  const expected = new Map<string, { left: string; right: string }>();
+  readRecords(paths)
+    .filter((record) => !record.deletedAt)
+    .forEach((record) => {
+      record.waves.forEach((wave) => {
+        wave.nodes.forEach((node) => {
+          const left = profileNames.get(node.playerAId ?? '');
+          const right = profileNames.get(node.playerBId ?? '');
+          // 档案缺失（选手被删）时无从判断名字：不猜测，交由写回前置校验给出明确报错
+          if (!left || !right) {
+            return;
+          }
+          expected.set(nodeKey(record.id, wave.stageIndex, wave.waveIndex, node.id), { left, right });
+        });
+      });
+    });
+  if (!expected.size) {
+    return 0;
+  }
+
+  let changed = 0;
+  getMatchStore(paths).matches.forEach((match) => {
+    const ref = match.tournamentRef;
+    if (!ref || (onlyMatchId && match.id !== onlyMatchId)) {
+      return;
+    }
+    const want = expected.get(nodeKey(ref.tournamentId, ref.stageIndex, ref.waveIndex, ref.nodeId));
+    if (!want || (match.leftPlayer === want.left && match.rightPlayer === want.right)) {
+      return;
+    }
+    updateMatch(paths, match.id, { leftPlayer: want.left, rightPlayer: want.right });
+    changed += 1;
+  });
+  return changed;
+}
+
+export interface TournamentWriteBackGate {
+  allowed: boolean;
+  reason?: string;
+}
+
+/**
+ * 登记赛果（登记胜负 / 弃权）写回前置校验：把完成钩子会抛错的场景提前暴露。
+ *
+ * 为什么必须前置：钩子在比分落盘之后才跑，抛错时会出现「比分已写入、系列赛没推进」的半吊子状态
+ * （比赛还因节点无胜者而不能再登记，只能先撤回）。这里先判定，拒绝时数据必须一点没动。
+ * - 无 tournamentRef / 系列赛已删除（含墓碑）/ 本机只是只读副本 → 放行（按普通对局处理，与钩子同口径）；
+ * - 节点已有胜者 → 放行（钩子幂等跳过）；
+ * - 节点档案缺失（选手被删）→ 拒绝并说明原因；
+ * - 对局名字快照与节点档案名不一致（档案改过名 / 历史误改）→ 先回写对齐再放行。
+ */
+export function prepareTournamentWriteBack(paths: AppPaths, matchId: string): TournamentWriteBackGate {
+  const match = getMatchStore(paths).matches.find((item) => item.id === matchId);
+  const ref = match?.tournamentRef;
+  if (!match || !ref) {
+    return { allowed: true };
+  }
+  const record = readRecords(paths).find((item) => item.id === ref.tournamentId && !item.deletedAt);
+  if (!record || !isOwnedByLocal(paths, ref.tournamentId)) {
+    return { allowed: true };
+  }
+  const wave = record.waves.find((item) => item.stageIndex === ref.stageIndex && item.waveIndex === ref.waveIndex);
+  if (!wave) {
+    return { allowed: false, reason: '系列赛波次不存在' };
+  }
+  const node = wave.nodes.find((item) => item.id === ref.nodeId);
+  if (!node) {
+    return { allowed: false, reason: '系列赛节点不存在' };
+  }
+  if (node.winnerId) {
+    return { allowed: true };
+  }
+
+  const profileNames = new Map(getProfileStore(paths).players.map((player) => [player.id, player.name]));
+  const nameA = profileNames.get(node.playerAId ?? '');
+  const nameB = profileNames.get(node.playerBId ?? '');
+  if (!nameA || !nameB) {
+    return {
+      allowed: false,
+      reason: `系列赛节点上的选手档案已不存在，无法登记：请在「信息录入」恢复该选手或走系列赛「回退上一波」`,
+    };
+  }
+  if (match.leftPlayer !== nameA || match.rightPlayer !== nameB) {
+    // 名字快照过期（档案改过名）：自愈后放行，避免历史数据变成无解的死局
+    syncTournamentMatchNames(paths, match.id);
+  }
+  return { allowed: true };
+}
+
+/**
+ * 赛事面板字段守卫：系列赛对局的「选手名 / 赛制」由引擎建场时从档案快照决定，界面只能改
+ * 战队 / 排位排名等展示字段。选手名是完成钩子写回的比对依据（改了会登记失败），
+ * 赛制决定完赛局数（改小会让比赛按已有比分直接结束却不写回系列赛）。
+ * 未带这些字段或值与现状一致时放行；系列赛已删除（含墓碑）时按普通对局放行。
+ */
+export function assertTournamentMatchFieldsEditable(paths: AppPaths, matchId: string, payload: unknown): void {
+  const match = getMatchStore(paths).matches.find((item) => item.id === matchId);
+  const ref = match?.tournamentRef;
+  if (!match || !ref) {
+    return;
+  }
+  if (!readRecords(paths).some((item) => item.id === ref.tournamentId && !item.deletedAt)) {
+    return;
+  }
+
+  const raw = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+  const changed = [
+    raw.leftPlayer !== undefined && normalizePlayerName(raw.leftPlayer) !== match.leftPlayer ? '左侧选手' : '',
+    raw.rightPlayer !== undefined && normalizePlayerName(raw.rightPlayer) !== match.rightPlayer ? '右侧选手' : '',
+    raw.bestOf !== undefined && normalizeBestOf(raw.bestOf) !== match.bestOf ? '比赛赛制' : '',
+  ].filter(Boolean);
+  if (changed.length) {
+    throw new Error(
+      `系列赛对局的${changed.join(' / ')}不能在此修改（由编排与档案决定）。改名请到「信息录入」，赛制请在系列赛阶段规则里调整`,
+    );
   }
 }
 

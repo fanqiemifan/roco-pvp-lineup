@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { io as ioClient, type Socket } from 'socket.io-client';
 
 import { createLocalServer, type LocalServer } from '../../electron/socket-server';
+import { updateMatch } from '../../electron/services/match-service';
 import { savePlayerProfile } from '../../electron/services/profile-service';
 import { saveRuntimeConfig } from '../../electron/services/config-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
@@ -66,6 +67,7 @@ async function requestJson(
 }
 
 const postJson = (pathname: string, body?: unknown) => requestJson('POST', pathname, body);
+const patchJson = (pathname: string, body?: unknown) => requestJson('PATCH', pathname, body);
 const putJson = (pathname: string, body?: unknown) => requestJson('PUT', pathname, body);
 const deleteJson = (pathname: string, body?: unknown) => requestJson('DELETE', pathname, body ?? {});
 const getJson = (pathname: string) => requestJson('GET', pathname);
@@ -525,5 +527,105 @@ describe('本机移除 / 恢复（localOnly）', () => {
       socket.off('tournament:update', onUpdate);
       saveRuntimeConfig(paths, { machineCode: 'A' });
     }
+  });
+});
+
+describe('系列赛对局的选手名 / 赛制保护（赛事面板改不动，且登记前先校验）', () => {
+  /** 建一届 4 人单败（BO1，单局即可完赛）并开赛，返回首个对局与它对应的节点 */
+  async function startFourPlayerTournament(name: string, seed: number) {
+    const playerIds = seedPlayers(4);
+    const created = (await postJson('/api/tournaments', {
+      name,
+      playerIds,
+      seed,
+      stages: [
+        { name: '4进2', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+        { name: '总决赛', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+      ],
+    })).data.tournament;
+    await postJson(`/api/tournaments/${created.id}/start`);
+    const match = (await getJson('/api/matches')).data.matches.find(
+      (item: { tournamentRef?: { tournamentId: string } }) => item.tournamentRef?.tournamentId === created.id,
+    );
+    const record = (await getJson(`/api/tournaments/${created.id}`)).data.tournament;
+    const node = record.waves[0].nodes.find((item: { matchId: string }) => item.matchId === match.id);
+    return { created, match, node };
+  }
+
+  it('PATCH 改选手名 / 赛制：400 且落盘不变；战队与排位排名仍可改', async () => {
+    const { match } = await startFourPlayerTournament('字段守卫杯', 21);
+
+    const renamed = await patchJson(`/api/matches/${match.id}`, { leftPlayer: '乱改的名字' });
+    expect(renamed.status).toBe(400);
+    expect(String(renamed.data.error)).toContain('左侧选手');
+    const reBestOf = await patchJson(`/api/matches/${match.id}`, { bestOf: 7 });
+    expect(reBestOf.status).toBe(400);
+    expect(String(reBestOf.data.error)).toContain('比赛赛制');
+
+    const untouched = (await getJson('/api/matches')).data.matches.find((item: { id: string }) => item.id === match.id);
+    expect(untouched.leftPlayer).toBe(match.leftPlayer);
+    expect(untouched.bestOf).toBe(match.bestOf);
+
+    // 原样回填（赛事面板保存战队 / 排名时也会带上这三个字段）+ 改排名：放行
+    const ok = await patchJson(`/api/matches/${match.id}`, {
+      leftPlayer: match.leftPlayer,
+      rightPlayer: match.rightPlayer,
+      bestOf: match.bestOf,
+      leftRank: '99',
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.data.store.matches.find((item: { id: string }) => item.id === match.id).leftRank).toBe('99');
+  });
+
+  it('节点选手档案被删：登记胜负 400，且比分不落盘（不留「半吊子」状态）', async () => {
+    const { match, node } = await startFourPlayerTournament('档案缺失杯', 22);
+    await deleteJson(`/api/profiles/players/${node.playerAId}`);
+
+    await postJson(`/api/matches/${match.id}/games/1/lineup`, {
+      selections: { left: [{ sprite: '3001' }], right: [{ sprite: '3002' }] },
+    });
+    await postJson(`/api/matches/${match.id}/start`);
+    const registered = await postJson(`/api/matches/${match.id}/winner`, { winner: 'left' });
+    expect(registered.status).toBe(400);
+    expect(String(registered.data.error)).toContain('选手档案已不存在');
+
+    const after = (await getJson('/api/matches')).data.matches.find((item: { id: string }) => item.id === match.id);
+    expect(after.status).toBe('in_progress');
+    expect(after.games[0].winner).toBeNull();
+  });
+
+  it('信息录入改名：自动回写对局名字快照，登记胜负照常写回对阵图', async () => {
+    const { created, match, node } = await startFourPlayerTournament('改名回写杯', 23);
+    const newName = `${match.leftPlayer}·新`;
+
+    const saved = await postJson('/api/profiles/players', { id: node.playerAId, name: newName });
+    expect(saved.status).toBe(200);
+    const healed = (await getJson('/api/matches')).data.matches.find((item: { id: string }) => item.id === match.id);
+    expect(healed.leftPlayer).toBe(newName);
+
+    await playMatchHttp(match.id, 'left');
+    const record = (await getJson(`/api/tournaments/${created.id}`)).data.tournament;
+    expect(record.waves[0].nodes.find((item: { id: string }) => item.id === node.id).winnerId).toBe(node.playerAId);
+  });
+
+  it('历史遗留的名字不一致（加限制前改坏的脏数据）：登记前自愈后照常写回', async () => {
+    const { created, match, node } = await startFourPlayerTournament('脏数据杯', 24);
+    // 绕过路由守卫直接改服务层，模拟「加限制之前」被改坏的对局
+    updateMatch(paths, match.id, { leftPlayer: '历史脏数据' });
+    expect((await getJson('/api/matches')).data.matches.find(
+      (item: { id: string }) => item.id === match.id,
+    ).leftPlayer).toBe('历史脏数据');
+
+    await postJson(`/api/matches/${match.id}/games/1/lineup`, {
+      selections: { left: [{ sprite: '3001' }], right: [{ sprite: '3002' }] },
+    });
+    await postJson(`/api/matches/${match.id}/start`);
+    const registered = await postJson(`/api/matches/${match.id}/winner`, { winner: 'right' });
+    expect(registered.status).toBe(200);
+
+    const healed = (await getJson('/api/matches')).data.matches.find((item: { id: string }) => item.id === match.id);
+    expect(healed.leftPlayer).not.toBe('历史脏数据');
+    const record = (await getJson(`/api/tournaments/${created.id}`)).data.tournament;
+    expect(record.waves[0].nodes.find((item: { id: string }) => item.id === node.id).winnerId).toBe(node.playerBId);
   });
 });

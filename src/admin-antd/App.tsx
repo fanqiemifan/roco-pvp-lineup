@@ -657,6 +657,11 @@ function Dashboard() {
     () => new Map(tournaments.map((tournament) => [tournament.id, tournament])),
     [tournaments],
   );
+  // 系列赛对局的选手名 / 赛制由编排与档案决定（写回按选手名比对、赛制决定完赛局数），
+  // 当前比赛表单据此锁定这两个字段，只留战队 / 排位排名可改（与后端 PATCH 守卫同口径）
+  const activeMatchTournamentLocked = Boolean(
+    activeMatch?.tournamentRef && tournamentRecordMap.has(activeMatch.tournamentRef.tournamentId),
+  );
   const tournamentIdSet = useMemo(() => new Set(tournamentNameMap.keys()), [tournamentNameMap]);
   // 本机已「本机移除」的系列赛 id 集合：管理端操作面（比赛管理 / 推流选场）据此一并隐藏其关联对局
   const locallyRemovedIdSet = useMemo(
@@ -4846,7 +4851,7 @@ function Dashboard() {
                               <Row gutter={8} wrap={false} className="current-match-player-inputs">
                                 <Col flex="auto" style={{ minWidth: 0 }}>
                                   <Form.Item label="左侧选手" name="leftPlayer">
-                                    <Input maxLength={32} placeholder="输入左侧选手名字" />
+                                    <Input maxLength={32} placeholder="输入左侧选手名字" disabled={activeMatchTournamentLocked} />
                                   </Form.Item>
                                 </Col>
                                 <Col flex="112px">
@@ -4864,7 +4869,7 @@ function Dashboard() {
                               <Row gutter={8} wrap={false} className="current-match-player-inputs">
                                 <Col flex="auto" style={{ minWidth: 0 }}>
                                   <Form.Item label="右侧选手" name="rightPlayer">
-                                    <Input maxLength={32} placeholder="输入右侧选手名字" />
+                                    <Input maxLength={32} placeholder="输入右侧选手名字" disabled={activeMatchTournamentLocked} />
                                   </Form.Item>
                                 </Col>
                                 <Col flex="112px">
@@ -4882,6 +4887,7 @@ function Dashboard() {
                               <Form.Item label="比赛赛制" name="bestOf">
                                 <Select
                                   style={{ width: '100%' }}
+                                  disabled={activeMatchTournamentLocked}
                                   options={[
                                     { value: 1, label: 'BO1' },
                                     { value: 3, label: 'BO3' },
@@ -4892,6 +4898,12 @@ function Dashboard() {
                               </Form.Item>
                             </Col>
                           </Row>
+                          {activeMatchTournamentLocked ? (
+                            <Text type="secondary" className="current-match-meta">
+                              这是系列赛对局：选手名与赛制由编排决定（登记胜负时按选手名写回对阵图），此处不可修改。
+                              需要改选手名请到「信息录入」，改赛制请在系列赛的阶段规则里调整；战队与排位排名仍可保存。
+                            </Text>
+                          ) : null}
                           <div className="current-match-action-row">
                             <Space wrap size={12} className="current-match-action-group">
                               <Button

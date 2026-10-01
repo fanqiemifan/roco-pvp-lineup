@@ -91,7 +91,8 @@ function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function normalizePlayerName(value: unknown): string {
+/** 选手名规范化（导出：系列赛守卫要按同一口径判断「字段是否真被改动」） */
+export function normalizePlayerName(value: unknown): string {
   return String(value ?? '').trim().slice(0, PLAYER_NAME_MAX_LENGTH);
 }
 
@@ -105,7 +106,8 @@ function normalizeTeamId(value: unknown): string {
   return String(value ?? '').replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-function normalizeBestOf(value: unknown): number {
+/** 赛制规范化（导出原因同 normalizePlayerName） */
+export function normalizeBestOf(value: unknown): number {
   const bestOf = Number.parseInt(String(value ?? ''), 10);
   return SUPPORTED_BEST_OF.has(bestOf) ? bestOf : DEFAULT_BEST_OF;
 }
