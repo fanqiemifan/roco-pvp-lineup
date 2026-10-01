@@ -685,6 +685,8 @@ export interface SyncImportTournamentGroup {
   matchKeys: string[];
   /** 其中可勾选（新增/更新）的比赛数 */
   selectableCount: number;
+  /** 本包携带的该系列赛是删除墓碑：随导入自动清理本机副本，不可取消勾选（删除指令不是可选项） */
+  tombstone?: boolean;
 }
 
 /** 头像 / logo 处理统计 */
@@ -1070,6 +1072,16 @@ export interface TournamentRecord {
   entries: TournamentEntry[];
   waves: TournamentWave[];
   result?: { championId: string; runnerUpId: string; thirdIds?: string[] };
+  /**
+   * 删除墓碑：非空表示该系列赛已被编排机删除（记录作为墓碑保留而不物理移除）。
+   * 对外读取路径过滤墓碑（getTournamentStore），墓碑随同步包传播：接收端据此清本机副本、
+   * 解绑对局，且墓碑永远优先于存活副本（防旧包把已删系列赛带回来复活）。
+   */
+  deletedAt?: string | null;
+  /** 墓碑携带：删除时关联的对局 id 名单（接收端据此清本地副本，两端据此拦截"已删对局回魂"） */
+  deletedMatchIds?: string[];
+  /** 墓碑携带：删除时是否"连同对局删除"（决定 deletedMatchIds 是否要在接收端一并移除） */
+  deletedMatches?: boolean;
 }
 
 /** 配对草稿校验结果（配对确认台锁定前） */
