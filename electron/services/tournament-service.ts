@@ -783,7 +783,11 @@ function hasPlayed(record: TournamentRecord, stageIndex: number, a: string, b: s
       && ((node.playerAId === a && node.playerBId === b) || (node.playerAId === b && node.playerBId === a))));
 }
 
-/** 配对校验：每人恰好一次、同桶严格（跨桶需显式允许）、已交手仅提醒 */
+/**
+ * 配对校验：每人恰好一次、同桶严格（跨桶需显式允许）、已交手仅提醒。
+ * 跨桶允许是**休眠能力**：标准双败流程（自动配对 / 确认台常规操作）不会产生跨桶对阵，
+ * 仅手动配对或导入非常规对阵表时才由裁判显式开启（锁定二次确认、建场后标注「跨桶」）。
+ */
 function validatePairs(
   record: TournamentRecord,
   wave: TournamentWave,
