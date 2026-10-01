@@ -90,7 +90,7 @@ export function TournamentNodeCard({
           disabled={!card.matchId}
           onClick={() => card.matchId && onSelectMatch(card.matchId)}
         >
-          切换为当前比赛
+          进入管理
         </Button>
         <Button
           size="small"

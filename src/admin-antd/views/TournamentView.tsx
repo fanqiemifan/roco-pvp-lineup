@@ -84,6 +84,24 @@ const { Text, Paragraph } = Typography;
 type DraftRow = NonNullable<TournamentWave['pairingDraft']>[number];
 type DraftPairList = NonNullable<TournamentWave['pairingDraft']>;
 
+/** 抽卡动画帧：滚动中的配对行 + 已揭晓行数（null = 未播放动画） */
+interface PairingDrawFrame {
+  rows: DraftPairList;
+  revealed: number;
+}
+
+/** 抽卡滚动帧取值：从选手池随机换一个名字（尽量避开上一帧，滚动感更明显） */
+function randomSlotValue(pool: string[], previous: string | null): string | null {
+  if (!pool.length) {
+    return null;
+  }
+  let value = pool[Math.floor(Math.random() * pool.length)];
+  if (pool.length > 1 && value === previous) {
+    value = pool[(pool.indexOf(value) + 1) % pool.length];
+  }
+  return value;
+}
+
 /** 参赛人数可选值：与后端 SUPPORTED_TOURNAMENT_SIZES 同源，避免两处硬编码走偏 */
 const TOURNAMENT_SIZE_OPTIONS = Array.from(SUPPORTED_TOURNAMENT_SIZES).sort((a, b) => a - b);
 
@@ -97,7 +115,7 @@ export interface TournamentViewProps {
   sprites: SpriteRecord[];
   /** 本机机器标识：判定系列赛是否归本机编排（只读副本禁用编排操作） */
   machineCode: string;
-  /** 切换为当前比赛后跳转赛事面板（App 提供） */
+  /** 「进入管理」：切换为当前比赛后跳转赛事面板（App 提供） */
   onJumpToRoster?: () => void;
   /** 阵容录入保存后回传最新赛事 store（App 统一应用，免等 socket 广播） */
   onMatchesStore?: (store: MatchStoreState) => void;
@@ -790,6 +808,10 @@ function PairingConsole({
   const [importText, setImportText] = useState('');
   const [saving, setSaving] = useState(false);
   const [locking, setLocking] = useState(false);
+  // 抽卡动画（桶内随机重排）：滚动中的帧；揭晓完成后才写入草稿
+  const [drawFrame, setDrawFrame] = useState<PairingDrawFrame | null>(null);
+  const drawIntervalRef = useRef<number | null>(null);
+  const drawTimersRef = useRef<number[]>([]);
 
   // 编辑即存（防抖 500ms）
   const saveTimerRef = useRef<number | null>(null);
@@ -797,6 +819,10 @@ function PairingConsole({
     if (saveTimerRef.current !== null) {
       window.clearTimeout(saveTimerRef.current);
     }
+    if (drawIntervalRef.current !== null) {
+      window.clearInterval(drawIntervalRef.current);
+    }
+    drawTimersRef.current.forEach((id) => window.clearTimeout(id));
   }, []);
 
   function scheduleSave(nextPairs: DraftPairList): void {
@@ -836,8 +862,14 @@ function PairingConsole({
     scheduleSave(next);
   }
 
-  /** 🎲 桶内随机重排：每个桶独立洗牌；决胜池（W3 的 1-1 池）走经典双败交叉配对 */
+  /**
+   * 🎲 桶内随机重排：每个桶独立洗牌；决胜池（W3 的 1-1 池）走经典双败交叉配对。
+   * 结果先藏住，等抽卡动画逐行揭晓后才落到草稿（动画期间锁定其他编辑）。
+   */
   function handleShuffle(): void {
+    if (drawFrame) {
+      return;
+    }
     const rng = Math.random;
     const next: DraftPairList = [];
     specs.forEach((spec) => {
@@ -848,8 +880,77 @@ function PairingConsole({
         next.push({ bucketKey: spec.bucketKey, pair });
       });
     });
-    setPairs(next);
-    scheduleSave(next);
+    startDrawAnimation(next);
+  }
+
+  /** 滚动帧的候选名字池：跨桶模式给全波选手，否则只给本桶 */
+  function drawPool(bucketKey?: string): string[] {
+    if (allowCrossBucket) {
+      return specs.flatMap((spec) => spec.playerIds);
+    }
+    return specs.find((spec) => spec.bucketKey === bucketKey)?.playerIds ?? [];
+  }
+
+  /** 抽卡动画：所有行先快速滚动（换名字），随后自首行起逐行定格，全部揭晓后提交草稿并暂存 */
+  function startDrawAnimation(finalRows: DraftPairList): void {
+    const rolled = (row: DraftRow): DraftRow => {
+      const pool = drawPool(row.bucketKey);
+      return {
+        bucketKey: row.bucketKey,
+        pair: [
+          randomSlotValue(pool, row.pair[0]),
+          randomSlotValue(pool, row.pair[1]),
+        ],
+      };
+    };
+
+    setDrawFrame({ rows: finalRows.map(rolled), revealed: 0 });
+
+    // 滚动：每 90ms 给未揭晓的行换一批随机名字（已揭晓的行保持定格结果）
+    const interval = window.setInterval(() => {
+      setDrawFrame((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return {
+          ...prev,
+          rows: prev.rows.map((row, index) => (index < prev.revealed ? row : rolled(row))),
+        };
+      });
+    }, 90);
+    drawIntervalRef.current = interval;
+
+    // 逐行揭晓：基础滚动后按错峰节奏自首行起定格（行多时压缩间隔，总时长约 1~2.5s）
+    const baseDuration = 900;
+    const stagger = finalRows.length > 1
+      ? Math.min(150, Math.max(70, Math.round(1200 / (finalRows.length - 1))))
+      : 0;
+    finalRows.forEach((finalRow, index) => {
+      const timer = window.setTimeout(() => {
+        setDrawFrame((prev) => {
+          if (!prev) {
+            return prev;
+          }
+          return {
+            ...prev,
+            revealed: index + 1,
+            rows: prev.rows.map((row, rowIndex) => (rowIndex === index ? finalRow : row)),
+          };
+        });
+      }, baseDuration + stagger * index);
+      drawTimersRef.current.push(timer);
+    });
+
+    // 静置一拍后收尾：写入草稿 + 触发暂存
+    const finishTimer = window.setTimeout(() => {
+      window.clearInterval(interval);
+      drawIntervalRef.current = null;
+      drawTimersRef.current = [];
+      setDrawFrame(null);
+      setPairs(finalRows);
+      scheduleSave(finalRows);
+    }, baseDuration + stagger * Math.max(finalRows.length - 1, 0) + 650);
+    drawTimersRef.current.push(finishTimer);
   }
 
   /** 添加一行空配对（默认归第一个桶；跨桶通过在选择框选其他桶选手实现） */
@@ -943,14 +1044,17 @@ function PairingConsole({
   }
 
   // 桶结构固定按 specs 渲染（空桶也显示；行按 bucketKey 归入，跨桶行归首个槽所在桶）
+  // 抽卡动画期间展示滚动帧，动画结束后回到真实草稿（两帧形状一致，切换无跳变）
+  const drawing = drawFrame !== null;
+  const visiblePairs = drawFrame?.rows ?? pairs;
   const groups = useMemo(
     () => specs.map((spec) => ({
       bucketKey: spec.bucketKey,
-      rows: pairs
+      rows: visiblePairs
         .map((row, index) => ({ row, index }))
         .filter(({ row }) => row.bucketKey === spec.bucketKey),
     })),
-    [specs, pairs],
+    [specs, visiblePairs],
   );
   const liveValidation = useMemo(
     () => validateDraftPairs(record, wave, pairs, allowCrossBucket),
@@ -966,18 +1070,28 @@ function PairingConsole({
   return (
     <div>
       <Space style={{ marginBottom: 12 }} wrap>
-        <Button onClick={handleShuffle} disabled={readOnly}>🎲 桶内随机重排</Button>
-        <Button onClick={() => setImportOpen(true)} disabled={readOnly}>📋 导入对阵表</Button>
-        <Button onClick={addRow} disabled={readOnly}>＋ 添加一行</Button>
+        <Button
+          className={`tournament-shuffle-btn${drawing ? ' is-drawing' : ''}`}
+          onClick={handleShuffle}
+          disabled={readOnly || drawing}
+        >
+          <span className="tournament-shuffle-dice">🎲</span> 桶内随机重排
+        </Button>
+        <Button onClick={() => setImportOpen(true)} disabled={readOnly || drawing}>📋 导入对阵表</Button>
+        <Button onClick={addRow} disabled={readOnly || drawing}>＋ 添加一行</Button>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          {readOnly ? '只读副本：配对草稿由编排机编辑' : saving ? '保存中…' : '草稿自动暂存（锁定前赛事面板看不到比赛）'}
+          {readOnly
+            ? '只读副本：配对草稿由编排机编辑'
+            : drawing
+              ? '抽签中…揭晓完成后自动暂存'
+              : saving ? '保存中…' : '草稿自动暂存（锁定前赛事面板看不到比赛）'}
         </Text>
       </Space>
 
       <Row gutter={[12, 12]}>
         {groups.map((group) => (
           <Col xs={24} xl={groups.length > 1 ? 12 : 24} key={group.bucketKey ?? '__single'}>
-            <div className="tournament-bucket-box">
+            <div className={`tournament-bucket-box${drawing && group.rows.length > 0 ? ' is-drawing' : ''}`}>
               <div className="tournament-bucket-title">
                 {group.bucketKey === undefined
                   ? `本波选手（${specs[0]?.playerIds.length ?? 0} 人）`
@@ -997,7 +1111,10 @@ function PairingConsole({
                       (id) => ({ value: id, label: optionLabel(id) }),
                     );
                 return (
-                  <div className="tournament-pair-row" key={flatIndex}>
+                  <div
+                    className={`tournament-pair-row${drawFrame && flatIndex < drawFrame.revealed ? ' is-revealed' : ''}`}
+                    key={flatIndex}
+                  >
                     <Text strong className="tournament-pair-index">
                       {flatIndex + 1}
                     </Text>
@@ -1008,7 +1125,7 @@ function PairingConsole({
                       options={options}
                       showSearch
                       optionFilterProp="label"
-                      disabled={readOnly}
+                      disabled={readOnly || drawing}
                       onChange={(value) => updateSlot(flatIndex, 0, value)}
                     />
                     <Text type="secondary">vs</Text>
@@ -1019,10 +1136,15 @@ function PairingConsole({
                       options={options}
                       showSearch
                       optionFilterProp="label"
-                      disabled={readOnly}
+                      disabled={readOnly || drawing}
                       onChange={(value) => updateSlot(flatIndex, 1, value)}
                     />
-                    <Button type="text" danger disabled={readOnly} onClick={() => removeRow(flatIndex)}>
+                    <Button
+                      type="text"
+                      danger
+                      disabled={readOnly || drawing}
+                      onClick={() => removeRow(flatIndex)}
+                    >
                       删除
                     </Button>
                   </div>
@@ -1056,6 +1178,7 @@ function PairingConsole({
       <Space style={{ marginTop: 12 }} wrap>
         <Checkbox
           checked={allowCrossBucket}
+          disabled={drawing}
           onChange={(event) => setAllowCrossBucket(event.target.checked)}
         >
           允许跨桶配对（战绩不对等，锁定需二次确认）
@@ -1065,7 +1188,7 @@ function PairingConsole({
           type="primary"
           size="large"
           loading={locking}
-          disabled={readOnly || liveValidation.errors.length > 0}
+          disabled={readOnly || drawing || liveValidation.errors.length > 0}
           onClick={() => void handleLock()}
         >
           🔒 校验通过 · 锁定并创建 {expectedPairCount(specs)} 场比赛

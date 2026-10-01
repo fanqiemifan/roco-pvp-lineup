@@ -126,7 +126,7 @@ export async function deleteTournamentApi(
   });
 }
 
-/** 切换为当前比赛（赛事面板跳转复用现有路由） */
+/** 卡片「进入管理」：切换为当前比赛（赛事面板跳转复用现有路由） */
 export async function selectMatchApi(matchId: string): Promise<void> {
   await requestJson<{ success: boolean }>(`/api/matches/${matchId}/select`, { method: 'POST' });
 }

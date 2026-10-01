@@ -457,7 +457,7 @@ export function BracketBoard({
           if (consumeSuppressedClick()) {
             return;
           }
-          // 卡片内按钮（切换为当前比赛 / 查看阵容 / 弃权判负）不触发选中
+          // 卡片内按钮（进入管理 / 查看阵容 / 弃权判负）不触发选中
           if ((event.target as HTMLElement).closest('button')) {
             return;
           }

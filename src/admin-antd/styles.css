@@ -2462,6 +2462,96 @@ a {
   text-align: right;
 }
 
+/* 配对确认台「桶内随机重排」抽卡动画 */
+.tournament-shuffle-dice {
+  display: inline-block;
+}
+
+.tournament-shuffle-btn.is-drawing .tournament-shuffle-dice {
+  animation: tournament-dice-shake 0.45s ease-in-out infinite;
+}
+
+.tournament-bucket-box.is-drawing {
+  animation: tournament-bucket-glow 1.2s ease-in-out infinite;
+}
+
+/* 滚动期间选择框是 disabled 态（锁定编辑），覆写成暖金色让名字可读、更有开奖氛围 */
+.tournament-bucket-box.is-drawing .ant-select-disabled .ant-select-selector {
+  background: rgba(250, 219, 20, 0.1);
+  border-color: rgba(250, 173, 20, 0.5);
+}
+
+.tournament-bucket-box.is-drawing .ant-select-disabled .ant-select-selection-item {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.tournament-pair-row.is-revealed {
+  position: relative;
+  border-radius: 8px;
+  animation: tournament-pair-reveal 0.55s ease-out;
+}
+
+.tournament-pair-row.is-revealed::after {
+  content: '✨';
+  position: absolute;
+  top: -8px;
+  right: 34px;
+  font-size: 14px;
+  pointer-events: none;
+  animation: tournament-pair-sparkle 0.6s ease-out forwards;
+}
+
+@keyframes tournament-dice-shake {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-14deg) scale(1.1);
+  }
+  75% {
+    transform: rotate(14deg) scale(1.1);
+  }
+}
+
+@keyframes tournament-bucket-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(250, 173, 20, 0);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(250, 173, 20, 0.35);
+  }
+}
+
+@keyframes tournament-pair-reveal {
+  0% {
+    transform: scale(0.97);
+    background: rgba(250, 219, 20, 0.5);
+    box-shadow: 0 0 0 2px rgba(250, 173, 20, 0.8);
+  }
+  55% {
+    transform: scale(1.02);
+    background: rgba(250, 219, 20, 0.18);
+  }
+  100% {
+    transform: scale(1);
+    background: rgba(250, 219, 20, 0);
+    box-shadow: 0 0 0 0 rgba(250, 173, 20, 0);
+  }
+}
+
+@keyframes tournament-pair-sparkle {
+  0% {
+    opacity: 1;
+    transform: translateY(4px) scale(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px) scale(1.25);
+  }
+}
+
 /* 校验信息汇总 */
 .tournament-validation-box {
   margin-top: 10px;
