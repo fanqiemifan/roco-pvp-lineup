@@ -132,6 +132,7 @@ import {
   advanceTournament,
   createTournament,
   deleteTournament,
+  getLocallyRemovedTournaments,
   getTournamentStore,
   importPairings,
   lockPairings,
@@ -139,7 +140,9 @@ import {
   onMatchUndo,
   previewOpeningWave,
   redrawTournament,
+  removeLocalTournament,
   resolveTournamentLabels,
+  restoreLocalTournament,
   rollbackWave,
   savePairingDraft,
   startTournament,
@@ -242,6 +245,7 @@ function snapshotPayload(paths: AppPaths): SnapshotPayload {
     countdown: getCountdownState(paths),
     mvp: getMvpState(paths),
     tournaments: getTournamentStore(paths),
+    locallyRemoved: getLocallyRemovedTournaments(paths),
   };
 }
 
@@ -526,9 +530,14 @@ export async function createLocalServer(
     return prunePagePushSelections();
   };
 
-  // 系列赛数据广播：admin（第 11 视图）与 page14（晋级积分榜按阶段重算榜单）消费
+  // 系列赛数据广播：admin（第 11 视图）与 page14（晋级积分榜按阶段重算榜单）消费；
+  // locallyRemoved 只在本机口径出现（恢复列表 / 对局过滤），绝不进出站同步包
   const emitTournamentUpdate = (): void => {
-    broadcast(SOCKET_EVENTS.tournamentUpdate, { tournaments: getTournamentStore(paths) }, ['page14']);
+    broadcast(
+      SOCKET_EVENTS.tournamentUpdate,
+      { tournaments: getTournamentStore(paths), locallyRemoved: getLocallyRemovedTournaments(paths) },
+      ['page14'],
+    );
   };
 
   // 推流选场（page6/7/8）清理结果：仅含发生变化的页面
@@ -1531,6 +1540,12 @@ export async function createLocalServer(
     response.json({ tournaments: getTournamentStore(paths) });
   });
 
+  // 本机已「本机移除」的系列赛（localOnly，仅本机存在）：恢复弹窗数据源。
+  // 必须注册在 GET /:tournamentId 之前，否则会被当成 id 吃掉
+  app.get('/api/tournaments/local-removed', (_request, response) => {
+    response.json({ tournaments: getLocallyRemovedTournaments(paths) });
+  });
+
   app.get('/api/tournaments/:tournamentId', (request, response) => {
     const tournament = getTournamentStore(paths).find((item) => item.id === request.params.tournamentId);
     if (!tournament) {
@@ -1758,6 +1773,28 @@ export async function createLocalServer(
       const pagePush = emitMatchesUpdate(getMatchStore(paths));
       emitTournamentUpdate();
       response.json({ success: true, ...result, pagePush });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 本机移除：分控端对「非本机编排」的系列赛做视图层隐藏（幂等；不物理删除、不传播、对局引用不动）
+  app.post('/api/tournaments/:tournamentId/local-remove', (request, response) => {
+    try {
+      const result = removeLocalTournament(paths, request.params.tournamentId);
+      emitTournamentUpdate();
+      response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 恢复本机移除：记录立即重新可见；下次同步自动补齐编排机的最新编排与变更
+  app.post('/api/tournaments/:tournamentId/local-restore', (request, response) => {
+    try {
+      const tournament = restoreLocalTournament(paths, request.params.tournamentId);
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

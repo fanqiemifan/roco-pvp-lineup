@@ -63,6 +63,8 @@ import {
   forfeitApi,
   importPairingsApi,
   listTournamentsApi,
+  localRemoveTournamentApi,
+  localRestoreTournamentApi,
   lockPairingsApi,
   previewOpeningWaveApi,
   rollbackWaveApi,
@@ -115,6 +117,8 @@ export interface TournamentViewProps {
   sprites: SpriteRecord[];
   /** 本机机器标识：判定系列赛是否归本机编排（只读副本禁用编排操作） */
   machineCode: string;
+  /** 本机已「本机移除」的系列赛（仅本机视图隐藏，可在恢复弹窗中恢复） */
+  locallyRemoved: TournamentRecord[];
   /** 「进入管理」：切换为当前比赛后跳转赛事面板（App 提供） */
   onJumpToRoster?: () => void;
   /** 阵容录入保存后回传最新赛事 store（App 统一应用，免等 socket 广播） */
@@ -127,6 +131,7 @@ export function TournamentView({
   matches,
   sprites,
   machineCode,
+  locallyRemoved,
   onJumpToRoster,
   onMatchesStore,
 }: TournamentViewProps): React.ReactElement {
@@ -138,6 +143,9 @@ export function TournamentView({
   const [deleteTarget, setDeleteTarget] = useState<TournamentRecord | null>(null);
   const [deleteWithMatches, setDeleteWithMatches] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
+  // 本机移除：恢复弹窗（已移除清单）+ 单条恢复的进行态
+  const [localRemovedOpen, setLocalRemovedOpen] = useState(false);
+  const [restoreSavingId, setRestoreSavingId] = useState<string | null>(null);
 
   /** 打开某个系列赛详情：同时写入本地记忆，下次进入本视图自动打开它 */
   function openTournament(tournamentId: string): void {
@@ -169,6 +177,29 @@ export function TournamentView({
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setDeleteSaving(false);
+    }
+  }
+
+  /** 本机移除：仅本机视图隐藏（不影响编排机、不删数据），列表 / 恢复弹窗状态由广播刷新 */
+  async function handleLocalRemove(record: TournamentRecord): Promise<void> {
+    try {
+      await localRemoveTournamentApi(record.id);
+      message.success(`已在本机移除「${record.name || record.id}」，可在「已本机移除」中恢复`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** 恢复本机移除：记录立即重新可见，下次同步自动补齐 */
+  async function handleLocalRestore(record: TournamentRecord): Promise<void> {
+    setRestoreSavingId(record.id);
+    try {
+      await localRestoreTournamentApi(record.id);
+      message.success(`已恢复系列赛「${record.name || record.id}」`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRestoreSavingId(null);
     }
   }
 
@@ -228,7 +259,7 @@ export function TournamentView({
     },
     {
       title: '操作',
-      width: 176,
+      width: 240,
       render: (_value, record) => {
         const owned = isTournamentOwnedByLocal(record.id, machineCode);
         const ownerCode = getTournamentOwnerCode(record.id);
@@ -256,6 +287,18 @@ export function TournamentView({
                 </Button>
               </span>
             </Tooltip>
+            {/* 非本机编排：提供「本机移除」（仅本机视图隐藏、不传播、可恢复）；真删除仍请在编排机执行 */}
+            {owned ? null : (
+              <Popconfirm
+                title="本机移除"
+                description="仅在本机隐藏该系列赛及其对局，不影响编排机；可随时在「已本机移除」中恢复。"
+                okText="移除"
+                cancelText="取消"
+                onConfirm={() => void handleLocalRemove(record)}
+              >
+                <Button type="link" style={{ padding: 0 }}>本机移除</Button>
+              </Popconfirm>
+            )}
           </Space>
         );
       },
@@ -277,9 +320,14 @@ export function TournamentView({
       <Card
         title="系列赛列表"
         extra={(
-          <Button type="primary" onClick={() => setCreateOpen(true)}>
-            ＋ 创建系列赛
-          </Button>
+          <Space>
+            <Button onClick={() => setLocalRemovedOpen(true)}>
+              已本机移除 ({locallyRemoved.length})
+            </Button>
+            <Button type="primary" onClick={() => setCreateOpen(true)}>
+              ＋ 创建系列赛
+            </Button>
+          </Space>
         )}
       >
         <Table
@@ -306,6 +354,7 @@ export function TournamentView({
             setDeleteWithMatches(false);
             setDeleteTarget(selected);
           }}
+          onLocalRemove={() => void handleLocalRemove(selected)}
         />
       ) : null}
 
@@ -360,6 +409,61 @@ export function TournamentView({
         ) : null}
       </Modal>
 
+      {/* 已本机移除：仅本机视图隐藏的记录（编排机无感知），这里可单条恢复 */}
+      <Modal
+        title="已本机移除的系列赛"
+        open={localRemovedOpen}
+        footer={null}
+        onCancel={() => setLocalRemovedOpen(false)}
+      >
+        <Table
+          size="small"
+          rowKey="id"
+          dataSource={locallyRemoved}
+          pagination={false}
+          locale={{ emptyText: <Empty description="暂无本机移除的系列赛" /> }}
+          columns={[
+            {
+              title: '名称',
+              dataIndex: 'name',
+              render: (name: string, record) => (
+                <Space direction="vertical" size={0}>
+                  <Text strong>{name || record.id}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+                </Space>
+              ),
+            },
+            {
+              title: '编排机',
+              width: 90,
+              render: (_value, record) => getTournamentOwnerCode(record.id) ?? '—',
+            },
+            {
+              title: '移除时间',
+              width: 160,
+              render: (_value, record) => (record.deletedAt ? new Date(record.deletedAt).toLocaleString() : '—'),
+            },
+            {
+              title: '操作',
+              width: 80,
+              render: (_value, record) => (
+                <Button
+                  type="link"
+                  style={{ padding: 0 }}
+                  loading={restoreSavingId === record.id}
+                  onClick={() => void handleLocalRestore(record)}
+                >
+                  恢复
+                </Button>
+              ),
+            },
+          ]}
+        />
+        <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+          本机移除只隐藏本机视图（不影响编排机）；恢复后立即重新可见，下一次同步会自动补齐编排机的最新编排与赛果。
+        </Paragraph>
+      </Modal>
+
       <CreateTournamentModal
         open={createOpen}
         profiles={profiles}
@@ -386,6 +490,8 @@ interface DetailProps {
   /** 阵容录入保存后回传最新赛事 store（App 统一应用） */
   onMatchesStore?: (store: MatchStoreState) => void;
   onDelete(): void;
+  /** 本机移除（仅只读副本可用：仅本机视图隐藏、可恢复） */
+  onLocalRemove(): void;
 }
 
 function TournamentDetail({
@@ -397,6 +503,7 @@ function TournamentDetail({
   onSelectMatch,
   onMatchesStore,
   onDelete,
+  onLocalRemove,
 }: DetailProps): React.ReactElement {
   const { message, modal } = App.useApp();
   // 只读副本（系列赛由另一台机器编排）：可查看与登记对局，编排/推进由服务端拒绝
@@ -460,12 +567,23 @@ function TournamentDetail({
             <Button disabled={record.waves.length === 0 || readOnly}>↺ 回退上一波</Button>
           </Popconfirm>
           <Button danger disabled={readOnly} onClick={onDelete}>删除系列赛</Button>
+          {readOnly ? (
+            <Popconfirm
+              title="本机移除"
+              description="仅在本机隐藏该系列赛及其对局，不影响编排机；可随时在「已本机移除」中恢复。"
+              okText="移除"
+              cancelText="取消"
+              onConfirm={onLocalRemove}
+            >
+              <Button>本机移除</Button>
+            </Popconfirm>
+          ) : null}
         </Space>
       )}
     >
       {readOnly ? (
         <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          只读副本：该系列赛由{ownerCode ? `机器 ${ownerCode}` : '另一台机器'}编排 —— 本机可查看对阵图、可登记对局赛果；推进、编排与删除请在编排机执行（本机即便删掉，下一次同步也会被重新合并回来；编排机删除后，本机副本会随下一次同步自动清除），回传后本机对阵图自动更新。
+          只读副本：该系列赛由{ownerCode ? `机器 ${ownerCode}` : '另一台机器'}编排 —— 本机可查看对阵图、可登记对局赛果；推进、编排与删除请在编排机执行。不想继续管理时可「本机移除」——仅在本机隐藏该系列赛及其对局、不影响编排机，可随时在「已本机移除」中恢复；编排机删除后，本机副本会随下一次同步自动清除，回传后本机对阵图自动更新。
         </Paragraph>
       ) : null}
 

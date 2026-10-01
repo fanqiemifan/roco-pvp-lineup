@@ -124,6 +124,7 @@ import {
   buildHistoryLineupEntries,
   buildHistoryTags,
   buildHistoryTournamentFilters,
+  filterLocallyRemovedMatches,
   getEffectiveTournamentId,
   getHistoryVisibleGames,
   getLineupEntryBlockReason,
@@ -485,6 +486,8 @@ function Dashboard() {
   const [profiles, setProfiles] = useState<ProfileStoreState | null>(null);
   // === 系列赛编排 ===
   const [tournaments, setTournaments] = useState<TournamentRecord[]>([]);
+  // 本机已「本机移除」的系列赛（localOnly，仅本机视图隐藏）：恢复弹窗与比赛管理/推流选场过滤用
+  const [locallyRemoved, setLocallyRemoved] = useState<TournamentRecord[]>([]);
   // 晋级积分榜是否已配好系列赛：比赛/编排广播到达时决定要不要重取榜单
   useEffect(() => {
     page14ConfiguredRef.current = Boolean(page14?.tournamentId);
@@ -648,11 +651,21 @@ function Dashboard() {
     [tournaments],
   );
   const tournamentIdSet = useMemo(() => new Set(tournamentNameMap.keys()), [tournamentNameMap]);
+  // 本机已「本机移除」的系列赛 id 集合：管理端操作面（比赛管理 / 推流选场）据此一并隐藏其关联对局
+  const locallyRemovedIdSet = useMemo(
+    () => new Set(locallyRemoved.map((tournament) => tournament.id)),
+    [locallyRemoved],
+  );
+  const adminVisibleMatches = useMemo(
+    () => filterLocallyRemovedMatches(matchStore.matches, locallyRemovedIdSet),
+    [matchStore.matches, locallyRemovedIdSet],
+  );
   const historyTournamentFilters = useMemo(
     () => buildHistoryTournamentFilters(matchStore.matches, tournaments),
     [matchStore.matches, tournaments],
   );
-  const pendingMatches = matchStore.matches.filter((match) => match.status === 'pending');
+  // 「实时控制 → 下场对局」待开始下拉：同口径隐藏「本机移除」系列赛的对局（adminVisibleMatches）
+  const pendingMatches = adminVisibleMatches.filter((match) => match.status === 'pending');
   const allPlayers = Array.from(new Set(matchStore.matches.flatMap((match) => [
     match.leftPlayer,
     match.rightPlayer,
@@ -671,7 +684,7 @@ function Dashboard() {
     mvp?.winner?.matchId !== activeMatch?.id || mvp?.winner?.playerName !== mvpWinnerLineup.playerName
   );
   const normalizedHistorySearch = historySearch.trim().toLowerCase();
-  const filteredMatches = matchStore.matches.filter((match) => {
+  const filteredMatches = adminVisibleMatches.filter((match) => {
     if (historyTagFilter === UNCATEGORIZED_HISTORY_TAG) {
       if ((match.tags ?? []).length > 0) {
         return false;
@@ -717,8 +730,8 @@ function Dashboard() {
     if (!parts.length) {
       return '';
     }
-    const hidden = matchStore.matches.length - filteredMatches.length;
-    return `当前${parts.join(' + ')}：显示 ${filteredMatches.length} / 共 ${matchStore.matches.length} 场`
+    const hidden = adminVisibleMatches.length - filteredMatches.length;
+    return `当前${parts.join(' + ')}：显示 ${filteredMatches.length} / 共 ${adminVisibleMatches.length} 场`
       + (hidden > 0 ? `（有 ${hidden} 场被筛选条件隐藏，刚同步来的比赛可能在其中）` : '');
   })();
   // 「录入阵容」弹窗的当前上下文：从最新 store 里解析比赛与小局（socket 更新后自动跟随）
@@ -728,7 +741,8 @@ function Dashboard() {
     : null;
   // 赛事面板比赛列表：当前比赛置顶高亮（不参与懒加载计数），其余按「赛事 · 阶段 · 轮次」分组
   const dashboardActiveMatch = activeMatch || null;
-  const dashboardNonActiveMatches = matchStore.matches.filter(
+  // 赛事面板快捷比赛列表：同口径隐藏「本机移除」系列赛的对局（当前比赛仍照常置顶展示，不打断在进行的推流）
+  const dashboardNonActiveMatches = adminVisibleMatches.filter(
     (m) => m.id !== dashboardActiveMatch?.id,
   );
   const dashboardMatchGroups = buildPushCandidateGroups(dashboardNonActiveMatches, tournaments);
@@ -836,6 +850,7 @@ function Dashboard() {
     nextgame?: NextGamePayload;
     profiles?: ProfileStoreState;
     tournaments?: TournamentRecord[];
+    locallyRemoved?: TournamentRecord[];
     countdown?: CountdownPayload;
     mvp?: MvpState;
   }) {
@@ -897,6 +912,9 @@ function Dashboard() {
       if (payload.tournaments) {
         setTournaments(payload.tournaments);
       }
+      if (payload.locallyRemoved) {
+        setLocallyRemoved(payload.locallyRemoved);
+      }
       if (payload.mvp) {
         setMvp(payload.mvp);
       }
@@ -908,7 +926,7 @@ function Dashboard() {
     setPageError('');
 
     try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextPage14, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig, nextTournaments] = await Promise.all([
+      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextPage14, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig, nextTournaments, nextLocallyRemoved] = await Promise.all([
         requestJson<{ authenticated: boolean }>('/api/auth/check'),
         requestJson<ScoreboardState>('/api/scoreboard'),
         requestJson<MatchStoreState>('/api/matches'),
@@ -928,6 +946,7 @@ function Dashboard() {
         requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp'),
         requestJson<{ port: number; machineCode: string; syncConfig?: CloudSyncStatus }>('/api/runtime-config'),
         requestJson<{ tournaments: TournamentRecord[] }>('/api/tournaments'),
+        requestJson<{ tournaments: TournamentRecord[] }>('/api/tournaments/local-removed'),
       ]);
 
       if (!auth.authenticated) {
@@ -950,6 +969,7 @@ function Dashboard() {
         setPage14Standings(nextPage14.standings);
         setProfiles(nextProfiles);
         setTournaments(nextTournaments.tournaments);
+        setLocallyRemoved(nextLocallyRemoved.tournaments);
         setNextgame(nextNextgame.state);
         setNextgameMatch(nextNextgame.match ?? null);
         setMvp(nextMvp.state);
@@ -1145,6 +1165,9 @@ function Dashboard() {
     socket.on(SOCKET_EVENTS.tournamentUpdate, (payload) => {
       if (Array.isArray(payload?.tournaments)) {
         applyServerState({ tournaments: payload.tournaments });
+      }
+      if (Array.isArray(payload?.locallyRemoved)) {
+        applyServerState({ locallyRemoved: payload.locallyRemoved });
       }
       // 阶段推进/回退、阶段改名都会影响榜单标题与行
       if (page14ConfiguredRef.current) {
@@ -4843,7 +4866,8 @@ function Dashboard() {
                       kind="page6"
                       cardTitle="推送比赛结果"
                       maxCount={PAGE6_MAX_MATCHES}
-                      matches={matchStore.matches}
+                      matches={adminVisibleMatches}
+                      allMatches={matchStore.matches}
                       tournaments={tournaments}
                       state={page6}
                       pushing={Boolean(matchPushLoading.page6)}
@@ -4857,7 +4881,8 @@ function Dashboard() {
                       kind="page7"
                       cardTitle="推送对局推送"
                       maxCount={PAGE7_MAX_MATCHES}
-                      matches={matchStore.matches}
+                      matches={adminVisibleMatches}
+                      allMatches={matchStore.matches}
                       tournaments={tournaments}
                       state={page7}
                       pushing={Boolean(matchPushLoading.page7)}
@@ -4871,7 +4896,8 @@ function Dashboard() {
                       kind="page8"
                       cardTitle="推送比赛预告"
                       maxCount={PAGE8_MAX_MATCHES}
-                      matches={matchStore.matches}
+                      matches={adminVisibleMatches}
+                      allMatches={matchStore.matches}
                       tournaments={tournaments}
                       state={page8}
                       pushing={Boolean(matchPushLoading.page8)}
@@ -5670,9 +5696,13 @@ function Dashboard() {
                                       <Tag color={record.incoming ? 'purple' : 'default'}>
                                         {record.incoming ? '包含系列赛编排' : '仅比赛，无编排'}
                                       </Tag>
-                                      <Tag color={record.existsLocally ? 'blue' : 'green'}>
-                                        {record.existsLocally ? '本机已有' : '本机没有，将新建'}
-                                      </Tag>
+                                      {record.localRemoved ? (
+                                        <Tag color="orange">已在本机移除，保持隐藏</Tag>
+                                      ) : (
+                                        <Tag color={record.existsLocally ? 'blue' : 'green'}>
+                                          {record.existsLocally ? '本机已有' : '本机没有，将新建'}
+                                        </Tag>
+                                      )}
                                     </>
                                   )}
                                   {record.stageSummary ? <Tag>{record.stageSummary}</Tag> : null}
@@ -7178,6 +7208,7 @@ function Dashboard() {
               matches={matchStore.matches}
               sprites={sprites}
               machineCode={machineCodeInput}
+              locallyRemoved={locallyRemoved}
               onJumpToRoster={() => setView('roster')}
               onMatchesStore={(store) => applyServerState({ store })}
             />

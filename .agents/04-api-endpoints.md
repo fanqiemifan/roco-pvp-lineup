@@ -95,6 +95,9 @@
 | 回退上一波 | POST | /api/tournaments/:tournamentId/rollback-wave | 管理级回退：仅最后波、且该波比赛全部 pending 无小局结果；删除未打比赛（deleteMatches 可恢复）、清节点胜者并复位战绩；跨阶段时 currentStageIndex 回落。广播 matches:update + tournament:update | electron/socket-server.ts |
 | 弃权判负 | POST | /api/tournaments/:tournamentId/forfeit | body: matchId + loserSide(left/right)；校验比赛属于本系列赛且 pending，补决胜小局（BO1=1:0、BO3=2:0）+「弃权」标签，completed 后走完成钩子写回节点 | electron/socket-server.ts |
 | 删除系列赛 | DELETE | /api/tournaments/:tournamentId | body.deleteMatches 可空：默认只删编排记录，关联比赛先解除 tournamentRef 再保留（转为普通对局，标签/战绩不动）；deleteMatches=true 时解绑后再 deleteMatches 连对局一起删（进删除栈，比赛管理可「撤回最近删除」，恢复后也是无关联普通对局）。广播 matches:update + tournament:update；不存在 400 | electron/socket-server.ts |
+| 本机移除 | POST | /api/tournaments/:tournamentId/local-remove | 分控端对「非本机编排」系列赛做视图层隐藏（幂等：已移除返回 changed=false）：写 localOnly 墓碑，立即从列表与对局列表隐藏、同步不复活；**不解绑/不删对局、不改 updatedAt、不传播**；本机编排 400 提示用「删除系列赛」；成功广播 tournament:update | electron/socket-server.ts |
+| 恢复本机移除 | POST | /api/tournaments/:tournamentId/local-restore | 清除 localOnly 墓碑标记，记录立即重新可见（内容一直保留在本机）；下一次同步按「较新覆盖」补齐编排机最新编排与赛果；非本机移除记录 400 | electron/socket-server.ts |
+| 已本机移除列表 | GET | /api/tournaments/local-removed | 本机已「本机移除」的系列赛（localOnly）：恢复弹窗数据源。**路由必须注册在 GET /api/tournaments/:tournamentId 之前**（否则被当成 id）；鉴权同其它管理端路由 | electron/socket-server.ts |
 
 > 系列赛关联保护：DELETE /api/matches/:matchId 与批量删除遇 tournamentRef 一律 400（提示用回退上一波）；POST /api/matches 公开入口会剥离 body.tournamentRef（系列赛比赛只能由引擎锁定时内部创建）。解除关联的唯一正规入口是 DELETE /api/tournaments/:tournamentId（删除系列赛）；onMatchCompleted/onMatchUndo 遇到已删除系列赛的孤儿引用时返回 null（按普通对局处理，不阻断比分登记/撤回）。
 

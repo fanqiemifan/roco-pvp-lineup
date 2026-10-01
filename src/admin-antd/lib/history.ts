@@ -121,6 +121,24 @@ export function getEffectiveTournamentId(
   return tournamentId && existingTournamentIds.has(tournamentId) ? tournamentId : null;
 }
 
+/**
+ * 「本机移除」过滤：系列赛被本机移除（localOnly 隐藏）后，其关联对局在管理端操作面
+ * （比赛管理列表 / 推流选场）一并隐藏。对局数据本身保留：统计、回传与展示页不受影响；
+ * removedTournamentIds 来自本机移除清单（/api/tournaments/local-removed 与 tournament:update 广播）。
+ */
+export function filterLocallyRemovedMatches(
+  matches: MatchRecord[],
+  removedTournamentIds: ReadonlySet<string>,
+): MatchRecord[] {
+  if (removedTournamentIds.size === 0) {
+    return matches;
+  }
+  return matches.filter((match) => {
+    const tournamentId = match.tournamentRef?.tournamentId;
+    return !tournamentId || !removedTournamentIds.has(tournamentId);
+  });
+}
+
 /** 历史页系列赛筛选项 */
 export interface HistoryTournamentFilter {
   id: string;

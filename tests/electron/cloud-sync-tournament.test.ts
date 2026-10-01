@@ -14,12 +14,19 @@ import { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createLocalServer, type LocalServer } from '../../electron/socket-server';
-import { saveCloudSyncConfig } from '../../electron/services/cloud-sync-service';
+import { computePendingQueue, saveCloudAssignment, saveCloudSyncConfig } from '../../electron/services/cloud-sync-service';
 import { saveRuntimeConfig } from '../../electron/services/config-service';
 import { getMatchStore, recordMatchWinner, saveGameLineupForMatch, startCurrentGame } from '../../electron/services/match-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
 import { getProfileStore, savePlayerProfile } from '../../electron/services/profile-service';
-import { createTournament, getTournamentStore, onMatchCompleted, startTournament } from '../../electron/services/tournament-service';
+import {
+  createTournament,
+  getLocallyRemovedTournaments,
+  getTournamentStore,
+  onMatchCompleted,
+  removeLocalTournament,
+  startTournament,
+} from '../../electron/services/tournament-service';
 import { exportSyncBundle } from '../../electron/services/sync-service';
 import { buildPlayerNameMap } from '../../src/admin-antd/lib/tournament';
 import type { MatchRecord } from '../../shared/types';
@@ -189,5 +196,57 @@ describe('诊断：分控端拉取推进后的数据', () => {
     });
     // 本机 id 保持不变（比赛 / 头像目录都引用它），只新增别名
     expect(profiles.players.map((player) => player.id).sort()).toEqual([...localIds].sort());
+  });
+});
+
+describe('本机移除与回传（分控端）', () => {
+  it('移除后：同步预览标记保持隐藏、再次合并仍隐藏、待回传集不受影响', async () => {
+    const beforeIds = new Set(getTournamentStore(mainPaths).map((record) => record.id));
+    const bundle = buildAdvancedTournamentBundle();
+    const id = getTournamentStore(mainPaths).map((record) => record.id).find((item) => !beforeIds.has(item));
+    expect(id).toBeTruthy();
+
+    // 复用既有模式导入一份包（预览 → 勾选 → 合并）
+    const importBundle = async (): Promise<any> => {
+      const previewForm = new FormData();
+      previewForm.append('file', new Blob([JSON.stringify(bundle)], { type: 'application/json' }), 'bundle.json');
+      previewForm.append('mode', 'newer');
+      const previewRes = await fetch(`${subBase}/api/sync/preview`, { method: 'POST', body: previewForm });
+      const preview = (await previewRes.json() as any).preview;
+      const accepted = [...preview.matchItems, ...preview.playerItems, ...preview.teamItems]
+        .filter((item: { action: string }) => item.action !== 'skip')
+        .map((item: { key: string }) => item.key);
+      const applyForm = new FormData();
+      applyForm.append('file', new Blob([JSON.stringify(bundle)], { type: 'application/json' }), 'bundle.json');
+      applyForm.append('mode', 'newer');
+      applyForm.append('accepted', JSON.stringify(accepted));
+      applyForm.append('includeAvatars', 'false');
+      const applyRes = await fetch(`${subBase}/api/sync/import`, { method: 'POST', body: applyForm });
+      expect(applyRes.status).toBe(200);
+      return preview;
+    };
+    await importBundle();
+    expect(getTournamentStore(subPaths).some((record) => record.id === id)).toBe(true);
+
+    // 分控端本机移除：立即隐藏
+    const result = removeLocalTournament(subPaths, id!);
+    expect(result.changed).toBe(true);
+    expect(getTournamentStore(subPaths).some((record) => record.id === id)).toBe(false);
+
+    // 「同步最新」再走一遍：预览带 localRemoved 标记，合并后仍保持隐藏
+    const preview = await importBundle();
+    const group = preview.tournamentGroups?.find((item: { id: string }) => item.id === id);
+    expect(group?.localRemoved).toBe(true);
+    expect(getTournamentStore(subPaths).some((record) => record.id === id)).toBe(false);
+    expect(getLocallyRemovedTournaments(subPaths).some((record) => record.id === id)).toBe(true);
+
+    // 待回传集不受隐藏影响：已完赛 + 指派归本机的场次照常进入回传队列
+    const completed = getMatchStore(subPaths).matches.find(
+      (match) => match.status === 'completed' && match.tournamentRef?.tournamentId === id,
+    );
+    expect(completed).toBeTruthy();
+    saveCloudAssignment(subPaths, { [completed!.id]: 'B' });
+    const pending = computePendingQueue(subPaths);
+    expect(pending.matches.map((item) => item.matchId)).toContain(completed!.id);
   });
 });

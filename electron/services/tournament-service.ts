@@ -331,29 +331,63 @@ function normalizeRecord(value: unknown): TournamentRecord | null {
           .filter((item) => MATCH_ID_REGEX.test(item)),
       ))
       : [];
+    // 本机移除标记：只随 deletedAt 一起存在；出站包会剔除这类记录，合并侧另行剥离（见 mergeTournamentRecords）
+    if (raw.localOnly === true) {
+      record.localOnly = true;
+    }
   }
 
   return record;
+}
+
+/** 原子写临时文件序号（避免同进程内并发重名，与 match-service 的 persistStoreFile 同口径） */
+let recordsTmpCounter = 0;
+
+/**
+ * 损坏保护：解析失败**绝不静默当成空库**——空库 + 下一次写 = 整个系列赛库被永久覆盖
+ * （createTournament 只剩新系列赛、mergeTournamentRecords 只剩包内容）。
+ * 先复制一份 .corrupt 备份保留现场，再抛错让所有读写路径一致地停下来等人工修复。
+ */
+function throwCorruptedRecordsFile(paths: AppPaths, cause: unknown): never {
+  const backupFile = `${paths.tournamentsFile}.corrupt`;
+  try {
+    fs.copyFileSync(paths.tournamentsFile, backupFile);
+  } catch {
+    // 备份失败不掩盖原始错误（下面抛出的仍以原始原因为准）
+  }
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  throw new Error(`系列赛数据文件损坏（已备份到 ${backupFile}）：${detail}`);
 }
 
 function readRecords(paths: AppPaths): TournamentRecord[] {
   if (!fs.existsSync(paths.tournamentsFile)) {
     return [];
   }
+  let raw: unknown;
   try {
-    const raw = JSON.parse(fs.readFileSync(paths.tournamentsFile, 'utf-8')) as Record<string, unknown>;
-    const list = Array.isArray(raw.tournaments) ? raw.tournaments : [];
-    return list
-      .map(normalizeRecord)
-      .filter((record): record is TournamentRecord => Boolean(record));
-  } catch {
-    return [];
+    raw = JSON.parse(fs.readFileSync(paths.tournamentsFile, 'utf-8'));
+  } catch (error) {
+    throwCorruptedRecordsFile(paths, error);
   }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throwCorruptedRecordsFile(paths, new Error('内容不是 { tournaments: [...] } 结构'));
+  }
+  const list = (raw as Record<string, unknown>).tournaments;
+  if (!Array.isArray(list)) {
+    throwCorruptedRecordsFile(paths, new Error('tournaments 字段缺失或不是数组'));
+  }
+  return list
+    .map(normalizeRecord)
+    .filter((record): record is TournamentRecord => Boolean(record));
 }
 
+/** 原子写：同目录临时文件 + rename，避免写一半崩溃导致整库截断损坏（与 match-service 同口径） */
 function writeRecords(paths: AppPaths, records: TournamentRecord[]): void {
   ensureRuntimeDirs(paths);
-  fs.writeFileSync(paths.tournamentsFile, JSON.stringify({ tournaments: records }, null, 2), 'utf-8');
+  recordsTmpCounter += 1;
+  const tmpFile = `${paths.tournamentsFile}.tmp-${process.pid}-${recordsTmpCounter}`;
+  fs.writeFileSync(tmpFile, JSON.stringify({ tournaments: records }, null, 2), 'utf-8');
+  fs.renameSync(tmpFile, paths.tournamentsFile);
 }
 
 /** 系列赛 id 中的编排机机器码（T{日期}_{机器码}{序号}）；解析失败返回 null */
@@ -416,14 +450,26 @@ export function getTournamentStore(paths: AppPaths): TournamentRecord[] {
 /**
  * 含墓碑的全量记录：同步导出 / 合并 / 对局名单计算必须走这里——
  * 墓碑看不到就传播不出去，接收端也就清不掉副本（删除的跨机语义全靠它）。
+ * 注意：也包含「本机移除」（localOnly）记录——出站包前必须剔除，合并优先级判断必须包含。
  */
 export function getTournamentRecordsIncludingTombstones(paths: AppPaths): TournamentRecord[] {
   return readRecords(paths).map(cloneRecord);
 }
 
-/** 本机留存的全部墓碑（含从别机传播留存的）：合并后的解绑清理与"已删对局"名单拦截用 */
+/**
+ * 本机留存的全部**真实墓碑**（含从别机传播留存的；**不含**「本机移除」的 localOnly 记录）：
+ * 合并后的解绑清理与"已删对局"名单拦截用——本机移除只做视图层隐藏，绝不触发解绑 / 清对局。
+ */
 export function getTournamentTombstones(paths: AppPaths): TournamentRecord[] {
-  return readRecords(paths).filter((record) => Boolean(record.deletedAt)).map(cloneRecord);
+  return readRecords(paths).filter((record) => Boolean(record.deletedAt) && !record.localOnly).map(cloneRecord);
+}
+
+/**
+ * 本机已「本机移除」的系列赛（localOnly 墓碑）：只在本机读取口径出现，绝不进出站同步包。
+ * 恢复列表、同步预览的「保持隐藏」标记与前端对局过滤共用。
+ */
+export function getLocallyRemovedTournaments(paths: AppPaths): TournamentRecord[] {
+  return readRecords(paths).filter((record) => Boolean(record.deletedAt) && record.localOnly === true).map(cloneRecord);
 }
 
 /* ==================== 创建 / 抽签 / 开赛 ==================== */
@@ -1324,6 +1370,8 @@ export interface MergeTournamentRecordsReport {
  * - 墓碑对墓碑 → 保留最早 deletedAt 的那条（删除事实取更早者，时钟无关）；
  * - 墓碑鉴权：只接受「包作者机器码 == id 内嵌机器码」的墓碑（authoredBy 缺失 /
  *   两端都未设置机器码时不鉴权，保持单机与历史行为）。
+ * - 本机移除（localOnly）墓碑：只属于本机、包内一律剥离；不参与"保留最早 deletedAt"比较——
+ *   编排机的真墓碑到达时整条替换（清除本机标记、采用包内名单，随后走正常解绑 / 清理收口）。
  */
 export function mergeTournamentRecords(
   paths: AppPaths,
@@ -1345,6 +1393,8 @@ export function mergeTournamentRecords(
       rejected += 1;
       return;
     }
+    // 本机移除标记只属于本机：包内（含手改包）携带的 localOnly 一律剥离，绝不接受外部注入
+    delete record.localOnly;
     const localIndex = indexById.get(record.id);
     const local = localIndex === undefined ? null : records[localIndex];
 
@@ -1355,7 +1405,8 @@ export function mergeTournamentRecords(
         skipped.push({ id: record.id, reason: '墓碑来源不是编排机（包作者与 id 内嵌码不符），已忽略' });
         return;
       }
-      if (local && local.deletedAt) {
+      // 本机移除（localOnly）不参与"保留最早删除时间"：真墓碑到达时整条替换（清除本机标记、采用包内名单）
+      if (local && local.deletedAt && !local.localOnly) {
         if (record.deletedAt < local.deletedAt) {
           records[localIndex as number] = record;
           updated.push(record.id);
@@ -1375,7 +1426,7 @@ export function mergeTournamentRecords(
       return;
     }
 
-    // 包内是存活副本：本机墓碑优先（终态，不受覆盖模式与时间戳影响）——防"文件同步复活"的关键判断
+    // 包内是存活副本：本机墓碑优先（含「本机移除」的 localOnly；终态，不受覆盖模式与时间戳影响）——防"文件同步复活"的关键判断
     if (local && local.deletedAt) {
       skipped.push({ id: record.id, reason: '本机墓碑优先（已删除，不复活）' });
       return;
@@ -1811,6 +1862,70 @@ export function deleteTournament(
     matchIds,
     matchesDeleted: shouldDelete,
   };
+}
+
+/* ==================== 本机移除 / 恢复（仅本机视图层，绝不跨机传播） ==================== */
+
+export interface LocalRemovalResult {
+  tournamentId: string;
+  /** true = 本次实际写入本机移除标记；false = 记录此前已在本机移除（幂等空操作） */
+  changed: boolean;
+}
+
+/**
+ * 本机移除（分控端对「非本机编排」的系列赛做视图层隐藏）：
+ * - 复用墓碑形态（deletedAt + localOnly）：对外读取（getTournamentStore）立即不可见；
+ * - **对局引用保留不修改**、不删任何对局、不推进/回退编排、不改 updatedAt；
+ * - 出站同步包一律剔除（exportSyncBundle），合并时"本机墓碑优先"→ 同步不复活；
+ * - 编排机的真墓碑到达时整条替换并清除 localOnly，随后走正常解绑 / 清理收口。
+ * 只允许对「非本机编排」的系列赛操作：本机编排的请直接用 deleteTournament（跨机传播的真删除）。
+ */
+export function removeLocalTournament(paths: AppPaths, tournamentId: string): LocalRemovalResult {
+  const records = readRecords(paths);
+  const index = records.findIndex((record) => record.id === tournamentId);
+  if (index === -1 || (records[index].deletedAt && !records[index].localOnly)) {
+    throw new Error('系列赛不存在');
+  }
+  if (records[index].localOnly) {
+    // 幂等：已在本机移除，重复操作不重复写盘
+    return { tournamentId, changed: false };
+  }
+  if (isOwnedByLocal(paths, tournamentId)) {
+    throw new Error('该系列赛由本机编排，请使用「删除系列赛」');
+  }
+
+  records[index] = {
+    ...records[index],
+    deletedAt: new Date().toISOString(),
+    localOnly: true,
+    deletedMatchIds: [],
+    deletedMatches: false,
+  };
+  writeRecords(paths, records);
+  return { tournamentId, changed: true };
+}
+
+/**
+ * 恢复本机移除：清除 localOnly 墓碑标记，记录立即重新可见（内容一直保留在本机）。
+ * updatedAt 保持原值：恢复后与编排机的下次同步按「较新覆盖」正常接受对方更新；
+ * 若在此处 bump，会让陈旧副本在 'newer' 合并中反压编排机的更新。
+ */
+export function restoreLocalTournament(paths: AppPaths, tournamentId: string): TournamentRecord {
+  const records = readRecords(paths);
+  const index = records.findIndex((record) => record.id === tournamentId);
+  if (index === -1) {
+    throw new Error('系列赛不存在');
+  }
+  if (!records[index].deletedAt || !records[index].localOnly) {
+    throw new Error('该系列赛不是本机移除的记录');
+  }
+  const restored = records[index];
+  delete restored.deletedAt;
+  delete restored.localOnly;
+  delete restored.deletedMatchIds;
+  delete restored.deletedMatches;
+  writeRecords(paths, records);
+  return cloneRecord(restored);
 }
 
 /* ==================== 阶段标注（page6「比赛结果」卡片语义标签） ==================== */

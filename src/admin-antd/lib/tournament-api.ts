@@ -126,6 +126,31 @@ export async function deleteTournamentApi(
   });
 }
 
+/** 本机已「本机移除」的系列赛（localOnly，仅本机存在）：恢复弹窗数据源 */
+export async function listLocallyRemovedApi(): Promise<TournamentRecord[]> {
+  const data = await requestJson<{ tournaments: TournamentRecord[] }>('/api/tournaments/local-removed');
+  return data.tournaments;
+}
+
+/**
+ * 本机移除：仅在本机隐藏该系列赛（不物理删除、不随同步传播、对局引用不动），幂等。
+ * 只允许对「非本机编排」的系列赛操作；恢复用 localRestoreTournamentApi。
+ */
+export async function localRemoveTournamentApi(
+  tournamentId: string,
+): Promise<{ tournamentId: string; changed: boolean }> {
+  return requestJson(`/api/tournaments/${tournamentId}/local-remove`, { method: 'POST' });
+}
+
+/** 恢复本机移除：记录立即重新可见，下一次同步自动补齐编排机的最新编排与赛果 */
+export async function localRestoreTournamentApi(tournamentId: string): Promise<TournamentRecord> {
+  const data = await requestJson<{ tournament: TournamentRecord }>(
+    `/api/tournaments/${tournamentId}/local-restore`,
+    { method: 'POST' },
+  );
+  return data.tournament;
+}
+
 /** 卡片「进入管理」：切换为当前比赛（赛事面板跳转复用现有路由） */
 export async function selectMatchApi(matchId: string): Promise<void> {
   await requestJson<{ success: boolean }>(`/api/matches/${matchId}/select`, { method: 'POST' });

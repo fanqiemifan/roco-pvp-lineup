@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,14 +8,18 @@ import {
   advanceTournament,
   createTournament,
   deleteTournament,
+  getLocallyRemovedTournaments,
   getTournamentRecordsIncludingTombstones,
   getTournamentStore,
+  getTournamentTombstones,
   importPairings,
   lockPairings,
   onMatchCompleted,
   onMatchUndo,
   previewOpeningWave,
   redrawTournament,
+  removeLocalTournament,
+  restoreLocalTournament,
   rollbackWave,
   savePairingDraft,
   startTournament,
@@ -1255,5 +1259,93 @@ describe('随机全赛程模拟（多届属性检查）', () => {
       },
       timeout,
     );
+  });
+});
+
+describe('本机移除 / 恢复（localOnly 墓碑，仅本机视图层）', () => {
+  it('分控端移除 A 编排的系列赛：立即隐藏、对局引用保留、updatedAt 不变、真实墓碑访问器不含它', () => {
+    const record = createSeries(8);
+    // 本机（A）编排：拒绝本机移除，提示走「删除系列赛」（真删除，跨机传播）
+    expect(() => removeLocalTournament(paths, record.id)).toThrow(/本机编排/);
+
+    // 开赛后切成「非本机编排」视角（机器码改为 B，模拟分控端）
+    startTournament(paths, record.id);
+    const before = getTournamentStore(paths).find((item) => item.id === record.id);
+    expect(before).toBeTruthy();
+    saveRuntimeConfig(paths, { machineCode: 'B' });
+    const matchesBefore = getMatchStore(paths).matches;
+    expect(matchesBefore.length).toBeGreaterThan(0);
+
+    const result = removeLocalTournament(paths, record.id);
+    expect(result.changed).toBe(true);
+
+    // 对外不可见；本机移除清单可见；真实墓碑访问器不含它（收口解绑不会误伤）
+    expect(getTournamentStore(paths).find((item) => item.id === record.id)).toBeUndefined();
+    const removed = getLocallyRemovedTournaments(paths);
+    expect(removed.map((item) => item.id)).toEqual([record.id]);
+    expect(removed[0].localOnly).toBe(true);
+    expect(removed[0].deletedAt).toBeTruthy();
+    expect(removed[0].deletedMatchIds).toEqual([]);
+    expect(removed[0].deletedMatches).toBe(false);
+    expect(removed[0].updatedAt).toBe(before!.updatedAt);
+    expect(getTournamentTombstones(paths)).toEqual([]);
+
+    // 对局引用保留不动（与真删除不同：不解绑、不删对局）
+    const matchesAfter = getMatchStore(paths).matches;
+    expect(matchesAfter).toHaveLength(matchesBefore.length);
+    expect(matchesAfter.every((match) => match.tournamentRef?.tournamentId === record.id)).toBe(true);
+
+    // 幂等：重复移除不重复写、不报错
+    expect(removeLocalTournament(paths, record.id).changed).toBe(false);
+    expect(getLocallyRemovedTournaments(paths)).toHaveLength(1);
+  });
+
+  it('恢复：清除标记立即重新可见，updatedAt 保持原值（下次同步按「较新覆盖」接受编排机更新）', () => {
+    const record = createSeries(8);
+    saveRuntimeConfig(paths, { machineCode: 'B' });
+    const before = getTournamentStore(paths).find((item) => item.id === record.id);
+    expect(before).toBeTruthy();
+
+    removeLocalTournament(paths, record.id);
+    const restored = restoreLocalTournament(paths, record.id);
+    expect(restored.deletedAt).toBeUndefined();
+    expect(restored.localOnly).toBeUndefined();
+    expect(restored.updatedAt).toBe(before!.updatedAt);
+    expect(getLocallyRemovedTournaments(paths)).toEqual([]);
+    expect(getTournamentStore(paths).find((item) => item.id === record.id)?.id).toBe(record.id);
+  });
+
+  it('真实墓碑与本机移除正交：真删后不可移除 / 不可恢复；存活记录不可恢复', () => {
+    const deleted = createSeries(8, { name: '真删杯' });
+    deleteTournament(paths, deleted.id);
+    expect(() => removeLocalTournament(paths, deleted.id)).toThrow('系列赛不存在');
+    expect(() => restoreLocalTournament(paths, deleted.id)).toThrow('该系列赛不是本机移除的记录');
+
+    const alive = createSeries(8, { name: '存活杯' });
+    expect(() => restoreLocalTournament(paths, alive.id)).toThrow('该系列赛不是本机移除的记录');
+    expect(() => restoreLocalTournament(paths, 'T19700101_A99')).toThrow('系列赛不存在');
+  });
+});
+
+describe('系列赛数据文件损坏保护', () => {
+  it('解析失败：备份 .corrupt 并抛错；写路径一律中止，不覆盖损坏文件', () => {
+    createSeries(4);
+    writeFileSync(paths.tournamentsFile, '{ 损坏的 JSON', 'utf-8');
+
+    expect(() => getTournamentStore(paths)).toThrow(/系列赛数据文件损坏/);
+    expect(existsSync(`${paths.tournamentsFile}.corrupt`)).toBe(true);
+    // 备份保留现场（内容与损坏文件一致）
+    expect(readFileSync(`${paths.tournamentsFile}.corrupt`, 'utf-8')).toBe('{ 损坏的 JSON');
+
+    // 写路径同样中止（旧版会把库覆盖成「只剩新系列赛」），原始损坏文件保持原样等人工修复
+    expect(() => createSeries(4, { name: '新杯' })).toThrow(/系列赛数据文件损坏/);
+    expect(readFileSync(paths.tournamentsFile, 'utf-8')).toBe('{ 损坏的 JSON');
+  });
+
+  it('结构不对（tournaments 不是数组）同样按损坏处理', () => {
+    createSeries(4);
+    writeFileSync(paths.tournamentsFile, JSON.stringify({ tournaments: { bad: true } }), 'utf-8');
+    expect(() => getTournamentStore(paths)).toThrow(/系列赛数据文件损坏/);
+    expect(existsSync(`${paths.tournamentsFile}.corrupt`)).toBe(true);
   });
 });

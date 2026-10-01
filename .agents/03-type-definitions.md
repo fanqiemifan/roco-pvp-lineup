@@ -87,7 +87,7 @@
 | SyncImportDiffField | 导入预览的字段级差异项（label 字段名, local 本机值, incoming 包内值） | shared/types.ts |
 | SyncImportAvatarCompare | 导入预览的头像/logo 左右对照（localUrl 本机头像地址、incomingDataUrl 包内头像 data URL、note 处理说明） | shared/types.ts |
 | SyncImportPreview | 导入预览（meta/sameMachine/mode/matchItems/playerItems/teamItems/tournamentGroups/hasTournaments/summary/avatars 统计） | shared/types.ts |
-| SyncImportTournamentGroup | 预览里的系列赛分组（key/id/name/incoming 本包含编排/existsLocally/playerCount/stageSummary/matchKeys/selectableCount），用于「这条系列赛包含哪些比赛」与整条勾选 | shared/types.ts |
+| SyncImportTournamentGroup | 预览里的系列赛分组（key/id/name/incoming 本包含编排/existsLocally/playerCount/stageSummary/matchKeys/selectableCount/tombstone 上游墓碑不可取消/localRemoved 已本机移除保持隐藏），用于「这条系列赛包含哪些比赛」与整条勾选 | shared/types.ts |
 | SyncImportResult | 导入结果（store/profiles/avatarsWritten/tournaments/warnings/applied） | shared/types.ts |
 | SyncTournamentReport | 系列赛导入合并与写回统计（added/updated/skipped/rejected/advanced——advanced = 写回补跑是否真正改动系列赛） | shared/types.ts |
 | SyncImportCounts / SyncAvatarCounts | 逐类 新增/更新/跳过 计数；头像 补缺/已有/无法对应 计数 | shared/types.ts |
@@ -118,7 +118,7 @@
 
 | 类型名称 | 说明 | 文件 |
 |---------|------|------|
-| SnapshotPayload | Socket 快照负载（panels, scoreboard, avatars, store 即 MatchStoreState, stage, page6, page7, page8, page9, page11, page14, nextgame, profiles, countdown, mvp, tournaments）。注意字段名是 `store` 不是 `matches`；tournaments 为系列赛编排记录列表；page14 只有配置，榜单要另取 GET /api/page14 | shared/types.ts |
+| SnapshotPayload | Socket 快照负载（panels, scoreboard, avatars, store 即 MatchStoreState, stage, page6, page7, page8, page9, page11, page14, nextgame, profiles, countdown, mvp, tournaments）。注意字段名是 `store` 不是 `matches`；tournaments 为系列赛编排记录列表；page14 只有配置，榜单要另取 GET /api/page14；locallyRemoved = 本机已「本机移除」的系列赛（localOnly，仅本机读取口径、绝不外传） | shared/types.ts |
 | SOCKET_EVENTS | Socket 事件名称常量对象 | shared/events.ts |
 
 ## 数据统计（管理后台本地）
@@ -140,6 +140,6 @@
 | TournamentNode | 系列赛节点（id 形如 s0-w2-n03, matchId 关联比赛, playerAId/playerBId, winnerId, isBye, next? 单败树连线——V1 单败每阶段一波未用） | shared/types.ts |
 | TournamentWave | 波次（stageIndex, waveIndex 双败1..3/单败1, status: pending/running/completed, pairingStatus: draft/locked, pairingDraft? 草稿, nodes） | shared/types.ts |
 | PairingSlot | 配对确认台槽位（bucketKey? 桶 key，单败 undefined, playerId 可空） | shared/types.ts |
-| TournamentRecord | 系列赛记录（id 形如 T20260928_A01, name, createdAt/updatedAt, status: setup/running/completed, seed, drawVersion, playerIds, stages, currentStageIndex, entries, waves, result? championId/runnerUpId） | shared/types.ts |
+| TournamentRecord | 系列赛记录（id 形如 T20260928_A01, name, createdAt/updatedAt, status: setup/running/completed, seed, drawVersion, playerIds, stages, currentStageIndex, entries, waves, result? championId/runnerUpId）；墓碑字段 deletedAt/deletedMatchIds/deletedMatches（随同步传播）；localOnly = 本机移除标记（仅本机存在、绝不外传、不解绑/不删对局、恢复即清） | shared/types.ts |
 | PairingValidation | 配对校验结果（valid, errors, warnings——已交手仅提醒不阻断） | shared/types.ts |
 | PairingImportResult | 外部对阵导入结果（tournament, unmatched 未能唯一匹配档案的行） | shared/types.ts |

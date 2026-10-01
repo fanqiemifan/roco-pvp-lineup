@@ -76,6 +76,7 @@
   - **编排机所有权**：系列赛归创建它的机器码所有，只有编排机能变更（变更入口与写回钩子都有闸门），其余机器是只读副本；`tournaments.json` 随同步包流转、导入自动合并，赛果回传编排机后由 `runTournamentWriteBack` 补跑推进。详见 `.agents/05`。
   - **阵容表批量导出 / 导入**（系列比赛详情工具栏，只读副本也开放——均非编排操作）：导出「待开始比赛第 1 局」填写模板（一场两行 CSV：系列赛/阶段/对局ID/位置/选手 + 精灵1..6，已录阵容回显；弹窗选范围：整届 / 按阶段 / 仅当前波）。导入支持 CSV / 粘贴表格（TSV）/ JSON：前端按「对局ID + 位置」配对合并，服务端逐格解析名字（复用快速填充匹配，支持 `pet_id 名字` / `编号 名字` 写法，pet_id 是唯一主键）后批量写入。门槛与单场「录入阵容」完全一致（比赛待开始 + 第 1 局未开赛；已开赛 / 已完赛 / 非本系列赛整场跳过），一次落盘 + 单次 `matches:update` 广播；纯函数在 `lib/lineup-sheet.ts`，细节见 `.agents/04` / `.agents/09`。
   - 前端「比赛管理」与「推流选场」都按系列赛分组（紫色奖杯 Tag / 阶段·语义轮次分组），纯函数在 `lib/history.ts`、`lib/tournament.ts`；渲染细节见 `.agents/09`。
+  - **本机移除 / 恢复（分控端对非本机系列赛）**：本机视图层隐藏（`localOnly` 墓碑，仅本机存在）：出站包剔除（不传播）、本机墓碑优先（不复活）、不解绑/不删对局、不改 updatedAt；「恢复」立即回显、下次同步补齐；编排机真删到达时替换为真墓碑照常清理。路由 `POST /api/tournaments/:id/local-remove|local-restore` 与 `GET /api/tournaments/local-removed`（须注册在 `/:tournamentId` 之前）；其对局在「比赛管理 / 推流选场 / 赛事面板快捷列表 / 下场对局下拉」一并隐藏（推送选场的候选过滤、已选解析仍用全量，已推送的隐藏对局不丢场序与时间）。详见 `.agents/05`/`.agents/09`。
 - page3 附加特性（战队标识 / 排位排名图标 / 红光特效）：显隐各由 `stage.*` 开关控制，行为规则与踩坑见 `.agents/09`。排位排名随对局存 `leftRank/rightRank`、由 `syncScoreboardFromMatch` 同步记分牌，系列赛建场时从档案快照，`/api/page6`·`/api/page8` 对空排名按选手名回退档案。
 - 详细索引（类型、API 路由、函数、socket 事件、常量、文件地图）在 `.agents/01..10-*.md` —— 遇到问题先查它们；行为有变化时要同步更新这些文档。
 
@@ -86,6 +87,7 @@
 - **导入外部 JSON 必须过 id 白名单**：match id 会被拼进头像目录，`normalizeMatchRecord` 只接受 `YYYYMMDD_[机器码]NNN` 形态（防路径穿越）——新增导入入口时务必复用该规范化路径。
 - **tournamentRef 只能由系列赛引擎内部写入**：公开 `POST /api/matches` 会剥离 body.tournamentRef（`normalizeTournamentRef` 白名单透传仅供内部建场）；带 tournamentRef 的比赛不能直接 `DELETE /api/matches/:id`（400，提示用回退上一波），删对局要走系列赛「回退上一波」或 `DELETE /api/tournaments/:id`（解绑保留 / 连对局删除）。tournaments.json 随同步包流转，编辑权归编排机（见上文「双机同步包含系列赛编排」）。
 - **React Hooks 顺序约束**（曾踩坑）：任何 hook 都必须放在组件内的条件 return（如 `if (loading) return ...`）之前，否则 loading 切换时 hook 数量变化会抛 `Minified React error #310` 导致整页白屏。
+- **tournaments.json 损坏保护**：库文件原子写（同目录 tmp + rename）；解析失败先备份 `.corrupt` 再抛错，**绝不静默当空库**（空库 + 下一次写会把整库永久覆盖，`createTournament` 只剩新系列赛、合并只剩包内容）——不要改回静默返回 `[]`。
 - **新增或改动的推流/展示画面必须增量更新**：只更新发生变化的节点/区域，禁止整页 innerHTML 重写或全量重渲染，避免画面闪烁。
 - `antd` skill 可用（`.agents/skills/antd`），Ant Design 相关开发建议加载。
 - 提交风格：conventional commits，中文 scope/正文，例如 `feat(stage): ...`、`fix(security): ...`。

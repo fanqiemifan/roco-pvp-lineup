@@ -32,6 +32,7 @@ import type { AppPaths } from './path-service.js';
 import type { ProfileImportDecision } from './profile-service.js';
 import { diffProfileRecords, getProfileStore, mergeProfileRecords } from './profile-service.js';
 import {
+  getLocallyRemovedTournaments,
   getTournamentRecordsIncludingTombstones,
   getTournamentStore,
   getTournamentTombstones,
@@ -116,6 +117,7 @@ export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): S
   // 墓碑必须随包导出（含从别机传播留存的），否则"删除"传播不出去；
   // 「连同对局删除」名单里的对局不再进包，旧副本不会随新包继续流转
   // （主控事后从撤销栈撤回恢复的对局同理不再回流分控，见墓碑方案的已知语义）。
+  // 「本机移除」（localOnly）只属于本机：整条剔除，绝不外传（否则接收端会误判成删除指令）。
   const tombstoneMatchIds = new Set(
     getTournamentTombstones(paths)
       .filter((record) => record.deletedMatches)
@@ -127,7 +129,8 @@ export function exportSyncBundle(paths: AppPaths, options: SyncExportOptions): S
     machine: loadRuntimeConfig(paths).machineCode,
     exportedAt: new Date().toISOString(),
     matches: getMatchStore(paths).matches.filter((match) => !tombstoneMatchIds.has(match.id)),
-    tournaments: getTournamentRecordsIncludingTombstones(paths),
+    tournaments: getTournamentRecordsIncludingTombstones(paths)
+      .filter((record) => !record.localOnly),
   };
 
   if (!options.includeProfiles) {
@@ -380,6 +383,8 @@ function buildTournamentGroups(
   matchItems: SyncImportItem[],
 ): { groups: SyncImportTournamentGroup[]; hasTournaments: boolean } {
   const localById = new Map(getTournamentStore(paths).map((record) => [record.id, record]));
+  // 本机移除（localOnly）的记录不进 getTournamentStore：单独取一份用于「保持隐藏」标记与名称兜底
+  const localRemovedById = new Map(getLocallyRemovedTournaments(paths).map((record) => [record.id, record]));
   const incomingById = new Map<string, Record<string, unknown>>();
   payload.tournaments.forEach((raw) => {
     const record = (raw ?? {}) as Record<string, unknown>;
@@ -411,10 +416,11 @@ function buildTournamentGroups(
     }
     const incoming = id ? incomingById.get(id) : undefined;
     const local = id ? localById.get(id) : undefined;
+    const locallyRemoved = id ? localRemovedById.get(id) : undefined;
     const created: SyncImportTournamentGroup = {
       key,
       id,
-      name: String(incoming?.name ?? local?.name ?? '').trim(),
+      name: String(incoming?.name ?? local?.name ?? locallyRemoved?.name ?? '').trim(),
       incoming: Boolean(incoming),
       existsLocally: Boolean(local),
       playerCount: Array.isArray(incoming?.playerIds)
@@ -426,6 +432,7 @@ function buildTournamentGroups(
       matchKeys: [],
       selectableCount: 0,
       tombstone: Boolean(incoming?.deletedAt),
+      localRemoved: Boolean(locallyRemoved),
     };
     groups.set(key, created);
     return created;

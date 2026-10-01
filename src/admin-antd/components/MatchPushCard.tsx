@@ -33,8 +33,16 @@ interface MatchPushCardProps {
   /** 功能卡片标题，如「推送比赛结果」 */
   cardTitle: string;
   maxCount: number;
-  /** 全部比赛（候选池，组件内部做搜索与资格过滤） */
+  /**
+   * 候选池：管理端可见的比赛（已剔除「本机移除」系列赛的对局）——组件内部做搜索与资格过滤。
+   * 已选 / 摘要的解析必须走 allMatches，否则已推送的隐藏对局会「解析不到」导致索引错位。
+   */
   matches: MatchRecord[];
+  /**
+   * 全量比赛（仅用于解析已选与摘要）：已推送过的「本机移除」对局仍要能显示、排序、
+   * 编辑场序时间并保留在推送里（隐藏是视图层语义，不动已推送内容）。
+   */
+  allMatches: MatchRecord[];
   /** 系列赛列表（候选分组用：解析阶段名与语义轮次，与 page6 卡片标签同口径） */
   tournaments: TournamentRecord[];
   /** 服务端当前配置（打开弹窗时作为初始值） */
@@ -90,7 +98,7 @@ function versusText(match: MatchRecord): string {
  * 弹窗内候选按「系列赛阶段/轮次 + 普通对局」分组（组头可整组勾选），
  * 勾选（勾选顺序即卡片场序）、上移/下移调整、page6/8 可编辑标题与场序时间。
  */
-export function MatchPushCard({ kind, cardTitle, maxCount, matches, tournaments, state, pushing, onPush }: MatchPushCardProps) {
+export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, tournaments, state, pushing, onPush }: MatchPushCardProps) {
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>([]);
@@ -117,11 +125,14 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, tournaments,
     setSearch('');
   }, [open, state, maxCount]);
 
+  // 解析池用全量 allMatches（不是候选池）：已推送的「本机移除」对局不在候选表里，
+  // 但必须能解析出名称/BO 参与已选排序与手动时间——否则 draftIds 与渲染列表索引错位
+  // （上移/下移移动错项、确认推送时手动时间被清掉）
   const matchById = useMemo(() => {
     const map = new Map<string, MatchRecord>();
-    matches.forEach((match) => map.set(match.id, match));
+    allMatches.forEach((match) => map.set(match.id, match));
     return map;
-  }, [matches]);
+  }, [allMatches]);
 
   /** 弹窗内已选（本地草稿，仅打开弹窗时从服务端初始化） */
   const selectedMatches = useMemo(

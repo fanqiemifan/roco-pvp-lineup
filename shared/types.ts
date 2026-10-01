@@ -486,6 +486,8 @@ export interface SnapshotPayload {
   countdown: CountdownState;
   mvp: MvpState;
   tournaments: TournamentRecord[];
+  /** 本机已「本机移除」（localOnly 墓碑）的系列赛：只在本机读取口径出现，绝不外传 */
+  locallyRemoved: TournamentRecord[];
 }
 
 /**
@@ -687,6 +689,8 @@ export interface SyncImportTournamentGroup {
   selectableCount: number;
   /** 本包携带的该系列赛是删除墓碑：随导入自动清理本机副本，不可取消勾选（删除指令不是可选项） */
   tombstone?: boolean;
+  /** 该系列赛在本机已被「本机移除」（localOnly 墓碑）：导入后仍保持隐藏，可在系列比赛「已本机移除」中恢复 */
+  localRemoved?: boolean;
 }
 
 /** 头像 / logo 处理统计 */
@@ -1082,6 +1086,12 @@ export interface TournamentRecord {
   deletedMatchIds?: string[];
   /** 墓碑携带：删除时是否"连同对局删除"（决定 deletedMatchIds 是否要在接收端一并移除） */
   deletedMatches?: boolean;
+  /**
+   * 本机移除标记（仅本机存在，**绝不随同步包外传**）：分控端对「非本机编排」的系列赛做视图层隐藏，
+   * 立即隐藏且同步不复活；「恢复」时清除。对局引用与内容保留不动（不 detach、不删对局、不改 updatedAt）。
+   * 编排机的真墓碑到达时，整条被替换并清除本标记（随之走正常解绑 / 清理收口）。
+   */
+  localOnly?: boolean;
 }
 
 /** 配对草稿校验结果（配对确认台锁定前） */

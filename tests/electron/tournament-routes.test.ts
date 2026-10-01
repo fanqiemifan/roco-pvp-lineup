@@ -472,3 +472,58 @@ describe('鉴权：系列赛管理路由受保护', () => {
     await authServer.close();
   });
 });
+
+describe('本机移除 / 恢复（localOnly）', () => {
+  it('移除 → 列表隐藏 → 恢复：路由顺序、幂等、广播载荷与归属闸门', async () => {
+    const playerIds = seedPlayers(8);
+    const created = (await postJson('/api/tournaments', { name: '本机移除杯', playerIds, seed: 42 })).data.tournament;
+    // 模拟分控端视角：本机码改为 B（A 编排的系列赛变成只读副本）
+    saveRuntimeConfig(paths, { machineCode: 'B' });
+    const payloads: Array<{ locallyRemoved?: Array<{ id: string }> }> = [];
+    const onUpdate = (payload: { locallyRemoved?: Array<{ id: string }> }) => payloads.push(payload);
+    socket.on('tournament:update', onUpdate);
+    try {
+      // 归属闸门：本机码 B 下新建的系列赛归本机 → 拒绝本机移除（提示走真删除）
+      const ownedHere = (await postJson('/api/tournaments', { name: '本机杯', playerIds, seed: 7 })).data.tournament;
+      const rejected = await postJson(`/api/tournaments/${ownedHere.id}/local-remove`);
+      expect(rejected.status).toBe(400);
+      expect(String(rejected.data.error)).toContain('本机编排');
+
+      // 移除 A 编排的系列赛：立即从列表隐藏
+      const removed = await postJson(`/api/tournaments/${created.id}/local-remove`);
+      expect(removed.status).toBe(200);
+      expect(removed.data.changed).toBe(true);
+
+      // 路由注册顺序：GET /local-removed 不会被 GET /:tournamentId 吃掉
+      const list = await getJson('/api/tournaments');
+      expect(list.data.tournaments.some((item: { id: string }) => item.id === created.id)).toBe(false);
+      const removedList = await getJson('/api/tournaments/local-removed');
+      expect(removedList.status).toBe(200);
+      expect(removedList.data.tournaments.map((item: { id: string }) => item.id)).toContain(created.id);
+
+      // 幂等：重复移除成功但不再写盘
+      const again = await postJson(`/api/tournaments/${created.id}/local-remove`);
+      expect(again.status).toBe(200);
+      expect(again.data.changed).toBe(false);
+
+      // 广播载荷带 locallyRemoved（admin 收全量）→ 其他标签页 / 恢复列表即时刷新
+      await flushEvents();
+      const latest = payloads[payloads.length - 1];
+      expect(latest?.locallyRemoved?.some((item) => item.id === created.id)).toBe(true);
+
+      // 恢复：立即重新可见，恢复列表清空对应项
+      const restored = await postJson(`/api/tournaments/${created.id}/local-restore`);
+      expect(restored.status).toBe(200);
+      expect(restored.data.tournament.id).toBe(created.id);
+      expect((await getJson('/api/tournaments')).data.tournaments.some((item: { id: string }) => item.id === created.id)).toBe(true);
+      expect((await getJson('/api/tournaments/local-removed')).data.tournaments.some((item: { id: string }) => item.id === created.id)).toBe(false);
+
+      // 非本机移除的记录不可恢复
+      const wrongRestore = await postJson(`/api/tournaments/${created.id}/local-restore`);
+      expect(wrongRestore.status).toBe(400);
+    } finally {
+      socket.off('tournament:update', onUpdate);
+      saveRuntimeConfig(paths, { machineCode: 'A' });
+    }
+  });
+});

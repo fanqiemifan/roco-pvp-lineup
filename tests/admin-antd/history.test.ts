@@ -8,6 +8,7 @@ import type {
 } from '../../shared/types';
 import {
   buildHistoryTournamentFilters,
+  filterLocallyRemovedMatches,
   getEffectiveTournamentId,
   getHistoryVisibleGames,
   getLineupEntryBlockReason,
@@ -204,5 +205,26 @@ describe('LINEUP_ENTRY_BLOCK_TEXT', () => {
     for (const reason of ['match-completed', 'game-not-current', 'game-started', 'game-completed'] as const) {
       expect(LINEUP_ENTRY_BLOCK_TEXT[reason]).toBeTruthy();
     }
+  });
+});
+
+describe('filterLocallyRemovedMatches', () => {
+  it('本机移除的系列赛对局一并隐藏；无引用与其他系列赛不受影响；空集合原样返回', () => {
+    const matches = [
+      makeMatch([makeGame(1, 'pending')], {
+        id: 'm-removed',
+        tournamentRef: { tournamentId: 'T-REMOVED', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+      }),
+      makeMatch([makeGame(1, 'pending')], {
+        id: 'm-kept',
+        tournamentRef: { tournamentId: 'T-KEPT', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+      }),
+      makeMatch([makeGame(1, 'pending')], { id: 'm-plain' }),
+    ];
+
+    const filtered = filterLocallyRemovedMatches(matches, new Set(['T-REMOVED']));
+    expect(filtered.map((match) => match.id)).toEqual(['m-kept', 'm-plain']);
+    // 空集合（没有本机移除记录）原样返回，避免无谓复制
+    expect(filterLocallyRemovedMatches(matches, new Set())).toBe(matches);
   });
 });
