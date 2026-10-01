@@ -8,6 +8,7 @@ import {
   advanceTournament,
   createTournament,
   deleteTournament,
+  getTournamentRecordsIncludingTombstones,
   getTournamentStore,
   importPairings,
   lockPairings,
@@ -1039,6 +1040,64 @@ describe('deleteTournament（删除系列赛）', () => {
     expect(getMatchStore(paths).matches[0].status).toBe('completed');
 
     expect(onMatchUndo(paths, matchId)).toBeNull();
+  });
+});
+
+describe('删除墓碑（写路径与读路径分层）', () => {
+  it('删除写墓碑：对外不可见、变更按不存在拒绝、同日再建不复用 id', () => {
+    const first = createSeries(4);
+    const result = deleteTournament(paths, first.id);
+    expect(result.matchesDeleted).toBe(false);
+
+    // 对外读（getTournamentStore）不可见；含墓碑访问器能看到
+    expect(getTournamentStore(paths)).toEqual([]);
+    const raw = getTournamentRecordsIncludingTombstones(paths);
+    expect(raw).toHaveLength(1);
+    expect(raw[0].id).toBe(first.id);
+    expect(raw[0].deletedAt).toBeTruthy();
+
+    // 一切变更按"不存在"拒绝（防陈旧比赛把内容写进墓碑）
+    expect(() => startTournament(paths, first.id)).toThrow('系列赛不存在');
+    expect(() => rollbackWave(paths, first.id)).toThrow('系列赛不存在');
+    expect(() => deleteTournament(paths, first.id)).toThrow('系列赛不存在');
+
+    // id 分配看得见墓碑（读路径分层）：同日再建不会复用已删 id
+    const second = createSeries(4, { name: '星空杯S1·二届' });
+    expect(second.id).not.toBe(first.id);
+    expect(getTournamentStore(paths).map((record) => record.id)).toEqual([second.id]);
+  });
+
+  it('墓碑 + 陈旧引用：完成/撤回钩子按已删除静默跳过，不写进墓碑', () => {
+    const tournament = createSeries(4);
+    deleteTournament(paths, tournament.id);
+
+    // 模拟旧包 / 回传把带 tournamentRef 的陈旧比赛带回本机
+    const created = createMatch(paths, {
+      leftPlayer: '选手0',
+      rightPlayer: '选手1',
+      bestOf: 1,
+      tournamentRef: {
+        tournamentId: tournament.id,
+        nodeId: 's0-w1-n00',
+        stageIndex: 0,
+        waveIndex: 1,
+      },
+    });
+    const matchId = created.activeMatchId!;
+    saveGameLineupForMatch(paths, matchId, 1, {
+      left: [{ sprite: '3001' }],
+      right: [{ sprite: '3002' }],
+    });
+    startCurrentGame(paths, matchId);
+    recordMatchWinner(paths, matchId, 'left');
+
+    expect(onMatchCompleted(paths, matchId)).toBeNull();
+    expect(onMatchUndo(paths, matchId)).toBeNull();
+
+    // 墓碑未被写入任何内容（waves 保持删除时的原样）
+    const raw = getTournamentRecordsIncludingTombstones(paths)[0];
+    expect(raw.deletedAt).toBeTruthy();
+    expect(raw.waves).toEqual([]);
   });
 });
 

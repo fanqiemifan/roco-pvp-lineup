@@ -4272,6 +4272,10 @@ function Dashboard() {
 
   /** 取消/恢复整条系列赛：勾掉时不写入它的编排，也不写入它名下的比赛 */
   function toggleSyncTournamentGroup(group: SyncImportTournamentGroup) {
+    if (group.tombstone) {
+      // 删除指令不可取消：墓碑必须随导入应用，否则被取消勾选的旧副本永远清不掉
+      return;
+    }
     const excluded = syncExcludedTournamentIds.includes(group.id);
     if (excluded) {
       setSyncExcludedTournamentIds((prev) => prev.filter((id) => id !== group.id));
@@ -5628,6 +5632,14 @@ function Dashboard() {
                       />
                     ) : null}
 
+                    {syncTournamentGroups.some((group) => group.tombstone) ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message="包内含已删除的系列赛（墓碑）：导入时会自动清理本机对应副本与名单内的对局，该项不可取消"
+                      />
+                    ) : null}
+
                     <div className="sync-preview-layout">
                       <div className="sync-preview-list">
                         <Table<SyncPreviewRow>
@@ -5639,7 +5651,7 @@ function Dashboard() {
                               title: '类型',
                               width: 88,
                               render: (_value, record) => ('isGroup' in record
-                                ? (record.id ? '🏆 系列赛' : '普通对局')
+                                ? (record.tombstone ? '🧹 已删除' : record.id ? '🏆 系列赛' : '普通对局')
                                 : SYNC_KIND_LABELS[record.kind]),
                             },
                             {
@@ -5649,12 +5661,18 @@ function Dashboard() {
                                   <Text strong>{record.id ? (record.name || record.id) : '不属于任何系列赛的比赛'}</Text>
                                   {record.id ? <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text> : null}
                                   {record.playerCount ? <Tag>{record.playerCount} 人</Tag> : null}
-                                  <Tag color={record.incoming ? 'purple' : 'default'}>
-                                    {record.incoming ? '包含系列赛编排' : '仅比赛，无编排'}
-                                  </Tag>
-                                  <Tag color={record.existsLocally ? 'blue' : 'green'}>
-                                    {record.existsLocally ? '本机已有' : '本机没有，将新建'}
-                                  </Tag>
+                                  {record.tombstone ? (
+                                    <Tag color="red">上游已删除，随同步清理本机副本</Tag>
+                                  ) : (
+                                    <>
+                                      <Tag color={record.incoming ? 'purple' : 'default'}>
+                                        {record.incoming ? '包含系列赛编排' : '仅比赛，无编排'}
+                                      </Tag>
+                                      <Tag color={record.existsLocally ? 'blue' : 'green'}>
+                                        {record.existsLocally ? '本机已有' : '本机没有，将新建'}
+                                      </Tag>
+                                    </>
+                                  )}
                                   {record.stageSummary ? <Tag>{record.stageSummary}</Tag> : null}
                                   <Text type="secondary" style={{ fontSize: 12 }}>
                                     共 {record.matchKeys.length} 场（{record.selectableCount} 场待写入）
@@ -5672,12 +5690,16 @@ function Dashboard() {
                               width: 168,
                               render: (_value, record) => ('isGroup' in record ? (
                                 record.id ? (
-                                  <Checkbox
-                                    checked={!syncExcludedTournamentIds.includes(record.id)}
-                                    onChange={() => toggleSyncTournamentGroup(record)}
-                                  >
-                                    一起导入
-                                  </Checkbox>
+                                  record.tombstone ? (
+                                    <Tag color="red">随同步清理（不可取消）</Tag>
+                                  ) : (
+                                    <Checkbox
+                                      checked={!syncExcludedTournamentIds.includes(record.id)}
+                                      onChange={() => toggleSyncTournamentGroup(record)}
+                                    >
+                                      一起导入
+                                    </Checkbox>
+                                  )
                                 ) : null
                               ) : (() => {
                                 const group = syncGroupOfMatchKey.get(record.key);

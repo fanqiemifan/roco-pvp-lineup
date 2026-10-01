@@ -310,6 +310,7 @@ export function TournamentView({
               <Space direction="vertical" size={12} style={{ marginTop: 8 }}>
                 <Paragraph style={{ marginBottom: 0 }}>
                   确定删除系列赛「<b>{deleteTarget.name}</b>」？编排记录（阶段、波次、对阵树）将被删除且不可恢复。
+                  删除会随同步下发到分控端：分控端的副本（与名单内的关联对局）会在下次同步时自动清理。
                 </Paragraph>
                 {summary.total > 0 ? (
                   <>
@@ -446,7 +447,7 @@ function TournamentDetail({
     >
       {readOnly ? (
         <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          只读副本：该系列赛由{ownerCode ? `机器 ${ownerCode}` : '另一台机器'}编排 —— 本机可查看对阵图、可登记对局赛果；推进、编排与删除请在编排机执行（本机即便删掉，下一次同步也会被重新合并回来），回传后本机对阵图自动更新。
+          只读副本：该系列赛由{ownerCode ? `机器 ${ownerCode}` : '另一台机器'}编排 —— 本机可查看对阵图、可登记对局赛果；推进、编排与删除请在编排机执行（本机即便删掉，下一次同步也会被重新合并回来；编排机删除后，本机副本会随下一次同步自动清除），回传后本机对阵图自动更新。
         </Paragraph>
       ) : null}
 

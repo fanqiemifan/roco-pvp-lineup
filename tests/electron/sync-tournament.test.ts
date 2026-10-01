@@ -17,7 +17,9 @@ import { applySyncImport, exportSyncBundle, previewSyncImport } from '../../elec
 import {
   createTournament,
   deleteTournament,
+  getTournamentRecordsIncludingTombstones,
   getTournamentStore,
+  getTournamentTombstones,
   mergeTournamentRecords,
   onMatchCompleted,
   rollbackWave,
@@ -310,5 +312,136 @@ describe('双机 8/8 登记全链路', () => {
     });
 
     expect(applied.warnings.some((warning) => warning.includes('与系列赛记录不一致'))).toBe(true);
+  });
+});
+
+describe('删除墓碑的跨机传播', () => {
+  it('删除写墓碑：对外不可见、导出包含墓碑、默认删除时对局解绑保留', () => {
+    const { id } = createRunningSeries(machineA);
+    const result = deleteTournament(machineA, id);
+    expect(result.matchesDeleted).toBe(false);
+
+    // 对外读取（getTournamentStore）不可见；含墓碑访问器能看到
+    expect(getTournamentStore(machineA)).toEqual([]);
+    const raw = getTournamentRecordsIncludingTombstones(machineA);
+    expect(raw).toHaveLength(1);
+    expect(raw[0].deletedAt).toBeTruthy();
+    expect(raw[0].deletedMatchIds).toEqual(result.matchIds);
+
+    // 导出包含墓碑；默认删除的对局已解绑、仍随包流转
+    const bundle = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false });
+    expect(bundle.tournaments).toHaveLength(1);
+    expect(bundle.tournaments[0].deletedAt).toBeTruthy();
+    expect(bundle.matches).toHaveLength(result.matchIds.length);
+    expect(bundle.matches.every((match) => match.tournamentRef === undefined)).toBe(true);
+  });
+
+  it('墓碑下传：接收端清副本并留存墓碑；旧包导入不复活、引用被再次解绑', async () => {
+    const { id } = createRunningSeries(machineA);
+    const baseline = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false });
+    const previewB = previewSyncImport(machineB, baseline, 'newer');
+    await applySyncImport(machineB, baseline, {
+      mode: 'newer',
+      acceptedKeys: acceptAllKeys(previewB),
+      includeAvatars: false,
+    });
+    expect(getTournamentStore(machineB)).toHaveLength(1);
+    const matchCount = getMatchStore(machineB).matches.length;
+
+    // A 删除并分发 → B 副本清除、墓碑留存、对局解绑保留为普通对局
+    deleteTournament(machineA, id);
+    const tombstoned = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false });
+    const previewTomb = previewSyncImport(machineB, tombstoned, 'newer');
+    await applySyncImport(machineB, tombstoned, {
+      mode: 'newer',
+      acceptedKeys: acceptAllKeys(previewTomb),
+      includeAvatars: false,
+    });
+
+    expect(getTournamentStore(machineB)).toEqual([]);
+    expect(getTournamentTombstones(machineB).map((record) => record.id)).toEqual([id]);
+    expect(getMatchStore(machineB).matches).toHaveLength(matchCount);
+    expect(getMatchStore(machineB).matches.every((match) => match.tournamentRef === undefined)).toBe(true);
+
+    // 旧包（删除前的存活副本）再导入：墓碑优先（不受 bundle 覆盖模式影响），不复活；
+    // 旧包把 tournamentRef 带回来 → 解绑不变量把它再解一次
+    const revivePreview = previewSyncImport(machineB, baseline, 'bundle');
+    const revived = await applySyncImport(machineB, baseline, {
+      mode: 'bundle',
+      acceptedKeys: acceptAllKeys(revivePreview),
+      includeAvatars: false,
+    });
+    expect(revived.tournaments.added).toBe(0);
+    expect(revived.tournaments.updated).toBe(0);
+    expect(getTournamentStore(machineB)).toEqual([]);
+    expect(getMatchStore(machineB).matches.every((match) => match.tournamentRef === undefined)).toBe(true);
+  });
+
+  it('墓碑鉴权：包作者与 id 内嵌码不符的墓碑被忽略，相符才应用', () => {
+    const { id } = createRunningSeries(machineA);
+    deleteTournament(machineA, id);
+    const tombstone = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false }).tournaments[0];
+
+    const rejected = mergeTournamentRecords(machineB, [tombstone], 'bundle', { authoredBy: 'B' });
+    expect(rejected.added).toEqual([]);
+    expect(rejected.updated).toEqual([]);
+    expect(getTournamentTombstones(machineB)).toEqual([]);
+
+    const accepted = mergeTournamentRecords(machineB, [tombstone], 'bundle', { authoredBy: 'A' });
+    expect(accepted.added).toEqual([id]);
+    expect(getTournamentTombstones(machineB).map((record) => record.id)).toEqual([id]);
+  });
+
+  it('墓碑对墓碑：保留最早 deletedAt 的一条（时钟无关）', () => {
+    const { id } = createRunningSeries(machineA);
+    deleteTournament(machineA, id);
+    const later = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false })
+      .tournaments[0] as TournamentRecord;
+    const earlier = JSON.parse(JSON.stringify(later)) as TournamentRecord;
+    earlier.deletedAt = new Date(Date.parse(String(later.deletedAt)) - 60_000).toISOString();
+
+    mergeTournamentRecords(machineB, [later], 'bundle', { authoredBy: 'A' });
+    const report = mergeTournamentRecords(machineB, [earlier], 'bundle', { authoredBy: 'A' });
+    expect(report.updated).toEqual([id]);
+    expect(getTournamentTombstones(machineB)[0].deletedAt).toBe(earlier.deletedAt);
+
+    const again = mergeTournamentRecords(machineB, [later], 'bundle', { authoredBy: 'A' });
+    expect(again.updated).toEqual([]);
+    expect(getTournamentTombstones(machineB)[0].deletedAt).toBe(earlier.deletedAt);
+  });
+
+  it('连同对局删除：接收端按名单清掉本地副本；旧包携带的同名对局被名单拦截', async () => {
+    const { id } = createRunningSeries(machineA);
+    const baseline = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false });
+    const previewB = previewSyncImport(machineB, baseline, 'newer');
+    await applySyncImport(machineB, baseline, {
+      mode: 'newer',
+      acceptedKeys: acceptAllKeys(previewB),
+      includeAvatars: false,
+    });
+    expect(getMatchStore(machineB).matches.length).toBeGreaterThan(0);
+
+    deleteTournament(machineA, id, { deleteMatches: true });
+    const tombstoned = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false });
+    expect(tombstoned.matches).toEqual([]); // 名单对局不再进包
+
+    const previewTomb = previewSyncImport(machineB, tombstoned, 'newer');
+    const applied = await applySyncImport(machineB, tombstoned, {
+      mode: 'newer',
+      acceptedKeys: acceptAllKeys(previewTomb),
+      includeAvatars: false,
+    });
+    expect(applied.warnings.some((warning) => warning.includes('墓碑'))).toBe(true);
+    expect(getMatchStore(machineB).matches).toEqual([]); // 本机副本一并清掉
+
+    // 旧包把已删对局带回来 → 名单拦截，不复活
+    const revivePreview = previewSyncImport(machineB, baseline, 'bundle');
+    await applySyncImport(machineB, baseline, {
+      mode: 'bundle',
+      acceptedKeys: acceptAllKeys(revivePreview),
+      includeAvatars: false,
+    });
+    expect(getMatchStore(machineB).matches).toEqual([]);
+    expect(getTournamentStore(machineB)).toEqual([]);
   });
 });
