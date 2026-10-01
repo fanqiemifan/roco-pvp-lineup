@@ -193,6 +193,21 @@ describe('parseLineupSheetText（表格回填 → 规范化对局）', () => {
     ]);
   });
 
+  it('字段中间游离的引号按字面处理（引号仅在字段开头生效）：不会吞掉后续行', () => {
+    const text = [
+      '对局ID,位置,选手,精灵1,精灵2,精灵3,精灵4,精灵5,精灵6',
+      '20260928_A001,左,小"明,迪莫,,,,,',
+      '20260928_A002,左,小红,雪绒鸟,,,,,',
+    ].join('\n');
+
+    const result = parseLineupSheetText(text);
+    expect(result.errors).toEqual([]);
+    expect(result.entries).toEqual([
+      { matchId: '20260928_A001', left: ['迪莫'], right: null },
+      { matchId: '20260928_A002', left: ['雪绒鸟'], right: null },
+    ]);
+  });
+
   it('位置列无法识别 → 忽略该行并给出警示；表头缺列 → 整份报错', () => {
     const ignoreResult = parseLineupSheetText([
       '对局ID,位置,选手,精灵1,精灵2,精灵3,精灵4,精灵5,精灵6',

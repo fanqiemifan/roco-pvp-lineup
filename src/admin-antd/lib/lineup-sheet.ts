@@ -294,7 +294,11 @@ export function parseLineupJsonText(
 
 /* ---------- 内部工具 ---------- */
 
-/** RFC4180 风格的分隔文本拆分：支持引号包裹与 "" 转义（Excel 导出的 CSV 可直接解析） */
+/**
+ * RFC4180 风格的分隔文本拆分：支持引号包裹与 "" 转义（Excel 导出的 CSV 可直接解析）。
+ * 引号仅在「字段开头」开启包裹；字段中间游离的引号按字面保留，
+ * 避免手滑多打一个引号就把后续整段文本吞进同一个单元格。
+ */
 function splitDelimitedRows(text: string, delimiter: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -316,7 +320,7 @@ function splitDelimitedRows(text: string, delimiter: string): string[][] {
       }
       continue;
     }
-    if (char === '"') {
+    if (char === '"' && cell === '') {
       inQuotes = true;
       continue;
     }
