@@ -7004,6 +7004,10 @@ function Dashboard() {
         mask={false}
         destroyOnHidden
         className="match-panel-drawer"
+        // antd 里 Modal / Drawer 的默认 z-index 相同（均为 1000+100），谁在上只由 portal 的
+        // DOM 顺序决定；Drawer 的 portal 后创建，会压住从它内部打开的弹窗（录入阵容、切换确认）。
+        // 显式降到弹窗基值（1000）以下，保证抽屉里弹出的任何对话框都在抽屉之上。
+        zIndex={900}
       >
         {matchPanelTarget ? (
           <Space direction="vertical" size={16} className="page-stack">
