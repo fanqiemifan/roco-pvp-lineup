@@ -69,8 +69,8 @@ export interface TournamentNodeCardProps {
  * 槽位样式参照 bracket-reference：整行左侧 3px 状态色条 + 名称省略 + 比分块，
  * 胜者绿条绿字、败者红条置灰半透明红底比分（无删除线）、待定名称置灰。
  *
- * 右键卡片任意位置或点右上「⋯」都弹同一份菜单；胜负项文案用选手名（小明赢了），
- * 不可用项置灰并在右侧写原因，避免点了才知道不能做。
+ * 右键卡片任意位置直接打开对局面板（Drawer，连续登记多场的关键）；点右上「⋯」弹菜单，
+ * 胜负项文案用选手名（小明赢了），不可用项置灰并在右侧写原因，避免点了才知道不能做。
  */
 export function TournamentNodeCard({
   card,
@@ -87,7 +87,6 @@ export function TournamentNodeCard({
   slotRef,
 }: TournamentNodeCardProps): React.ReactElement {
   const [moreOpen, setMoreOpen] = React.useState(false);
-  const [contextOpen, setContextOpen] = React.useState(false);
   const matchId = card.matchId;
   const winnerDisabled = (): boolean => !matchId || !menu || !menu.canRegister || !menu.registerGate.allowed;
   const registerHint = (): string | undefined => {
@@ -151,7 +150,6 @@ export function TournamentNodeCard({
 
   function handleMenuClick({ key }: { key: string }): void {
     setMoreOpen(false);
-    setContextOpen(false);
     if (!matchId) {
       return;
     }
@@ -215,6 +213,13 @@ export function TournamentNodeCard({
     <div
       className={`tournament-node-card bracket-card bracket-card-${card.status}${isActive ? ' bracket-card-active' : ''}${isDimmed ? ' bracket-card-dimmed' : ''}`}
       ref={cardRef}
+      // 右键卡片任意位置 = 直接打开对局面板（Drawer）；菜单走右上「⋯」按钮，不再在这里弹菜单
+      onContextMenu={(event) => {
+        if (menu && matchId && onOpenPanel) {
+          event.preventDefault();
+          onOpenPanel(matchId);
+        }
+      }}
     >
       <div className="bracket-card-head">
         <Tag color={STATUS_COLOR[card.status]}>{card.statusLabel}</Tag>
@@ -268,22 +273,9 @@ export function TournamentNodeCard({
     </div>
   );
 
-  if (!menu) {
-    return cardBody;
-  }
-
-  // 右键任意位置弹同一份菜单。Dropdown 的 cloneElement 会接管子节点 ref，
-  // 因此子节点用一层无样式的锚点 div —— cardRef 仍留在卡片本体上，晋级图连线量测不受影响。
-  return (
-    <Dropdown
-      menu={{ items: menuItems, onClick: handleMenuClick }}
-      open={contextOpen}
-      onOpenChange={setContextOpen}
-      trigger={['contextMenu']}
-    >
-      <div className="bracket-card-menu-anchor">{cardBody}</div>
-    </Dropdown>
-  );
+  // 右键由卡片根 div 的 onContextMenu 直接打开 Drawer（不弹菜单，故不包 Dropdown），
+  // cardRef 留在卡片本体上，晋级图连线量测不受影响。
+  return cardBody;
 }
 
 export default TournamentNodeCard;

@@ -175,6 +175,7 @@ import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from
 import { buildSpriteLookup } from './lib/sprite';
 import { deriveMatchActionAvailability } from './lib/match-actions';
 import { CurrentMatchPanel } from './components/CurrentMatchPanel';
+import { MatchLineupDetailPanel } from './views/MatchLineupDetailModal';
 import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
@@ -673,6 +674,15 @@ function Dashboard() {
   const matchPanelTarget = matchPanelTargetId
     ? matchStore.matches.find((match) => match.id === matchPanelTargetId) ?? null
     : null;
+  // 对局面板底部「双方阵容」卡用的「阶段 · 轮次」摘要（普通对局 / 已解绑为 null）
+  const matchPanelTargetStageRound = ((): string | null => {
+    const ref = matchPanelTarget?.tournamentRef;
+    if (!ref) {
+      return null;
+    }
+    const tournament = tournamentRecordMap.get(ref.tournamentId);
+    return tournament ? formatStageRoundLabel(tournament, ref) : null;
+  })();
   const tournamentIdSet = useMemo(() => new Set(tournamentNameMap.keys()), [tournamentNameMap]);
   // 本机已「本机移除」的系列赛 id 集合：管理端操作面（比赛管理 / 推流选场）据此一并隐藏其关联对局
   const locallyRemovedIdSet = useMemo(
@@ -5140,14 +5150,6 @@ function Dashboard() {
                   />
                 </Space>
               </Modal>
-              <HistoryLineupEntryModal
-                open={Boolean(lineupEntry && lineupEntryMatch && lineupEntryGame)}
-                match={lineupEntryMatch}
-                game={lineupEntryGame}
-                sprites={sprites}
-                onClose={() => setLineupEntry(null)}
-                onSaved={(store) => applyServerState({ store })}
-              />
             </Space>
           ) : null}
 
@@ -6891,6 +6893,12 @@ function Dashboard() {
               tournaments={tournaments}
               profiles={profiles}
               matches={matchStore.matches}
+              activeMatchId={matchStore.activeMatchId}
+              undo={matchStore.undo}
+              onMatchAction={(matchId, action, extra) => void runMatchAction(matchId, action, extra)}
+              onOpenMatchPanel={openMatchPanel}
+              registerGate={cloudRegisterGate}
+              undoGate={cloudUndoGate}
               sprites={sprites}
               machineCode={machineCodeInput}
               locallyRemoved={locallyRemoved}
@@ -6991,7 +6999,7 @@ function Dashboard() {
           : '对局面板'}
         placement="right"
         width={860}
-        open={Boolean(matchPanelTarget)}
+        open={view === 'tournament' && Boolean(matchPanelTarget)}
         onClose={() => setMatchPanelTargetId(null)}
         mask={false}
         destroyOnHidden
@@ -7022,29 +7030,67 @@ function Dashboard() {
                       </Tag>
                     ) : null}
                   </Space>
-                  {isCurrent ? (
-                    <Text type="secondary">本场是当前比赛：推流画面（比分栏 / 阵容 / 记分牌）正在展示它。</Text>
-                  ) : (
-                    <Space wrap size={8} align="center">
-                      <Text type="secondary">
-                        本场不是当前比赛：登记 / 开始 / 撤回都直接写这场比赛，推流画面保持不变。
-                        当前推流：
-                        {activeMatch
-                          ? ` ${activeMatch.leftPlayer || '左侧'} vs ${activeMatch.rightPlayer || '右侧'}`
-                          : ' 未选择'}
-                      </Text>
-                      <Button size="small" onClick={() => selectMatch(target.id, { navigate: false })}>
+                  <div className="match-panel-stream">
+                    <span className="match-panel-stream-dot" aria-hidden="true" />
+                    <span className="match-panel-stream-label">{isCurrent ? '本场正在推流' : '当前推流'}</span>
+                    <span className="match-panel-stream-names">
+                      {activeMatch ? (
+                        <>
+                          <span className="match-panel-stream-name">{activeMatch.leftPlayer || '左侧'}</span>
+                          <span className="match-panel-stream-vs">vs</span>
+                          <span className="match-panel-stream-name">{activeMatch.rightPlayer || '右侧'}</span>
+                        </>
+                      ) : (
+                        <span className="match-panel-stream-name">未选择</span>
+                      )}
+                    </span>
+                    {!isCurrent ? (
+                      <Button
+                        size="small"
+                        className="match-panel-stream-action"
+                        onClick={() => selectMatch(target.id, { navigate: false })}
+                      >
                         设为当前比赛（覆写推流画面）
                       </Button>
-                    </Space>
-                  )}
+                    ) : null}
+                  </div>
+                  <Text type="secondary" className="match-panel-status-note">
+                    {isCurrent
+                      ? '开始 / 登记 / 撤回都直接写本场，推流画面会同步更新。'
+                      : '本场不是当前比赛：开始 / 登记 / 撤回都只写这场比赛，上面那场推流画面保持不变。'}
+                  </Text>
                 </div>
               );
             })()}
             {buildCurrentMatchPanel(matchPanelTarget, 'drawer')}
+            {/* 阵容区分两种形态（互斥）：
+                本场=当前比赛 → 上面 CurrentMatchPanel 的 rosterEditor 插槽已渲染可编辑的「当前阵容」面板；
+                本场≠当前比赛 → 渲染该场自己的 6v6 阵容快照（复用「查看阵容」正文）。
+                只读正文读的是目标比赛自己的 games（与推流面板无关），「录入阵容」只写比赛记录、不动画面。 */}
+            {matchPanelTarget.id !== matchStore.activeMatchId ? (
+              <Card size="small" title="双方阵容" className="match-panel-lineup-card">
+                <MatchLineupDetailPanel
+                  match={matchPanelTarget}
+                  stageRoundText={matchPanelTargetStageRound}
+                  sprites={sprites}
+                  hideSummary
+                  onEnterLineup={(matchId, gameNumber) => setLineupEntry({ matchId, gameNumber })}
+                />
+              </Card>
+            ) : null}
           </Space>
         ) : null}
       </Drawer>
+
+      {/* 录入阵容弹窗挂在 App 根：比赛管理「录入阵容」与系列比赛 Drawer「双方阵容」卡共用同一份目标状态 */}
+      <HistoryLineupEntryModal
+        open={Boolean(lineupEntry && lineupEntryMatch && lineupEntryGame)}
+        match={lineupEntryMatch}
+        game={lineupEntryGame}
+        sprites={sprites}
+        onClose={() => setLineupEntry(null)}
+        onSaved={(store) => applyServerState({ store })}
+      />
 
       {/* 顶栏弹窗：倒计时控制（原「直播推流 / 倒计时插件」卡片） */}
       <Modal

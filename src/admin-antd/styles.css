@@ -841,25 +841,42 @@ a {
   justify-content: flex-end;
 }
 
-/* 系列比赛 Drawer 里的「当前比赛」面板：三列 grid 的收列断点是视口，弹窗里必须显式收成单列 */
+/* 系列比赛 Drawer 里的「当前比赛」面板：选手 · 比分 · 选手 紧凑横排。
+   基础三列布局的收列断点是视口，弹窗宽度固定在 860 内不会被触发，这里显式收紧尺寸，
+   避免原来「收成单列」把头像与比分区竖向堆叠、占掉大半首屏。 */
 .current-match-panel-drawer .current-match-overview {
-  grid-template-columns: 1fr;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 16px;
+}
+
+.current-match-panel-drawer .current-match-player,
+.current-match-panel-drawer .current-match-score-block {
+  gap: 4px;
+}
+
+.current-match-panel-drawer .current-match-player-avatar {
+  width: 52px;
+  height: 52px;
+}
+
+.current-match-panel-drawer .current-match-player-name.ant-typography {
+  font-size: 18px;
 }
 
 .current-match-panel-drawer .current-match-score-card {
   min-width: 0;
-  width: 100%;
-  padding: 12px 18px;
-}
-
-.current-match-panel-drawer .current-match-player-name.ant-typography {
-  font-size: 20px;
+  width: auto;
+  padding: 8px 18px;
+  border-radius: 14px;
 }
 
 .current-match-panel-drawer .current-match-score-value {
   min-width: 0;
   font-size: 30px;
+}
+
+.current-match-panel-drawer .current-match-score-separator {
+  font-size: 22px;
 }
 
 .current-match-panel-drawer .current-match-action-row {
@@ -887,6 +904,60 @@ a {
 
 .match-panel-status-head {
   align-items: center;
+}
+
+/* 对局面板状态条：把「当前推流是谁」提成独立一行重点展示（原来埋在一长句说明里不显眼） */
+.match-panel-stream {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.match-panel-stream-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f5222d;
+  box-shadow: 0 0 0 3px rgba(245, 34, 45, 0.16);
+}
+
+.match-panel-stream-label {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #a35a2a;
+}
+
+.match-panel-stream-names {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #2f2418;
+}
+
+.match-panel-stream-vs {
+  font-size: 12px;
+  font-weight: 500;
+  color: #b8894c;
+}
+
+.match-panel-stream-action {
+  margin-left: auto;
+}
+
+.match-panel-status-note.ant-typography {
+  display: block;
+  font-size: 12px;
+}
+
+/* Drawer 底部「双方阵容」卡：复用「阵容详情」正文，收紧卡片内边距 */
+.match-panel-lineup-card .ant-card-body {
+  padding-top: 12px;
 }
 
 @media (max-width: 992px) {

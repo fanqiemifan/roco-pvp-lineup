@@ -37,7 +37,7 @@
 | 选择活动比赛 | POST | /api/matches/:matchId/select | 选择活动比赛 | electron/socket-server.ts |
 | 开始小局 | POST | /api/matches/:matchId/start | 开始当前小局 | electron/socket-server.ts |
 | 录入小局阵容 | POST | /api/matches/:matchId/games/:gameNumber/lineup | 为当前小局（待开始）录入双方阵容（body: selections.left/right；双侧合并一次写入 + 单次广播 matches:update，不触碰面板/记分牌/activeMatchId；比赛管理「录入阵容」用） | electron/socket-server.ts |
-| 记录胜负 | POST | /api/matches/:matchId/winner | 记录本局胜负；系列赛对局**先跑 `prepareTournamentWriteBack` 前置校验再落盘**（节点选手档案缺失 → 400 且比分一点不动，杜绝「比分已写入、系列赛没推进」的半吊子状态；名字快照与档案不一致时先自愈回写） | electron/socket-server.ts |
+| 记录胜负 | POST | /api/matches/:matchId/winner | 记录本局胜负；系列赛对局**先跑 `prepareTournamentWriteBack` 前置校验再落盘**（节点选手档案缺失 → 400 且比分一点不动，杜绝「比分已写入、系列赛没推进」的半吊子状态；名字快照与档案不一致时先自愈回写）。**page10 自动切入仅在该场 == 当前比赛时触发**（`matchId === activeMatchId` 守卫）——系列赛卡片菜单 / Drawer 的 headless 登记（不切当前比赛）不能把 page10 内容换成别的比赛 | electron/socket-server.ts |
 | 撤销操作 | POST | /api/matches/:matchId/undo | 撤销操作；系列赛对局会先跑 onMatchUndo 反向钩子（清节点胜者、必要时级联丢弃「自动锁定且未开打」的后续波），钩子失败则整个撤回 400、比赛不动（避免「比赛撤了、系列赛仍显示晋级」） | electron/socket-server.ts |
 | 恢复操作 | POST | /api/matches/:matchId/redo | 恢复操作 | electron/socket-server.ts |
 | 批量删除比赛 | POST | /api/matches/batch-delete | 批量删除比赛（body: matchIds）；响应额外回带 pagePush（推流选场清理结果，仅含发生变化的页面） | electron/socket-server.ts |
