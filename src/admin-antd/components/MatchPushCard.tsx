@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Checkbox, Empty, Input, Modal, Space, Table, Tag, TimePicker, Typography } from 'antd';
+import { Button, Card, Checkbox, Empty, Input, Modal, Popconfirm, Space, Table, Tag, TimePicker, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
 
@@ -276,21 +276,28 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
     });
   }
 
-  async function handleConfirm() {
-    const matchTimes: Record<string, string> = {};
-    if (withSchedule) {
-      for (const match of selectedMatches) {
-        const time = normalizeHHmm(matchTimesDraft[match.id]);
-        if (time) {
-          matchTimes[match.id] = time;
-        }
-      }
-    }
+  /** 按开始时间整链重排：把所有时间框覆盖为自动累加结果（覆盖手改值，需 Popconfirm 确认） */
+  function refillScheduleTimes() {
+    setMatchTimesDraft(
+      computeScheduleTimes(
+        selectedMatches.map((match) => ({ id: match.id, bestOf: match.bestOf })),
+        startTimeDraft,
+        {},
+      ),
+    );
+  }
 
+  async function handleConfirm() {
     const payload: MatchPushPayload = { matchIds: draftIds, title: titleDraft.trim() };
     if (withSchedule) {
+      // 推送时固化场序时间：按确认这一刻的场序与开始时间把每场解析成独立值（手动值优先）。
+      // 之后比赛完赛被移出选场、增删重排都不会再按列表位置重算（时间跟着比赛 id 走）
       payload.startTime = normalizeHHmm(startTimeDraft);
-      payload.matchTimes = matchTimes;
+      payload.matchTimes = computeScheduleTimes(
+        selectedMatches.map((match) => ({ id: match.id, bestOf: match.bestOf })),
+        startTimeDraft,
+        matchTimesDraft,
+      );
     }
     if (withNotice) {
       payload.notice = noticeDraft.trim();
@@ -457,17 +464,30 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
             {withSchedule ? (
               <div>
                 <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                  第一场开始时间（之后每场按 BO×30 分钟自动累加）：
+                  第一场开始时间（每场按 BO×30 分钟自动累加，确认推送时固化为每场固定时间）：
                 </Text>
-                <TimePicker
-                  allowClear
-                  format="HH:mm"
-                  minuteStep={5}
-                  style={{ width: 160 }}
-                  placeholder="19:00"
-                  value={hhmmToDayjs(startTimeDraft)}
-                  onChange={(value, timeString) => setStartTimeDraft(value ? String(timeString) : '')}
-                />
+                <Space size={8}>
+                  <TimePicker
+                    allowClear
+                    format="HH:mm"
+                    minuteStep={5}
+                    style={{ width: 160 }}
+                    placeholder="19:00"
+                    value={hhmmToDayjs(startTimeDraft)}
+                    onChange={(value, timeString) => setStartTimeDraft(value ? String(timeString) : '')}
+                  />
+                  <Popconfirm
+                    title="将按「第一场开始时间」重算全部场次时间，已手动修改的时间会被覆盖"
+                    okText="重新填充"
+                    cancelText="取消"
+                    disabled={!normalizeHHmm(startTimeDraft) || !selectedMatches.length}
+                    onConfirm={refillScheduleTimes}
+                  >
+                    <Button size="small" disabled={!normalizeHHmm(startTimeDraft) || !selectedMatches.length}>
+                      按开始时间重新填充
+                    </Button>
+                  </Popconfirm>
+                </Space>
               </div>
             ) : null}
           </Space>
