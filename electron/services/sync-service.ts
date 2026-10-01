@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import { SYNC_APP_ID, SYNC_BUNDLE_SCHEMA } from '../../shared/constants.js';
+import { SYNC_APP_ID, SYNC_BUNDLE_SCHEMA, TOURNAMENT_ID_REGEX } from '../../shared/constants.js';
 import type {
   PlayerProfile,
   ProfileStoreState,
@@ -385,6 +385,8 @@ function buildTournamentGroups(
   const localById = new Map(getTournamentStore(paths).map((record) => [record.id, record]));
   // 本机移除（localOnly）的记录不进 getTournamentStore：单独取一份用于「保持隐藏」标记与名称兜底
   const localRemovedById = new Map(getLocallyRemovedTournaments(paths).map((record) => [record.id, record]));
+  // 本机真实墓碑（已删除）：组上标「本机已删除」，提示名单内对局会被拦截
+  const localTombstoneById = new Map(getTournamentTombstones(paths).map((record) => [record.id, record]));
   const incomingById = new Map<string, Record<string, unknown>>();
   payload.tournaments.forEach((raw) => {
     const record = (raw ?? {}) as Record<string, unknown>;
@@ -417,6 +419,7 @@ function buildTournamentGroups(
     const incoming = id ? incomingById.get(id) : undefined;
     const local = id ? localById.get(id) : undefined;
     const locallyRemoved = id ? localRemovedById.get(id) : undefined;
+    const localTombstone = id ? localTombstoneById.get(id) : undefined;
     const created: SyncImportTournamentGroup = {
       key,
       id,
@@ -433,6 +436,7 @@ function buildTournamentGroups(
       selectableCount: 0,
       tombstone: Boolean(incoming?.deletedAt),
       localRemoved: Boolean(locallyRemoved),
+      localTombstone: Boolean(localTombstone),
     };
     groups.set(key, created);
     return created;
@@ -470,26 +474,69 @@ function buildTournamentGroups(
   return { groups: list, hasTournaments: payload.tournaments.length > 0 };
 }
 
+/**
+ * 「已删对局名单」拦截集合（与 applySyncImport 合并侧同口径，供预览提前标注）：
+ * 本机现有真墓碑 + 包内将被接受的真墓碑（鉴权同 mergeTournamentRecords：包作者需与 id 内嵌码一致）
+ * 里 deletedMatches=true 的名单并集。名单里的比赛合并时一律被过滤——预览若不提前标出，
+ * 它们会永远显示为「新增」却从不写入（如：本机已删除该系列赛、上游旧包仍在带这些对局）。
+ */
+function collectBlockedMatchIds(paths: AppPaths, payload: SyncBundlePayload): Set<string> {
+  const ids = new Set<string>();
+  const addList = (deletedMatches: unknown, deletedMatchIds: unknown) => {
+    if (deletedMatches !== true || !Array.isArray(deletedMatchIds)) {
+      return;
+    }
+    deletedMatchIds.forEach((item) => {
+      const id = String(item ?? '').trim();
+      if (id) {
+        ids.add(id);
+      }
+    });
+  };
+  getTournamentTombstones(paths).forEach((record) => addList(record.deletedMatches, record.deletedMatchIds));
+  const author = String(payload.machine ?? '').trim().toUpperCase();
+  payload.tournaments.forEach((raw) => {
+    const record = (raw ?? {}) as Record<string, unknown>;
+    const id = String(record.id ?? '').trim();
+    if (!id || !String(record.deletedAt ?? '').trim()) {
+      return;
+    }
+    const owner = (TOURNAMENT_ID_REGEX.exec(id)?.[2] ?? '').toUpperCase();
+    if (owner && author && author !== owner) {
+      return; // 该墓碑会被合并侧忽略（来源不是编排机），不能提前拦截
+    }
+    addList(record.deletedMatches, record.deletedMatchIds);
+  });
+  return ids;
+}
+
 /** 组合预览：比赛 diff + 档案 diff + 头像统计（预览与应用共用，保证判定一致） */
 function buildPreview(paths: AppPaths, payload: SyncBundlePayload, mode: SyncConflictMode): SyncImportPreview {
   const normalized = normalizeImportedMatches(paths, payload.matches);
   const decisions = diffMatchRecords(paths, normalized.records, mode);
   const recordById = new Map(normalized.records.map((record) => [record.id, record]));
+  // 预览与应用同口径：命中「已删对局名单」的比赛合并时不会写入，预览先标为跳过，不再算「新增」
+  const blockedMatchIds = collectBlockedMatchIds(paths, payload);
 
   const matchItems: SyncImportItem[] = decisions.map((decision) => {
     const record = recordById.get(decision.id);
-    return {
+    const blocked = blockedMatchIds.has(decision.id);
+    const item: SyncImportItem = {
       key: `match:${decision.id}`,
       kind: 'match',
       id: decision.id,
       label: record ? `${record.leftPlayer} vs ${record.rightPlayer}` : '',
-      action: decision.action,
-      reason: decision.reason,
+      action: blocked ? 'skip' : decision.action,
+      reason: blocked ? '已被本机「已删除系列赛」的对局名单拦截，不会写入' : decision.reason,
       localUpdatedAt: decision.localUpdatedAt,
       incomingUpdatedAt: decision.incomingUpdatedAt,
       conflict: decision.conflict,
       diff: decision.diff,
     };
+    if (blocked) {
+      item.blocked = true;
+    }
+    return item;
   });
   normalized.rejected.forEach((rejected) => {
     matchItems.push({

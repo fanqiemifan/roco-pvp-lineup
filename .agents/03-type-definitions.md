@@ -83,11 +83,11 @@
 | SyncBundle | 同步包（app/schema/machine/exportedAt/matches/tournaments，可选 profiles 与 avatars——头像 base64 按档案 id 归属） | shared/types.ts |
 | SyncBundlePlayerProfile / SyncBundleTeamProfile | 同步包内嵌档案条目（Pick 去掉 avatarExists/logoMtime 等本地派生字段） | shared/types.ts |
 | SyncConflictMode | 导入冲突策略（newer 较新覆盖 / bundle 以包为准） | shared/types.ts |
-| SyncImportItem | 导入预览明细项（key/kind/id/label/action/reason/localUpdatedAt/incomingUpdatedAt，conflict 双方都登记过且内容不同、diff 字段级差异列表、avatarCompare 档案项的头像左右对照） | shared/types.ts |
+| SyncImportItem | 导入预览明细项（key/kind/id/label/action/reason/localUpdatedAt/incomingUpdatedAt，conflict 双方都登记过且内容不同、diff 字段级差异列表、avatarCompare 档案项的头像左右对照、blocked 命中本机「已删对局名单」拦截＝合并不会写入） | shared/types.ts |
 | SyncImportDiffField | 导入预览的字段级差异项（label 字段名, local 本机值, incoming 包内值） | shared/types.ts |
 | SyncImportAvatarCompare | 导入预览的头像/logo 左右对照（localUrl 本机头像地址、incomingDataUrl 包内头像 data URL、note 处理说明） | shared/types.ts |
 | SyncImportPreview | 导入预览（meta/sameMachine/mode/matchItems/playerItems/teamItems/tournamentGroups/hasTournaments/summary/avatars 统计） | shared/types.ts |
-| SyncImportTournamentGroup | 预览里的系列赛分组（key/id/name/incoming 本包含编排/existsLocally/playerCount/stageSummary/matchKeys/selectableCount/tombstone 上游墓碑不可取消/localRemoved 已本机移除保持隐藏），用于「这条系列赛包含哪些比赛」与整条勾选 | shared/types.ts |
+| SyncImportTournamentGroup | 预览里的系列赛分组（key/id/name/incoming 本包含编排/existsLocally/playerCount/stageSummary/matchKeys/selectableCount/tombstone 上游墓碑不可取消/localRemoved 已本机移除保持隐藏/localTombstone 本机已删除名单对局将被拦截），用于「这条系列赛包含哪些比赛」与整条勾选 | shared/types.ts |
 | SyncImportResult | 导入结果（store/profiles/avatarsWritten/tournaments/warnings/applied） | shared/types.ts |
 | SyncTournamentReport | 系列赛导入合并与写回统计（added/updated/skipped/rejected/advanced——advanced = 写回补跑是否真正改动系列赛） | shared/types.ts |
 | SyncImportCounts / SyncAvatarCounts | 逐类 新增/更新/跳过 计数；头像 补缺/已有/无法对应 计数 | shared/types.ts |

@@ -447,6 +447,48 @@ describe('删除墓碑的跨机传播', () => {
     expect(getMatchStore(machineB).matches).toEqual([]);
     expect(getTournamentStore(machineB)).toEqual([]);
   });
+
+  it('预览把「已删对局名单」拦截计入：名单内比赛标为跳过/拦截，不再显示为新增（与应用同口径）', async () => {
+    const { id } = createRunningSeries(machineA);
+    const baseline = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false });
+    const previewB = previewSyncImport(machineB, baseline, 'newer');
+    await applySyncImport(machineB, baseline, {
+      mode: 'newer',
+      acceptedKeys: acceptAllKeys(previewB),
+      includeAvatars: false,
+    });
+    expect(getMatchStore(machineB).matches.length).toBeGreaterThan(0);
+
+    // A 连同对局删除并分发 → B 清副本、留存墓碑名单
+    deleteTournament(machineA, id, { deleteMatches: true });
+    const tombstoned = exportSyncBundle(machineA, { includeProfiles: false, includeAvatars: false });
+    const previewTomb = previewSyncImport(machineB, tombstoned, 'newer');
+    await applySyncImport(machineB, tombstoned, {
+      mode: 'newer',
+      acceptedKeys: acceptAllKeys(previewTomb),
+      includeAvatars: false,
+    });
+    expect(getMatchStore(machineB).matches).toEqual([]);
+
+    // 旧包再次预览：名单内比赛必须提前标为「已删名单拦截」，不再算「新增」
+    const revivePreview = previewSyncImport(machineB, baseline, 'bundle');
+    const blocked = revivePreview.matchItems.filter((item) => item.blocked);
+    expect(blocked.length).toBeGreaterThan(0);
+    expect(blocked.every((item) => item.action === 'skip' && item.reason.includes('拦截'))).toBe(true);
+    expect(revivePreview.summary.match.add).toBe(0);
+
+    const group = revivePreview.tournamentGroups?.find((item) => item.id === id);
+    expect(group?.localTombstone).toBe(true);
+    expect(group?.selectableCount ?? 0).toBe(0);
+
+    // 合并侧照旧拦下（落盘无变化），与预览标注一致
+    await applySyncImport(machineB, baseline, {
+      mode: 'bundle',
+      acceptedKeys: acceptAllKeys(revivePreview),
+      includeAvatars: false,
+    });
+    expect(getMatchStore(machineB).matches).toEqual([]);
+  });
 });
 
 describe('本机移除（localOnly）不传播 / 不复活', () => {

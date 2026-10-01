@@ -5698,6 +5698,8 @@ function Dashboard() {
                                       </Tag>
                                       {record.localRemoved ? (
                                         <Tag color="orange">已在本机移除，保持隐藏</Tag>
+                                      ) : record.localTombstone ? (
+                                        <Tag color="orange">本机已删除（墓碑），名单内对局将被拦截</Tag>
                                       ) : (
                                         <Tag color={record.existsLocally ? 'blue' : 'green'}>
                                           {record.existsLocally ? '本机已有' : '本机没有，将新建'}
@@ -5724,6 +5726,8 @@ function Dashboard() {
                                 record.id ? (
                                   record.tombstone ? (
                                     <Tag color="red">随同步清理（不可取消）</Tag>
+                                  ) : record.localTombstone ? (
+                                    <Tag color="orange">名单内对局将被拦截</Tag>
                                   ) : (
                                     <Checkbox
                                       checked={!syncExcludedTournamentIds.includes(record.id)}
@@ -5737,14 +5741,16 @@ function Dashboard() {
                                 const group = syncGroupOfMatchKey.get(record.key);
                                 const excluded = Boolean(group?.id && syncExcludedTournamentIds.includes(group.id));
                                 // 确认台里的「跳过」含义是「本机已有一模一样的赛果」→ 说清楚确认它只是回执
-                                const label = excluded
-                                  ? '随系列赛跳过'
-                                  : record.action === 'skip' && cloudPreviewFlow === 'incoming'
-                                    ? '内容一致'
-                                    : SYNC_ACTION_LABELS[record.action];
+                                const label = record.blocked
+                                  ? '已删名单拦截'
+                                  : excluded
+                                    ? '随系列赛跳过'
+                                    : record.action === 'skip' && cloudPreviewFlow === 'incoming'
+                                      ? '内容一致'
+                                      : SYNC_ACTION_LABELS[record.action];
                                 return (
                                   <Space size={4}>
-                                    <Tag color={record.action === 'add' ? 'green' : record.action === 'update' ? 'gold' : 'default'}>
+                                    <Tag color={record.blocked ? 'orange' : record.action === 'add' ? 'green' : record.action === 'update' ? 'gold' : 'default'}>
                                       {label}
                                     </Tag>
                                     {record.conflict ? <Tag color="red">冲突</Tag> : null}

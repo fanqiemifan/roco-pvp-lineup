@@ -656,6 +656,12 @@ export interface SyncImportItem {
   diff: SyncImportDiffField[];
   /** 仅档案项：头像 / logo 的左右对照（无差异或包内不含头像时不提供） */
   avatarCompare?: SyncImportAvatarCompare;
+  /**
+   * 命中本机「已删除系列赛」的对局名单（防"已删对局回魂"）：合并时不会写入本机。
+   * 预览据此标注为「已删名单拦截」（action = skip），不再显示为「新增」——避免
+   * "预览说新增 N 场、合并后一场都看不到"的误导（预览与应用共用判定）。
+   */
+  blocked?: boolean;
 }
 
 export interface SyncImportCounts {
@@ -691,6 +697,8 @@ export interface SyncImportTournamentGroup {
   tombstone?: boolean;
   /** 该系列赛在本机已被「本机移除」（localOnly 墓碑）：导入后仍保持隐藏，可在系列比赛「已本机移除」中恢复 */
   localRemoved?: boolean;
+  /** 本机已有该系列赛的真实墓碑（已删除）：组内名单对局会被合并侧拦截、不会写入（预览与应用同口径） */
+  localTombstone?: boolean;
 }
 
 /** 头像 / logo 处理统计 */
