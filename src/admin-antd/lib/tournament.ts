@@ -272,23 +272,47 @@ export function getDraftBucketSpecs(
   }
 }
 
-/** 本阶段已交手判定（含胜者的节点），用于已交手提醒 */
-export function hasPlayedInStage(
+/** 已交手命中（含胜者的节点）所在场次 */
+export interface PriorMeeting {
+  stageIndex: number;
+  waveIndex: number;
+  nodeId: string;
+}
+
+/**
+ * 已交手判定（全赛程，含胜者的节点）：返回最近一次交手所在场次；
+ * 本阶段内有则优先本阶段（提醒文案分「本阶段已交手」/「跨阶段重复相遇」两档）。
+ * 与服务端 findPriorMeeting 同口径。
+ */
+export function findPriorMeeting(
   record: TournamentRecord,
-  stageIndex: number,
+  currentStageIndex: number,
   a: string,
   b: string,
-): boolean {
-  return record.waves
-    .filter((wave) => wave.stageIndex === stageIndex)
-    .some((wave) => wave.nodes.some((node) => node.winnerId
-      && ((node.playerAId === a && node.playerBId === b)
-        || (node.playerAId === b && node.playerBId === a))));
+): PriorMeeting | null {
+  let sameStage: PriorMeeting | null = null;
+  let crossStage: PriorMeeting | null = null;
+  record.waves.forEach((wave) => {
+    wave.nodes.forEach((node) => {
+      if (node.winnerId
+        && ((node.playerAId === a && node.playerBId === b)
+          || (node.playerAId === b && node.playerBId === a))) {
+        const hit = { stageIndex: wave.stageIndex, waveIndex: wave.waveIndex, nodeId: node.id };
+        if (wave.stageIndex === currentStageIndex) {
+          sameStage = hit;
+        } else {
+          crossStage = hit;
+        }
+      }
+    });
+  });
+  return sameStage ?? crossStage;
 }
 
 /**
  * 配对草稿客户端校验（与服务端口径一致，锁定前即时反馈）：
- * 漏配/重复/自己对自己/不在本波 → 错误；跨桶未显式允许 → 错误；已交手 → 仅提醒。
+ * 漏配/重复/自己对自己/不在本波 → 错误；跨桶未显式允许 → 错误；
+ * 已交手（本阶段或此前阶段）→ 仅提醒。
  */
 export function validateDraftPairs(
   record: TournamentRecord,
@@ -334,8 +358,20 @@ export function validateDraftPairs(
           errors.push(`第 ${rowIndex + 1} 场为跨桶配对（战绩不对等），需勾选允许跨桶`);
         }
       }
-      if (hasPlayedInStage(record, wave.stageIndex, a, b)) {
-        warnings.push(`第 ${rowIndex + 1} 场双方本阶段已交手过`);
+      const meeting = findPriorMeeting(record, wave.stageIndex, a, b);
+      if (meeting) {
+        if (meeting.stageIndex === wave.stageIndex) {
+          warnings.push(`第 ${rowIndex + 1} 场双方本阶段已交手过`);
+        } else {
+          // 跨阶段重复相遇：带上次交手的「阶段 · 轮次」出处（与标签列同口径）
+          const label = formatStageRoundLabel(record, {
+            tournamentId: record.id,
+            nodeId: meeting.nodeId,
+            stageIndex: meeting.stageIndex,
+            waveIndex: meeting.waveIndex,
+          });
+          warnings.push(`第 ${rowIndex + 1} 场双方在${label ? `「${label}」` : '此前阶段'}已交手过`);
+        }
       }
     }
   });

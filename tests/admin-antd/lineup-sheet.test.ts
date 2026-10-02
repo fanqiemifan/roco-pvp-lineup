@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  buildLineupTemplateCsv,
+  buildLineupTemplate,
+  buildLineupTemplateSheet,
   parseLineupJsonText,
+  parseLineupSheetTable,
   parseLineupSheetText,
 } from '../../src/admin-antd/lib/lineup-sheet';
 import type {
@@ -74,7 +76,7 @@ function makeMatch(id: string, patch: Partial<MatchRecord> = {}): MatchRecord {
   };
 }
 
-function makeSprite(id: string, displayName: string): SpriteRecord {
+function makeSprite(id: string, displayName: string, patch: Partial<SpriteRecord> = {}): SpriteRecord {
   return {
     id,
     filename: `${id}_${displayName}.png`,
@@ -91,6 +93,7 @@ function makeSprite(id: string, displayName: string): SpriteRecord {
     form: '',
     petForm: '',
     isFinalForm: false,
+    ...patch,
   };
 }
 
@@ -223,6 +226,24 @@ describe('parseLineupSheetText（表格回填 → 规范化对局）', () => {
   });
 });
 
+/* ---------- parseLineupSheetTable（xlsx 解表入口） ---------- */
+
+describe('parseLineupSheetTable（二维表 → 规范化对局，与 CSV 同口径）', () => {
+  it('表头定位 / 配对合并 / 空行过滤；`pet_id_名字（形态）` 按 token 原样透传', () => {
+    const table = [
+      ['系列赛', '阶段', '对局ID', '位置', '选手', '精灵1', '精灵2', '精灵3', '精灵4', '精灵5', '精灵6'],
+      ['秋杯', '4进2', '20260928_A001', '左', '小明', '3005_水灵', '3287_岚鸟（秋天的样子）', '', '', '', ''],
+      ['', '', '', '', '', '', '', '', '', '', ''],
+      ['秋杯', '4进2', '20260928_A001', '右', '小红', '', '', '', '', '', ''],
+    ];
+    const result = parseLineupSheetTable(table);
+    expect(result.errors).toEqual([]);
+    expect(result.entries).toEqual([
+      { matchId: '20260928_A001', left: ['3005_水灵', '3287_岚鸟（秋天的样子）'], right: null },
+    ]);
+  });
+});
+
 /* ---------- parseLineupJsonText ---------- */
 
 describe('parseLineupJsonText（JSON 回填 → 规范化对局）', () => {
@@ -272,9 +293,9 @@ describe('parseLineupJsonText（JSON 回填 → 规范化对局）', () => {
   });
 });
 
-/* ---------- buildLineupTemplateCsv ---------- */
+/* ---------- buildLineupTemplate / buildLineupTemplateSheet ---------- */
 
-describe('buildLineupTemplateCsv（模板生成：一场两行）', () => {
+describe('buildLineupTemplate（模板计划：筛选 + 确认列表）', () => {
   const sprites = [makeSprite('1001', '暮星辰'), makeSprite('2001', '怖哭菇')];
   const record = makeRecord();
   const ref = (stageIndex: number, nodeId: string) => ({
@@ -297,62 +318,66 @@ describe('buildLineupTemplateCsv（模板生成：一场两行）', () => {
     makeMatch('20260928_A003', { tournamentRef: ref(1, 's1-w1-n00') }),
   ];
 
-  it('整届：只收待开始且第 1 局未开赛的对局，一场两行并回显已有阵容', () => {
-    const { csv, count } = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'all' } });
-    expect(count).toBe(2);
-    const lines = csv.split('\n');
-    expect(lines).toHaveLength(1 + 2 * 2);
-    expect(lines[0]).toContain('"对局ID"');
-    expect(csv).toContain('"20260928_A001"');
-    expect(csv).toContain('"20260928_A003"');
-    // 左行回显暮星辰（displayName），右行回显怖哭菇
-    const leftRow = lines.find((line) => line.includes('20260928_A001') && line.includes('"左"'));
-    expect(leftRow).toContain('"暮星辰"');
-    const rightRow = lines.find((line) => line.includes('20260928_A001') && line.includes('"右"'));
-    expect(rightRow).toContain('"怖哭菇"');
-    // 第 1 局已开始的场不出现
-    expect(csv).not.toContain('20260928_A002');
+  it('整届：只收待开始且第 1 局未开赛的对局；rows 与 targets（实际导出数据源）同源', () => {
+    const plan = buildLineupTemplate({ record, matches, sprites, scope: { kind: 'all' } });
+    expect(plan.count).toBe(2);
+    expect(plan.rows).toEqual([
+      { matchId: '20260928_A001', stageLabel: '4进2', leftPlayer: '小明', rightPlayer: '小红', hasLineup: true },
+      { matchId: '20260928_A003', stageLabel: '总决赛', leftPlayer: '小明', rightPlayer: '小红', hasLineup: false },
+    ]);
+    expect(plan.targets.map((target) => target.match.id)).toEqual(['20260928_A001', '20260928_A003']);
+    expect(plan.rows.some((row) => row.matchId === '20260928_A002')).toBe(false);
   });
 
-  it('范围过滤：按阶段 / 仅当前波（最新一波）', () => {
-    const stage0 = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'stage', stageIndex: 0 } });
-    expect(stage0.count).toBe(1);
-    expect(stage0.csv).toContain('"20260928_A001"');
+  it('范围过滤（按阶段 / 仅当前波）会同步收窄确认列表与导出数据源', () => {
+    const stage0 = buildLineupTemplate({ record, matches, sprites, scope: { kind: 'stage', stageIndex: 0 } });
+    expect(stage0.rows.map((row) => row.matchId)).toEqual(['20260928_A001']);
+    expect(stage0.targets).toHaveLength(1);
 
-    const stage1 = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'stage', stageIndex: 1 } });
-    expect(stage1.count).toBe(1);
-    expect(stage1.csv).toContain('"20260928_A003"');
-
-    const latest = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'current-wave' } });
-    expect(latest.count).toBe(1);
-    expect(latest.csv).toContain('"20260928_A003"');
-    expect(latest.csv).not.toContain('"20260928_A001"');
-  });
-
-  it('阶段列输出语义轮次（单败仅阶段名；双败带分组）', () => {
-    const { csv } = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'all' } });
-    expect(csv).toContain('"4进2"');
-    expect(csv).toContain('"总决赛"');
-  });
-
-  it('返回导出确认列表 rows：具体对局、阶段-轮次、选手与阵容回显（与 CSV 同源）', () => {
-    const { rows, count } = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'all' } });
-    expect(rows).toHaveLength(count);
-    expect(rows.map((row) => row.matchId)).toEqual(['20260928_A001', '20260928_A003']);
-    expect(rows[0]).toEqual({
-      matchId: '20260928_A001',
-      stageLabel: '4进2',
-      leftPlayer: '小明',
-      rightPlayer: '小红',
-      hasLineup: true,
-    });
-    expect(rows[1].stageLabel).toBe('总决赛');
-    expect(rows[1].hasLineup).toBe(false);
-    // 第 1 局已开始的场不出现
-    expect(rows.some((row) => row.matchId === '20260928_A002')).toBe(false);
-
-    // 范围切换时确认列表与 CSV 同步收窄
-    const stage1 = buildLineupTemplateCsv({ record, matches, sprites, scope: { kind: 'stage', stageIndex: 1 } });
+    const stage1 = buildLineupTemplate({ record, matches, sprites, scope: { kind: 'stage', stageIndex: 1 } });
     expect(stage1.rows.map((row) => row.matchId)).toEqual(['20260928_A003']);
+
+    const latest = buildLineupTemplate({ record, matches, sprites, scope: { kind: 'current-wave' } });
+    expect(latest.rows.map((row) => row.matchId)).toEqual(['20260928_A003']);
+  });
+});
+
+describe('buildLineupTemplateSheet（xlsx「阵容」表内容：一场两行 + 回显）', () => {
+  const sprites = [
+    makeSprite('1001', '暮星辰'),
+    makeSprite('2001', '怖哭菇'),
+    makeSprite('3287', '岚鸟', { name: '岚鸟（秋天的样子）', petForm: '秋天的样子', isFinalForm: true }),
+  ];
+
+  it('表头 + 一场两行：第 1 局已录阵容按 `pet_id_名字（形态）` 回显', () => {
+    const game = makeGame(['1001', '3287'], []);
+    const match = makeMatch('20260928_A009', { games: [game] });
+    const { header, rows } = buildLineupTemplateSheet(
+      [{ match, firstGame: game, stageLabel: '4进2' }],
+      '秋杯',
+      sprites,
+    );
+    expect(header).toEqual(['系列赛', '阶段', '对局ID', '位置', '选手', '精灵1', '精灵2', '精灵3', '精灵4', '精灵5', '精灵6']);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].slice(0, 6)).toEqual(['秋杯', '4进2', '20260928_A009', '左', '小明', '1001_暮星辰']);
+    expect(rows[0][6]).toBe('3287_岚鸟（秋天的样子）');
+    // 右行无阵容：精灵列全部留空（单侧空 = 导入时保持原样）
+    expect(rows[1].slice(2, 5)).toEqual(['20260928_A009', '右', '小红']);
+    expect(rows[1].slice(5)).toEqual(['', '', '', '', '', '']);
+  });
+
+  it('计划里的对局顺序即表格行序（阶段 → 波次 → 节点），阶段列输出语义轮次', () => {
+    const gameA = makeGame([], []);
+    const gameB = makeGame([], []);
+    const { rows } = buildLineupTemplateSheet(
+      [
+        { match: makeMatch('20260928_A001', { games: [gameA] }), firstGame: gameA, stageLabel: '4进2' },
+        { match: makeMatch('20260928_A003', { games: [gameB] }), firstGame: gameB, stageLabel: '总决赛' },
+      ],
+      '秋杯',
+      sprites,
+    );
+    expect(rows.map((row) => row[2])).toEqual(['20260928_A001', '20260928_A001', '20260928_A003', '20260928_A003']);
+    expect(rows.map((row) => row[1])).toEqual(['4进2', '4进2', '总决赛', '总决赛']);
   });
 });

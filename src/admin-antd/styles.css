@@ -3285,7 +3285,8 @@ a {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 420px;
+  /* 预览区给足高度、随视口自适应：一屏尽量多看几场 */
+  max-height: min(58vh, 560px);
   overflow-y: auto;
   padding-right: 4px;
 }

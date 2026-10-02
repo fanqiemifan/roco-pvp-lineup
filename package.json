@@ -1,6 +1,6 @@
 {
   "name": "roco-pvp-lineup",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "private": true,
   "description": "洛克王国世界阵容同步推流 —— 洛克王国赛事推流控制台（Electron + React/Ant Design，免费开源）",
   "author": "463218006@qq.com",
@@ -27,6 +27,7 @@
     "@ant-design/cli": "^6.5.0",
     "antd": "^6.5.0",
     "cookie-parser": "^1.4.7",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "express-session": "^1.19.0",
     "multer": "^1.4.5-lts.1",

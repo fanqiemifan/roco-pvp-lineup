@@ -57,6 +57,7 @@ roco-pvp-lineup/
 | 文件路径 | 说明 |
 |---------|------|
 | electron/services/match-service.ts | 比赛管理核心服务（创建、更新、胜负、撤销/恢复） |
+| electron/services/lineup-xlsx-service.ts | 系列赛阵容模板 .xlsx 服务端解表（exceljs → 二维字符串表，供导入解析） |
 | electron/services/state-service.ts | 面板（panels）与记分牌状态管理 |
 | electron/services/sprite-service.ts | 精灵数据加载、搜索、快速填充 |
 | electron/services/image-service.ts | 头像上传/删除/读取（含魔数校验） |
@@ -95,10 +96,10 @@ roco-pvp-lineup/
 | views/HistoryLineupEntryModal.tsx | 比赛管理「录入阵容」弹窗（为待开始小局录入双方阵容） |
 | views/MatchLineupDetailModal.tsx | 系列赛「阵容详情」弹窗（晋级图/波次卡片入口；逐局只读阵容 + 仅当前小局放开录入） |
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、各系列赛阶段趋势；系列赛 / 标签 / 选手筛选） |
-| views/TournamentLineupExportModal.tsx | 系列赛「导出阵容模板」弹窗（范围过滤 → 一场两行 CSV） |
-| views/TournamentLineupImportModal.tsx | 系列赛「导入阵容」弹窗（CSV/TSV/JSON → 预览消歧 → 批量写入） |
+| views/TournamentLineupExportModal.tsx | 系列赛「导出阵容模板」弹窗（范围过滤 → 一场两行 .xlsx，精灵列带下拉） |
+| views/TournamentLineupImportModal.tsx | 系列赛「导入阵容」弹窗（.xlsx/CSV/TSV/JSON → 预览消歧 → 批量写入） |
 | components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）、TournamentNodeCard（系列赛对局卡片，晋级图与波次列表共用）、CurrentMatchPanel（「当前比赛」面板，赛事面板与系列赛 Drawer 共用）等小组件 |
-| lib/ | format、history、last-tournament（系列赛「上次操作」本地记忆）、lineup-sheet（系列赛阵容表模板生成与回填解析）、match-actions（对局卡片动作可用性判据）、live、match、panel、preview、request、sprite、stats 通用逻辑 |
+| lib/ | format、history、last-tournament（系列赛「上次操作」本地记忆）、lineup-sheet（系列赛阵容表：模板计划与回填解析）、lineup-template-xlsx（xlsx 模板渲染：隐藏「精灵列表」+ 跨表下拉）、match-actions（对局卡片动作可用性判据）、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
 | styles.css | 管理后台样式 |

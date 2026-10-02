@@ -20,9 +20,9 @@ import type {
   QuickFillMatch,
   TournamentRecord,
 } from '../../../shared/types';
-import { parseLineupJsonText, parseLineupSheetText, type LineupSheetEntry } from '../lib/lineup-sheet';
+import { parseLineupJsonText, parseLineupSheetTable, parseLineupSheetText, type LineupSheetEntry, type LineupSheetParseResult } from '../lib/lineup-sheet';
 import { formatStageRoundLabel } from '../lib/tournament';
-import { applyLineupImportApi, previewLineupImportApi } from '../lib/tournament-api';
+import { applyLineupImportApi, parseLineupXlsxApi, previewLineupImportApi } from '../lib/tournament-api';
 
 const { Text, Paragraph } = Typography;
 
@@ -92,17 +92,8 @@ export function TournamentLineupImportModal({
     }
   }, [open]);
 
-  /** 解析文本 → 规范化对局 → 请求服务端预览（名字解析 + 场次预检，不写数据） */
-  async function runPreview(sourceText: string): Promise<void> {
-    const text = sourceText.trim();
-    if (!text) {
-      message.warning('请先上传文件或粘贴表格内容');
-      return;
-    }
-    const looksLikeJson = text.startsWith('{') || text.startsWith('[');
-    const parsed = looksLikeJson
-      ? parseLineupJsonText(text, record.id)
-      : parseLineupSheetText(text);
+  /** 已解析的对局 → 请求服务端预览（名字解析 + 场次预检，不写数据）；CSV/TSV/JSON 与 xlsx 共用 */
+  async function requestPreview(parsed: LineupSheetParseResult): Promise<void> {
     setParseErrors(parsed.errors);
     setParseWarnings(parsed.warnings);
     setApplyResults(null);
@@ -130,15 +121,36 @@ export function TournamentLineupImportModal({
     }
   }
 
+  /** 文本输入（CSV / TSV / JSON）：前端解析后请求预览 */
+  async function runPreview(sourceText: string): Promise<void> {
+    const text = sourceText.trim();
+    if (!text) {
+      message.warning('请先上传文件或粘贴表格内容');
+      return;
+    }
+    const looksLikeJson = text.startsWith('{') || text.startsWith('[');
+    const parsed = looksLikeJson
+      ? parseLineupJsonText(text, record.id)
+      : parseLineupSheetText(text);
+    await requestPreview(parsed);
+  }
+
   async function handleFile(file: File): Promise<void> {
     try {
-      const text = await file.text();
       setFileName(file.name);
+      if (/\.xlsx$/i.test(file.name)) {
+        // Excel 模板回填：服务端解包为二维表 → 前端按与 CSV 相同的表头口径解析（入口保持文件模式）
+        const { table } = await parseLineupXlsxApi(record.id, file);
+        setInputMode('file');
+        await requestPreview(parseLineupSheetTable(table));
+        return;
+      }
+      const text = await file.text();
       setPasteText(text);
       setInputMode('text');
       await runPreview(text);
-    } catch {
-      message.error('文件读取失败');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '文件读取失败');
     }
   }
 
@@ -308,7 +320,8 @@ export function TournamentLineupImportModal({
   return (
     <Modal
       open={open}
-      width={780}
+      // 预览行要在一行里放下「元信息 + 左右各 6 个精灵格」，窗口需要足够宽；窄屏由 antd 的 max-width 自动收缩
+      width={1400}
       title={`导入阵容 · ${record.name}`}
       onCancel={onClose}
       mask={{ closable: !previewing && !applying }}
@@ -320,7 +333,7 @@ export function TournamentLineupImportModal({
           <Alert
             type="info"
             showIcon
-            message="支持三种输入：导出模板回填后的 CSV 文件、从表格直接复制粘贴（含表头），或对局分组式 JSON。"
+            message="支持四种输入：导出的 Excel 模板回填（.xlsx，精灵列带下拉）、CSV 文件、从表格直接复制粘贴（含表头），或对局分组式 JSON。"
             description="只导入「待开始比赛的第 1 局」阵容；已开赛 / 已完赛的比赛与未匹配的精灵会被跳过。"
           />
           <Segmented
@@ -333,14 +346,14 @@ export function TournamentLineupImportModal({
           />
           {inputMode === 'file' ? (
             <Upload
-              accept=".csv,.tsv,.txt,.json,text/csv,application/json,text/plain"
+              accept=".xlsx,.csv,.tsv,.txt,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json,text/plain"
               showUploadList={false}
               beforeUpload={(file) => {
                 void handleFile(file as File);
                 return false;
               }}
             >
-              <Button>选择 CSV / JSON 文件（选中后自动解析）</Button>
+              <Button>选择 Excel / CSV / JSON 文件（选中后自动解析）</Button>
             </Upload>
           ) : (
             <Input.TextArea
@@ -350,7 +363,7 @@ export function TournamentLineupImportModal({
               placeholder={'粘贴表格（含表头行）或 JSON：\n\n系列赛,阶段,对局ID,位置,选手,精灵1,精灵2,…\n2026 秋季杯,32进16 · 首轮,20260928_A001,左,小明,迪莫,3004 圣光迪莫,…'}
             />
           )}
-          {fileName && inputMode === 'text' ? (
+          {fileName ? (
             <Text type="secondary">已读取文件：{fileName}</Text>
           ) : null}
           {parseErrors.length ? (

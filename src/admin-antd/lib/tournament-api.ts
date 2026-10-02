@@ -6,7 +6,7 @@ import type {
   TournamentRecord,
   TournamentWave,
 } from '../../../shared/types';
-import { requestJson } from './request';
+import { requestJson, uploadSingleFile } from './request';
 
 /* ==================== 系列赛 API 层：全部写/读操作经这里 ==================== */
 
@@ -213,4 +213,15 @@ export async function applyLineupImportApi(
     { method: 'POST', json: { rows } },
   );
   return data.results;
+}
+
+/** 解析回传的 .xlsx 模板：服务端解包为二维表（不写数据），前端再按表头走与 CSV 相同的配对解析 */
+export async function parseLineupXlsxApi(
+  tournamentId: string,
+  file: File,
+): Promise<{ sheetName: string; table: string[][] }> {
+  return uploadSingleFile<{ success: boolean; sheetName: string; table: string[][] }>(
+    `/api/tournaments/${tournamentId}/lineup-import/parse-xlsx`,
+    file,
+  );
 }
