@@ -19,7 +19,7 @@
         'page4': { label: '推流页面4（MVP 结算画面）', path: '/roco-pvp-page4.html' },
         'page5': { label: '推流页面5', path: '/roco-pvp-page5.html' },
         'page6': { label: '推流页面6', path: '/roco-pvp-page6.html' },
-        'page7': { label: '推流页面7（对局推送）', path: '/roco-pvp-page7.html' },
+        'page7': { label: '推流页面7（战绩详情）', path: '/roco-pvp-page7.html' },
         'page8': { label: '推流页面8（比赛预告）', path: '/roco-pvp-page8.html' },
         'page9': { label: '推流页面9（团队积分榜）', path: '/roco-pvp-page9.html' },
         'page10': { label: '推流页面10（胜者结算画面）', path: '/roco-pvp-page10.html' },

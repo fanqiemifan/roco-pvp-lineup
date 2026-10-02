@@ -24,7 +24,7 @@
 | DEFAULT_PAGE3_RED_LIGHT_MODE / DEFAULT_PAGE3_RED_LIGHT_INSTANT | off / false | 页面3红光特效持久策略默认值（SUPPORTED_PAGE3_RED_LIGHT_MODES = off/auto）与「立即显示」一次性触发默认值 | shared/constants.ts |
 | DEFAULT_PAGE11_RANK_VISIBLE | true | 选手介绍（page11-13）排位排名 div 默认显示 | shared/constants.ts |
 | DEFAULT_PAGE10_DURATION / DEFAULT_PAGE10_DURATION_UNIT | 10 / seconds | 胜负登记后自动切入 page10 的默认停留时长与单位 | shared/constants.ts |
-| DEFAULT_PAGE7_SWITCH_SECONDS / PAGE7_SWITCH_MIN_SECONDS / PAGE7_SWITCH_MAX_SECONDS | 10 / 2 / 600 | 对局推送（page7）整屏切换间隔默认值（秒）与取值范围（下限要大于整屏过渡动画 700ms），在「画面设置」里改（stage.page7SwitchSeconds） | shared/constants.ts |
+| DEFAULT_PAGE7_SWITCH_SECONDS / PAGE7_SWITCH_MIN_SECONDS / PAGE7_SWITCH_MAX_SECONDS | 10 / 2 / 600 | 战绩详情（page7）整屏切换间隔默认值（秒）与取值范围（下限要大于整屏过渡动画 700ms），在「画面设置」里改（stage.page7SwitchSeconds） | shared/constants.ts |
 | DOUBLE_LIFE_ROUND_LABELS | 0-0→胜者组 R1 / 1-0→胜者组 R2 / 0-1→败者组 R1 / 1-1→败者组 R2 | 双败阶段轮次文案：**晋级图/波次列表与对局标签（page6/8/7、比赛管理、推流选场、数据统计轴）共用这一份**，别再各写一套 | shared/constants.ts |
 | DEFAULT_NEXTGAME_DURATION / DEFAULT_NEXTGAME_DURATION_UNIT | 1 / minutes | 下场对局默认停留时长与单位（SUPPORTED_NEXTGAME_DURATION_UNITS = seconds/minutes） | shared/constants.ts |
 | DEFAULT_COUNTDOWN_DURATION / DEFAULT_COUNTDOWN_THEME | 5 / dark | 倒计时默认时长（分钟）与配色（SUPPORTED_COUNTDOWN_THEMES = dark/light，COUNTDOWN_DURATION_MAX = 60） | shared/constants.ts |

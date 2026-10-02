@@ -86,7 +86,7 @@ function normalizePage10DurationUnit(value: unknown): NextGameDurationUnit {
 }
 
 /**
- * 对局推送（page7）整屏切换间隔（秒）：非法值回默认 10；夹在 [2, 600] ——
+ * 战绩详情（page7）整屏切换间隔（秒）：非法值回默认 10；夹在 [2, 600] ——
  * 下限要大于整屏过渡动画时长（700ms），上限 10 分钟（再长就不像"自动轮播"了）。
  */
 function normalizePage7SwitchSeconds(value: unknown): number {

@@ -293,6 +293,9 @@ describe('page7-display.js 整屏过渡渲染', () => {
     expect(first.map((row) => row.left)).toEqual(['场1-左', '场2-左', '场3-左', '场4-左']);
     expect(first.map((row) => row.label)).toEqual(['GAME1', 'GAME2', 'GAME3', 'GAME4']);
 
+    // 主标题为空时回落脚本内置默认值（改名时这里会先炸，避免画面标题与后台卡片名字不一致）
+    expect(harness.elements.page7Title.textContent).toBe('战绩详情');
+
     // 画面设置未下发时用默认间隔：10 秒一屏（均匀节奏，不再先快后慢）
     expect(harness.runNextTimer()).toBe(10000);
     const second = visibleRows(harness);

@@ -63,7 +63,7 @@ roco-pvp-lineup/
 | electron/services/config-service.ts | 运行时配置（端口、本机标识 machineCode）管理 |
 | electron/services/path-service.ts | 文件路径管理和路径工厂 |
 | electron/services/page6-service.ts | 比赛结果页（page6）状态管理 |
-| electron/services/page7-service.ts | 对局推送页（page7）状态管理 |
+| electron/services/page7-service.ts | 战绩详情页（page7）状态管理 |
 | electron/services/page8-service.ts | 比赛预告页（page8）状态管理 |
 | electron/services/page9-service.ts | 团队积分榜页（page9）状态管理 |
 | electron/services/page14-service.ts | 晋级积分榜页（page14）状态管理（选题系列赛 + 可播阶段 + 当前阶段/页码 + 标题副标题；榜单经 tournament-service.resolveStageStandings 现算） |
@@ -113,7 +113,7 @@ roco-pvp-lineup/
 | page4-display.js | 推流页面4（MVP 结算画面）脚本（按 pet_id 索引 webm/头像，增量渲染最多 6 个精灵项与标签、MVP 角标） |
 | page5-display.js | 登场/胜率排行页（page5）脚本 |
 | page6-display.js | 比赛结果页（page6）脚本（薄封装：调用共享 match-prediction.js，defaultTitle「比赛结果」） |
-| page7-display.js | 对局推送页（page7）脚本（多场比赛逐行滚动展示） |
+| page7-display.js | 战绩详情页（page7）脚本（多场比赛逐行滚动展示） |
 | page8-display.js | 比赛预告页（page8）脚本（薄封装：调用共享 match-prediction.js，标题留空隐藏） |
 | match-prediction.js | page6/8 共享卡片画面挂载器（蓝色渐变 + 标题/副标题 + 3×3 对局卡片网格 + 场序信息行，数据 GET /api/pageN，签名比对防闪烁） |
 | page9-display.js | 团队积分榜页（page9）脚本（排名与总积分自动计算） |
@@ -138,7 +138,7 @@ roco-pvp-lineup/
 | roco-pvp-page4.html | 推流页面4（MVP 结算画面，公开免鉴权，由后台「结算画面」切屏控制） |
 | roco-pvp-page5.html | 登场/胜率排行页 |
 | roco-pvp-page6.html | 比赛结果展示页 |
-| roco-pvp-page7.html | 对局推送展示页（直播推流可选画面） |
+| roco-pvp-page7.html | 战绩详情展示页（直播推流可选画面） |
 | roco-pvp-page8.html | 比赛预告展示页（公开免鉴权，不进直播推流可选画面） |
 | roco-pvp-page9.html | 团队积分榜展示页（直播推流可选画面） |
 | roco-pvp-page14.html | 晋级积分榜展示页（直播推流可选画面；只统计系列赛赛果，按阶段切换，每页最多 32 行由后台翻页） |

@@ -201,7 +201,7 @@ export interface StageConfig {
   page5Player: string;
   /** 推流页面5：系列赛过滤 id（空字符串 = 全部系列赛；按 tournamentRef 精确匹配，不按名字） */
   page5TournamentId: string;
-  /** 对局推送（page7）：整屏切换间隔（秒）——一屏 4 行停留该时长后整屏交叉过渡到下一屏 */
+  /** 战绩详情（page7）：整屏切换间隔（秒）——一屏 4 行停留该时长后整屏交叉过渡到下一屏 */
   page7SwitchSeconds: number;
   /** 胜者结算画面（page10）：登记本局胜负后自动切入的停留时长 */
   page10Duration: number;
@@ -227,12 +227,12 @@ export interface Page6State {
 }
 
 /**
- * 对局推送（page7）状态：推送多场比赛，页面按小局逐行展示双方阵容与胜负。
+ * 战绩详情（page7）状态：推送多场比赛，页面按小局逐行展示双方阵容与胜负。
  */
 export interface Page7State {
   /** 已选中的比赛 id 列表（顺序即展示顺序，空数组 = 未选择，页面显示空占位行） */
   matchIds: string[];
-  /** 主标题内容（后台输入，空字符串则使用默认「对局推送」） */
+  /** 主标题内容（后台输入，空字符串则使用默认「战绩详情」） */
   title: string;
   /** 温馨提示内容（后台可编辑，默认「温馨提示：排名选自选手历史最高非实时」） */
   notice: string;

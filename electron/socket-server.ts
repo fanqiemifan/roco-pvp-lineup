@@ -217,7 +217,7 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
 
 // 事件 → 需要该事件的角色（admin 房间始终收到全部）
 // page1/page2 订阅 stage:update 仅为「阵容镜像反转」实时切换（两页其余渲染不依赖 stage 配置）；
-// page7 订阅它是为「对局推送整屏切换间隔」（画面设置里改，改完立即按新节奏走）
+// page7 订阅它是为「战绩详情整屏切换间隔」（画面设置里改，改完立即按新节奏走）
 const ROLES_FOR_STAGE = ['page1', 'page2', 'page3', 'page5', 'page7', 'page11', 'carrier'];
 const ROLES_FOR_AVATAR = ['page3', 'page4', 'page6', 'page7', 'page8', 'page10', 'page11'];
 const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11', 'page14'];
@@ -562,7 +562,7 @@ export async function createLocalServer(
     return matchIds.filter((id) => allowed.has(id));
   };
 
-  // 对局推送（page7）不限状态：只过滤已被删除的悬空引用
+  // 战绩详情（page7）不限状态：只过滤已被删除的悬空引用
   const filterExistingMatchIds = (matchIds: string[]): string[] => {
     const existing = new Set(getMatchStore(paths).matches.map((match) => match.id));
     return matchIds.filter((id) => existing.has(id));
@@ -820,11 +820,11 @@ export async function createLocalServer(
     }
   });
 
-  // 对局推送（page7）：返回所选多场比赛完整数据（含每个小局阵容）与按赛事隔离的选手头像
+  // 战绩详情（page7）：返回所选多场比赛完整数据（含每个小局阵容）与按赛事隔离的选手头像
   app.get('/api/page7', (_request, response) => {
     const matchStore = getMatchStore(paths);
     const savedState = getPage7State(paths);
-    // 悬空引用兜底：存量配置里指向已删比赛的 id 不下发（对局推送不限状态）
+    // 悬空引用兜底：存量配置里指向已删比赛的 id 不下发（战绩详情不限状态）
     const state = { ...savedState, matchIds: filterExistingMatchIds(savedState.matchIds) };
     const matches = state.matchIds
       .map((id) => matchStore.matches.find((item) => item.id === id))

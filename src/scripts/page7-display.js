@@ -7,11 +7,11 @@
     const ROW_GAP = 32;
     const ROW_STRIDE = ROW_HEIGHT + ROW_GAP; // 每行步进 200px
 
-    // 整屏切换间隔（秒）：来自「画面设置 → 对局推送切屏间隔」，默认 10 秒；改设置立即按新节奏走
+    // 整屏切换间隔（秒）：来自「画面设置 → 战绩详情切屏间隔」，默认 10 秒；改设置立即按新节奏走
     const DEFAULT_SWITCH_SECONDS = 10;
     const SWITCH_MIN_SECONDS = 2;
 
-    const DEFAULT_TITLE = '对局推送';
+    const DEFAULT_TITLE = '战绩详情';
     const DEFAULT_NOTICE = '温馨提示：排名选自选手历史最高非实时';
     const DEFAULT_AVATARS = {
         left: '/assets/ui/left-avatar.png',
@@ -480,7 +480,7 @@
         }
     }
 
-    /** 画面设置（stage）里的对局推送配置：目前只有整屏切换间隔 */
+    /** 画面设置（stage）里的战绩详情配置：目前只有整屏切换间隔 */
     async function loadStageConfig() {
         const data = await fetch('/api/stage', { credentials: 'same-origin' }).then((response) => response.json());
         applySwitchSeconds(data && data.page7SwitchSeconds);

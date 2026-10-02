@@ -10,7 +10,7 @@ import { buildPushCandidateGroups, type PushCandidateGroup } from '../lib/tourna
 
 const { Text } = Typography;
 
-/** 推流页面选场类型：page6 比赛结果 / page7 对局推送 / page8 比赛预告 */
+/** 推流页面选场类型：page6 比赛结果 / page7 战绩详情 / page8 比赛预告 */
 export type MatchPushKind = 'page6' | 'page7' | 'page8';
 
 /** page7 画面一屏行数（.page7-rows 固定 4 行，多出来的整屏过渡） */
@@ -89,7 +89,7 @@ const TITLE_LABEL: Record<MatchPushKind, string> = {
 
 const TITLE_PLACEHOLDER: Record<MatchPushKind, string> = {
   page6: '留空显示默认「比赛结果」',
-  page7: '例如：S2洛克联赛，留空显示默认「对局推送」',
+  page7: '例如：S2洛克联赛，留空显示默认「战绩详情」',
   page8: '留空显示默认「比赛预告」',
 };
 
@@ -172,7 +172,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
   const pushLimit = maxCount ?? Number.POSITIVE_INFINITY;
 
   /**
-   * 对局推送（page7）的规模提示：画面一屏 4 行、每行 = 该场一个已展示小局，
+   * 战绩详情（page7）的规模提示：画面一屏 4 行、每行 = 该场一个已展示小局，
    * 所以「已选 N 场」看不出翻屏轮数，这里按行数折算屏数（口径见 lib/history.ts 的 countPushRows）。
    */
   const estimatedScreens = Math.max(1, Math.ceil(countPushRows(selectedMatches) / PAGE7_ROWS_PER_SCREEN));

@@ -314,7 +314,7 @@ const HISTORY_STATUS_RANK: Record<MatchRecord['status'], number> = {
 
 /**
  * 推流页选场上限：比赛结果 / 比赛预告均为 9 场（3×3 卡片网格，结构决定）；
- * 对局推送（page7）画面是一屏 4 行 + 整屏过渡，行数不影响结构，**不设上限**（不传 maxCount），
+ * 战绩详情（page7）画面是一屏 4 行 + 整屏过渡，行数不影响结构，**不设上限**（不传 maxCount），
  * 支持整届 / 按阶段·波次勾选，规模提示由弹窗里的「已选 N 场 ≈ M 屏」承担。
  */
 const PAGE6_MAX_MATCHES = 9;
@@ -2271,8 +2271,8 @@ function Dashboard() {
         });
         applyServerState({ page7: data.state });
         nextText = data.state.matchIds.length
-          ? `已推送 ${data.state.matchIds.length} 场对局到推流页面7（对局推送）`
-          : '已清空推流页面7 的对局推送';
+          ? `已推送 ${data.state.matchIds.length} 场对局到推流页面7（战绩详情）`
+          : '已清空推流页面7 的战绩详情';
       }
       setHistoryNotice({ tone: 'success', text: nextText });
       message.success(nextText);
@@ -3387,7 +3387,7 @@ function Dashboard() {
       observer.disconnect();
       window.removeEventListener('resize', updatePreviewLayout);
     };
-    // view 也作为依赖：预览外壳在「页面预览」与「对局推送」两个视图中分别挂载，切换后需重新计算缩放
+    // view 也作为依赖：预览外壳在「页面预览」与「战绩详情」两个视图中分别挂载，切换后需重新计算缩放
   }, [previewSlot, view]);
 
   // 红点轮询：默认开、可关、可设 30~300s；只读小键提示，绝不自动合并数据。
@@ -4719,7 +4719,7 @@ function Dashboard() {
           items={menuItems}
           onClick={({ key }) => {
             setView(key as ViewKey);
-            // 进入「对局推送」视图时同步预览槽位，方便「页面预览」视图直达页面7
+            // 进入「战绩详情」视图时同步预览槽位，方便「页面预览」视图直达页面7
             if (key === 'page7') {
               setPreviewSlot('page7');
             }
@@ -4887,7 +4887,7 @@ function Dashboard() {
                   <Col xs={24} md={6}>
                     <MatchPushCard
                       kind="page7"
-                      cardTitle="推送对局推送"
+                      cardTitle="推送战绩详情"
                       matches={adminVisibleMatches}
                       allMatches={matchStore.matches}
                       tournaments={tournaments}
@@ -7380,8 +7380,8 @@ function Dashboard() {
                     </Space>
                   </SettingField>
                   <SettingField
-                    label="对局推送切屏间隔（推流页面7）："
-                    hint="一屏 4 行停留该时长后整屏交叉过渡到下一屏；改动对已打开的对局推送页立即生效"
+                    label="战绩详情切屏间隔（推流页面7）："
+                    hint="一屏 4 行停留该时长后整屏交叉过渡到下一屏；改动对已打开的战绩详情页立即生效"
                   >
                     <Space wrap>
                       <InputNumber

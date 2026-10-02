@@ -5,12 +5,12 @@ import { ensureRuntimeDirs } from './image-service.js';
 import { getMatchStore } from './match-service.js';
 import type { AppPaths } from './path-service.js';
 
-export const PAGE7_DEFAULT_TITLE = '对局推送';
+export const PAGE7_DEFAULT_TITLE = '战绩详情';
 
 export const PAGE7_DEFAULT_NOTICE = '温馨提示：排名选自选手历史最高非实时';
 
 /**
- * 对局推送页（page7）选场数量上限。
+ * 战绩详情页（page7）选场数量上限。
  *
  * 原来是 9（画面靠"整列表滚动"展示，9 场是那个结构的容量上限）；现在画面改成"一屏 4 行 + 整屏
  * 过渡"，行数只影响翻屏轮数、不影响 DOM 规模，所以按「整届 / 按阶段·波次勾选」放开：一条系列赛
@@ -102,7 +102,7 @@ export function savePage7State(paths: AppPaths, payload: unknown): Page7State {
 }
 
 /**
- * 清理选场清单中已不存在的比赛引用（对局推送不限状态，只处理删除）。
+ * 清理选场清单中已不存在的比赛引用（战绩详情不限状态，只处理删除）。
  * 比赛删除后由广播出口调用：有变化时落盘并返回新状态，无变化返回 null。
  */
 export function prunePage7State(paths: AppPaths): Page7State | null {

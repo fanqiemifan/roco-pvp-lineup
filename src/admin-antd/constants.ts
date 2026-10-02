@@ -52,7 +52,7 @@ export const PREVIEW_PAGES: Record<PreviewSlotKey, PreviewConfig> = {
     path: '/roco-pvp-page6.html',
   },
   page7: {
-    title: '推流页面7（对局推送）',
+    title: '推流页面7（战绩详情）',
     fileName: 'roco-pvp-page7.html',
     path: '/roco-pvp-page7.html',
   },
@@ -132,8 +132,8 @@ export const STAGE_OPTIONS: Array<{ value: StagePageKey; label: string; descript
   },
   {
     value: 'page7',
-    label: '对局战绩详情',
-    description: '对局推送（多场比赛按小局逐行滚动展示）',
+    label: '战绩详情',
+    description: '战绩详情（多场比赛按小局逐行展示双方阵容与胜负）',
     previewPath: '/roco-pvp-page7.html',
   },
   {

@@ -132,7 +132,7 @@ function makeTournament(id: string, name: string): TournamentRecord {
   return { id, name } as TournamentRecord;
 }
 
-describe('countPushRows（对局推送选场规模估算）', () => {
+describe('countPushRows（战绩详情选场规模估算）', () => {
   it('按每场「已展示小局」数累加（一场一个已打小局 = 一行）', () => {
     const match = makeMatch([makeGame(1, 'completed', ['pet-1']), makeGame(2, 'pending')]);
     expect(countPushRows([match])).toBe(1);

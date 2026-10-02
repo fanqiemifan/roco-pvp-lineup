@@ -146,7 +146,7 @@
 | 获取推流配置 | getStageState | (paths: AppPaths) => StageConfig | 获取 stage 配置 |
 | 保存推流配置 | saveStageState | (paths: AppPaths, payload) => StageConfig | 保存 stage 配置；mirrorSides / page3RankVisible / page3TeamVisible / page3RedLightMode / page3RedLightInstant / page7SwitchSeconds 未携带时保留现值 |
 
-> `page7SwitchSeconds`（对局推送整屏切换间隔，秒）：默认 10、夹在 [2, 600]（下限要大于整屏过渡动画 700ms）；非法值回默认。展示页在启动时 GET /api/stage 拿它、并订阅 `stage:update` 实时改节奏，所以 socket-server 的 `ROLES_FOR_STAGE` 必须包含 `page7`。
+> `page7SwitchSeconds`（战绩详情整屏切换间隔，秒）：默认 10、夹在 [2, 600]（下限要大于整屏过渡动画 700ms）；非法值回默认。展示页在启动时 GET /api/stage 拿它、并订阅 `stage:update` 实时改节奏，所以 socket-server 的 `ROLES_FOR_STAGE` 必须包含 `page7`。
 
 | 信息录入 (profile-service.ts)
 
@@ -204,12 +204,12 @@
 
 > `machineCode` 一码三责（id 命名空间 / 编排所有权闸门 / 同步包来源标识）与两个坑（改码丢所有权、两机撞码）见 AGENTS.md「注意事项」与 docs/cloud-sync-plan.html ④。
 
-## 对局推送 (page7-service.ts)
+## 战绩详情 (page7-service.ts)
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
-| 获取对局推送状态 | getPage7State | (paths: AppPaths) => Page7State | 获取 page7 标题/温馨提示/已选比赛列表 |
-| 保存对局推送配置 | savePage7State | (paths: AppPaths, payload: unknown) => Page7State | 保存 page7 配置（matchIds 任意状态现存比赛 / title / notice） |
+| 获取战绩详情状态 | getPage7State | (paths: AppPaths) => Page7State | 获取 page7 标题/温馨提示/已选比赛列表 |
+| 保存战绩详情配置 | savePage7State | (paths: AppPaths, payload: unknown) => Page7State | 保存 page7 配置（matchIds 任意状态现存比赛 / title / notice） |
 | 清理选场悬空引用 | prunePage7State | (paths: AppPaths) => Page7State \| null | 移除已删比赛的引用（page7 不限状态）；有变化落盘并返回新状态，无变化返回 null；由 socket-server 的比赛广播出口 emitMatchesUpdate 调用 |
 
 > **page7 选场不设产品上限**（`PAGE7_MAX_MATCHES = 200` 只是兜底）：原来 9 场是"整列表滚动"结构的容量；画面改成"一屏 4 行 + 整屏交叉淡入淡出"后，行数只影响翻屏轮数、不影响 DOM 规模，所以支持整届（64 人最多 156 场）与按阶段·波次整组勾选，`normalizeMatchIds` 在超过兜底值时才截断。

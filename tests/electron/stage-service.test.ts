@@ -48,7 +48,7 @@ describe('stage-service：阵容镜像反转（mirrorSides）', () => {
   });
 });
 
-describe('stage-service：对局推送切屏间隔（page7SwitchSeconds）', () => {
+describe('stage-service：战绩详情切屏间隔（page7SwitchSeconds）', () => {
   it('空目录默认 10 秒', () => {
     expect(getStageState(createIsolatedPaths()).page7SwitchSeconds).toBe(10);
   });

@@ -33,7 +33,7 @@
 | /roco-pvp-page4.html | roco-pvp-page4.html | 推流页面4（MVP 结算画面，公开免鉴权；由后台「结算画面」切屏控制） |
 | /roco-pvp-page5.html | roco-pvp-page5.html | 登场/胜率排行页 |
 | /roco-pvp-page6.html | roco-pvp-page6.html | 比赛结果展示页 |
-| /roco-pvp-page7.html | roco-pvp-page7.html | 对局推送展示页（直播推流可选画面） |
+| /roco-pvp-page7.html | roco-pvp-page7.html | 战绩详情展示页（直播推流可选画面） |
 | /roco-pvp-page8.html | roco-pvp-page8.html | 比赛预告展示页（公开免鉴权，不进直播推流可选画面，仅在页面预览展示） |
 | /roco-pvp-page9.html | roco-pvp-page9.html | 团队积分榜展示页（直播推流可选画面） |
 | /roco-pvp-page10.html | roco-pvp-page10.html | 推流页面10（胜者结算画面，直播推流可选画面） |

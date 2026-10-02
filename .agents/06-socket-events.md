@@ -9,7 +9,7 @@
 | 比赛记录更新通知 | matches:update | Server → Client | 比赛记录更新。注意：事件名叫 matches:update，但负载键是 `store` | { store: MatchStoreState } |
 | 推流配置更新通知 | stage:update | Server → Client | stage 配置更新（page1/2/3 消费 mirrorSides 做阵容镜像反转实时切换） | { stage: StageConfig } |
 | 比赛结果页更新通知 | page6:update | Server → Client | page6 配置更新 | { state: Page6State } |
-| 对局推送页更新通知 | page7:update | Server → Client | page7 配置更新 | { state: Page7State } |
+| 战绩详情页更新通知 | page7:update | Server → Client | page7 配置更新 | { state: Page7State } |
 | 比赛预告页更新通知 | page8:update | Server → Client | page8 配置更新 | { state: Page8State } |
 | 团队积分榜页更新通知 | page9:update | Server → Client | page9 配置更新 | { state: Page9State } |
 | 晋级积分榜页更新通知 | page14:update | Server → Client | page14 配置更新（阶段切换 / 翻页 / 标题副标题 / 换系列赛，写操作后广播）；负载只带 state，**榜单 standings 需收信方重新 GET /api/page14**（服务端按系列赛阶段重算） | { state: Page14State } |

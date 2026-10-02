@@ -110,7 +110,7 @@ async function page6Labels(matchIds: string[]): Promise<Record<string, string>> 
   return data.tournamentLabels as Record<string, string>;
 }
 
-/** 把某批比赛设为 page7（对局推送）展示清单并回读标签映射（行首标签用它替代 GAME 序号） */
+/** 把某批比赛设为 page7（战绩详情）展示清单并回读标签映射（行首标签用它替代 GAME 序号） */
 async function page7Labels(matchIds: string[]): Promise<Record<string, string>> {
   const saved = await postJson('/api/page7', { matchIds });
   expect(saved.status).toBe(200);
@@ -205,7 +205,7 @@ describe('page6 系列赛阶段标注', () => {
       expect(advancedLabels[thirdPlace[0].id]).toBe(THIRD_PLACE_LABEL);
       expect(advancedLabels[final[0].id]).toBe('总决赛');
 
-      // page7（对局推送）同口径下发：行首标签用这个映射替代 GAME 序号
+      // page7（战绩详情）同口径下发：行首标签用这个映射替代 GAME 序号
       const pushLabels = await page7Labels([thirdPlace[0].id, final[0].id]);
       expect(pushLabels[thirdPlace[0].id]).toBe(THIRD_PLACE_LABEL);
       expect(pushLabels[final[0].id]).toBe('总决赛');
