@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   App,
@@ -80,6 +80,17 @@ export function TournamentLineupImportModal({
     setParseErrors([]);
     setParseWarnings([]);
   }
+
+  // 每次重新打开：重置到输入阶段并清掉上次的预览 / 结果（保留已粘贴的文本与文件名，方便修正后重跑）。
+  // 本弹窗由父级常驻挂载（只切换 open），不重置的话上次导入成功后 stage/applyResults 会残留，
+  // 再次打开只显示「已导入 N 场」的结果页，无法进行第二次导入。
+  useEffect(() => {
+    if (open) {
+      resetToInput();
+      setPreviewing(false);
+      setApplying(false);
+    }
+  }, [open]);
 
   /** 解析文本 → 规范化对局 → 请求服务端预览（名字解析 + 场次预检，不写数据） */
   async function runPreview(sourceText: string): Promise<void> {
