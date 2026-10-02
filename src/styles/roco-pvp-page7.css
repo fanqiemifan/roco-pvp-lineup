@@ -56,7 +56,7 @@ body {
     border-radius: 30px 30px 4px 4px;
     font-family: "YouSheBiaoTiHei", "MiSans-Heavy", "Microsoft YaHei", sans-serif;
     font-size: 64px;
-    color: #000000;
+    color: #2B2B2B;
     line-height: 1;
     white-space: nowrap;
     overflow: hidden;
@@ -131,7 +131,7 @@ body {
     justify-content: center;
     font-family: "YouSheBiaoTiHei", "MiSans-Heavy", "Microsoft YaHei", sans-serif;
     font-size: 36px;
-    color: #FFFFFF;
+    color: #5C5C5C;
     line-height: 1;
     white-space: pre-line;
     text-align: right;
@@ -139,7 +139,7 @@ body {
 
 /* 两行标签（如「8进4」/「决胜轮」）：字号略小以保证「64进32」这类较宽的阶段名不被裁切 */
 .page7-row-label.is-stacked {
-    font-size: 32px;
+    font-size: 28px;
     line-height: 1.15;
 }
 
