@@ -127,8 +127,8 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 获取对局推送页状态 | GET | /api/page7 | 获取 page7 状态与已选比赛数据（公开 GET）；下发的 state.matchIds 先过滤已删除比赛的悬空引用（见下方推流选场一致性说明） | electron/socket-server.ts |
-| 保存对局推送配置 | POST | /api/page7 | 保存 page7 配置（matchIds 最多 9 场任意状态比赛 / title 主标题 / notice 温馨提示） | electron/socket-server.ts |
+| 获取对局推送页状态 | GET | /api/page7 | 获取 page7 状态、已选比赛数据、头像与 **tournamentLabels**（系列赛阶段·轮次标签，展示页用它做行首标签，与 page6/page8 同口径）（公开 GET）；下发的 state.matchIds 先过滤已删除比赛的悬空引用（见下方推流选场一致性说明） | electron/socket-server.ts |
+| 保存对局推送配置 | POST | /api/page7 | 保存 page7 配置（matchIds 任意状态现存比赛、顺序即行序；**不限场数**，只在超过 PAGE7_MAX_MATCHES 兜底值时截断 / title 主标题 / notice 温馨提示） | electron/socket-server.ts |
 
 > **推流选场一致性（page6/7/8 通用）**：选场 matchIds 会随比赛数据自动清理——比赛被删除（悬空引用）或状态不再符合该页收录口径（page6 需已结束、page8 需待开始/进行中、page7 不限状态）时，服务端在比赛广播出口 `emitMatchesUpdate` 落盘清理该页选场（`prunePage6State`/`prunePage7State`/`prunePage8State`），**只对发生变化的页面广播 pageN:update**（后台卡片「已选 N/9」随之刷新）；三个 GET 下发前同样按「比赛仍存在 + 符合收录状态」过滤 state.matchIds，保证与 matches 同源（历史遗留悬空数据兜底）。删除类接口（DELETE /api/matches/:matchId、POST /api/matches/batch-delete、删除系列赛连对局、回退上一波）在响应中回带 pagePush（仅含发生变化的页面状态）。
 

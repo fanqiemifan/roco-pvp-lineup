@@ -5,12 +5,16 @@ import dayjs, { type Dayjs } from 'dayjs';
 
 import type { MatchRecord, Page6State, Page7State, Page8State, TournamentRecord } from '../../../shared/types';
 import { computeScheduleTimes, normalizeHHmm } from '../../../shared/match-schedule';
+import { countPushRows } from '../lib/history';
 import { buildPushCandidateGroups, type PushCandidateGroup } from '../lib/tournament';
 
 const { Text } = Typography;
 
 /** 推流页面选场类型：page6 比赛结果 / page7 对局推送 / page8 比赛预告 */
 export type MatchPushKind = 'page6' | 'page7' | 'page8';
+
+/** page7 画面一屏行数（.page7-rows 固定 4 行，多出来的整屏过渡） */
+const PAGE7_ROWS_PER_SCREEN = 4;
 
 /** 确认推送时的请求体：page6/8 = matchIds + 大标题 + 场序时间；page7 = matchIds + 主标题 + 温馨提示 */
 export interface MatchPushPayload {
@@ -33,7 +37,12 @@ interface MatchPushCardProps {
   kind: MatchPushKind;
   /** 功能卡片标题，如「推送比赛结果」 */
   cardTitle: string;
-  maxCount: number;
+  /**
+   * 场次上限：page6/page8 画面是固定格数（9 张卡片），必须限制；
+   * page7 画面是一屏 4 行 + 整屏过渡、行数只影响翻屏轮数，**不传即不设上限**
+   * （按整届 / 按阶段·波次勾选，弹窗里用「已选 N 场 ≈ M 屏」提示规模）。
+   */
+  maxCount?: number;
   /**
    * 候选池：管理端可见的比赛（已剔除「本机移除」系列赛的对局）——组件内部做搜索与资格过滤。
    * 已选 / 摘要的解析必须走 allMatches，否则已推送的隐藏对局会「解析不到」导致索引错位。
@@ -126,7 +135,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
     if (!open) {
       return;
     }
-    setDraftIds(state.matchIds.slice(0, maxCount));
+    setDraftIds(maxCount === undefined ? state.matchIds : state.matchIds.slice(0, maxCount));
     setTitleDraft('title' in state ? state.title : '');
     setNoticeDraft('notice' in state ? state.notice : '');
     setStartTimeDraft('startTime' in state ? state.startTime : '');
@@ -158,6 +167,15 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
     () => state.matchIds.map((id) => matchById.get(id)).filter((match): match is MatchRecord => Boolean(match)),
     [state.matchIds, matchById],
   );
+
+  /** 场次上限：不传（page7）= 不限，用 Infinity 让下面几处守卫同一份判据 */
+  const pushLimit = maxCount ?? Number.POSITIVE_INFINITY;
+
+  /**
+   * 对局推送（page7）的规模提示：画面一屏 4 行、每行 = 该场一个已展示小局，
+   * 所以「已选 N 场」看不出翻屏轮数，这里按行数折算屏数（口径见 lib/history.ts 的 countPushRows）。
+   */
+  const estimatedScreens = Math.max(1, Math.ceil(countPushRows(selectedMatches) / PAGE7_ROWS_PER_SCREEN));
 
   // 自动场序时间：开始时间 + 前场各场 BO×30 分钟累加；手动值只替换该场显示
   const autoTimes = useMemo(
@@ -206,7 +224,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
   function toggleMatch(match: MatchRecord, checked: boolean) {
     setDraftIds((prev) => {
       if (checked) {
-        if (prev.includes(match.id) || !isEligible(match) || prev.length >= maxCount) {
+        if (prev.includes(match.id) || !isEligible(match) || prev.length >= pushLimit) {
           return prev;
         }
         return [...prev, match.id];
@@ -255,7 +273,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
       setDraftIds((prev) => {
         const next = [...prev];
         group.matches.forEach((match) => {
-          if (next.length >= maxCount) {
+          if (next.length >= pushLimit) {
             return;
           }
           if (isEligible(match) && !next.includes(match.id)) {
@@ -329,13 +347,17 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
                 onChange={(event) => toggleGroup(row.group, event.target.checked)}
               />
               <span className="match-push-group-name">{row.group.title}</span>
-              <span className="match-push-group-count">共 {row.group.matches.length} 场</span>
+              {/* 双败阶段按波次分批：整组勾选 = 选中该波（如 32进16 胜者组 R1 16 场），提示批次与规模 */}
+              <span className="match-push-group-count">
+                {row.group.waveIndex === null ? '' : `第 ${row.group.waveIndex} 波 · `}
+                共 {row.group.matches.length} 场
+              </span>
             </div>
           );
         }
         const record = row.match;
         const checked = draftIds.includes(record.id);
-        const disabled = !isEligible(record) || (draftIds.length >= maxCount && !checked);
+        const disabled = !isEligible(record) || (draftIds.length >= pushLimit && !checked);
         return (
           <Checkbox
             checked={checked}
@@ -403,7 +425,11 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
         size="small"
         className="subtle-card match-push-card"
         title={cardTitle}
-        extra={<Tag color={pushedMatches.length ? 'blue' : 'default'}>{state.matchIds.length}/{maxCount}</Tag>}
+        extra={(
+          <Tag color={pushedMatches.length ? 'blue' : 'default'}>
+            {maxCount === undefined ? `${state.matchIds.length} 场` : `${state.matchIds.length}/${maxCount}`}
+          </Tag>
+        )}
       >
         <Space direction="vertical" size={10} className="match-push-card-body">
           {pushedMatches.length ? (
@@ -428,7 +454,11 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
         onCancel={() => setOpen(false)}
         footer={(
           <Space>
-            <Text type="secondary">{ELIGIBLE_HINT[kind]} · 最多 {maxCount} 场，勾选顺序即卡片场序</Text>
+            <Text type="secondary">
+              {ELIGIBLE_HINT[kind]} · {maxCount === undefined
+                ? `不设场次上限，勾选顺序即行序（已选 ${draftIds.length} 场 ≈ ${estimatedScreens} 屏）`
+                : `最多 ${maxCount} 场，勾选顺序即卡片场序`}
+            </Text>
             <Button onClick={() => setOpen(false)}>取消</Button>
             <Button type="primary" loading={pushing} onClick={() => void handleConfirm()}>确认推送</Button>
           </Space>

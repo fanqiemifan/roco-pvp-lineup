@@ -90,7 +90,7 @@ function ref(
 }
 
 describe('buildStatsStageAxis', () => {
-  it('选定系列赛：按「阶段 · 语义轮次」拆桶并按阶段/波次排序（双败拆首轮/胜者组/败者组/决胜轮）', () => {
+  it('选定系列赛：按「阶段 · 语义轮次」拆桶并按阶段/波次排序（双败拆胜者组 R1/R2、败者组 R1/R2）', () => {
     const record = makeRecord({
       waves: [
         makeWave(0, 1, [
@@ -119,10 +119,10 @@ describe('buildStatsStageAxis', () => {
 
     const axis = buildStatsStageAxis(matches, [record], record.id);
     expect(axis.map((bucket) => bucket.label)).toEqual([
-      '8进4 · 首轮',
-      '8进4 · 胜者组',
-      '8进4 · 败者组',
-      '8进4 · 决胜轮',
+      '8进4 · 胜者组 R1',
+      '8进4 · 胜者组 R2',
+      '8进4 · 败者组 R1',
+      '8进4 · 败者组 R2',
       '4进2',
     ]);
   });
@@ -216,7 +216,7 @@ describe('buildUsageStats（系列赛维度）', () => {
       metric: 'pickRate',
     });
     expect(scoped.stageAxis).toHaveLength(1);
-    expect(scoped.stageAxis[0].label).toBe('8进4 · 首轮');
+    expect(scoped.stageAxis[0].label).toBe('8进4 · 胜者组 R1');
     // 桶内只统计该系列赛的比赛：pet-x/pet-y 不在逐桶数据里
     const bucketKey = scoped.stageAxis[0].key;
     expect(scoped.spriteStageRate.has('pet-x')).toBe(false);

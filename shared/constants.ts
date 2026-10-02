@@ -89,6 +89,14 @@ export const DEFAULT_PAGE10_DURATION = 10;
 export const DEFAULT_PAGE10_DURATION_UNIT = 'seconds' as const;
 
 /**
+ * 对局推送（page7）整屏切换间隔：一屏 4 行停留多久后整屏交叉过渡到下一屏；默认 10 秒。
+ * 下限要大于过渡动画时长（700ms），否则画面会一直在过渡、看不清内容。
+ */
+export const DEFAULT_PAGE7_SWITCH_SECONDS = 10;
+export const PAGE7_SWITCH_MIN_SECONDS = 2;
+export const PAGE7_SWITCH_MAX_SECONDS = 600;
+
+/**
  * 倒计时插件（推流载体顶部叠加小插件）：
  * 在直播推流画面顶部居中叠加显示，不影响原有推流页面；默认深色配色，默认 5 分钟。
  */
@@ -163,6 +171,20 @@ export const CLOUD_SYNC_STALE_MINUTES = 30;
 /** 双败阶段晋级线 / 淘汰线：阶段内 2 胜晋级、2 败淘汰 */
 export const TOURNAMENT_TARGET_WINS = 2;
 export const TOURNAMENT_TARGET_LOSSES = 2;
+/**
+ * 双败阶段各波次的轮次名（战绩桶 key → 文案）：**晋级图/波次列表与对局标签共用同一份**。
+ *
+ * 这套引擎是 3 波桶模型（2 胜晋级 / 2 负淘汰），所以胜者组、败者组各只有两轮：
+ * W1（0-0 池，全员）＝ 胜者组 R1 → 输的人掉进败者组；W2 的 1-0 池 ＝ 胜者组 R2、0-1 池 ＝ 败者组 R1；
+ * W3 的 1-1 池 ＝ 败者组 R2（决胜）。别只给「胜者组/败者组」加编号而漏掉首尾两波，
+ * 也别按「胜者组=R1、败者组=R2」简单配对——那是错的。
+ */
+export const DOUBLE_LIFE_ROUND_LABELS: Record<string, string> = {
+  '0-0': '胜者组 R1',
+  '1-0': '胜者组 R2',
+  '0-1': '败者组 R1',
+  '1-1': '败者组 R2',
+};
 /** 仅支持 2 的幂人数（双败桶恒偶，零轮空分支） */
 export const SUPPORTED_TOURNAMENT_SIZES = new Set([4, 8, 16, 32, 64]);
 /**

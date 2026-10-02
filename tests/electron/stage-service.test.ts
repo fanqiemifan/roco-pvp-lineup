@@ -47,3 +47,30 @@ describe('stage-service：阵容镜像反转（mirrorSides）', () => {
     expect(getStageState(paths).mirrorSides).toBe(false);
   });
 });
+
+describe('stage-service：对局推送切屏间隔（page7SwitchSeconds）', () => {
+  it('空目录默认 10 秒', () => {
+    expect(getStageState(createIsolatedPaths()).page7SwitchSeconds).toBe(10);
+  });
+
+  it('保存后落盘持久化，且保存其他字段不会重置它', () => {
+    const paths = createIsolatedPaths();
+    expect(saveStageState(paths, { page7SwitchSeconds: 30, page: 'page7' }).page7SwitchSeconds).toBe(30);
+    expect(getStageState(paths).page7SwitchSeconds).toBe(30);
+
+    saveStageState(paths, { page3RankVisible: true });
+    expect(getStageState(paths).page7SwitchSeconds).toBe(30);
+  });
+
+  it('非法值回默认 10，超范围夹到 [2, 600]', () => {
+    const paths = createIsolatedPaths();
+    saveStageState(paths, { page7SwitchSeconds: 'abc' });
+    expect(getStageState(paths).page7SwitchSeconds).toBe(10);
+
+    saveStageState(paths, { page7SwitchSeconds: 0 });
+    expect(getStageState(paths).page7SwitchSeconds).toBe(2);
+
+    saveStageState(paths, { page7SwitchSeconds: 9999 });
+    expect(getStageState(paths).page7SwitchSeconds).toBe(600);
+  });
+});

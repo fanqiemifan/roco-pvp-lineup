@@ -2,6 +2,7 @@ import fs from 'node:fs';
 
 import {
   buildDefaultStages,
+  DOUBLE_LIFE_ROUND_LABELS,
   MATCH_ID_REGEX,
   PAGE14_ROWS_PER_PAGE,
   resolveThirdPlaceBestOf,
@@ -2253,16 +2254,17 @@ function resolveTournamentLabel(
   if (stage.format !== 'double-life') {
     return stage.name;
   }
+  // 轮次文案与晋级图/波次列表共用 shared/constants 的 DOUBLE_LIFE_ROUND_LABELS（同一份真源）
   if (ref.waveIndex === 1) {
-    return `${stage.name}·首轮`;
+    return `${stage.name}·${DOUBLE_LIFE_ROUND_LABELS['0-0']}`;
   }
   if (ref.waveIndex === 3) {
-    return `${stage.name}·决胜轮`;
+    return `${stage.name}·${DOUBLE_LIFE_ROUND_LABELS['1-1']}`;
   }
   if (ref.waveIndex !== 2) {
     return stage.name;
   }
-  // W2 分胜者组（1-0 池）/ 败者组（0-1 池）：看该场两位选手首轮是否取胜。
+  // W2 分胜者组 R2（1-0 池）/ 败者组 R1（0-1 池）：看该场两位选手第 1 波是否取胜。
   // 跨桶手动配对等非常规组合拿不到一致池归属时退回阶段名。
   const wave = record.waves.find(
     (item) => item.stageIndex === ref.stageIndex && item.waveIndex === 2,
@@ -2276,7 +2278,7 @@ function resolveTournamentLabel(
   if (aWonOpeningRound !== bWonOpeningRound) {
     return stage.name;
   }
-  return `${stage.name}·${aWonOpeningRound ? '胜者组' : '败者组'}`;
+  return `${stage.name}·${DOUBLE_LIFE_ROUND_LABELS[aWonOpeningRound ? '1-0' : '0-1']}`;
 }
 
 /* ==================== 晋级积分榜（page14）：按阶段重算选手战绩 ==================== */

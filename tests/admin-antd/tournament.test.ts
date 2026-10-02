@@ -943,9 +943,9 @@ describe('buildPushCandidateGroups（选场弹窗候选分组）', () => {
   it('系列赛按 阶段+语义轮次 分组、普通对局与孤儿引用一组；组序按组内首场位置', () => {
     const matches = [
       makeMatch('m7', { tournamentRef: ref('s2-w1-n00', 2, 1) }), // 总决赛（单败）
-      makeMatch('m3', { tournamentRef: ref('s0-w2-n00', 0, 2) }), // 胜者组
-      makeMatch('m5', { tournamentRef: ref('s0-w3-n00', 0, 3) }), // 决胜轮
-      makeMatch('m1', { tournamentRef: ref('s0-w1-n00', 0, 1) }), // 首轮
+      makeMatch('m3', { tournamentRef: ref('s0-w2-n00', 0, 2) }), // 胜者组 R2
+      makeMatch('m5', { tournamentRef: ref('s0-w3-n00', 0, 3) }), // 败者组 R2（决胜）
+      makeMatch('m1', { tournamentRef: ref('s0-w1-n00', 0, 1) }), // 胜者组 R1
       makeMatch('normal-1'), // 普通对局
       makeMatch('m4', { tournamentRef: ref('s0-w2-n01', 0, 2) }), // 败者组
       makeMatch('orphan-1', {
@@ -957,11 +957,11 @@ describe('buildPushCandidateGroups（选场弹窗候选分组）', () => {
 
     expect(groups.map((group) => group.title)).toEqual([
       '🏆 星空杯S1 · 总决赛',
-      '🏆 星空杯S1 · 8进4 · 胜者组',
-      '🏆 星空杯S1 · 8进4 · 决胜轮',
-      '🏆 星空杯S1 · 8进4 · 首轮',
+      '🏆 星空杯S1 · 8进4 · 胜者组 R2',
+      '🏆 星空杯S1 · 8进4 · 败者组 R2',
+      '🏆 星空杯S1 · 8进4 · 胜者组 R1',
       '普通对局',
-      '🏆 星空杯S1 · 8进4 · 败者组',
+      '🏆 星空杯S1 · 8进4 · 败者组 R1',
     ]);
     expect(groups.map((group) => group.matches.map((match) => match.id))).toEqual([
       ['m7'],

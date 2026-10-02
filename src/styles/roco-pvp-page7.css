@@ -75,7 +75,7 @@ body {
     white-space: nowrap;
 }
 
-/* 比赛行视口：固定显示 4 行（168*4 + 32*3 = 768），超出部分由 track 滚动展示 */
+/* 比赛行视口：固定显示 4 行（168*4 + 32*3 = 768），行不滚动、整屏交叉淡入淡出 */
 .page7-rows {
     position: absolute;
     left: 0;
@@ -86,14 +86,28 @@ body {
     z-index: 3;
 }
 
-/* 滚动轨道：整列表，循环滚动；动画曲线先快后慢（easeOutQuint） */
+/* 行容器：只承载两层（当前屏 / 待切换屏），本身不位移 */
 .page7-rows-track {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
-    will-change: transform;
-    transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+    height: 100%;
+}
+
+/* 一屏 = 4 行；两层叠在同一位置，靠透明度交叉过渡（700ms 与 JS 的停留节奏独立） */
+.page7-rows-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity 700ms ease;
+}
+
+.page7-rows-layer.is-visible {
+    opacity: 1;
 }
 
 /* 单行容器：左侧对局序号 + 右侧比赛信息卡（JS 按序号设置 top，相对 track） */
@@ -104,7 +118,7 @@ body {
     height: 168px;
 }
 
-/* 对局序号（GAME1-5）：字号36 白色，距比赛信息卡左侧 24px，垂直居中 */
+/* 行首标签：普通对局为 GAME 序号，系列赛为「阶段 / 轮次」两行（.is-stacked）；字号36 白色，右对齐 */
 .page7-row-label {
     position: absolute;
     left: 0;
@@ -112,12 +126,21 @@ body {
     width: 165px;
     height: 168px;
     display: flex;
-    align-items: center;
-    justify-content: flex-end;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
     font-family: "YouSheBiaoTiHei", "MiSans-Heavy", "Microsoft YaHei", sans-serif;
     font-size: 36px;
     color: #FFFFFF;
     line-height: 1;
+    white-space: pre-line;
+    text-align: right;
+}
+
+/* 两行标签（如「8进4」/「决胜轮」）：字号略小以保证「64进32」这类较宽的阶段名不被裁切 */
+.page7-row-label.is-stacked {
+    font-size: 32px;
+    line-height: 1.15;
 }
 
 /* 比赛信息卡（含空占位卡）：w1542 h168 背景 F2EDE3 圆角30 */
@@ -197,14 +220,14 @@ body {
 /* 选手名字：YouSheBiaoTiHei 40 黑色；左侧 x92 y16 左对齐，右侧距右 92 y16 右对齐 */
 .page7-name {
     position: absolute;
-    top: 24px;
+    top: 28px;
     max-width: 260px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
-    font-size: 40px;
-    color: #000000;
+    font-size: 32px;
+    color: #424442;
     line-height: 1;
 }
 

@@ -3,6 +3,9 @@ import fs from 'node:fs';
 import {
   DEFAULT_PAGE10_DURATION,
   DEFAULT_PAGE10_DURATION_UNIT,
+  DEFAULT_PAGE7_SWITCH_SECONDS,
+  PAGE7_SWITCH_MAX_SECONDS,
+  PAGE7_SWITCH_MIN_SECONDS,
   DEFAULT_PAGE11_RANK_VISIBLE,
   DEFAULT_STAGE_PAGE,
   DEFAULT_STAGE_TRANSITION,
@@ -82,6 +85,18 @@ function normalizePage10DurationUnit(value: unknown): NextGameDurationUnit {
   return value === 'minutes' ? 'minutes' : DEFAULT_PAGE10_DURATION_UNIT as NextGameDurationUnit;
 }
 
+/**
+ * 对局推送（page7）整屏切换间隔（秒）：非法值回默认 10；夹在 [2, 600] ——
+ * 下限要大于整屏过渡动画时长（700ms），上限 10 分钟（再长就不像"自动轮播"了）。
+ */
+function normalizePage7SwitchSeconds(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_PAGE7_SWITCH_SECONDS;
+  }
+  return Math.min(PAGE7_SWITCH_MAX_SECONDS, Math.max(PAGE7_SWITCH_MIN_SECONDS, Math.round(numeric)));
+}
+
 /** 胜者结算画面（page10）停留时长：秒 1-3600，分钟 1-60 */
 function normalizePage10Duration(value: unknown, unit: NextGameDurationUnit): number {
   const numeric = Number(value);
@@ -105,6 +120,7 @@ function defaultStageState(): StageConfig {
     page11RankVisible: DEFAULT_PAGE11_RANK_VISIBLE,
     page5Player: '',
     page5TournamentId: '',
+    page7SwitchSeconds: DEFAULT_PAGE7_SWITCH_SECONDS,
     page10Duration: DEFAULT_PAGE10_DURATION,
     page10DurationUnit: DEFAULT_PAGE10_DURATION_UNIT as NextGameDurationUnit,
     mtime: null,
@@ -132,6 +148,7 @@ export function getStageState(paths: AppPaths): StageConfig {
       page11RankVisible: normalizePage11RankVisible(metadata.page11RankVisible),
       page5Player: normalizePage5Player(metadata.page5Player),
       page5TournamentId: normalizePage5TournamentId(metadata.page5TournamentId),
+      page7SwitchSeconds: normalizePage7SwitchSeconds(metadata.page7SwitchSeconds),
       page10Duration: normalizePage10Duration(metadata.page10Duration, page10DurationUnit),
       page10DurationUnit,
       mtime: stat.mtimeMs,
@@ -166,6 +183,9 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
     page11RankVisible: normalizePage11RankVisible(raw.page11RankVisible ?? current.page11RankVisible),
     page5Player: normalizePage5Player(raw.page5Player),
     page5TournamentId: normalizePage5TournamentId(raw.page5TournamentId),
+    page7SwitchSeconds: normalizePage7SwitchSeconds(
+      raw.page7SwitchSeconds === undefined ? current.page7SwitchSeconds : raw.page7SwitchSeconds,
+    ),
     page10Duration: normalizePage10Duration(
       raw.page10Duration === undefined ? current.page10Duration : raw.page10Duration,
       page10DurationUnit,

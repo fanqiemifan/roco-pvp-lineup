@@ -45,7 +45,7 @@
 
 编排层「搭在比赛系统之上」：赛程/战绩/晋级落 cache/tournaments.json；每场对决仍是普通 MatchRecord，经 createMatch 创建并打 tournamentRef。RNG = mulberry32（同 seed 可复现），波次 RNG 由 series seed 与 stage/wave 位置混合。系列赛归创建它的机器码所有：`mutateRecord`（全部变更入口）、`deleteTournament` 与写回钩子都有**编排机所有权闸门**，非编排机为只读副本（变更被拒「该系列赛由机器 X 编排」，登记赛果不写回，识别方式 = id 机器码 == 本机 machineCode）。**删除不物理移除**：`deleteTournament` 写墓碑（`deletedAt` + 对局名单 `deletedMatchIds`/`deletedMatches`），对外读取路径过滤墓碑（`getTournamentStore`），含墓碑访问器（`getTournamentRecordsIncludingTombstones`/`getTournamentTombstones`）仅供同步导出与合并；`mutateRecord`/写回钩子/写回摘要把墓碑当「不存在」（防陈旧比赛把内容写进墓碑）；id 分配与合并走含墓碑读路径（否则同日删后重建会复用 id 撞墓碑）。**本机移除（localOnly，分控端对非本机系列赛）**：写 localOnly 墓碑只在本机可见口径隐藏（getTournamentStore 过滤）、出站包剔除（绝不外传）、合并时本机墓碑优先（不复活）；编排机真墓碑到达时整条替换并清 localOnly，随后照常解绑/清理；「恢复」= 清标记立即回显，updatedAt 不变（下次同步按「较新覆盖」补齐）。**数据文件保护**：tournaments.json 原子写（同目录 tmp + rename，与 match-service 同口径）；解析失败**绝不静默返回空库**（空库 + 下一次写 = 整库被永久覆盖，createTournament/mergeTournamentRecords 尤甚）——先复制 `.corrupt` 备份再抛错，让所有读写路径一致中止等人工修复。**选手名 / 赛制锁定**：系列赛对局的 `leftPlayer/rightPlayer/bestOf` 是建场快照（名字 = 完成钩子的写回比对依据，赛制 = 完赛局数），赛事面板改不动（`assertTournamentMatchFieldsEditable`）；「信息录入」改名靠 `syncTournamentMatchNames` 回写快照；登记赛果必须**先**过 `prepareTournamentWriteBack` 再落盘。
 
-**季军赛（附加波次，不占阶段）**：波次带 `TournamentWave.kind = 'third-place'`。4 人阶段（半决赛）打完后由 `progressFromWave` 调内部 `createThirdPlaceWave`：取本阶段两名 `state = eliminated` 的落败者建一场，波次下标接在本阶段主赛之后（双败 = 决胜轮之后，单败 = 第 2 波），且**先于下一阶段首波 push** —— `record.waves` 的数组顺序即时间线，「回退上一波」与撤回时的后续波丢弃都按它推导（顺序反了会误伤季军赛、或让总决赛再也推进不出来，`reopenStageLastWave` 也必须排除它）。赛制 = `record.thirdPlaceBestOf`（创建时选定，0 = 不安排；旧数据缺省按「与总决赛同赛制」解析，前端与引擎共用 `resolveThirdPlaceBestOf`）。它**不在晋级链上**：`applyGameResult` / `recomputeStageEntries` / `resolveStageStandings` 一律跳过（否则季军会被算成「阶段内多一胜」，单败口径下直接显示成已晋级），`progressFromWave` 直接返回（不推进、不改完赛状态，因此季军赛可以晚于总决赛打完），`onMatchUndo` / `rollbackWave` 只作用于这一场本身（绝不连带撤销冠军 / 改 currentStageIndex / 重算战绩）。名次只记在节点 `winnerId`（季军 / 殿军由前端从节点推导，不进 `record.result`）。**跨机**：季军赛就是普通对局，走同一套同步与写回路径；但它在分发 / 指派之后才建场，**未指派 → 分控端登记入口置灰**，需要在主控「指派」里单独勾它（或按波次规则覆盖）。
+**季军赛（附加波次，不占阶段）**：波次带 `TournamentWave.kind = 'third-place'`。4 人阶段（半决赛）打完后由 `progressFromWave` 调内部 `createThirdPlaceWave`：取本阶段两名 `state = eliminated` 的落败者建一场，波次下标接在本阶段主赛之后（双败 = 败者组 R2 之后，单败 = 第 2 波），且**先于下一阶段首波 push** —— `record.waves` 的数组顺序即时间线，「回退上一波」与撤回时的后续波丢弃都按它推导（顺序反了会误伤季军赛、或让总决赛再也推进不出来，`reopenStageLastWave` 也必须排除它）。赛制 = `record.thirdPlaceBestOf`（创建时选定，0 = 不安排；旧数据缺省按「与总决赛同赛制」解析，前端与引擎共用 `resolveThirdPlaceBestOf`）。它**不在晋级链上**：`applyGameResult` / `recomputeStageEntries` / `resolveStageStandings` 一律跳过（否则季军会被算成「阶段内多一胜」，单败口径下直接显示成已晋级），`progressFromWave` 直接返回（不推进、不改完赛状态，因此季军赛可以晚于总决赛打完），`onMatchUndo` / `rollbackWave` 只作用于这一场本身（绝不连带撤销冠军 / 改 currentStageIndex / 重算战绩）。名次只记在节点 `winnerId`（季军 / 殿军由前端从节点推导，不进 `record.result`）。**跨机**：季军赛就是普通对局，走同一套同步与写回路径；但它在分发 / 指派之后才建场，**未指派 → 分控端登记入口置灰**，需要在主控「指派」里单独勾它（或按波次规则覆盖）。
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
@@ -72,7 +72,7 @@
 | 本机移除 | removeLocalTournament | (paths: AppPaths, tournamentId: string) => LocalRemovalResult | 分控端对「非本机编排」系列赛做视图层隐藏（幂等：已移除返回 changed=false）：写 deletedAt+localOnly、deletedMatchIds=[]/deletedMatches=false，**不解绑 / 不删对局、不改 updatedAt**；本机编排拒绝（提示用 deleteTournament）；真墓碑 / 不存在抛「系列赛不存在」 |
 | 恢复本机移除 | restoreLocalTournament | (paths: AppPaths, tournamentId: string) => TournamentRecord | 仅 localOnly 记录可恢复（否则抛错）：清 deletedAt/localOnly/deletedMatchIds/deletedMatches，立即重新可见；**不 bump updatedAt**——bump 会让陈旧副本在 'newer' 合并中反压编排机更新 |
 | 写回补跑 | runTournamentWriteBack | (paths: AppPaths) => TournamentWriteBackReport | 同步导入后对本机全部「已完成 + 带 tournamentRef」比赛逐场跑 onMatchCompleted（幂等）：最后一场补齐时自动推进（下一波/冠军），双机「各登记一半、汇合推进」的关键一步；只读副本自动跳过；advanced 按内容摘要（排除 updatedAt 空转）判断是否真正改动；失败与「赛果和已写回节点胜者不一致」（协作机撤回重登后回传）都记 warnings 不阻断导入，后者提示走「回退上一波」 |
-| 阶段标注解析 | resolveTournamentLabels | (paths: AppPaths, matches: Array<Pick<MatchRecord, 'id' \| 'tournamentRef'>>) => Record<string, string> | page6/page8 卡片用（经 GET /api/page6、/api/page8 下发 tournamentLabels）：格式「阶段名·轮次」（`·` 两侧无空格）——单败阶段只给阶段名（如「总决赛」）；双败 W1=「首轮」、W2 按节点两位选手首轮胜负判池=「胜者组/败者组」、W3=「决胜轮」；跨桶等拿不到一致池归属退回阶段名；**季军赛波次固定返回「季军赛」**（不套阶段名与波次序号）；仅 tournamentRef 指向现存系列赛的比赛有值（普通对局/孤儿引用缺席） |
+| 阶段标注解析 | resolveTournamentLabels | (paths: AppPaths, matches: Array<Pick<MatchRecord, 'id' \| 'tournamentRef'>>) => Record<string, string> | page6/page8 卡片用（经 GET /api/page6、/api/page8 下发 tournamentLabels）：格式「阶段名·轮次」（`·` 两侧无空格）——单败阶段只给阶段名（如「总决赛」）；双败用 **W1=「胜者组 R1」、W2 按节点两位选手第 1 波胜负判池=「胜者组 R2 / 败者组 R1」、W3=「败者组 R2」**（文案取自 shared/constants 的 `DOUBLE_LIFE_ROUND_LABELS`，与晋级图/波次列表同一份）；跨桶等拿不到一致池归属退回阶段名；**季军赛波次固定返回「季军赛」**（不套阶段名与波次序号）；仅 tournamentRef 指向现存系列赛的比赛有值（普通对局/孤儿引用缺席） |
 | 阶段战绩重算（晋级积分榜） | resolveStageStandings | (paths: AppPaths, tournamentId: string, stageIndex: number) => StageStandings \| null | page14 用（只读、不落盘）。参赛名单：阶段 0 = `record.playerIds` 种子顺序；其后 = 该阶段 W1 节点的出场顺序（与 recomputeStageEntries 同口径），阶段未开打且非当前阶段 → 空行。逐波遍历该阶段 nodes（**跳过季军赛波次**：它不在晋级口径里）：胜者 +1 胜、负者 +1 负（异常数据里不在名单内的人不计），排序分 = 10×胜 − 负，降序、同分按种子顺序，名次依次编号；`state` 与 deriveState 同口径（单败一胜即 promoted / 一负即 eliminated，双败 2 胜 / 2 负）。**必须重算、不能读 record.entries**：阶段推进会把它换成下一阶段的 0-0/alive，回看已完成阶段会全员显示成 0-0 存活。返回 null = 系列赛不存在或阶段索引越界 |
 
 内部引擎：`doubleBucketSpecs`（双败波次战绩桶：W1 0-0 / W2 1-0+0-1 / W3 1-1）、`wonOpeningRound`（该选手本阶段 W1 是否取胜——决胜池 1-1 池里「胜者组掉落者」与「败者组上扬者」的判据）、`pairWithAvoidance`（greedy 桶内配对，avoidRematch 先过滤已交手、无法避开再放行）、`crossPair`（左右两侧交叉配对：左侧每人从右侧剩余池随机取对手；决胜波 1-1 池两类人互不相遇，avoidRematch 优先避开已交手）、`bracketPositions`（标准种子位序列，**仅 stageIndex=0 的首阶段使用**）、`generateDraftPairs`（生成配对草稿：单败 `bracket-seed` 从 stage 1 起按 `entries` 顺序两两相邻配对，**延续固定对阵树，不再每轮重新种子**；双败 W3 的 1-1 池走 `crossPair` 经典交叉配对）、`materializeWave`（建波：draft 或自动锁定）、`validatePairs`（每人恰好一次/同桶严格/跨桶显式允许/已交手提醒）、`bracketOrderOfStage`（晋级选手在上一阶段的获胜节点位置 `(waveIndex, nodeIndex)`，单败即节点序、双败则胜者组出线在前）、`progressFromWave`（波完成后阶段/波次推进：promoted=半额→先调 `createThirdPlaceWave` 安排季军赛（仅 4 人阶段）再按 `bracketOrderOfStage` 的对阵树顺序换批进入下一阶段（而非全局种子序），否则双败建下一波；季军赛波次直接返回不推进）、`createThirdPlaceWave`（半决赛两名落败者建季军赛附加波次：赛制取 thirdPlaceBestOf、幂等、波次下标接本阶段主赛之后）、`recomputeStageEntries`（按现存节点重算阶段战绩，回退用；跳过季军赛）。
@@ -144,7 +144,9 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 获取推流配置 | getStageState | (paths: AppPaths) => StageConfig | 获取 stage 配置 |
-| 保存推流配置 | saveStageState | (paths: AppPaths, payload) => StageConfig | 保存 stage 配置；mirrorSides / page3RankVisible / page3TeamVisible / page3RedLightMode / page3RedLightInstant 未携带时保留现值 |
+| 保存推流配置 | saveStageState | (paths: AppPaths, payload) => StageConfig | 保存 stage 配置；mirrorSides / page3RankVisible / page3TeamVisible / page3RedLightMode / page3RedLightInstant / page7SwitchSeconds 未携带时保留现值 |
+
+> `page7SwitchSeconds`（对局推送整屏切换间隔，秒）：默认 10、夹在 [2, 600]（下限要大于整屏过渡动画 700ms）；非法值回默认。展示页在启动时 GET /api/stage 拿它、并订阅 `stage:update` 实时改节奏，所以 socket-server 的 `ROLES_FOR_STAGE` 必须包含 `page7`。
 
 | 信息录入 (profile-service.ts)
 
@@ -210,7 +212,9 @@
 | 保存对局推送配置 | savePage7State | (paths: AppPaths, payload: unknown) => Page7State | 保存 page7 配置（matchIds 任意状态现存比赛 / title / notice） |
 | 清理选场悬空引用 | prunePage7State | (paths: AppPaths) => Page7State \| null | 移除已删比赛的引用（page7 不限状态）；有变化落盘并返回新状态，无变化返回 null；由 socket-server 的比赛广播出口 emitMatchesUpdate 调用 |
 
-> 同口径的 `prunePage6State`（page6-service.ts，额外要求「已结束」）/ `prunePage8State`（page8-service.ts，额外要求「待开始/进行中」）签名与行为一致；page6/page8 的收录状态白名单为 PAGE6_MATCH_STATUSES / PAGE8_MATCH_STATUSES（保存与清理共用，避免口径漂移）。
+> **page7 选场不设产品上限**（`PAGE7_MAX_MATCHES = 200` 只是兜底）：原来 9 场是"整列表滚动"结构的容量；画面改成"一屏 4 行 + 整屏交叉淡入淡出"后，行数只影响翻屏轮数、不影响 DOM 规模，所以支持整届（64 人最多 156 场）与按阶段·波次整组勾选，`normalizeMatchIds` 在超过兜底值时才截断。
+>
+> 同口径的 `prunePage6State`（page6-service.ts，额外要求「已结束」）/ `prunePage8State`（page8-service.ts，额外要求「待开始/进行中」）签名与行为一致；page6/page8 的收录状态白名单为 PAGE6_MATCH_STATUSES / PAGE8_MATCH_STATUSES（保存与清理共用，避免口径漂移）。**page6/page8 的 9 场上限是画面结构（3×3 卡片网格）决定的，不要跟着 page7 一起放开。**
 
 ## 团队积分榜 (page9-service.ts)
 

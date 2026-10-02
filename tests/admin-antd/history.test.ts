@@ -8,6 +8,7 @@ import type {
 } from '../../shared/types';
 import {
   buildHistoryTournamentFilters,
+  countPushRows,
   filterLocallyRemovedMatches,
   getEffectiveTournamentId,
   getHistoryVisibleGames,
@@ -130,6 +131,26 @@ describe('getHistoryVisibleGames', () => {
 function makeTournament(id: string, name: string): TournamentRecord {
   return { id, name } as TournamentRecord;
 }
+
+describe('countPushRows（对局推送选场规模估算）', () => {
+  it('按每场「已展示小局」数累加（一场一个已打小局 = 一行）', () => {
+    const match = makeMatch([makeGame(1, 'completed', ['pet-1']), makeGame(2, 'pending')]);
+    expect(countPushRows([match])).toBe(1);
+  });
+
+  it('多场累加：整届选中时用来折算屏数（一屏 4 行）', () => {
+    const matches = [1, 2, 3].map((index) => makeMatch([
+      makeGame(1, 'completed', [`pet-${index}`]),
+      makeGame(2, 'completed', [`pet-${index}`]),
+    ]));
+    expect(countPushRows(matches)).toBe(6);
+    expect(Math.ceil(countPushRows(matches) / 4)).toBe(2);
+  });
+
+  it('空列表 = 0 行（画面只有占位行）', () => {
+    expect(countPushRows([])).toBe(0);
+  });
+});
 
 describe('getEffectiveTournamentId', () => {
   it('普通对局（无 tournamentRef）→ null', () => {

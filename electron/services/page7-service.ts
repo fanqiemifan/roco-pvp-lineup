@@ -9,8 +9,15 @@ export const PAGE7_DEFAULT_TITLE = '对局推送';
 
 export const PAGE7_DEFAULT_NOTICE = '温馨提示：排名选自选手历史最高非实时';
 
-/** 对局推送页（page7）最多选择的比赛数量（画面按小局逐行滚动，结构不变） */
-export const PAGE7_MAX_MATCHES = 9;
+/**
+ * 对局推送页（page7）选场数量上限。
+ *
+ * 原来是 9（画面靠"整列表滚动"展示，9 场是那个结构的容量上限）；现在画面改成"一屏 4 行 + 整屏
+ * 过渡"，行数只影响翻屏轮数、不影响 DOM 规模，所以按「整届 / 按阶段·波次勾选」放开：一条系列赛
+ * 最多 156 场（64 人模板），取 200 当兜底，正常选场永远不会被截断——这里保留上限只为挡住异常大的
+ * 手写 payload（KV/落盘体积），不是产品限制。
+ */
+export const PAGE7_MAX_MATCHES = 200;
 
 function defaultPage7State(): Page7State {
   return {

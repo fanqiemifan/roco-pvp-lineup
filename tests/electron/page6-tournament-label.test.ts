@@ -110,6 +110,14 @@ async function page6Labels(matchIds: string[]): Promise<Record<string, string>> 
   return data.tournamentLabels as Record<string, string>;
 }
 
+/** 把某批比赛设为 page7（对局推送）展示清单并回读标签映射（行首标签用它替代 GAME 序号） */
+async function page7Labels(matchIds: string[]): Promise<Record<string, string>> {
+  const saved = await postJson('/api/page7', { matchIds });
+  expect(saved.status).toBe(200);
+  const { data } = await getJson('/api/page7');
+  return data.tournamentLabels as Record<string, string>;
+}
+
 /** 依次打完一批比赛（默认全部左侧取胜） */
 async function playAll(matches: TournamentMatch[]): Promise<void> {
   for (const match of matches) {
@@ -119,18 +127,18 @@ async function playAll(matches: TournamentMatch[]): Promise<void> {
 
 describe('page6 系列赛阶段标注', () => {
   it(
-    '8进4 双败三波 + 单败阶段：首轮/胜者组/败者组/决胜轮/纯阶段名；普通对局无标注、page6/page8 同口径',
+    '8进4 双败三波 + 单败阶段：胜者组 R1/R2、败者组 R1/R2/纯阶段名；普通对局无标注、page6/page8 同口径',
     async () => {
       const playerIds = seedPlayers(8);
       const created = (await postJson('/api/tournaments', { name: '标注杯', playerIds, seed: 21 })).data.tournament;
       expect((await postJson(`/api/tournaments/${created.id}/start`)).status).toBe(200);
 
-      // W1 首轮：4 场 → 「8进4·首轮」
+      // W1（0-0 池）：4 场 → 「8进4·胜者组 R1」
       const w1 = await pendingMatches(created.id);
       expect(w1).toHaveLength(4);
       await playAll(w1);
       const w1Labels = await page6Labels(w1.map((match) => match.id));
-      w1.forEach((match) => expect(w1Labels[match.id]).toBe('8进4·首轮'));
+      w1.forEach((match) => expect(w1Labels[match.id]).toBe('8进4·胜者组 R1'));
 
       // W1 胜负名单（用于校验 W2 池归属）
       const w1Done = (await tournamentMatches(created.id)).filter(
@@ -143,35 +151,35 @@ describe('page6 系列赛阶段标注', () => {
         w1Done.map((match) => (match.winner === 'left' ? match.rightPlayer : match.leftPlayer)),
       );
 
-      // W2 胜者组（1-0 池，双方均为首轮胜者）/ 败者组（0-1 池，双方均为首轮败者）：各 2 场
+      // W2：胜者组 R2（1-0 池，双方均为首轮胜者）/ 败者组 R1（0-1 池，双方均为首轮败者）：各 2 场
       const w2 = await pendingMatches(created.id);
       expect(w2).toHaveLength(4);
       // W2 待开始：page8（比赛预告）与 page6 同口径下发系列赛语义标签
       expect((await postJson('/api/page8', { matchIds: [w2[0].id] })).status).toBe(200);
       const page8Labels = (await getJson('/api/page8')).data.tournamentLabels as Record<string, string>;
-      expect(['8进4·胜者组', '8进4·败者组']).toContain(page8Labels[w2[0].id]);
+      expect(['8进4·胜者组 R2', '8进4·败者组 R1']).toContain(page8Labels[w2[0].id]);
       await playAll(w2);
       const w2Labels = await page6Labels(w2.map((match) => match.id));
       for (const match of w2) {
         const label = w2Labels[match.id];
         const both = [match.leftPlayer, match.rightPlayer];
-        if (label === '8进4·胜者组') {
+        if (label === '8进4·胜者组 R2') {
           both.forEach((name) => expect(w1Winners.has(name)).toBe(true));
         } else {
-          expect(label).toBe('8进4·败者组');
+          expect(label).toBe('8进4·败者组 R1');
           both.forEach((name) => expect(w1Losers.has(name)).toBe(true));
         }
       }
       const w2LabelValues = w2.map((match) => w2Labels[match.id]);
-      expect(w2LabelValues.filter((label) => label === '8进4·胜者组')).toHaveLength(2);
-      expect(w2LabelValues.filter((label) => label === '8进4·败者组')).toHaveLength(2);
+      expect(w2LabelValues.filter((label) => label === '8进4·胜者组 R2')).toHaveLength(2);
+      expect(w2LabelValues.filter((label) => label === '8进4·败者组 R1')).toHaveLength(2);
 
-      // W3 决胜轮（1-1 池交叉）：2 场
+      // W3 败者组 R2（1-1 池交叉，决胜）：2 场
       const w3 = await pendingMatches(created.id);
       expect(w3).toHaveLength(2);
       await playAll(w3);
       const w3Labels = await page6Labels(w3.map((match) => match.id));
-      w3.forEach((match) => expect(w3Labels[match.id]).toBe('8进4·决胜轮'));
+      w3.forEach((match) => expect(w3Labels[match.id]).toBe('8进4·败者组 R2'));
 
       // 4进2（单败）：只显示阶段名
       const semi = await pendingMatches(created.id);
@@ -196,6 +204,11 @@ describe('page6 系列赛阶段标注', () => {
       const advancedLabels = await page6Labels([thirdPlace[0].id, final[0].id]);
       expect(advancedLabels[thirdPlace[0].id]).toBe(THIRD_PLACE_LABEL);
       expect(advancedLabels[final[0].id]).toBe('总决赛');
+
+      // page7（对局推送）同口径下发：行首标签用这个映射替代 GAME 序号
+      const pushLabels = await page7Labels([thirdPlace[0].id, final[0].id]);
+      expect(pushLabels[thirdPlace[0].id]).toBe(THIRD_PLACE_LABEL);
+      expect(pushLabels[final[0].id]).toBe('总决赛');
 
       // page6 混排：普通对局无标注、系列赛对局有标注
       const normal = (await postJson('/api/matches', {

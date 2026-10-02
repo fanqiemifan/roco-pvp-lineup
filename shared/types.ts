@@ -201,6 +201,8 @@ export interface StageConfig {
   page5Player: string;
   /** 推流页面5：系列赛过滤 id（空字符串 = 全部系列赛；按 tournamentRef 精确匹配，不按名字） */
   page5TournamentId: string;
+  /** 对局推送（page7）：整屏切换间隔（秒）——一屏 4 行停留该时长后整屏交叉过渡到下一屏 */
+  page7SwitchSeconds: number;
   /** 胜者结算画面（page10）：登记本局胜负后自动切入的停留时长 */
   page10Duration: number;
   /** 胜者结算画面（page10）：停留时长单位（秒 / 分钟） */

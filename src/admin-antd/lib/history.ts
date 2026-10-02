@@ -57,6 +57,17 @@ export function getVisibleGames(record: MatchRecord) {
 }
 
 /**
+ * 对局推送页（page7）的行数估算：该页一场的每个「已展示小局」占一行，选场弹窗用它折算屏数
+ * （一屏 4 行）——「已选 N 场」看不出翻屏轮数，整届选中时需要这个规模提示。
+ *
+ * 与展示页的口径略有出入（展示页是「已完赛 或 有阵容」，这里复用 getVisibleGames 的
+ * 「非待开始 或 有阵容」）：只用于估算，不做精确断言，改展示页口径时这里不必跟着改。
+ */
+export function countPushRows(matches: MatchRecord[]): number {
+  return matches.reduce((sum, record) => sum + getVisibleGames(record).length, 0);
+}
+
+/**
  * 比赛管理展开行的小局可见性：在 getVisibleGames 基础上，额外显示
  * 「未开赛场次的当前小局」（待开始且还没有任何阵容）——否则新比赛在历史里
  * 连第一局的卡片都不出现，无法通过历史录入阵容（必须先去赛事面板录一只精灵）。

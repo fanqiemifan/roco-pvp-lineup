@@ -1,4 +1,5 @@
 import {
+  DOUBLE_LIFE_ROUND_LABELS,
   resolveThirdPlaceBestOf,
   THIRD_PLACE_LABEL,
   TOURNAMENT_ID_REGEX,
@@ -506,14 +507,6 @@ function getWaveStatusLabel(status: TournamentWave['status']): string {
   return '待开始';
 }
 
-/** 双败战绩桶 → 轮次名（与引擎的桶结构一一对应：W1 全 0-0；W2 1-0 / 0-1；W3 1-1） */
-const DOUBLE_LIFE_ROUND_LABELS: Record<string, string> = {
-  '0-0': '胜者组 R1',
-  '1-0': '胜者组 R2',
-  '0-1': '败者组 R1',
-  '1-1': '败者组 R2',
-};
-
 /** 列顺序：胜者组 R1 → 败者组 R1 → 胜者组 R2 → 败者组 R2（同属一波的两桶按此顺序拆列） */
 const DOUBLE_LIFE_ROUND_ORDER: Record<string, number> = {
   '0-0': 0,
@@ -521,6 +514,14 @@ const DOUBLE_LIFE_ROUND_ORDER: Record<string, number> = {
   '1-0': 2,
   '1-1': 3,
 };
+
+/** 语义轮次 key → 战绩桶 key：对局标签与晋级图列标题共用 shared 里的那份文案表 */
+const SEMANTIC_ROUND_BUCKET = {
+  opening: '0-0',
+  winner: '1-0',
+  loser: '0-1',
+  decider: '1-1',
+} as const;
 
 /** 阶段首列（带阶段名）/ 阶段决胜列（带「决出 N 强」）的桶 key */
 const DOUBLE_LIFE_OPENING_BUCKET = '0-0';
@@ -926,12 +927,17 @@ export interface PushCandidateGroup {
   key: string;
   /** 组标题：系列赛「🏆 名称 · 阶段名 · 语义轮次」；普通对局「普通对局」 */
   title: string;
+  /**
+   * 组所属波次（双败阶段才有意义：一个波次 = 一次可整组勾选的批量，如 32进16 的第 1 波 16 场；
+   * 单败阶段与普通对局为 null）——"按阶段·波次选"靠它显示批次，不参与分组 key。
+   */
+  waveIndex: number | null;
   matches: MatchRecord[];
 }
 
 /**
  * 候选比赛分组：系列赛按「阶段 + 语义轮次」分组
- * （双败：首轮 / 胜者组 / 败者组 / 决胜轮，与服务端 resolveTournamentLabel 及 page6 卡片标签同口径；
+ * （双败：胜者组 R1 / 胜者组 R2 / 败者组 R1 / 败者组 R2，与服务端 resolveTournamentLabel 及 page6 卡片标签同口径；
  * 单败：一个阶段一组），普通对局（含孤儿引用）归为一组。
  * 组顺序 = 组内首场比赛在候选列表中的位置（保持列表「新 → 旧」的既有顺序）。
  */
@@ -947,7 +953,7 @@ export function buildPushCandidateGroups(
     const target = resolvePushCandidateGroup(match, recordById);
     let group = groups.get(target.key);
     if (!group) {
-      group = { key: target.key, title: target.title, matches: [] };
+      group = { key: target.key, title: target.title, waveIndex: target.waveIndex, matches: [] };
       groups.set(target.key, group);
       ordered.push(group);
     }
@@ -965,13 +971,13 @@ export interface MatchSemanticRound {
   key: string;
   /** 观众侧轮次名（单败为空串，展示时直接用阶段名） */
   label: string;
-  /** 同阶段内的排序位（首轮 0 → 决胜轮 3） */
+  /** 同阶段内的排序位（胜者组 R1 = 0 → 败者组 R2 = 3） */
   order: number;
 }
 
 /**
  * 比赛 → 语义轮次：单败无轮次细分；双败按波次给观众侧语义名
- * （W1 首轮 / W2 胜者组·败者组 / W3 决胜轮），W2 按该场两位选手的首轮胜负判池，
+ * （W1 胜者组 R1 / W2 胜者组 R2·败者组 R1 / W3 败者组 R2），W2 按该场两位选手第 1 波的胜负判池，
  * 与后端 resolveTournamentLabel 同口径；跨桶等非常规组合拿不到一致池归属 → wave2 兜底。
  */
 export function isThirdPlaceRef(
@@ -1014,10 +1020,10 @@ export function resolveMatchSemanticRound(
     return { key: 'stage', label: '', order: 0 };
   }
   if (ref.waveIndex === 1) {
-    return { key: 'opening', label: '首轮', order: 0 };
+    return { key: 'opening', label: DOUBLE_LIFE_ROUND_LABELS[SEMANTIC_ROUND_BUCKET.opening], order: 0 };
   }
   if (ref.waveIndex === 3) {
-    return { key: 'decider', label: '决胜轮', order: 3 };
+    return { key: 'decider', label: DOUBLE_LIFE_ROUND_LABELS[SEMANTIC_ROUND_BUCKET.decider], order: 3 };
   }
   if (ref.waveIndex === 2) {
     const wave = record.waves.find(
@@ -1029,8 +1035,8 @@ export function resolveMatchSemanticRound(
       const bWonOpeningRound = wonOpeningRound(record, ref.stageIndex, node.playerBId);
       if (aWonOpeningRound === bWonOpeningRound) {
         return aWonOpeningRound
-          ? { key: 'winner', label: '胜者组', order: 1 }
-          : { key: 'loser', label: '败者组', order: 2 };
+          ? { key: 'winner', label: DOUBLE_LIFE_ROUND_LABELS[SEMANTIC_ROUND_BUCKET.winner], order: 1 }
+          : { key: 'loser', label: DOUBLE_LIFE_ROUND_LABELS[SEMANTIC_ROUND_BUCKET.loser], order: 2 };
       }
     }
     // 跨桶等非常规组合拿不到一致池归属：按波次归组，标题退回阶段名
@@ -1058,17 +1064,21 @@ export function formatStageRoundLabel(
 function resolvePushCandidateGroup(
   match: MatchRecord,
   recordById: Map<string, TournamentRecord>,
-): { key: string; title: string } {
+): { key: string; title: string; waveIndex: number | null } {
   const ref = match.tournamentRef;
   const record = ref ? recordById.get(ref.tournamentId) : undefined;
   const title = ref && record ? resolveMatchStageTitle(record, ref) : null;
   if (!ref || !record || !title) {
-    return { key: 'normal', title: '普通对局' };
+    return { key: 'normal', title: '普通对局', waveIndex: null };
   }
   const round = resolveMatchSemanticRound(record, ref);
   const prefix = `🏆 ${record.name} · ${title}`;
+  // 只有双败阶段按波次分批（W1/W2/W3 才需要"这一批是哪一波"）；单败一阶段一波、普通对局无波次
+  const stage = record.stages[ref.stageIndex];
+  const waveIndex = stage?.format === 'double-life' && !isThirdPlaceRef(record, ref) ? ref.waveIndex : null;
   return {
     key: `${record.id}:${ref.stageIndex}:${round.key}`,
     title: round.label ? `${prefix} · ${round.label}` : prefix,
+    waveIndex,
   };
 }

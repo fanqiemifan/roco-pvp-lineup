@@ -50,8 +50,11 @@ import { SOCKET_EVENTS } from '../../shared/events';
 import {
   CLOUD_SYNC_POLL_INTERVALS,
   CLOUD_SYNC_ROSTER_MAX,
+  DEFAULT_PAGE7_SWITCH_SECONDS,
   MVP_MAX_ITEMS,
   MVP_TAG_MAX_LENGTH,
+  PAGE7_SWITCH_MAX_SECONDS,
+  PAGE7_SWITCH_MIN_SECONDS,
   SYNC_BUNDLE_MAX_BYTES,
 } from '../../shared/constants';
 import type {
@@ -309,9 +312,12 @@ const HISTORY_STATUS_RANK: Record<MatchRecord['status'], number> = {
   completed: 2,
 };
 
-/** 推流页选场上限：比赛结果 / 对局推送 / 比赛预告 均为 9 场（3×3 卡片网格） */
+/**
+ * 推流页选场上限：比赛结果 / 比赛预告均为 9 场（3×3 卡片网格，结构决定）；
+ * 对局推送（page7）画面是一屏 4 行 + 整屏过渡，行数不影响结构，**不设上限**（不传 maxCount），
+ * 支持整届 / 按阶段·波次勾选，规模提示由弹窗里的「已选 N 场 ≈ M 屏」承担。
+ */
 const PAGE6_MAX_MATCHES = 9;
-const PAGE7_MAX_MATCHES = 9;
 const PAGE8_MAX_MATCHES = 9;
 /** 团队积分榜（page9）后台可录入的战队行数 */
 const PAGE9_TEAM_COUNT = 4;
@@ -2610,7 +2616,7 @@ function Dashboard() {
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5TournamentId?: string; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5TournamentId?: string; page7SwitchSeconds?: number; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
@@ -2624,15 +2630,16 @@ function Dashboard() {
     const page11RankVisible = options?.page11RankVisible ?? stage?.page11RankVisible ?? true;
     const page5Player = options?.page5Player ?? stage?.page5Player ?? '';
     const page5TournamentId = options?.page5TournamentId ?? stage?.page5TournamentId ?? '';
+    const page7SwitchSeconds = options?.page7SwitchSeconds ?? stage?.page7SwitchSeconds ?? DEFAULT_PAGE7_SWITCH_SECONDS;
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page7SwitchSeconds, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page7SwitchSeconds, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -4881,7 +4888,6 @@ function Dashboard() {
                     <MatchPushCard
                       kind="page7"
                       cardTitle="推送对局推送"
-                      maxCount={PAGE7_MAX_MATCHES}
                       matches={adminVisibleMatches}
                       allMatches={matchStore.matches}
                       tournaments={tournaments}
@@ -7369,6 +7375,28 @@ function Dashboard() {
                         ]}
                         onChange={(value) => {
                           void saveStage(stage?.page ?? 'page3', { silent: true, page10DurationUnit: value as 'seconds' | 'minutes' });
+                        }}
+                      />
+                    </Space>
+                  </SettingField>
+                  <SettingField
+                    label="对局推送切屏间隔（推流页面7）："
+                    hint="一屏 4 行停留该时长后整屏交叉过渡到下一屏；改动对已打开的对局推送页立即生效"
+                  >
+                    <Space wrap>
+                      <InputNumber
+                        min={PAGE7_SWITCH_MIN_SECONDS}
+                        max={PAGE7_SWITCH_MAX_SECONDS}
+                        addonAfter="秒"
+                        value={stage?.page7SwitchSeconds ?? DEFAULT_PAGE7_SWITCH_SECONDS}
+                        disabled={stageSaving}
+                        onChange={(value) => {
+                          void saveStage(stage?.page ?? 'page3', {
+                            silent: true,
+                            page7SwitchSeconds: value === null || value === undefined
+                              ? DEFAULT_PAGE7_SWITCH_SECONDS
+                              : Number(value),
+                          });
                         }}
                       />
                     </Space>

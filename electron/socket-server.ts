@@ -216,8 +216,9 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
 };
 
 // 事件 → 需要该事件的角色（admin 房间始终收到全部）
-// page1/page2 订阅 stage:update 仅为「阵容镜像反转」实时切换（两页其余渲染不依赖 stage 配置）
-const ROLES_FOR_STAGE = ['page1', 'page2', 'page3', 'page5', 'page11', 'carrier'];
+// page1/page2 订阅 stage:update 仅为「阵容镜像反转」实时切换（两页其余渲染不依赖 stage 配置）；
+// page7 订阅它是为「对局推送整屏切换间隔」（画面设置里改，改完立即按新节奏走）
+const ROLES_FOR_STAGE = ['page1', 'page2', 'page3', 'page5', 'page7', 'page11', 'carrier'];
 const ROLES_FOR_AVATAR = ['page3', 'page4', 'page6', 'page7', 'page8', 'page10', 'page11'];
 const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11', 'page14'];
 const ROLES_FOR_SCOREBOARD = ['page2', 'page3', 'page5'];
@@ -834,7 +835,9 @@ export async function createLocalServer(
     for (const match of matches) {
       avatars[match.id] = avatarResolver.forMatch(match);
     }
-    response.json({ state, matches, avatars });
+    // 系列赛阶段语义标签（仅系列赛对局有值）：page7 行首标签用它替代 GAME 序号，与 page6/page8 同口径
+    const tournamentLabels = resolveTournamentLabels(paths, matches);
+    response.json({ state, matches, avatars, tournamentLabels });
   });
 
   app.post('/api/page7', (request, response) => {
