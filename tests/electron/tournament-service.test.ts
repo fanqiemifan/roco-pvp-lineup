@@ -1301,16 +1301,52 @@ describe('季军赛（半决赛落败者附加赛）', () => {
     const thirdPlaceMatchId = thirdPlaceWaveOf(before).nodes[0].matchId!;
 
     const rolled = rollbackWave(paths, id);
-    // 总决赛首波被删；半决赛（单败）唯一一波重新变成待定，季军赛原样保留
+    // 总决赛首波被删；半决赛（单败）唯一一波重新变成待定（不是去复位季军赛）
     expect(rolled.waves.some((wave) => wave.stageIndex === 2)).toBe(false);
     const semifinalWave = rolled.waves.find((wave) => wave.stageIndex === 1 && wave.kind !== 'third-place')!;
     expect(semifinalWave.nodes.every((node) => node.winnerId === null)).toBe(true);
     expect(
       getMatchStore(paths).matches.find((match) => match.id === semifinalWave.nodes[0].matchId)!.status,
     ).toBe('pending');
-    const thirdPlaceWave = thirdPlaceWaveOf(rolled);
-    expect(thirdPlaceWave.nodes[0].winnerId).toBeNull();
-    expect(thirdPlaceWave.nodes[0].matchId).toBe(thirdPlaceMatchId);
+    // 季军赛名单就是从这波半决赛推出来的：重开它就必须把季军赛一起回退，
+    // 否则改判后半决赛落败者变了、季军赛却还挂着旧对阵（名单错误）
+    expect(rolled.waves.some((wave) => wave.kind === 'third-place')).toBe(false);
+    expect(getMatchStore(paths).matches.some((match) => match.id === thirdPlaceMatchId)).toBe(false);
+  });
+
+  it('双败 4 人阶段：回退到败者组 R2 后季军赛跟着回退，改判决胜轮会按新落败者重建', () => {
+    // 与线上一致的双败 4 人阶段：决胜轮（败者组 R2）打完才产出季军赛的两名落选者
+    const stages = [
+      { name: '4进2', format: 'double-life', bestOf: 1, pairing: 'random-bucket' },
+      { name: '总决赛', format: 'single-elim', bestOf: 1, pairing: 'bracket-seed' },
+    ];
+    const id = startSeries(4, { stages });
+    let record = playStageToCompletion(id, 0);
+
+    const firstThird = thirdPlaceWaveOf(record);
+    const firstMatchId = firstThird.nodes[0].matchId!;
+    const firstLosers = [firstThird.nodes[0].playerAId, firstThird.nodes[0].playerBId].sort();
+    expect(record.waves.some((wave) => wave.stageIndex === 1)).toBe(true);
+
+    // 回退上一波 = 撤掉未开打的总决赛首波 → 重开该阶段最后主赛波（决胜轮）
+    record = rollbackWave(paths, id);
+    expect(record.waves.some((wave) => wave.stageIndex === 1)).toBe(false);
+    expect(record.waves.some((wave) => wave.kind === 'third-place')).toBe(false);
+    expect(getMatchStore(paths).matches.some((match) => match.id === firstMatchId)).toBe(false);
+
+    // 决胜轮改判（原来输的一方赢）：阶段再次收口，季军赛必须按新落败者重建
+    const deciderMatchId = record.waves
+      .find((wave) => wave.stageIndex === 0 && wave.waveIndex === 3)!
+      .nodes[0].matchId!;
+    playMatchToEnd(deciderMatchId, 'right');
+    record = getTournamentStore(paths).find((item) => item.id === id)!;
+
+    const rebuilt = thirdPlaceWaveOf(record);
+    const rebuiltLosers = [rebuilt.nodes[0].playerAId, rebuilt.nodes[0].playerBId].sort();
+    expect(rebuilt.nodes[0].matchId).not.toBe(firstMatchId);
+    expect(rebuilt.nodes[0].winnerId).toBeNull();
+    // 决胜轮负者换了人 → 季军赛对阵必须跟着变（这就是线上「名单错误」的现场）
+    expect(rebuiltLosers).not.toEqual(firstLosers);
   });
 
   it('季军赛比分登记：写回前置校验放行，标签为「季军赛」', () => {

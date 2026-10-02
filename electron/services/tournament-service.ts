@@ -1247,6 +1247,29 @@ function createThirdPlaceWave(
   });
 }
 
+/**
+ * 丢掉某阶段挂靠的季军赛（回退要重开该阶段主赛时用）。
+ *
+ * 为什么必须一起丢：季军赛的两名落败者是「本阶段结果」算出来的——重开决胜轮/半决赛后改判，
+ * 落败者会换人，留着旧波次就会拿旧对阵当季军赛名单（线上踩到的名单错误）。比赛与其它波次同口径
+ * 软删（可在比赛管理「撤回最近删除」恢复），阶段再次收口时由 createThirdPlaceWave 按新落败者重建。
+ */
+function discardThirdPlaceWave(paths: AppPaths, record: TournamentRecord, stageIndex: number): void {
+  const index = record.waves.findIndex(
+    (wave) => wave.stageIndex === stageIndex && wave.kind === 'third-place',
+  );
+  if (index === -1) {
+    return;
+  }
+  const matchIds = record.waves[index].nodes
+    .map((node) => node.matchId)
+    .filter((id): id is string => Boolean(id));
+  if (matchIds.length) {
+    deleteMatches(paths, matchIds);
+  }
+  record.waves.splice(index, 1);
+}
+
 /** 波次完成后的阶段/波次推进 */
 function progressFromWave(
   paths: AppPaths,
@@ -1940,6 +1963,8 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
     const reopenStageLastWave = (stageIndex: number): TournamentWave | undefined => {
       // 季军赛不算「本阶段最后波」：否则回退总决赛时会去复位季军赛，而真正的半决赛决胜场
       // 仍带着胜者 → 阶段看着已完结，总决赛却再也推进不出来
+      // 但它是「本阶段结果的产物」：重开本阶段就必须把它一起回退，否则改判后季军赛还挂着旧对阵
+      discardThirdPlaceWave(paths, record, stageIndex);
       const stageWaves = record.waves.filter(
         (item) => item.stageIndex === stageIndex && item.kind !== 'third-place',
       );
