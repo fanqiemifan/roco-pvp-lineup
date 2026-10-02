@@ -20,6 +20,8 @@ export async function createTournamentApi(body: {
   playerIds: string[];
   stages?: StageRule[];
   seed?: number;
+  /** 季军赛局数（0 = 不安排）；省略时由服务端按「与总决赛同赛制」解析 */
+  thirdPlaceBestOf?: number;
 }): Promise<TournamentRecord> {
   const data = await requestJson<{ tournament: TournamentRecord }>('/api/tournaments', {
     method: 'POST',

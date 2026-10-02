@@ -1,6 +1,6 @@
 import type { MatchRecord, MatchStoreState, SpriteRecord, TournamentRecord } from '../../../shared/types';
 import { resolveSpriteStatsName, splitSpriteAttributes } from './sprite';
-import { resolveMatchSemanticRound } from './tournament';
+import { resolveMatchSemanticRound, resolveMatchStageTitle } from './tournament';
 
 export type StatsMetricKey = 'pickRate' | 'gameRate';
 
@@ -206,21 +206,22 @@ function resolveMatchStageBucket(
 ): { key: string; label: string; sort: string } | null {
   const ref = match.tournamentRef;
   const record = ref ? recordById.get(ref.tournamentId) : undefined;
-  const stage = ref && record ? record.stages[ref.stageIndex] : undefined;
-  if (!ref || !record || !stage) {
+  // 标题口径与比赛管理标签一致：季军赛报「季军赛」，不并入它挂靠的半决赛阶段
+  const title = ref && record ? resolveMatchStageTitle(record, ref) : null;
+  if (!ref || !record || !title) {
     return null;
   }
   if (tournamentId && record.id !== tournamentId) {
     return null;
   }
   if (!tournamentId) {
-    return { key: `stage:${stage.name}`, label: stage.name, sort: match.createdAt || '' };
+    return { key: `stage:${title}`, label: title, sort: match.createdAt || '' };
   }
   const round = resolveMatchSemanticRound(record, ref);
   const pad = (value: number): string => String(value).padStart(2, '0');
   return {
     key: `${record.id}:${ref.stageIndex}:${round.key}`,
-    label: round.label ? `${stage.name} · ${round.label}` : stage.name,
+    label: round.label ? `${title} · ${round.label}` : title,
     sort: `${record.createdAt}|${pad(ref.stageIndex)}|${pad(ref.waveIndex)}|${pad(round.order)}`,
   };
 }

@@ -904,8 +904,14 @@ describe('主控回退上一波后重新分发', () => {
   it('云端仍为「未登记」时，分控端陈旧赛果被撤回并移出待回传集', async () => {
     configureRoom();
     // 4 人单败首波只有 2 场：两场都打完 → 主控可以整波「回退上一波」
+    // （关掉季军赛：附加波次会插进回退级联里，本用例只验陈旧登记的清理）
     const playerIds = seedPlayers(4);
-    const created = createTournament(mainPaths, { name: '回退杯', playerIds, seed: 42 });
+    const created = createTournament(mainPaths, {
+      name: '回退杯',
+      playerIds,
+      seed: 42,
+      thirdPlaceBestOf: 0,
+    });
     startTournament(mainPaths, created.id);
     const matches = getMatchStore(mainPaths).matches.map((match) => match.id);
     expect(matches).toHaveLength(2);

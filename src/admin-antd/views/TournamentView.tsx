@@ -23,7 +23,13 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { buildDefaultStages, SUPPORTED_TOURNAMENT_SIZES } from '../../../shared/constants';
+import {
+  buildDefaultStages,
+  resolveThirdPlaceBestOf,
+  SUPPORTED_TOURNAMENT_SIZES,
+  THIRD_PLACE_BEST_OF_OPTIONS,
+  THIRD_PLACE_LABEL,
+} from '../../../shared/constants';
 import type {
   MatchRecord,
   MatchStoreState,
@@ -40,6 +46,7 @@ import {
   buildWaveCards,
   countCompletedMatches,
   crossPairDeciderPool,
+  findThirdPlaceWave,
   formatStageRoundLabel,
   getCurrentPositionText,
   getDraftBucketSpecs,
@@ -109,6 +116,12 @@ function randomSlotValue(pool: string[], previous: string | null): string | null
 
 /** 参赛人数可选值：与后端 SUPPORTED_TOURNAMENT_SIZES 同源，避免两处硬编码走偏 */
 const TOURNAMENT_SIZE_OPTIONS = Array.from(SUPPORTED_TOURNAMENT_SIZES).sort((a, b) => a - b);
+
+/** 季军赛赛制的 Segmented 选项（0 = 不安排）：白名单来自 shared/constants，与引擎解析同源 */
+const THIRD_PLACE_BEST_SEGMENTS = THIRD_PLACE_BEST_OF_OPTIONS.map((value) => ({
+  label: value === 0 ? '不安排' : `BO${value}`,
+  value,
+}));
 
 /* ==================== 系列赛列表 + 详情容器 ==================== */
 
@@ -635,6 +648,9 @@ function TournamentDetail({
   // 波次最新在前（裁判只需操作当前波）
   const reversedWaves = [...record.waves].reverse();
 
+  // 季军赛节点（未安排 / 还没打出来时为 null）：名次横幅与波次列表标题都用它
+  const thirdPlaceNode = findThirdPlaceWave(record)?.nodes[0] ?? null;
+
   const lineupDetailMatch = lineupDetailMatchId
     ? matches.find((match) => match.id === lineupDetailMatchId) ?? null
     : null;
@@ -692,10 +708,18 @@ function TournamentDetail({
         </Paragraph>
       ) : null}
 
-      {record.result ? (
+      {record.result || thirdPlaceNode?.winnerId ? (
         <Paragraph>
-          <Tag color="gold">🏆 冠军：{resolvePlayerName(names, record.result.championId)}</Tag>
-          <Tag color="default">亚军：{resolvePlayerName(names, record.result.runnerUpId)}</Tag>
+          {record.result ? (
+            <>
+              <Tag color="gold">🏆 冠军：{resolvePlayerName(names, record.result.championId)}</Tag>
+              <Tag color="default">亚军：{resolvePlayerName(names, record.result.runnerUpId)}</Tag>
+            </>
+          ) : null}
+          {/* 季军赛可能早于总决赛打完，所以名次直接读节点胜者，不等 record.result */}
+          {thirdPlaceNode?.winnerId ? (
+            <Tag color="orange">🥉 季军：{resolvePlayerName(names, thirdPlaceNode.winnerId)}</Tag>
+          ) : null}
         </Paragraph>
       ) : null}
 
@@ -968,6 +992,8 @@ function WavePanel({
   const stage = record.stages[wave.stageIndex];
   // 轮次表述与晋级图同一套术语：双败给「败者组 R1 / 胜者组 R2」，单败直接用阶段名
   const rounds = getWaveRoundLabels(record, wave);
+  // 季军赛是附加波次：它的波次序号排在阶段主赛之后，标题与赛制都用「季军赛 + 自己的 BO」
+  const isThirdPlace = wave.kind === 'third-place';
 
   return (
     <Card
@@ -975,12 +1001,16 @@ function WavePanel({
       style={{ marginTop: 12 }}
       title={(
         <Space size={8} wrap>
-          <b>第 {wave.waveIndex} 波</b>
+          <b>{isThirdPlace ? THIRD_PLACE_LABEL : `第 ${wave.waveIndex} 波`}</b>
           {/* 轮次名作追加标注（双败才有），阶段名 + 赛制、配对方式 + 配对状态各用一个 Tag */}
           {rounds.length ? <Text type="secondary">{rounds.join(' / ')}</Text> : null}
-          <Tag>{stage.name} · {stage.format === 'double-life' ? '双败' : '单败'}</Tag>
+          <Tag>
+            {isThirdPlace
+              ? `单败 · BO${resolveThirdPlaceBestOf(record)}`
+              : `${stage.name} · ${stage.format === 'double-life' ? '双败' : '单败'}`}
+          </Tag>
           <Tag color={wave.pairingStatus === 'draft' ? 'warning' : 'default'}>
-            {getPairingLabel(stage.pairing)} · {wave.pairingStatus === 'draft' ? '配对草稿' : '已锁定'}
+            {isThirdPlace ? '自动建场' : getPairingLabel(stage.pairing)} · {wave.pairingStatus === 'draft' ? '配对草稿' : '已锁定'}
           </Tag>
           <Tag color={wave.status === 'completed' ? 'success' : 'processing'}>
             {wave.status === 'completed' ? '已完成' : wave.status === 'running' ? '进行中' : '待开始'}
@@ -1608,6 +1638,8 @@ function CreateTournamentModal({
   const [stages, setStages] = useState<StageRule[]>([]);
   /** stages 所对应的人数：人数变化时重填默认模板 */
   const [stagesBaseCount, setStagesBaseCount] = useState(0);
+  /** 季军赛局数（0 = 不安排）：半决赛打完后自动用两名落败者建场，赛制在这里选定 */
+  const [thirdPlaceBestOf, setThirdPlaceBestOf] = useState<number>(3);
   const [playerSearch, setPlayerSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const createdIdRef = useRef<string | null>(null);
@@ -1620,6 +1652,7 @@ function CreateTournamentModal({
       setPlayerIds([]);
       setStages([]);
       setStagesBaseCount(0);
+      setThirdPlaceBestOf(3);
       setPlayerSearch('');
       setSaving(false);
       createdIdRef.current = null;
@@ -1678,6 +1711,7 @@ function CreateTournamentModal({
         name: name.trim(),
         playerIds,
         stages,
+        thirdPlaceBestOf,
       });
       createdIdRef.current = record.id;
       setStep(3);
@@ -1863,6 +1897,23 @@ function CreateTournamentModal({
             </Text>
           )}
         />
+      ) : null}
+
+      {step === 2 ? (
+        <div className="tournament-third-place" style={{ marginTop: 12 }}>
+          <Space size={12} wrap>
+            <Text strong>{THIRD_PLACE_LABEL}</Text>
+            <Segmented
+              value={thirdPlaceBestOf}
+              options={THIRD_PLACE_BEST_SEGMENTS}
+              onChange={(value) => setThirdPlaceBestOf(value as number)}
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              4 进 2 打完后，用两名落败者自动建一场季军赛（附加赛，不影响晋级与积分榜）；
+              选「不安排」则不建场
+            </Text>
+          </Space>
+        </div>
       ) : null}
 
       {step === 3 && createdIdRef.current ? (

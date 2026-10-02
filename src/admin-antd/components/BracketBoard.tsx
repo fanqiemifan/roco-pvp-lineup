@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Empty, Modal, Space, Tag, Typography } from 'antd';
+import { resolveThirdPlaceBestOf, THIRD_PLACE_LABEL } from '../../../shared/constants';
 import type { MatchRecord, TournamentNode, TournamentRecord } from '../../../shared/types';
 import { buildBracketGraph, getStageState } from '../lib/tournament';
 import type { BracketCard, BracketColumn, BracketSlot } from '../lib/tournament';
@@ -94,15 +95,20 @@ export function BracketBoard({
   /**
    * 按阶段把列分组：列已按阶段升序排列，同一阶段的相邻列（双败按桶拆出的
    * 胜者组 R1 → 败者组 R1 → 胜者组 R2 → 败者组 R2）合成一个区块，单败一阶段一组。
+   * 季军赛自成一个区块：它的标题与 BO 都独立于所在阶段（分组头由 THIRD_PLACE_LABEL 承载）。
    */
   const stageGroups = useMemo(() => {
-    const groups: Array<{ stageIndex: number; columns: BracketColumn[] }> = [];
+    const groups: Array<{ stageIndex: number; isThirdPlace: boolean; columns: BracketColumn[] }> = [];
     graph.columns.forEach((column) => {
       const last = groups[groups.length - 1];
-      if (last && last.stageIndex === column.stageIndex) {
+      if (last && last.stageIndex === column.stageIndex && last.isThirdPlace === column.isThirdPlace) {
         last.columns.push(column);
       } else {
-        groups.push({ stageIndex: column.stageIndex, columns: [column] });
+        groups.push({
+          stageIndex: column.stageIndex,
+          isThirdPlace: column.isThirdPlace,
+          columns: [column],
+        });
       }
     });
     return groups;
@@ -623,18 +629,29 @@ export function BracketBoard({
             return (
               <section
                 className={`bracket-stage-group bracket-stage-group-${group.stageIndex % STAGE_TINT_COUNT}`}
-                key={`stage-${group.stageIndex}`}
+                key={`${group.isThirdPlace ? 'third' : 'stage'}-${group.stageIndex}`}
               >
                 <div className="bracket-stage-head">
-                  <span className="bracket-stage-index">{group.stageIndex + 1}</span>
-                  <span className="bracket-stage-title">{group.columns[0].stageName}</span>
-                  <Text type="secondary" className="bracket-stage-meta">
-                    {group.columns[0].formatLabel}
-                    {stage ? ` · BO${stage.bestOf}` : ''}
-                  </Text>
-                  <Tag className="bracket-stage-status" color={stageState.color}>
-                    {stageState.label}
-                  </Tag>
+                  {group.isThirdPlace ? (
+                    <>
+                      <span className="bracket-stage-title">{THIRD_PLACE_LABEL}</span>
+                      <Text type="secondary" className="bracket-stage-meta">
+                        单败 · BO{resolveThirdPlaceBestOf(record)}
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <span className="bracket-stage-index">{group.stageIndex + 1}</span>
+                      <span className="bracket-stage-title">{group.columns[0].stageName}</span>
+                      <Text type="secondary" className="bracket-stage-meta">
+                        {group.columns[0].formatLabel}
+                        {stage ? ` · BO${stage.bestOf}` : ''}
+                      </Text>
+                      <Tag className="bracket-stage-status" color={stageState.color}>
+                        {stageState.label}
+                      </Tag>
+                    </>
+                  )}
                 </div>
                 <div className="bracket-stage-columns">
                   {group.columns.map((column) => renderColumn(column))}

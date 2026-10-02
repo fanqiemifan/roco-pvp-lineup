@@ -1,4 +1,4 @@
-import type { StageRule } from './types.js';
+import type { StageRule, ThirdPlaceBestOf } from './types.js';
 
 export const DEFAULT_PORT = 9988;
 export const APP_DATA_DIRNAME = 'LuokePVPWebui';
@@ -173,6 +173,32 @@ export const TOURNAMENT_ID_REGEX = /^T(\d{8})_([A-Za-z]{0,2})(\d+)$/;
 /** 系列赛标签：跨桶配对 / 弃权场次标注 */
 export const TOURNAMENT_CROSS_BUCKET_TAG = '跨桶';
 export const TOURNAMENT_FORFEIT_TAG = '弃权';
+
+/** 季军赛展示名（对局标签、晋级图分组头、波次列表标题共用） */
+export const THIRD_PLACE_LABEL = '季军赛';
+/** 季军赛局数可选值（0 = 不安排）；创建向导与引擎白名单共用同一份，别再各写一份 */
+export const THIRD_PLACE_BEST_OF_OPTIONS = [0, 1, 3, 5, 7] as const;
+
+/**
+ * 季军赛局数解析：0 = 不安排；1/3/5/7 = 该局数；其余（含 null/缺省的旧数据）= 与总决赛同赛制。
+ * 引擎（建场）与前端（展示 BO）共用它，保证「同一条记录只有一种解释」；
+ * 入参放宽到 unknown：外部导入的 JSON 里这个字段什么类型都可能有。
+ */
+export function resolveThirdPlaceBestOf(record: {
+  thirdPlaceBestOf?: unknown;
+  stages: StageRule[];
+}): ThirdPlaceBestOf {
+  const raw = record.thirdPlaceBestOf;
+  // 显式 0 = 不安排；null/undefined/空串 = 没配过（旧数据），走「与总决赛一致」
+  const parsed = raw === null || raw === undefined || raw === '' ? Number.NaN : Number(raw);
+  if (parsed === 0) {
+    return 0;
+  }
+  if (parsed === 1 || parsed === 3 || parsed === 5 || parsed === 7) {
+    return parsed;
+  }
+  return record.stages[record.stages.length - 1]?.bestOf ?? 3;
+}
 
 /**
  * 按参赛人数生成默认阶段规则（创建系列赛时 stages 可省略）：

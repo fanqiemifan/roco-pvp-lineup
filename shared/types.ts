@@ -1005,6 +1005,12 @@ export type CloudSyncBoxName = 'downlink' | 'version' | `uplink/${string}` | `ac
 /** 阶段晋级赛制：双败积分制 / 单败淘汰制 */
 export type StageFormat = 'double-life' | 'single-elim';
 
+/**
+ * 季军赛安排（系列赛级配置，创建时选定）：0 = 不安排；1/3/5/7 = 半决赛打完自动建场的局数。
+ * 记录里缺省（旧数据未回填 / 手写对象）按「与总决赛同赛制」解析，见 resolveThirdPlaceBestOf。
+ */
+export type ThirdPlaceBestOf = 0 | 1 | 3 | 5 | 7;
+
 export type PairingRule =
   | 'random-bucket'   // 双败：同战绩桶内随机配对
   | 'manual-bucket'   // 双败：同桶内手动配对（配对确认台）
@@ -1061,6 +1067,12 @@ export interface TournamentWave {
   status: 'pending' | 'running' | 'completed';
   /** draft = 配对草稿中（手动模式/需确认），未建任何比赛；locked = 已建场不可改 */
   pairingStatus: 'draft' | 'locked';
+  /**
+   * 缺省 = 主赛波次；'third-place' = 季军赛（4 人阶段的两名落败者的附加赛）。
+   * 季军赛不在晋级链上：不写 entries、不参与阶段推进与战绩重算、不进阶段榜单，
+   * 只是挂在本阶段下的一场普通对局（引擎各处按该标记跳过，见 tournament-service）。
+   */
+  kind?: 'third-place';
   /** draft 阶段暂存的候选配对；锁定后清空并落到 nodes */
   pairingDraft?: { bucketKey?: string; pair: [string | null, string | null] }[];
   nodes: TournamentNode[];
@@ -1083,7 +1095,13 @@ export interface TournamentRecord {
   currentStageIndex: number;
   entries: TournamentEntry[];
   waves: TournamentWave[];
-  result?: { championId: string; runnerUpId: string; thirdIds?: string[] };
+  /** 季军赛局数（0 = 不安排）；创建时选定，语义见 ThirdPlaceBestOf */
+  thirdPlaceBestOf?: ThirdPlaceBestOf;
+  /**
+   * 冠军 / 亚军：总决赛波打完时写入。季军 / 殿军**不在这里**——
+   * 它是季军赛波次节点的 winnerId（唯一真源，可能早于或晚于总决赛产生）。
+   */
+  result?: { championId: string; runnerUpId: string };
   /**
    * 删除墓碑：非空表示该系列赛已被编排机删除（记录作为墓碑保留而不物理移除）。
    * 对外读取路径过滤墓碑（getTournamentStore），墓碑随同步包传播：接收端据此清本机副本、

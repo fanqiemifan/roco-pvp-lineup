@@ -4,7 +4,9 @@ import {
   buildDefaultStages,
   MATCH_ID_REGEX,
   PAGE14_ROWS_PER_PAGE,
+  resolveThirdPlaceBestOf,
   SUPPORTED_TOURNAMENT_SIZES,
+  THIRD_PLACE_LABEL,
   TOURNAMENT_CROSS_BUCKET_TAG,
   TOURNAMENT_ID_REGEX,
   TOURNAMENT_TARGET_LOSSES,
@@ -217,7 +219,11 @@ function normalizeWave(value: unknown): TournamentWave | null {
     });
   }
 
-  return { stageIndex, waveIndex, status, pairingStatus, nodes, pairingDraft };
+  // 季军赛标记必须在这里透传：读盘即规范化，漏掉它会在下一次读取时把标记抹掉，
+  // 季军赛波次就被当成主赛波次参与推进/战绩重算。
+  const kind = raw.kind === 'third-place' ? 'third-place' as const : undefined;
+
+  return { stageIndex, waveIndex, status, pairingStatus, nodes, pairingDraft, kind };
 }
 
 function normalizeRecord(value: unknown): TournamentRecord | null {
@@ -306,6 +312,8 @@ function normalizeRecord(value: unknown): TournamentRecord | null {
     currentStageIndex,
     entries,
     waves,
+    // 旧数据无此字段：按「与总决赛同赛制」回填，即默认安排季军赛（存量系列赛不落下）
+    thirdPlaceBestOf: resolveThirdPlaceBestOf({ thirdPlaceBestOf: raw.thirdPlaceBestOf, stages }),
   };
 
   if (raw.result && typeof raw.result === 'object') {
@@ -546,6 +554,8 @@ export function createTournament(paths: AppPaths, payload: unknown): TournamentR
     currentStageIndex: 0,
     entries: initialEntries(playerIds),
     waves: [],
+    // 未指定时按「与总决赛同赛制」安排季军赛；传 0 表示这届不安排
+    thirdPlaceBestOf: resolveThirdPlaceBestOf({ thirdPlaceBestOf: raw.thirdPlaceBestOf, stages }),
   };
   records.push(record);
   writeRecords(paths, records);
@@ -1098,13 +1108,20 @@ function deriveState(
   return 'alive';
 }
 
-/** 把一个节点的胜负写入 entries（更新胜/负与状态） */
+/**
+ * 把一个节点的胜负写入 entries（更新胜/负与状态）。
+ * 季军赛是附加赛：此时 entries 已换成下一阶段（总决赛）的名单，两名参赛者都不在其中，
+ * 若按主赛口径累计就会把季军写成「已晋级 / 已淘汰」——因此显式跳过，季军只记在节点 winnerId 上。
+ */
 function applyGameResult(
   record: TournamentRecord,
   wave: TournamentWave,
   winnerId: string,
   loserId: string,
 ): void {
+  if (wave.kind === 'third-place') {
+    return;
+  }
   const format = record.stages[wave.stageIndex].format;
   const winnerEntry = record.entries.find((entry) => entry.playerId === winnerId);
   if (winnerEntry) {
@@ -1149,12 +1166,96 @@ function bracketOrderOfStage(record: TournamentRecord, stageIndex: number): Map<
   return order;
 }
 
+/** 季军赛波次下标：接在本阶段现有波次之后（双败 4 人阶段 = 决胜轮之后） */
+function thirdPlaceWaveIndex(record: TournamentRecord, stageIndex: number): number {
+  return record.waves
+    .filter((wave) => wave.stageIndex === stageIndex)
+    .reduce((max, wave) => Math.max(max, wave.waveIndex), 0) + 1;
+}
+
+/**
+ * 半决赛阶段（参赛人数 = 4）打完时安排季军赛：把本阶段两名落败者（state = eliminated）配成一场，
+ * 作为 kind = 'third-place' 的附加波次挂在本阶段下。
+ *
+ * 为什么是「附加波次」而不是新阶段：阶段是晋级链（每阶段晋级半额、entries 换批清零），
+ * 而季军赛的两名参赛者恰恰是被淘汰的那两个、不在下一批名单里，做成阶段就会与推进/榜单口径分叉。
+ *
+ * 调用时机固定在「本阶段晋级 → 生成下一阶段首波」之间：record.waves 的数组顺序即时间线，
+ * 「半决赛 → 季军赛 → 总决赛」才能让「回退上一波」与撤回时的后续波丢弃保持原口径。
+ */
+function createThirdPlaceWave(
+  paths: AppPaths,
+  record: TournamentRecord,
+  wave: TournamentWave,
+): void {
+  const bestOf = resolveThirdPlaceBestOf(record);
+  if (bestOf === 0) {
+    return;
+  }
+  // 只有 4 人阶段（半决赛）的落败者才有季军赛
+  if (record.entries.length !== 4) {
+    return;
+  }
+  // 幂等：撤回半决赛后重新推进会再走一遍这里，已有季军赛波次就不再建第二场
+  if (record.waves.some((item) => item.stageIndex === wave.stageIndex && item.kind === 'third-place')) {
+    return;
+  }
+  // 落败者必须恰好 2 人：自定义阶段的异常收敛（如跨桶提前淘汰）宁可不建，也不猜谁是第三名
+  const losers = record.entries
+    .filter((entry) => entry.state === 'eliminated')
+    .map((entry) => entry.playerId);
+  if (losers.length !== 2) {
+    return;
+  }
+
+  const waveIndex = thirdPlaceWaveIndex(record, wave.stageIndex);
+  const nodeId = `s${wave.stageIndex}-w${waveIndex}-n00`;
+  const profileById = new Map(getProfileStore(paths).players.map((player) => [player.id, player]));
+  const left = profileById.get(losers[0]);
+  const right = profileById.get(losers[1]);
+  // 赛事身份由 tournamentRef 实时解析，标签只留配对观测量（与 lockDraftPairs 建场同口径）
+  const created = createMatch(paths, {
+    leftPlayer: left?.name,
+    rightPlayer: right?.name,
+    leftRank: left?.rank ?? '',
+    rightRank: right?.rank ?? '',
+    bestOf,
+    tags: [],
+    tournamentRef: {
+      tournamentId: record.id,
+      nodeId,
+      stageIndex: wave.stageIndex,
+      waveIndex,
+    },
+  });
+
+  record.waves.push({
+    stageIndex: wave.stageIndex,
+    waveIndex,
+    status: 'running',
+    pairingStatus: 'locked',
+    kind: 'third-place',
+    nodes: [{
+      id: nodeId,
+      matchId: created.activeMatchId,
+      playerAId: losers[0],
+      playerBId: losers[1],
+      winnerId: null,
+      isBye: false,
+    }],
+  });
+}
+
 /** 波次完成后的阶段/波次推进 */
 function progressFromWave(
   paths: AppPaths,
   record: TournamentRecord,
   wave: TournamentWave,
 ): void {
+  // 季军赛是附加赛：entries 已换批成总决赛名单，既不能推动晋级，也不改变系列赛完赛状态
+  if (wave.kind === 'third-place') {
+    return;
+  }
   const promotedCount = record.entries.filter((entry) => entry.state === 'promoted').length;
   const half = record.entries.length / 2;
 
@@ -1176,6 +1277,8 @@ function progressFromWave(
 
     // 进入下一阶段：promoted 选手换批清零，按上一阶段对阵树顺序排列（保持固定对阵树）
     const nextStageIndex = wave.stageIndex + 1;
+    // 先建季军赛（读的仍是本阶段 entries 里的落败者），再清零 entries 生成下一阶段
+    createThirdPlaceWave(paths, record, wave);
     record.currentStageIndex = nextStageIndex;
     const bracketOrder = bracketOrderOfStage(record, wave.stageIndex);
     const promotedIds = record.entries
@@ -1449,6 +1552,17 @@ export function onMatchUndo(paths: AppPaths, matchId: string): TournamentRecord 
       return;
     }
 
+    // 季军赛是附加赛：只清它自己的胜者。不能丢后续波（总决赛可能未打或已完赛）、
+    // 不能回落 currentStageIndex、不能重算阶段战绩，更不能撤销冠军结果。
+    if (wave.kind === 'third-place') {
+      node.winnerId = null;
+      if (wave.status === 'completed') {
+        wave.status = 'running';
+      }
+      output = record;
+      return;
+    }
+
     // 后续波若可安全丢弃（见 isDiscardableTrailingWaves）则随本次撤回一并回退
     const trailingWaves = record.waves.slice(globalIndex + 1);
     if (trailingWaves.length) {
@@ -1703,7 +1817,8 @@ function recomputeStageEntries(record: TournamentRecord, stageIndex: number): vo
   const entries = initialEntries(initialIds);
   const format = record.stages[stageIndex].format;
   record.waves
-    .filter((wave) => wave.stageIndex === stageIndex)
+    // 季军赛不计入阶段战绩：否则季军会被算成「阶段内又多一胜」（单败口径下直接显示成已晋级）
+    .filter((wave) => wave.stageIndex === stageIndex && wave.kind !== 'third-place')
     .sort((a, b) => a.waveIndex - b.waveIndex)
     .forEach((wave) => wave.nodes.forEach((node) => {
       if (!node.winnerId) {
@@ -1764,6 +1879,30 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
     }
 
     /**
+     * 季军赛（附加赛）单独一档：它不在晋级链上，回退只作用于这一场本身 ——
+     * 不撤销冠军/亚军、不动 currentStageIndex、不重算阶段战绩。
+     * 未开打时整体回退 = 撤掉这场季军赛（引擎不会在阶段已然推进后重建它）。
+     */
+    if (wave.kind === 'third-place') {
+      if (wave.pairingStatus === 'locked' && waveFullyCompleted) {
+        wave.nodes.forEach((node) => {
+          node.winnerId = null;
+        });
+        resetMatchesToPending(paths, matchIds);
+        wave.status = 'running';
+        return;
+      }
+      if (wave.pairingStatus === 'locked' && !wavePristine) {
+        throw new Error('季军赛正在进行中（已有部分小局结果），不能整体回退；请先在赛事面板逐场撤销');
+      }
+      if (matchIds.length) {
+        deleteMatches(paths, matchIds);
+      }
+      record.waves = record.waves.slice(0, globalIndex);
+      return;
+    }
+
+    /**
      * 分支 A：整波刚打完（总决赛完赛、系列赛 completed）。
      * 波本身保留：清节点胜者、比赛复位 pending、撤销冠军结果，重算该阶段 entries。
      */
@@ -1798,7 +1937,11 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
     }
 
     const reopenStageLastWave = (stageIndex: number): TournamentWave | undefined => {
-      const stageWaves = record.waves.filter((item) => item.stageIndex === stageIndex);
+      // 季军赛不算「本阶段最后波」：否则回退总决赛时会去复位季军赛，而真正的半决赛决胜场
+      // 仍带着胜者 → 阶段看着已完结，总决赛却再也推进不出来
+      const stageWaves = record.waves.filter(
+        (item) => item.stageIndex === stageIndex && item.kind !== 'third-place',
+      );
       const lastWave = stageWaves[stageWaves.length - 1];
       if (lastWave && lastWave.pairingStatus === 'locked') {
         // 节点胜者先清空（比赛随后复位），recompute 才能得到复位战绩
@@ -2099,6 +2242,14 @@ function resolveTournamentLabel(
   if (!record || !stage) {
     return null;
   }
+  // 季军赛不属于任何轮次：波次列表 / 比赛管理 / 推流选场统一显示「季军赛」，
+  // 否则会按阶段名与波次序号被标成「4进2·第 4 波」这种不存在的轮次
+  const refWave = record.waves.find(
+    (item) => item.stageIndex === ref.stageIndex && item.waveIndex === ref.waveIndex,
+  );
+  if (refWave?.kind === 'third-place') {
+    return THIRD_PLACE_LABEL;
+  }
   if (stage.format !== 'double-life') {
     return stage.name;
   }
@@ -2214,7 +2365,8 @@ export function resolveStageStandings(
   let completedMatches = 0;
   let totalMatches = 0;
   record.waves
-    .filter((wave) => wave.stageIndex === stageIndex)
+    // 季军赛不进阶段榜单：它不属于该阶段的晋级口径（会把季军算成阶段内多一胜、单败下显示成已晋级）
+    .filter((wave) => wave.stageIndex === stageIndex && wave.kind !== 'third-place')
     .sort((left, right) => left.waveIndex - right.waveIndex)
     .forEach((wave) => {
       wave.nodes.forEach((node) => {

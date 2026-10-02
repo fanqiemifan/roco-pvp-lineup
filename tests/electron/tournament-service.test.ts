@@ -16,9 +16,11 @@ import {
   lockPairings,
   onMatchCompleted,
   onMatchUndo,
+  prepareTournamentWriteBack,
   previewOpeningWave,
   redrawTournament,
   removeLocalTournament,
+  resolveStageStandings,
   restoreLocalTournament,
   rollbackWave,
   savePairingDraft,
@@ -37,7 +39,7 @@ import {
 import { savePlayerProfile } from '../../electron/services/profile-service';
 import { saveRuntimeConfig } from '../../electron/services/config-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
-import type { TournamentRecord } from '../../shared/types';
+import type { TournamentRecord, TournamentWave } from '../../shared/types';
 
 let paths: AppPaths;
 
@@ -703,7 +705,8 @@ describe('onMatchUndo（撤回小局反向钩子）', () => {
 
     const record = getTournamentStore(paths)[0];
     expect(record.currentStageIndex).toBe(1);
-    expect(record.waves).toHaveLength(2);
+    // 4 人阶段打完 ⇒ 季军赛（附加波次）排在总决赛首波之前
+    expect(record.waves).toHaveLength(3);
 
     const node = record.waves[0].nodes[0];
     const matchId = node.matchId!;
@@ -712,7 +715,7 @@ describe('onMatchUndo（撤回小局反向钩子）', () => {
 
     undoMatchAction(paths, matchId);
     const undone = onMatchUndo(paths, matchId)!;
-    // 后续波被丢弃、阶段回落、该节点胜者清空、战绩回到「未打」
+    // 后续波（季军赛 + 总决赛首波）一并丢弃、阶段回落、该节点胜者清空、战绩回到「未打」
     expect(undone.waves).toHaveLength(1);
     expect(undone.currentStageIndex).toBe(0);
     expect(undone.status).toBe('running');
@@ -721,21 +724,22 @@ describe('onMatchUndo（撤回小局反向钩子）', () => {
     expect(undone.entries.find((entry) => entry.playerId === winnerId)?.stageWins).toBe(0);
     expect(undone.entries.find((entry) => entry.playerId === loserId)?.stageLosses).toBe(0);
 
-    // 重新登记改成对手获胜：节点能被新结果覆盖（不再被「已有胜者」幂等吞掉）
+    // 重新登记改成对手获胜：节点能被新结果覆盖（不再被「已有胜者」幂等吞掉），季军赛随之重建
     recordMatchWinner(paths, matchId, 'right');
     onMatchCompleted(paths, matchId);
     const again = getTournamentStore(paths)[0];
     expect(again.waves[0].nodes[0].winnerId).toBe(loserId);
     expect(again.currentStageIndex).toBe(1);
-    expect(again.waves).toHaveLength(2);
+    expect(again.waves).toHaveLength(3);
+    expect(again.waves.some((wave) => wave.kind === 'third-place')).toBe(true);
   });
 
   it('该波已推进且后续波已有赛果：拒绝撤回，提示用回退上一波', () => {
     const started = startTournament(paths, createUndoSeries().id);
     started.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId ?? '', 'left'));
     // 打完总决赛 → 系列赛完赛：后续波已有赛果，不能再自动丢弃
-    const finalNode = getTournamentStore(paths)[0].waves[1].nodes[0];
-    playMatchToEnd(finalNode.matchId ?? '', 'left');
+    const finalWave = getTournamentStore(paths)[0].waves.find((wave) => wave.stageIndex === 1)!;
+    playMatchToEnd(finalWave.nodes[0].matchId ?? '', 'left');
 
     const s0MatchId = started.waves[0].nodes[0].matchId ?? '';
     expect(() => onMatchUndo(paths, s0MatchId)).toThrow(/回退上一波/);
@@ -754,7 +758,9 @@ describe('onMatchUndo（撤回小局反向钩子）', () => {
     });
     const started = startTournament(paths, created.id);
     started.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId ?? '', 'left'));
-    expect(getTournamentStore(paths)[0].waves[1].pairingStatus).toBe('draft');
+    // 季军赛也已建场（附加波次），但「需确认」的是总决赛首波 —— 按阶段取，别按数组下标
+    const finalWave = getTournamentStore(paths)[0].waves.find((wave) => wave.stageIndex === 1)!;
+    expect(finalWave.pairingStatus).toBe('draft');
     expect(() => onMatchUndo(paths, started.waves[0].nodes[0].matchId ?? '')).toThrow(/回退上一波/);
   });
 
@@ -814,7 +820,8 @@ describe('rollbackWave（波次回退）', () => {
   });
 
   it('总决赛整波打完（系列赛已完赛）：回退复位决赛而非拒绝——比赛 pending、冠军撤销、波与系列赛重开', () => {
-    const tournament = createSeries(4);
+    // 关掉季军赛：本用例只验总决赛波的回退语义（季军赛与回退的交互另有用例覆盖）
+    const tournament = createSeries(4, { thirdPlaceBestOf: 0 });
     const finalRecord = runWholeSeries(tournament.id);
     expect(finalRecord.status).toBe('completed');
     expect(finalRecord.result?.championId).toBeTruthy();
@@ -1105,6 +1112,236 @@ describe('删除墓碑（写路径与读路径分层）', () => {
   });
 });
 
+/* ==================== 季军赛（4 人阶段落败者附加赛） ==================== */
+
+describe('季军赛（半决赛落败者附加赛）', () => {
+  /** 打到指定阶段结束（该阶段最后一波打完、推进到下一阶段）为止；季军赛不在本阶段主赛内 */
+  function playStageToCompletion(tournamentId: string, stageIndex: number): TournamentRecord {
+    let guard = 0;
+    while (true) {
+      const record = getTournamentStore(paths).find((item) => item.id === tournamentId)!;
+      if (record.currentStageIndex > stageIndex || record.status === 'completed') {
+        return record;
+      }
+      const stageMatchIds = new Set(
+        record.waves
+          .filter((wave) => wave.stageIndex === stageIndex && wave.kind !== 'third-place')
+          .flatMap((wave) => wave.nodes.map((node) => node.matchId)),
+      );
+      const pending = getMatchStore(paths).matches.find(
+        (match) => match.status === 'pending' && stageMatchIds.has(match.id),
+      );
+      if (!pending) {
+        throw new Error('阶段卡死：无待开始比赛');
+      }
+      playMatchToEnd(pending.id, 'left');
+      guard += 1;
+      if (guard > 60) {
+        throw new Error('阶段无法收敛');
+      }
+    }
+  }
+
+  function thirdPlaceWaveOf(record: TournamentRecord): TournamentWave {
+    const wave = record.waves.find((item) => item.kind === 'third-place');
+    if (!wave) {
+      throw new Error('没有季军赛波次');
+    }
+    return wave;
+  }
+
+  function startSeries(count: number, patch: Record<string, unknown> = {}): string {
+    const created = createSeries(count, patch);
+    startTournament(paths, created.id);
+    return created.id;
+  }
+
+  it('8 人默认模板：4进2 打完自动用两名落败者建场，赛制随总决赛', () => {
+    const id = startSeries(8);
+    playStageToCompletion(id, 0);
+    const record = playStageToCompletion(id, 1);
+
+    // 4进2 是本阶段（单败）唯一一波，季军赛接在它后面
+    expect(record.stages[1].name).toBe('4进2');
+    const wave = thirdPlaceWaveOf(record);
+    expect(wave.stageIndex).toBe(1);
+    expect(wave.waveIndex).toBe(2);
+    expect(wave.pairingStatus).toBe('locked');
+    expect(wave.nodes).toHaveLength(1);
+
+    const node = wave.nodes[0];
+    const semifinalLosers = record.waves
+      .filter((item) => item.stageIndex === 1 && item.kind !== 'third-place')
+      .flatMap((item) => item.nodes)
+      .map((item) => (item.winnerId === item.playerAId ? item.playerBId : item.playerAId));
+    expect([node.playerAId, node.playerBId].sort()).toEqual(semifinalLosers.sort());
+    expect(node.playerAId).not.toBe(node.playerBId);
+
+    // 建的是真对局：待开始、赛制与总决赛（BO3）一致、ref 指向该节点
+    const match = getMatchStore(paths).matches.find((item) => item.id === node.matchId)!;
+    expect(match.status).toBe('pending');
+    expect(match.bestOf).toBe(record.stages[2].bestOf);
+    expect(match.tournamentRef).toEqual({
+      tournamentId: id,
+      nodeId: node.id,
+      stageIndex: 1,
+      waveIndex: 2,
+    });
+
+    // 顺序即时间线：季军赛排在总决赛首波之前（「回退上一波」才不会误伤季军赛）
+    const thirdPlaceIndex = record.waves.findIndex((item) => item.kind === 'third-place');
+    const finalIndex = record.waves.findIndex((item) => item.stageIndex === 2);
+    expect(thirdPlaceIndex).toBeGreaterThan(-1);
+    expect(thirdPlaceIndex).toBeLessThan(finalIndex);
+
+    // 晋级链不受影响：entries 仍是总决赛双方，季军赛不写入战绩
+    expect(record.entries).toHaveLength(2);
+    expect(record.entries.every((entry) => entry.state === 'alive')).toBe(true);
+  });
+
+  it('季军赛打完：只记节点胜者，不动 entries / 冠军结果', () => {
+    const id = startSeries(4);
+    playStageToCompletion(id, 0);
+    const withThird = getTournamentStore(paths).find((item) => item.id === id)!;
+    const wave = thirdPlaceWaveOf(withThird);
+    const node = wave.nodes[0];
+
+    playMatchToEnd(node.matchId!, 'left');
+    const afterThird = getTournamentStore(paths).find((item) => item.id === id)!;
+    const playedNode = afterThird.waves.find((item) => item.kind === 'third-place')!.nodes[0];
+    expect(playedNode.winnerId).toBe(playedNode.playerAId);
+    // 4 人阶段早已换批清零：季军赛胜者不能被算成「阶段内多一胜」
+    expect(afterThird.entries.find((entry) => entry.playerId === playedNode.winnerId)).toBeUndefined();
+
+    // 打完总决赛：冠军/亚军照常产生，季军赛结果保留
+    const pending = getMatchStore(paths).matches.find(
+      (match) => match.status === 'pending' && match.tournamentRef?.tournamentId === id,
+    )!;
+    playMatchToEnd(pending.id, 'left');
+    const finished = getTournamentStore(paths).find((item) => item.id === id)!;
+    expect(finished.status).toBe('completed');
+    expect(finished.result?.championId).toBeTruthy();
+    expect(finished.waves.find((item) => item.kind === 'third-place')!.nodes[0].winnerId)
+      .toBe(playedNode.winnerId);
+  });
+
+  it('季军赛赛制可在创建时指定；传 0 = 不安排', () => {
+    const custom = startSeries(4, { thirdPlaceBestOf: 1 });
+    playStageToCompletion(custom, 0);
+    const withWave = getTournamentStore(paths).find((item) => item.id === custom)!;
+    const node = thirdPlaceWaveOf(withWave).nodes[0];
+    expect(getMatchStore(paths).matches.find((item) => item.id === node.matchId)!.bestOf).toBe(1);
+
+    const disabled = startSeries(4, { thirdPlaceBestOf: 0 });
+    playStageToCompletion(disabled, 0);
+    const without = getTournamentStore(paths).find((item) => item.id === disabled)!;
+    expect(without.waves.some((wave) => wave.kind === 'third-place')).toBe(false);
+  });
+
+  it('双败 4 人阶段（自定义模板）：两名落败者分别来自败者组与决胜轮', () => {
+    const stages = [
+      { name: '8进4', format: 'double-life', bestOf: 1, pairing: 'random-bucket' },
+      { name: '4进2', format: 'double-life', bestOf: 3, pairing: 'random-bucket' },
+      { name: '总决赛', format: 'single-elim', bestOf: 3, pairing: 'bracket-seed' },
+    ];
+    const id = startSeries(8, { stages });
+    playStageToCompletion(id, 0);
+    const record = playStageToCompletion(id, 1);
+
+    // 双败阶段 3 波（首轮 → 胜/败者组 → 决胜轮），季军赛接在第 4
+    expect(record.waves.filter((wave) => wave.stageIndex === 1 && wave.kind !== 'third-place')).toHaveLength(3);
+    const wave = thirdPlaceWaveOf(record);
+    expect(wave.waveIndex).toBe(4);
+    const node = wave.nodes[0];
+    // 落败者 = 阶段末 state = eliminated 的两人：决胜轮负者（1-2）与败者组被淘汰者（0-2）
+    expect(node.playerAId).not.toBe(node.playerBId);
+    expect(record.entries).toHaveLength(2);
+  });
+
+  it('赛制读盘口径：显式 0 不会被重新打开，旧数据缺省按总决赛回填', () => {
+    const id = startSeries(4, { thirdPlaceBestOf: 0 });
+    // 「不安排」写盘后再次读盘仍是 0（否则下次读取会把它悄悄打开）
+    expect(getTournamentStore(paths).find((item) => item.id === id)!.thirdPlaceBestOf).toBe(0);
+
+    // 旧数据（库文件里没有这个字段）：按「与总决赛同赛制」回填
+    const raw = JSON.parse(readFileSync(paths.tournamentsFile, 'utf-8')) as {
+      tournaments: Array<Record<string, unknown>>;
+    };
+    delete raw.tournaments[0].thirdPlaceBestOf;
+    writeFileSync(paths.tournamentsFile, JSON.stringify(raw), 'utf-8');
+    const reloaded = getTournamentStore(paths)[0];
+    expect(reloaded.thirdPlaceBestOf).toBe(3);
+    expect(reloaded.stages[reloaded.stages.length - 1].bestOf).toBe(3);
+  });
+
+  it('撤回季军赛赛果：只清该节点，冠军结果与阶段推进不受影响', () => {
+    const id = startSeries(4);
+    playStageToCompletion(id, 0);
+    const thirdNode = thirdPlaceWaveOf(getTournamentStore(paths).find((item) => item.id === id)!).nodes[0];
+    playMatchToEnd(thirdNode.matchId!, 'left');
+    const finalMatch = getMatchStore(paths).matches.find(
+      (match) => match.status === 'pending' && match.tournamentRef?.tournamentId === id,
+    )!;
+    playMatchToEnd(finalMatch.id, 'left');
+    expect(getTournamentStore(paths).find((item) => item.id === id)!.status).toBe('completed');
+
+    undoMatchAction(paths, thirdNode.matchId!);
+    const undone = onMatchUndo(paths, thirdNode.matchId!)!;
+    expect(undone.status).toBe('completed');
+    expect(undone.result?.championId).toBeTruthy();
+    expect(undone.waves.find((item) => item.kind === 'third-place')!.nodes[0].winnerId).toBeNull();
+    expect(undone.waves.find((item) => item.kind === 'third-place')!.status).toBe('running');
+  });
+
+  it('回退总决赛波次时，重开的是半决赛主赛波而不是季军赛', () => {
+    const id = startSeries(8);
+    playStageToCompletion(id, 0);
+    playStageToCompletion(id, 1);
+    const before = getTournamentStore(paths).find((item) => item.id === id)!;
+    const thirdPlaceMatchId = thirdPlaceWaveOf(before).nodes[0].matchId!;
+
+    const rolled = rollbackWave(paths, id);
+    // 总决赛首波被删；半决赛（单败）唯一一波重新变成待定，季军赛原样保留
+    expect(rolled.waves.some((wave) => wave.stageIndex === 2)).toBe(false);
+    const semifinalWave = rolled.waves.find((wave) => wave.stageIndex === 1 && wave.kind !== 'third-place')!;
+    expect(semifinalWave.nodes.every((node) => node.winnerId === null)).toBe(true);
+    expect(
+      getMatchStore(paths).matches.find((match) => match.id === semifinalWave.nodes[0].matchId)!.status,
+    ).toBe('pending');
+    const thirdPlaceWave = thirdPlaceWaveOf(rolled);
+    expect(thirdPlaceWave.nodes[0].winnerId).toBeNull();
+    expect(thirdPlaceWave.nodes[0].matchId).toBe(thirdPlaceMatchId);
+  });
+
+  it('季军赛比分登记：写回前置校验放行，标签为「季军赛」', () => {
+    const id = startSeries(4);
+    playStageToCompletion(id, 0);
+    const record = getTournamentStore(paths).find((item) => item.id === id)!;
+    const node = thirdPlaceWaveOf(record).nodes[0];
+    // 与主赛完全同一条写回路径：能登记、能推进（此处只验节点胜者落地）
+    const gate = prepareTournamentWriteBack(paths, node.matchId!);
+    expect(gate.allowed).toBe(true);
+    playMatchToEnd(node.matchId!, 'right');
+    const after = getTournamentStore(paths).find((item) => item.id === id)!;
+    expect(after.waves.find((item) => item.kind === 'third-place')!.nodes[0].winnerId).toBe(node.playerBId);
+  });
+
+  it('晋级积分榜（page14 口径）不计入季军赛', () => {
+    const id = startSeries(4);
+    playStageToCompletion(id, 0);
+    const before = resolveStageStandings(paths, id, 0)!;
+    const node = thirdPlaceWaveOf(getTournamentStore(paths).find((item) => item.id === id)!).nodes[0];
+    playMatchToEnd(node.matchId!, 'left');
+    const after = resolveStageStandings(paths, id, 0)!;
+
+    // 4 人单败阶段 = 2 场；季军赛不增加总场次，也不给任何人加胜负
+    expect(after.totalMatches).toBe(2);
+    expect(after.completedMatches).toBe(before.completedMatches);
+    expect(after.rows.map((row) => row.wins)).toEqual(before.rows.map((row) => row.wins));
+    expect(after.rows.map((row) => row.losses)).toEqual(before.rows.map((row) => row.losses));
+  });
+});
+
 /* ==================== 随机全赛程模拟（§10 测试策略） ==================== */
 
 /** 随机种子（模拟用） */
@@ -1192,8 +1429,24 @@ function expectSoundTournament(record: TournamentRecord): void {
   expect(record.playerIds).toContain(runnerUpId);
   expect(record.entries.every((entry) => entry.state !== 'alive')).toBe(true);
 
+  // 季军赛不属于任何阶段的晋级口径：单独校验，不参与下面的阶段聚合
+  const thirdPlaceWaves = record.waves.filter((wave) => wave.kind === 'third-place');
+  expect(thirdPlaceWaves.length).toBeLessThanOrEqual(1);
+  if (thirdPlaceWaves.length) {
+    const [node] = thirdPlaceWaves[0].nodes;
+    expect(thirdPlaceWaves[0].nodes).toHaveLength(1);
+    expect(node.playerAId).toBeTruthy();
+    expect(node.playerBId).toBeTruthy();
+    expect(node.playerAId).not.toBe(node.playerBId);
+    // 参赛者是被淘汰的半决赛落败者，不可能是冠亚军
+    expect([node.playerAId, node.playerBId]).not.toContain(championId);
+    expect([node.playerAId, node.playerBId]).not.toContain(runnerUpId);
+  }
+
   record.stages.forEach((stage, stageIndex) => {
-    const stageWaves = record.waves.filter((wave) => wave.stageIndex === stageIndex);
+    const stageWaves = record.waves.filter(
+      (wave) => wave.stageIndex === stageIndex && wave.kind !== 'third-place',
+    );
     const players = new Set<string>();
     if (stageIndex === 0) {
       record.playerIds.forEach((id) => players.add(id));

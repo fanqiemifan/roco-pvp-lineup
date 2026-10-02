@@ -97,8 +97,10 @@ function buildAdvancedTournamentBundle() {
 describe('诊断：分控端拉取推进后的数据', () => {
   it('合并后 /api/matches 含新比赛，/api/profiles 有选手名', async () => {
     const bundle = buildAdvancedTournamentBundle();
-    const createdTournamentId = getTournamentStore(mainPaths)[0].id;
-    const newMatchId = getTournamentStore(mainPaths)[0].waves[1]?.nodes[0]?.matchId;
+    const mainRecord = getTournamentStore(mainPaths)[0];
+    const createdTournamentId = mainRecord.id;
+    // 4 人首波打完 ⇒ 先建季军赛（附加波次）、后建总决赛首波；取最后一条波 = 最新推进出来的那一场
+    const newMatchId = mainRecord.waves[mainRecord.waves.length - 1]?.nodes[0]?.matchId;
     expect(newMatchId).toBeTruthy();
 
     // 模拟「从云端获取最新」：预览 → 确认合并

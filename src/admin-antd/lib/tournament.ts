@@ -1,4 +1,6 @@
 import {
+  resolveThirdPlaceBestOf,
+  THIRD_PLACE_LABEL,
   TOURNAMENT_ID_REGEX,
   TOURNAMENT_TARGET_LOSSES,
   TOURNAMENT_TARGET_WINS,
@@ -115,12 +117,31 @@ export function getCurrentPositionText(record: TournamentRecord): string {
     return '抽签待开赛';
   }
   const stage = record.stages[record.currentStageIndex];
-  const stageWaves = record.waves.filter((wave) => wave.stageIndex === record.currentStageIndex);
+  // 季军赛挂在半决赛阶段下、波次序号比主赛大，不能算作「当前波」
+  const stageWaves = record.waves.filter(
+    (wave) => wave.stageIndex === record.currentStageIndex && wave.kind !== 'third-place',
+  );
   const lastWave = stageWaves[stageWaves.length - 1];
   if (record.status === 'completed' || !lastWave) {
     return '已结束';
   }
   return `${stage.name} · 第 ${lastWave.waveIndex} 波`;
+}
+
+/** 季军赛波次（每届最多一条）；未安排 / 还没打出来时为 null */
+export function findThirdPlaceWave(record: TournamentRecord): TournamentWave | null {
+  return record.waves.find((wave) => wave.kind === 'third-place') ?? null;
+}
+
+/**
+ * 季军赛卡片脚注：直接给名次（季军 / 殿军），不显示阶段战绩 ——
+ * 按阶段口径算会把这场自己的结果算进去（胜者显示成「已晋级」），与这场附加赛的语义相反。
+ */
+export function getThirdPlaceRankText(node: Pick<TournamentNode, 'winnerId'>, playerId: string | null): string {
+  if (!playerId || !node.winnerId) {
+    return '';
+  }
+  return node.winnerId === playerId ? '季军' : '殿军';
 }
 
 /**
@@ -136,7 +157,7 @@ export function getStagePlayerCount(record: TournamentRecord, stageIndex: number
   return half >= 1 ? half : 0;
 }
 
-/** 某阶段的场次统计：已决出胜负 / 已建场（含未开打） */
+/** 某阶段主赛场次统计：已决出胜负 / 已建场（含未开打）；季军赛不计入（与服务端榜单同口径） */
 export function summarizeStageMatches(
   record: TournamentRecord,
   stageIndex: number,
@@ -144,7 +165,7 @@ export function summarizeStageMatches(
   let completed = 0;
   let total = 0;
   record.waves
-    .filter((wave) => wave.stageIndex === stageIndex)
+    .filter((wave) => wave.stageIndex === stageIndex && wave.kind !== 'third-place')
     .forEach((wave) => wave.nodes.forEach((node) => {
       total += 1;
       if (node.winnerId) {
@@ -447,6 +468,8 @@ export interface BracketColumn {
   waveIndex: number;
   /** 战绩桶 key（双败为 0-0 / 1-0 / 0-1 / 1-1；单败为 undefined） */
   bucketKey?: string;
+  /** 季军赛列（自成一个分组，分组头写「季军赛」而非阶段名） */
+  isThirdPlace: boolean;
   stageName: string;
   /** 阶段赛制标签：双败 / 单败 */
   formatLabel: string;
@@ -533,16 +556,18 @@ function defaultBucketKey(waveIndex: number): string {
   return DOUBLE_LIFE_DECIDER_BUCKET;
 }
 
-/** 晋级图内部列种子：一列 = 一阶段的一波（双败再按桶细分） */
+/** 晋级图内部列种子：一列 = 一阶段的一波（双败再按桶细分；季军赛自成一列） */
 interface BracketColumnSeed {
   key: string;
   stageIndex: number;
   waveIndex: number;
   bucketKey?: string;
+  /** 季军赛列：不按战绩桶拆列、不显示轮次标题，由所在分组头承载「季军赛」 */
+  isThirdPlace?: boolean;
   wave: TournamentWave;
   nodes: TournamentNode[];
   draftPairs: BracketDraftPair[];
-  /** 列内排序位：双败用轮次序，单败用波次 */
+  /** 列内排序位：双败用轮次序，单败用波次，季军赛恒排阶段末 */
   sortIndex: number;
 }
 
@@ -603,6 +628,11 @@ function createBracketCardContext(
     let stageIndex = -1;
     let records = new Map<string, { wins: number; losses: number }>();
     waves.forEach((wave) => {
+      // 季军赛不参与阶段战绩累计与推桶：它排在阶段末，按阶段口径累计会把季军算成「又多一胜」，
+      // 还会把它误标成跨桶配对。卡片脚注改由 getThirdPlaceRankText 直接给名次。
+      if (wave.kind === 'third-place') {
+        return;
+      }
       if (wave.stageIndex !== stageIndex) {
         stageIndex = wave.stageIndex;
         records = new Map();
@@ -660,13 +690,16 @@ function createBracketCardContext(
     const match = findNodeMatch(wave, matches, node);
     const status = getNodeStatus(node, match);
     const format = record.stages[wave.stageIndex].format;
+    const isThirdPlace = wave.kind === 'third-place';
     const buildSlot = (playerId: string | null, score: number | undefined): BracketSlot => ({
       playerId,
       name: resolvePlayerName(names, playerId),
-      stateText: getPlayerStateText(
-        format,
-        playerId ? recordAfterNode.get(`${node.id}|${playerId}`) : undefined,
-      ),
+      stateText: isThirdPlace
+        ? getThirdPlaceRankText(node, playerId)
+        : getPlayerStateText(
+          format,
+          playerId ? recordAfterNode.get(`${node.id}|${playerId}`) : undefined,
+        ),
       isWinner: Boolean(playerId) && node.winnerId === playerId,
       score: status === 'pending' || score === undefined ? '' : String(score),
       from: resolveFrom(playerId, node.id),
@@ -705,11 +738,12 @@ export function buildWaveCards(
 
 /**
  * 某波的轮次表述（双败按战绩桶给出「胜者组 R1 / 败者组 R1」等；单败返回空数组，直接用阶段名）。
- * 波次列表用它替代「第 N 波」，与晋级图列标题同一套术语。
+ * 波次列表用它替代「第 N 波」，与晋级图列标题同一套术语。季军赛没有轮次，固定空数组
+ * （它的波次序号在阶段主赛之后，getDraftBucketSpecs 会按 record.entries 推出错误的桶）。
  */
 export function getWaveRoundLabels(record: TournamentRecord, wave: TournamentWave): string[] {
   const stage = record.stages[wave.stageIndex];
-  if (!stage || stage.format !== 'double-life') {
+  if (!stage || stage.format !== 'double-life' || wave.kind === 'third-place') {
     return [];
   }
   return getDraftBucketSpecs(record, wave)
@@ -760,6 +794,21 @@ export function buildBracketGraph(
       a: resolvePlayerName(names, row.pair[0]),
       b: resolvePlayerName(names, row.pair[1]),
     }));
+
+    // 季军赛自成一列：不按战绩桶拆（它不属于任何轮次），排在所属阶段的主赛列之后
+    if (wave.kind === 'third-place') {
+      seeds.push({
+        key: `${wave.stageIndex}-${wave.waveIndex}-third`,
+        stageIndex: wave.stageIndex,
+        waveIndex: wave.waveIndex,
+        isThirdPlace: true,
+        wave,
+        nodes: wave.nodes,
+        draftPairs,
+        sortIndex: Number.MAX_SAFE_INTEGER,
+      });
+      return;
+    }
 
     if (record.stages[wave.stageIndex]?.format === 'double-life') {
       const groups = new Map<string, TournamentNode[]>();
@@ -829,14 +878,17 @@ export function buildBracketGraph(
         });
       // 本阶段晋级人数：参赛人数按 2 的阶段倍数收敛
       const promotedCount = Math.floor(record.playerIds.length / 2 ** (seed.stageIndex + 1));
+      const isThirdPlace = seed.isThirdPlace === true;
       return {
         key: seed.key,
         stageIndex: seed.stageIndex,
         waveIndex: seed.waveIndex,
         bucketKey: seed.bucketKey,
-        stageName: stage.name,
-        formatLabel: stage.format === 'double-life' ? '双败' : '单败',
-        label: buildColumnLabel(seed.waveIndex, promotedCount, seed.bucketKey),
+        isThirdPlace,
+        // 季军赛列不套用「4进2」阶段名与赛制标签：分组头会单独写「季军赛 + 自己的 BO」
+        stageName: isThirdPlace ? THIRD_PLACE_LABEL : stage.name,
+        formatLabel: isThirdPlace ? '单败' : stage.format === 'double-life' ? '双败' : '单败',
+        label: isThirdPlace ? '' : buildColumnLabel(seed.waveIndex, promotedCount, seed.bucketKey),
         status: seed.wave.status,
         statusLabel: getWaveStatusLabel(seed.wave.status),
         pairingStatus: seed.wave.pairingStatus,
@@ -922,10 +974,41 @@ export interface MatchSemanticRound {
  * （W1 首轮 / W2 胜者组·败者组 / W3 决胜轮），W2 按该场两位选手的首轮胜负判池，
  * 与后端 resolveTournamentLabel 同口径；跨桶等非常规组合拿不到一致池归属 → wave2 兜底。
  */
+export function isThirdPlaceRef(
+  record: TournamentRecord,
+  ref: NonNullable<MatchRecord['tournamentRef']>,
+): boolean {
+  const wave = findThirdPlaceWave(record);
+  return Boolean(wave && wave.stageIndex === ref.stageIndex && wave.waveIndex === ref.waveIndex);
+}
+
+/**
+ * 对局标签的阶段前缀：季军赛是附加赛，报「季军赛」而不是它挂靠的阶段名
+ * （否则 4进2 的半决赛标签会被季军赛的 matchId 抢走语义）。
+ */
+export function resolveMatchStageTitle(
+  record: TournamentRecord,
+  ref: NonNullable<MatchRecord['tournamentRef']>,
+): string | null {
+  const stage = record.stages[ref.stageIndex];
+  if (!stage) {
+    return null;
+  }
+  return isThirdPlaceRef(record, ref) ? THIRD_PLACE_LABEL : stage.name;
+}
+
+/**
+ * 系列赛对局的语义轮次（双败细分到轮次，单败/季军赛无轮次细分 label 为空串）。
+ * 与后端 resolveTournamentLabel 同口径；跨桶等非常规组合拿不到一致池归属 → wave2 兜底。
+ */
 export function resolveMatchSemanticRound(
   record: TournamentRecord,
   ref: NonNullable<MatchRecord['tournamentRef']>,
 ): MatchSemanticRound {
+  // 季军赛单独成组、不带轮次后缀：它挂在半决赛阶段下，按波次序号会被算成「第 4 波」
+  if (isThirdPlaceRef(record, ref)) {
+    return { key: 'third-place', label: '', order: 0 };
+  }
   const stage = record.stages[ref.stageIndex];
   if (!stage || stage.format !== 'double-life') {
     return { key: 'stage', label: '', order: 0 };
@@ -964,12 +1047,12 @@ export function formatStageRoundLabel(
   record: TournamentRecord,
   ref: NonNullable<MatchRecord['tournamentRef']>,
 ): string | null {
-  const stage = record.stages[ref.stageIndex];
-  if (!stage) {
+  const title = resolveMatchStageTitle(record, ref);
+  if (!title) {
     return null;
   }
   const round = resolveMatchSemanticRound(record, ref);
-  return round.label ? `${stage.name} · ${round.label}` : stage.name;
+  return round.label ? `${title} · ${round.label}` : title;
 }
 
 function resolvePushCandidateGroup(
@@ -978,12 +1061,12 @@ function resolvePushCandidateGroup(
 ): { key: string; title: string } {
   const ref = match.tournamentRef;
   const record = ref ? recordById.get(ref.tournamentId) : undefined;
-  const stage = ref && record ? record.stages[ref.stageIndex] : undefined;
-  if (!ref || !record || !stage) {
+  const title = ref && record ? resolveMatchStageTitle(record, ref) : null;
+  if (!ref || !record || !title) {
     return { key: 'normal', title: '普通对局' };
   }
   const round = resolveMatchSemanticRound(record, ref);
-  const prefix = `🏆 ${record.name} · ${stage.name}`;
+  const prefix = `🏆 ${record.name} · ${title}`;
   return {
     key: `${record.id}:${ref.stageIndex}:${round.key}`,
     title: round.label ? `${prefix} · ${round.label}` : prefix,

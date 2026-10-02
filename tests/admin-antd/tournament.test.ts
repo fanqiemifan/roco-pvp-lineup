@@ -7,6 +7,8 @@ import {
   buildWaveCards,
   countCompletedMatches,
   crossPairDeciderPool,
+  findThirdPlaceWave,
+  formatStageRoundLabel,
   getCurrentPositionText,
   getDraftBucketSpecs,
   getNodeStatus,
@@ -14,17 +16,19 @@ import {
   getPlayerStateText,
   getStagePlayerCount,
   getStageState,
+  getThirdPlaceRankText,
   getTournamentOwnerCode,
   getTournamentStatusMeta,
   getWaveGlobalIndex,
   getWaveRoundLabels,
+  isThirdPlaceRef,
   isTournamentOwnedByLocal,
   resolvePlayerName,
   shuffleBucketPairs,
   summarizeStageMatches,
   validateDraftPairs,
 } from '../../src/admin-antd/lib/tournament';
-import { buildDefaultStages } from '../../shared/constants';
+import { buildDefaultStages, THIRD_PLACE_LABEL } from '../../shared/constants';
 import type {
   MatchRecord,
   ProfileStoreState,
@@ -995,6 +999,95 @@ describe('buildPushCandidateGroups（选场弹窗候选分组）', () => {
     expect(groups[0].title).toBe('普通对局');
     expect(groups[0].matches.map((match) => match.id)).toEqual(['a', 'b']);
     expect(buildPushCandidateGroups([], [])).toEqual([]);
+  });
+});
+
+describe('季军赛（附加波次的展示口径）', () => {
+  function node(
+    id: string,
+    matchId: string,
+    a: string,
+    b: string,
+    winnerId: string | null = null,
+  ): TournamentWave['nodes'][number] {
+    return { id, matchId, playerAId: a, playerBId: b, winnerId, isBye: false };
+  }
+
+  /**
+   * 8 人模板 + 半决赛（4进2 单败）打完 + 季军赛：
+   * p0/p2 晋级决赛，p1/p3 打季军赛（p1 胜）。
+   */
+  const record = makeRecord({
+    status: 'running',
+    currentStageIndex: 2,
+    thirdPlaceBestOf: 3,
+    entries: [
+      { playerId: 'p0', stageWins: 0, stageLosses: 0, state: 'alive' },
+      { playerId: 'p2', stageWins: 0, stageLosses: 0, state: 'alive' },
+    ],
+    waves: [
+      makeWave(1, 1, {
+        status: 'completed',
+        nodes: [
+          node('s1-w1-n00', 'm1', 'p0', 'p1', 'p0'),
+          node('s1-w1-n01', 'm2', 'p2', 'p3', 'p2'),
+        ],
+      }),
+      makeWave(1, 2, {
+        status: 'running',
+        kind: 'third-place',
+        nodes: [node('s1-w2-n00', 'm3', 'p1', 'p3', 'p1')],
+      }),
+      makeWave(2, 1, { nodes: [node('s2-w1-n00', 'm4', 'p0', 'p2')] }),
+    ],
+  });
+
+  const names = new Map([['p0', '甲'], ['p1', '乙'], ['p2', '丙'], ['p3', '丁']]);
+
+  it('晋级图：季军赛自成一列，排在所属阶段主赛之后、下一阶段之前', () => {
+    const graph = buildBracketGraph(record, names, []);
+    const keys = graph.columns.map((column) => `${column.stageIndex}-${column.waveIndex}`);
+    expect(keys).toEqual(['1-1', '1-2', '2-1']);
+
+    const third = graph.columns.find((column) => column.isThirdPlace)!;
+    expect(third.stageName).toBe(THIRD_PLACE_LABEL);
+    expect(third.formatLabel).toBe('单败');
+    // 不套轮次标题（否则会按波次序号被标成「败者组 R2 · 决出2强」）
+    expect(third.label).toBe('');
+    expect(graph.columns.filter((column) => column.isThirdPlace)).toHaveLength(1);
+  });
+
+  it('卡片脚注给名次而不是阶段战绩（不给「已晋级」，也不标跨桶）', () => {
+    const graph = buildBracketGraph(record, names, []);
+    const card = graph.columns.find((column) => column.isThirdPlace)!.cards[0];
+    expect(card.playerA.stateText).toBe('季军');
+    expect(card.playerA.isWinner).toBe(true);
+    expect(card.playerB.stateText).toBe('殿军');
+    expect(card.isCrossBucket).toBe(false);
+    // 未决出时不给名次
+    expect(getThirdPlaceRankText({ winnerId: null }, 'p1')).toBe('');
+    expect(getThirdPlaceRankText({ winnerId: null }, null)).toBe('');
+  });
+
+  it('波次列表：季军赛没有轮次标注；标签与统计不并入半决赛阶段', () => {
+    const third = findThirdPlaceWave(record)!;
+    expect(getWaveRoundLabels(record, third)).toEqual([]);
+    expect(formatStageRoundLabel(record, {
+      tournamentId: record.id,
+      nodeId: 's1-w2-n00',
+      stageIndex: 1,
+      waveIndex: 2,
+    })).toBe(THIRD_PLACE_LABEL);
+    expect(isThirdPlaceRef(record, {
+      tournamentId: record.id,
+      nodeId: 's1-w2-n00',
+      stageIndex: 1,
+      waveIndex: 2,
+    })).toBe(true);
+    // 半决赛阶段只算它自己的 2 场；当前波仍是总决赛，不因季军赛的波次序号变成「第 2 波」
+    expect(summarizeStageMatches(record, 1)).toEqual({ completed: 2, total: 2 });
+    expect(getCurrentPositionText({ ...record, currentStageIndex: 1 })).toBe('4进2 · 第 1 波');
+    expect(findThirdPlaceWave(makeRecord())).toBeNull();
   });
 });
 

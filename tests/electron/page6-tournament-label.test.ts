@@ -9,6 +9,7 @@ import { createLocalServer, type LocalServer } from '../../electron/socket-serve
 import { savePlayerProfile } from '../../electron/services/profile-service';
 import { saveRuntimeConfig } from '../../electron/services/config-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
+import { THIRD_PLACE_LABEL } from '../../shared/constants';
 
 let server: LocalServer;
 let base: string;
@@ -179,12 +180,22 @@ describe('page6 系列赛阶段标注', () => {
       const semiLabels = await page6Labels(semi.map((match) => match.id));
       semi.forEach((match) => expect(semiLabels[match.id]).toBe('4进2'));
 
-      // 总决赛（单败）：只显示阶段名
-      const final = await pendingMatches(created.id);
+      // 4进2 打完 ⇒ 自动生成季军赛（两名落败者，挂在 4进2 阶段下）+ 总决赛首波
+      const advanced = await pendingMatches(created.id);
+      expect(advanced).toHaveLength(2);
+      const thirdPlace = advanced.filter(
+        (match) => match.tournamentRef?.stageIndex === 1 && match.tournamentRef?.waveIndex === 2,
+      );
+      expect(thirdPlace).toHaveLength(1);
+      const final = advanced.filter((match) => match.id !== thirdPlace[0].id);
       expect(final).toHaveLength(1);
+      await playAll(thirdPlace);
       await playAll(final);
-      const finalLabels = await page6Labels(final.map((match) => match.id));
-      expect(finalLabels[final[0].id]).toBe('总决赛');
+
+      // 季军赛不能被标成「4进2·第 2 波」；总决赛只显示阶段名
+      const advancedLabels = await page6Labels([thirdPlace[0].id, final[0].id]);
+      expect(advancedLabels[thirdPlace[0].id]).toBe(THIRD_PLACE_LABEL);
+      expect(advancedLabels[final[0].id]).toBe('总决赛');
 
       // page6 混排：普通对局无标注、系列赛对局有标注
       const normal = (await postJson('/api/matches', {
