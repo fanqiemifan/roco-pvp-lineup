@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Modal, Radio, Select, Space, Table, Tag, Typography } from 'antd';
 import type { MatchRecord, SpriteRecord, TournamentRecord } from '../../../shared/types';
-import { buildLineupTemplateCsv, type LineupTemplateMatchRow, type LineupTemplateScope } from '../lib/lineup-sheet';
+import { buildLineupTemplate, type LineupTemplateMatchRow, type LineupTemplateScope } from '../lib/lineup-sheet';
+import { renderLineupTemplateXlsx } from '../lib/lineup-template-xlsx';
 
 const { Text } = Typography;
 
@@ -16,7 +17,8 @@ type TournamentLineupExportModalProps = {
 /**
  * 系列赛「导出阵容模板」弹窗：选范围过滤（整届 / 按阶段 / 仅当前波），
  * **列出将要导出的具体对局**（阶段·轮次 / 左右选手 / 对局ID / 是否已有阵容回显）供用户确认，
- * 再生成「一场两行」CSV（只含待开始比赛的第 1 局，已录阵容回显预填）。
+ * 再生成「一场两行」Excel 模板（.xlsx：只含待开始比赛的第 1 局，已录阵容回显预填，
+ * 精灵1..6 列带「精灵列表」下拉，避免线下填写错名）。
  */
 export function TournamentLineupExportModal({
   open,
@@ -28,13 +30,15 @@ export function TournamentLineupExportModal({
   const { message } = App.useApp();
   const [scopeKind, setScopeKind] = useState<'all' | 'stage' | 'current-wave'>('all');
   const [stageIndex, setStageIndex] = useState<number>(() => record.currentStageIndex ?? 0);
+  const [exporting, setExporting] = useState(false);
 
-  const { csv, count, rows } = useMemo(() => {
+  const plan = useMemo(() => {
     const scope: LineupTemplateScope = scopeKind === 'stage'
       ? { kind: 'stage', stageIndex }
       : { kind: scopeKind };
-    return buildLineupTemplateCsv({ record, matches, sprites, scope });
+    return buildLineupTemplate({ record, matches, sprites, scope });
   }, [record, matches, sprites, scopeKind, stageIndex]);
+  const { count, rows } = plan;
 
   const scopeLabel = scopeKind === 'all'
     ? '整届'
@@ -42,22 +46,32 @@ export function TournamentLineupExportModal({
       ? (record.stages[stageIndex]?.name ?? '阶段')
       : '当前波';
 
-  function handleExport(): void {
+  async function handleExport(): Promise<void> {
     if (!count) {
       message.warning('当前范围内没有待开始的对局');
       return;
     }
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const stamp = new Date();
-    const pad = (value: number): string => String(value).padStart(2, '0');
-    link.download = `阵容模板_${record.name}_${scopeLabel}_${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    message.success(`已导出 ${count} 场对局的阵容模板（${count * 2} 行）`);
-    onClose();
+    setExporting(true);
+    try {
+      const data = await renderLineupTemplateXlsx({ recordName: record.name, plan, sprites });
+      const blob = new Blob([data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const stamp = new Date();
+      const pad = (value: number): string => String(value).padStart(2, '0');
+      link.download = `阵容模板_${record.name}_${scopeLabel}_${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      message.success(`已导出 ${count} 场对局的 Excel 阵容模板（${count * 2} 行，含精灵下拉）`);
+      onClose();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '导出失败');
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -68,7 +82,7 @@ export function TournamentLineupExportModal({
       onCancel={onClose}
       footer={[
         <Button key="cancel" onClick={onClose}>取消</Button>,
-        <Button key="export" type="primary" disabled={!count} onClick={handleExport}>导出 CSV</Button>,
+        <Button key="export" type="primary" disabled={!count} loading={exporting} onClick={() => void handleExport()}>导出 Excel</Button>,
       ]}
       destroyOnHidden
     >
@@ -139,7 +153,8 @@ export function TournamentLineupExportModal({
           />
         ) : null}
         <Text type="secondary" style={{ fontSize: 12 }}>
-          模板只含待开始比赛的第 1 局；已开赛 / 已完赛不再导出（阵容修改走赛事面板）。第 1 局已录阵容会回显预填。
+          模板只含待开始比赛的第 1 局；已开赛 / 已完赛不再导出（阵容修改走赛事面板）。第 1 局已录阵容会回显预填；
+          精灵1..6 列带最终形态下拉（隐藏「精灵列表」sheet 提供选项），填写后可直接把 .xlsx 回传导入。
         </Text>
       </Space>
     </Modal>

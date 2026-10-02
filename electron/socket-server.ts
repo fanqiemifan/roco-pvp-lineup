@@ -107,6 +107,7 @@ import {
   showCountdown,
   startCountdown,
 } from './services/countdown-service.js';
+import { extractLineupSheetTable } from './services/lineup-xlsx-service.js';
 import {
   applyLineupImport,
   createMatch,
@@ -178,6 +179,12 @@ const upload = multer({ storage: multer.memoryStorage() });
 const syncUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: SYNC_BUNDLE_MAX_BYTES, files: 1 },
+});
+
+// 系列赛阵容模板 .xlsx 回传解析：单文件 10MB 上限（模板本身不到 1MB，防误传大文件）
+const lineupXlsxUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
 });
 
 // ===== socket 角色分组：每个推流页/悬浮窗连接时声明 role，服务端只投递它需要的事件与快照字段 =====
@@ -1647,6 +1654,47 @@ export async function createLocalServer(
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
+
+  // 阵容模板 .xlsx 回传解析：multer 收文件 → exceljs 解出二维表（不写数据）。
+  // 表头定位 /「对局ID + 位置」配对仍在共享纯函数里做（与 CSV 粘贴同一套口径），前端再走既有预览 / 写入管线
+  app.post(
+    '/api/tournaments/:tournamentId/lineup-import/parse-xlsx',
+    (request, response, next) => {
+      lineupXlsxUpload.single('file')(request, response, (error: unknown) => {
+        if (error) {
+          const message = error instanceof Error ? error.message : 'Excel 上传失败';
+          response.status(400).json({
+            success: false,
+            error: /too large|limit/i.test(message) ? 'Excel 文件超过大小上限（10MB）' : message,
+          });
+          return;
+        }
+        next();
+      });
+    },
+    async (request, response) => {
+      const tournamentId = request.params.tournamentId;
+      if (!getTournamentStore(paths).some((record) => record.id === tournamentId)) {
+        response.status(404).json({ success: false, error: '系列赛不存在' });
+        return;
+      }
+      const file = request.file;
+      if (!file) {
+        response.status(400).json({ success: false, error: '缺少文件（multipart 字段名 file）' });
+        return;
+      }
+      if (!/\.xlsx$/i.test(file.originalname)) {
+        response.status(400).json({ success: false, error: '仅支持 .xlsx 文件（请使用导出的 Excel 模板）' });
+        return;
+      }
+      try {
+        const { sheetName, table } = await extractLineupSheetTable(file.buffer);
+        response.json({ success: true, sheetName, table });
+      } catch (error) {
+        response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  );
 
   app.post('/api/tournaments', (request, response) => {
     try {

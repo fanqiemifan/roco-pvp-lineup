@@ -41,7 +41,7 @@ export interface LineupTemplateOptions {
   scope: LineupTemplateScope;
 }
 
-/** 模板将导出的一场对局（导出弹窗的确认列表行；与 CSV 生成共用同一份筛选结果） */
+/** 模板将导出的一场对局（导出弹窗的确认列表行；与实际导出的 xlsx 内容同源） */
 export interface LineupTemplateMatchRow {
   matchId: string;
   /** 阶段 · 轮次标签（单败仅阶段名；双败带胜者组/败者组等，与 CSV 的「阶段」列同口径） */
@@ -49,15 +49,8 @@ export interface LineupTemplateMatchRow {
   /** 左侧选手名（空则「左侧」） */
   leftPlayer: string;
   rightPlayer: string;
-  /** 第 1 局是否已有阵容（导出时按 displayName 回显预填） */
+  /** 第 1 局是否已有阵容（导出时按 `pet_id_名字（形态）` 回显预填） */
   hasLineup: boolean;
-}
-
-/** 内部：模板要导出的对局（含第 1 局），rows 与 CSV 都由它生成，保证确认列表 = 实际导出 */
-interface LineupTemplateTarget {
-  match: MatchRecord;
-  firstGame: GameRecord;
-  stageLabel: string;
 }
 
 /** 收集模板要导出的对局（只收「已建场 + 比赛待开始 + 第 1 局尚未开赛」；行序 = 阶段 → 波次 → 节点） */
@@ -103,53 +96,27 @@ function collectLineupTemplateTargets(options: LineupTemplateOptions): LineupTem
   return targets;
 }
 
-/**
- * 生成「一场两行」阵容填写模板（UTF-8 CSV，前端自行拼接 BOM 后下载）。
- * 只收「已建场 + 比赛待开始 + 第 1 局尚未开赛」的对局；行序 = 阶段 → 波次 → 节点顺序；
- * 第 1 局已录阵容按 displayName 回显（与解析口径一致，可直接复用）。
- * 同时返回 rows（导出确认列表：具体是哪几场、各自阶段与阵容回显状态），与 CSV 内容同源。
- */
-export function buildLineupTemplateCsv(options: LineupTemplateOptions): {
-  csv: string;
+/** 模板导出的内部目标（含第 1 局快照）：确认列表与实际导出内容都由它生成，保证两处同源 */
+export interface LineupTemplateTarget {
+  match: MatchRecord;
+  firstGame: GameRecord;
+  stageLabel: string;
+}
+
+export interface LineupTemplatePlan {
   count: number;
+  /** 导出确认列表（弹窗里展示：具体是哪几场、各自阶段与阵容回显状态） */
   rows: LineupTemplateMatchRow[];
-} {
-  const { record, sprites } = options;
-  const spriteByPetId = new Map(sprites.map((sprite) => [sprite.id, sprite]));
+  /** 实际导出数据源（xlsx 渲染用，含第 1 局快照以回显预填） */
+  targets: LineupTemplateTarget[];
+}
 
-  const visibleNames = (slots: MatchSlotSnapshot[]): string[] =>
-    slots
-      .map((slot) => (
-        slot.pet_id ? (spriteByPetId.get(slot.pet_id)?.displayName ?? slot.name ?? '') : ''
-      ))
-      .filter(Boolean)
-      .slice(0, 6);
-
-  const header = ['系列赛', '阶段', '对局ID', '位置', '选手', '精灵1', '精灵2', '精灵3', '精灵4', '精灵5', '精灵6'];
-  const lines: string[][] = [header];
+/**
+ * 生成阵容模板计划（导出弹窗的确认列表 + xlsx 渲染共用同一份筛选结果）。
+ * 只收「已建场 + 比赛待开始 + 第 1 局尚未开赛」的对局；行序 = 阶段 → 波次 → 节点顺序。
+ */
+export function buildLineupTemplate(options: LineupTemplateOptions): LineupTemplatePlan {
   const targets = collectLineupTemplateTargets(options);
-
-  targets.forEach(({ match, firstGame, stageLabel }) => {
-    const sides = [
-      { side: '左', player: match.leftPlayer || '左侧', slots: firstGame.leftSlots },
-      { side: '右', player: match.rightPlayer || '右侧', slots: firstGame.rightSlots },
-    ];
-    sides.forEach(({ side, player, slots }) => {
-      const names = visibleNames(slots);
-      lines.push([
-        record.name,
-        stageLabel,
-        match.id,
-        side,
-        player,
-        ...Array.from({ length: 6 }, (_, index) => names[index] ?? ''),
-      ]);
-    });
-  });
-
-  const csv = lines
-    .map((cells) => cells.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
   const rows: LineupTemplateMatchRow[] = targets.map(({ match, firstGame, stageLabel }) => ({
     matchId: match.id,
     stageLabel,
@@ -158,16 +125,69 @@ export function buildLineupTemplateCsv(options: LineupTemplateOptions): {
     hasLineup: firstGame.leftSlots.some((slot) => Boolean(slot.pet_id))
       || firstGame.rightSlots.some((slot) => Boolean(slot.pet_id)),
   }));
-  return { csv, count: targets.length, rows };
+  return { count: targets.length, rows, targets };
 }
 
-/* ---------- 回填解析（CSV / TSV / JSON） ---------- */
+/**
+ * xlsx「阵容」表内容（表头 + 一场两行）：列序与解析的列定位口径一致；
+ * 第 1 局已录阵容按 `pet_id_名字（形态）`（SpriteRecord.name 全称）回显，与精灵下拉选项同格式。
+ */
+export function buildLineupTemplateSheet(
+  targets: LineupTemplateTarget[],
+  recordName: string,
+  sprites: SpriteRecord[],
+): { header: string[]; rows: string[][] } {
+  const spriteByPetId = new Map(sprites.map((sprite) => [sprite.id, sprite]));
+  const prefillLabels = (slots: MatchSlotSnapshot[]): string[] =>
+    slots
+      .map((slot) => {
+        if (!slot.pet_id) {
+          return '';
+        }
+        const sprite = spriteByPetId.get(slot.pet_id);
+        return sprite ? `${sprite.id}_${sprite.name}` : slot.pet_id;
+      })
+      .filter(Boolean)
+      .slice(0, 6);
 
-/** 表格粘贴 / CSV 文本 → 规范化对局列表（「对局ID + 位置」配对合并，缺一侧 = 单侧写入） */
+  const header = ['系列赛', '阶段', '对局ID', '位置', '选手', '精灵1', '精灵2', '精灵3', '精灵4', '精灵5', '精灵6'];
+  const rows: string[][] = [];
+  targets.forEach(({ match, firstGame, stageLabel }) => {
+    const sides = [
+      { side: '左', player: match.leftPlayer || '左侧', slots: firstGame.leftSlots },
+      { side: '右', player: match.rightPlayer || '右侧', slots: firstGame.rightSlots },
+    ];
+    sides.forEach(({ side, player, slots }) => {
+      const labels = prefillLabels(slots);
+      rows.push([
+        recordName,
+        stageLabel,
+        match.id,
+        side,
+        player,
+        ...Array.from({ length: 6 }, (_, index) => labels[index] ?? ''),
+      ]);
+    });
+  });
+  return { header, rows };
+}
+
+/* ---------- 回填解析（CSV / TSV / JSON / xlsx 解表） ---------- */
+
+/** 表格粘贴 / CSV 文本 → 规范化对局列表（内部拆分为二维表后走 parseLineupSheetTable） */
 export function parseLineupSheetText(text: string): LineupSheetParseResult {
+  const trimmed = text.trim();
+  return parseLineupSheetTable(splitDelimitedRows(trimmed, trimmed.includes('\t') ? '\t' : ','));
+}
+
+/**
+ * 已拆分的二维表格 → 规范化对局列表（「对局ID + 位置」配对合并，缺一侧 = 单侧写入）。
+ * CSV / TSV 文本与 .xlsx（服务端解表后回传）共用同一套表头定位与配对口径。
+ */
+export function parseLineupSheetTable(sourceRows: string[][]): LineupSheetParseResult {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const rows = splitDelimitedRows(text.trim(), text.includes('\t') ? '\t' : ',');
+  const rows = sourceRows.filter((cells) => cells.some((item) => String(item ?? '').trim() !== ''));
   if (rows.length < 2) {
     return { entries: [], errors: ['没有识别到数据行（需要表头 + 至少一行对局）'], warnings };
   }
@@ -346,7 +366,7 @@ function splitDelimitedRows(text: string, delimiter: string): string[][] {
     rows.push(row);
   }
 
-  return rows.filter((cells) => cells.some((item) => item.trim() !== ''));
+  return rows;
 }
 
 interface SheetColumnMap {
