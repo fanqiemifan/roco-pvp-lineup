@@ -397,6 +397,30 @@ describe('validateDraftPairs（配对草稿校验）', () => {
     expect(result.warnings.join()).toMatch(/已交手/);
   });
 
+  it('跨阶段已交手（上一阶段有胜者节点）→ 仅警告不阻断，提醒带「阶段 · 轮次」出处', () => {
+    const record = makeRecord({ status: 'running', currentStageIndex: 1 });
+    // 上一阶段（8进4）已完赛：p0 击败 p2；当前 4进2 首波草稿又把他俩配到一起
+    record.waves = [
+      makeWave(0, 1, {
+        status: 'completed',
+        nodes: [
+          { id: 's0-w1-n00', matchId: 'm1', playerAId: 'p0', playerBId: 'p2', winnerId: 'p0', isBye: false },
+        ],
+      }),
+    ];
+    const wave = makeWave(1, 1, { pairingStatus: 'draft' });
+    const result = validateDraftPairs(record, wave, [
+      { pair: ['p0', 'p2'] },
+      { pair: ['p1', 'p3'] },
+      { pair: ['p4', 'p5'] },
+      { pair: ['p6', 'p7'] },
+    ], false);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.join()).toMatch(/已交手/);
+    expect(result.warnings.join()).toMatch(/8进4 · 胜者组 R1/);
+  });
+
   it('不在本波名单（已晋级选手）→ 错误', () => {
     const { record, wave } = w2Record();
     const result = validateDraftPairs(record, wave, [

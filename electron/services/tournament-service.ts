@@ -836,15 +836,43 @@ function playerBucketKey(record: TournamentRecord, playerId: string): string | u
   return `${entry.stageWins}-${entry.stageLosses}`;
 }
 
-function hasPlayed(record: TournamentRecord, stageIndex: number, a: string, b: string): boolean {
-  return record.waves
-    .filter((wave) => wave.stageIndex === stageIndex)
-    .some((wave) => wave.nodes.some((node) => node.winnerId
-      && ((node.playerAId === a && node.playerBId === b) || (node.playerAId === b && node.playerBId === a))));
+/** 已交手命中（含胜者的节点）所在场次 */
+interface PriorMeeting {
+  stageIndex: number;
+  waveIndex: number;
+  nodeId: string;
 }
 
 /**
- * 配对校验：每人恰好一次、同桶严格（跨桶需显式允许）、已交手仅提醒。
+ * 已交手判定（全赛程，含胜者的节点）：返回最近一次交手所在场次，本阶段内有则优先本阶段——
+ * 与前端 findPriorMeeting 同口径，「本阶段已交手」/「跨阶段重复相遇」两档提醒靠它区分。
+ */
+function findPriorMeeting(
+  record: TournamentRecord,
+  currentStageIndex: number,
+  a: string,
+  b: string,
+): PriorMeeting | null {
+  let sameStage: PriorMeeting | null = null;
+  let crossStage: PriorMeeting | null = null;
+  record.waves.forEach((wave) => {
+    wave.nodes.forEach((node) => {
+      if (node.winnerId
+        && ((node.playerAId === a && node.playerBId === b) || (node.playerAId === b && node.playerBId === a))) {
+        const hit = { stageIndex: wave.stageIndex, waveIndex: wave.waveIndex, nodeId: node.id };
+        if (wave.stageIndex === currentStageIndex) {
+          sameStage = hit;
+        } else {
+          crossStage = hit;
+        }
+      }
+    });
+  });
+  return sameStage ?? crossStage;
+}
+
+/**
+ * 配对校验：每人恰好一次、同桶严格（跨桶需显式允许）、已交手（本阶段或此前阶段）仅提醒。
  * 跨桶允许是**休眠能力**：标准双败流程（自动配对 / 确认台常规操作）不会产生跨桶对阵，
  * 仅手动配对或导入非常规对阵表时才由裁判显式开启（锁定二次确认、建场后标注「跨桶」）。
  */
@@ -894,8 +922,15 @@ function validatePairs(
       if (bucketA !== undefined && bucketB !== undefined && bucketA !== bucketB && !allowCrossBucket) {
         errors.push(`第 ${rowIndex + 1} 场为跨桶配对（战绩不对等），需显式允许`);
       }
-      if (hasPlayed(record, wave.stageIndex, a, b)) {
-        warnings.push(`第 ${rowIndex + 1} 场双方本阶段已交手过`);
+      const meeting = findPriorMeeting(record, wave.stageIndex, a, b);
+      if (meeting) {
+        if (meeting.stageIndex === wave.stageIndex) {
+          warnings.push(`第 ${rowIndex + 1} 场双方本阶段已交手过`);
+        } else {
+          // 跨阶段重复相遇：带上次交手的「阶段·轮次」出处（与 resolveTournamentLabels 同口径）
+          const label = resolveRecordRoundText(record, meeting);
+          warnings.push(`第 ${rowIndex + 1} 场双方在${label ? `「${label}」` : '此前阶段'}已交手过`);
+        }
       }
     }
   });
@@ -2264,8 +2299,22 @@ function resolveTournamentLabel(
     return null;
   }
   const record = store.find((item) => item.id === ref.tournamentId);
-  const stage = record?.stages[ref.stageIndex];
-  if (!record || !stage) {
+  if (!record) {
+    return null;
+  }
+  return resolveRecordRoundText(record, ref);
+}
+
+/**
+ * 系列赛记录 + 比赛引用 → 阶段·轮次文案（单败只给阶段名；双败给「阶段·胜者组 R1」等；季军赛给「季军赛」）；
+ * 引用失效返回 null。与前端 formatStageRoundLabel 同口径，配对提醒的「已交手」出处在用它。
+ */
+function resolveRecordRoundText(
+  record: TournamentRecord,
+  ref: { stageIndex: number; waveIndex: number; nodeId: string },
+): string | null {
+  const stage = record.stages[ref.stageIndex];
+  if (!stage) {
     return null;
   }
   // 季军赛不属于任何轮次：波次列表 / 比赛管理 / 推流选场统一显示「季军赛」，
