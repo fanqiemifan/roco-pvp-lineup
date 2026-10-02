@@ -118,7 +118,6 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
   const [matchTimesDraft, setMatchTimesDraft] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
 
-  /** page6/8 = 大标题 + 场序时间；page7 = 主标题 + 温馨提示 */
   const withSchedule = kind === 'page6' || kind === 'page8';
   const withNotice = kind === 'page7';
 

@@ -118,7 +118,6 @@ export function StatsView({
   onPage5DisplayChange,
 }: StatsViewProps) {
   const { message } = App.useApp();
-  // 合并后的明细卡片顶部切换：精灵排行 / 属性分布 / 各赛事阶段趋势
   const [chartMode, setChartMode] = React.useState<StatsChartMode>('rank');
   const stats = buildUsageStats(matches, spriteMap, tournaments, {
     player,

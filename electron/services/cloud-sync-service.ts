@@ -509,7 +509,8 @@ export function ackedMatchIdSet(paths: AppPaths): Set<string> {
  * 读取各分控端回传（主控端）：逐分控端读一次信箱。
  * **staleness 守卫**：KV 是最终一致的，刚确认完可能还读到确认前的旧值——序号不大于已确认水位的
  * 一律忽略（保留本地已清空的状态），否则界面上「待确认」数量会刚清完又冒出来。
- * 返回 { inbox, seqs }：seqs 是本次实际采纳的序号，用于刷新水位。
+ * 返回 { inbox, ackedInboxSeq }：ackedInboxSeq 沿用已确认水位（此处只读，仅用于 staleness 过滤；
+ * 水位的推进发生在 confirmCloudSync）。
  */
 async function readInbox(
   paths: AppPaths,
@@ -771,7 +772,6 @@ export function saveCloudSyncConfig(paths: AppPaths, input: CloudSyncConfigInput
 
   const next = saveRuntimeConfig(paths, patch);
 
-  // 重置旧房间状态必须在写名册之前：否则会把下面刚写进去的分控码名册一起清掉
   if (cloudStateAction === 'reset') {
     resetCloudLocalState(paths);
   }
@@ -1089,7 +1089,6 @@ export async function finalizeCloudPull(
       appliedVersion: changed ? Math.max(state.appliedVersion, state.pendingVersion ?? 0) : state.appliedVersion,
       pendingVersion: changed ? null : state.pendingVersion,
       lastPulledAt: new Date().toISOString(),
-      // 丢弃本机陈旧赛果等于撤回：主控回执里的 id 也要清掉，否则该场永远不会重新进入待回传集
       ackedMatchIds: discarded.size
         ? state.ackedMatchIds.filter((id) => !discarded.has(id))
         : state.ackedMatchIds,

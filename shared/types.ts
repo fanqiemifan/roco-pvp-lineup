@@ -156,18 +156,7 @@ export interface AvatarCollectionState {
 
 /**
  * 直播推流画面 key：决定推流载体页（index.html）要加载哪个推流页面。
- * - page1-overlay: 推流页面1（Overlay 比分栏布局）
- * - page2: 推流页面2（全局阵容展示）
- * - page3: 推流页面3（头像比分阵容）
- * - page4: 推流页面4（MVP 结算画面）
- * - page5: 推流页面5（使用率/胜率排行）
- * - page6: 推流页面6（比赛结果）
- * - page7: 推流页面7（对局推送）
- * - page8: 推流页面8（比赛预告）
- * - page9: 推流页面9（团队积分榜）
- * - page10: 推流页面10（胜者结算画面）
- * - page14: 推流页面14（晋级积分榜）
- * - blank: 黑场（不加载任何画面）
+ * 各 key 的含义与完整清单见 constants.ts 的 SUPPORTED_STAGE_PAGES（唯一真源）。
  */
 export type StagePageKey =
   | 'page1-overlay'
@@ -250,7 +239,7 @@ export interface Page7State {
 
 /**
  * 比赛预告（page8）状态：展示哪些待开始/进行中的比赛、大标题与场序时间排期。
- * 每场比赛一张 412×166 卡片：底板 + BO/场序 + 左右选手条（头像/名字/比分/rank）。
+ * 每场比赛一张卡片：底板 + BO/场序 + 左右选手条（头像/名字/比分/rank）。
  */
 export interface Page8State {
   /** 已选中的比赛 id（最多 9 个，顺序即展示顺序与卡片场序） */

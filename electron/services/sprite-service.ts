@@ -422,7 +422,6 @@ function collectNumberPrefixedMatches(
     return byPetId.sort(compareCandidateSprites).map((sprite, index) => asMatch(sprite, index, 'exact-pet-id'));
   }
 
-  // 图鉴编号候选集
   const numberValue = Number(digits);
   const byNumber = sprites.filter((sprite) => sprite.number === numberValue);
   if (byNumber.length === 0) {

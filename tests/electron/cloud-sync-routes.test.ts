@@ -481,7 +481,7 @@ describe('指派规则与登记入口', () => {
       selections: { left: [{ sprite: '3001' }], right: [{ sprite: '3002' }] },
     });
     const result = await postSub(`/api/matches/${matchId}/start`);
-    // 未被指派闸门拦下（200 表示放行，说明未启用云同步时不干预单机行为）
+    // 200 = 未被指派闸门拦下
     expect(result.status).toBe(200);
   });
 

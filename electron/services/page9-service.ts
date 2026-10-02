@@ -4,7 +4,6 @@ import type { Page9State, Page9TeamEntry } from '../../shared/types.js';
 import { ensureRuntimeDirs } from './image-service.js';
 import type { AppPaths } from './path-service.js';
 
-/** 团队积分榜页（page9）最多录入的战队数量 */
 export const PAGE9_MAX_TEAMS = 4;
 
 /** 单项积分最大位数（0-999） */
@@ -22,7 +21,6 @@ function normalizeTitle(value: unknown): string {
   return String(value ?? '').trim().slice(0, 40);
 }
 
-/** 战队名称：去除首尾空白，最长 40 字 */
 function normalizeTeamName(value: unknown): string {
   return String(value ?? '').trim().slice(0, 40);
 }

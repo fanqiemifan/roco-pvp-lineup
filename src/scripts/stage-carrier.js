@@ -9,22 +9,7 @@
      * 2. 建立 Socket.IO 连接，监听 stage:update 事件，实时切换画面。
      * 3. 切换时做淡入淡出过渡，加载失败展示回退提示。
      *
-     * 导播画面用页面 key 标识，支持的 key 与对应路径：
-     *   - page1-overlay : 推流页面1（Overlay 比分栏布局）  -> /roco-pvp-page1.html
-     *   - page2         : 推流页面2（全局阵容展示）       -> /roco-pvp-page2.html
-     *   - page3         : 推流页面3（头像比分阵容）       -> /roco-pvp-page3.html
-     *   - page4         : 推流页面4（MVP 结算画面）      -> /roco-pvp-page4.html
-     *   - page5         : 推流页面5（使用率/胜率排行）    -> /roco-pvp-page5.html
-     *   - page6         : 推流页面6（比赛结果）           -> /roco-pvp-page6.html
-     *   - page7         : 推流页面7（对局推送）           -> /roco-pvp-page7.html
-     *   - page8         : 推流页面8（比赛预告）           -> /roco-pvp-page8.html
-     *   - page9         : 推流页面9（团队积分榜）       -> /roco-pvp-page9.html
-     *   - page10        : 推流页面10（胜者结算画面）    -> /roco-pvp-page10.html
-     *   - page11        : 选手介绍-左侧选手             -> /roco-pvp-page11.html?mode=left
-     *   - page12        : 选手介绍-右侧选手             -> /roco-pvp-page11.html?mode=right
-     *   - page13        : 选手介绍-对战页               -> /roco-pvp-page11.html?mode=versus
-     *   - page14        : 推流页面14（晋级积分榜）       -> /roco-pvp-page14.html
-     *   - blank         : 黑场（不加载任何画面）
+     * 支持的画面 key 与对应路径见下方 STAGE_PAGES（唯一真源）。
      */
 
     var STAGE_PAGES = {

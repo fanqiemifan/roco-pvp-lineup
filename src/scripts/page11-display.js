@@ -235,7 +235,7 @@
         return { name, rank, declaration, pets, avatarState, profileAvatar };
     }
 
-    /* ---------- 比赛宣言自适应：先缩字号，仍超长再横向滚动 ---------- */
+    /* ---------- 比赛宣言自适应 ---------- */
 
     const DECLARE_FONT_MAX = 64;
     const DECLARE_FONT_MIN = 36;

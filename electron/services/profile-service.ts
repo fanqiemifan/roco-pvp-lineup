@@ -14,7 +14,6 @@ import { listSprites, matchSpriteToken } from './sprite-service.js';
 const NAME_MAX_LENGTH = 32;
 const TEXT_MAX_LENGTH = 120;
 const RANK_MAX_LENGTH = 10;
-/** 单类（选手/战队）录入数量上限 */
 const MAX_PLAYERS = 200;
 const MAX_TEAMS = 100;
 
@@ -384,7 +383,7 @@ export interface PlayerAvatarBatchReport {
   failed: Array<{ name: string; reason: string }>;
 }
 
-/** 取文件基础名（去目录与扩展名）用于匹配选手名字 */
+/** 用于匹配选手名字 */
 function avatarMatchName(fileName: string): string {
   const base = String(fileName ?? '').split(/[\\/]/).pop() ?? '';
   return base.replace(/\.[^.]+$/, '').trim();

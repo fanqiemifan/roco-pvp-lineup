@@ -1449,9 +1449,7 @@ export function onMatchUndo(paths: AppPaths, matchId: string): TournamentRecord 
       return;
     }
 
-    // 该波可能因为这场的结果打完而自动推进（生成了下一波 / 已进入下一阶段）。
-    // 只要后续波全部是「自动锁定且一场未打」，就随这次撤回一并丢弃，回到「该波结果待定」；
-    // 手工草稿（draft）或已有赛果的后续波不能静默删掉，仍要求走「回退上一波」。
+    // 后续波若可安全丢弃（见 isDiscardableTrailingWaves）则随本次撤回一并回退
     const trailingWaves = record.waves.slice(globalIndex + 1);
     if (trailingWaves.length) {
       if (!isDiscardableTrailingWaves(paths, trailingWaves)) {
@@ -1536,14 +1534,14 @@ export function mergeTournamentRecords(
     const localIndex = indexById.get(record.id);
     const local = localIndex === undefined ? null : records[localIndex];
 
-    // 包内是墓碑：清副本 + 留存墓碑（接收端也保留，"更老的旧包"在任何方向都无法复活）
+    // 包内是墓碑：清副本 + 留存墓碑（语义见函数 docstring）
     if (record.deletedAt) {
       const owner = getOwnerCode(record.id);
       if (owner && author && author !== owner) {
         skipped.push({ id: record.id, reason: '墓碑来源不是编排机（包作者与 id 内嵌码不符），已忽略' });
         return;
       }
-      // 本机移除（localOnly）不参与"保留最早删除时间"：真墓碑到达时整条替换（清除本机标记、采用包内名单）
+      // 本机移除（localOnly）不参与"保留最早删除时间"：真墓碑到达时整条替换
       if (local && local.deletedAt && !local.localOnly) {
         if (record.deletedAt < local.deletedAt) {
           records[localIndex as number] = record;
@@ -1799,7 +1797,6 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
       record.status = 'running';
     }
 
-    /** 重开指定阶段最后波：清节点胜者、复位比赛（pending），状态改 running */
     const reopenStageLastWave = (stageIndex: number): TournamentWave | undefined => {
       const stageWaves = record.waves.filter((item) => item.stageIndex === stageIndex);
       const lastWave = stageWaves[stageWaves.length - 1];

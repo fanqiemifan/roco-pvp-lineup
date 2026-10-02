@@ -211,13 +211,11 @@
         // 头像（按比赛 id 从 avatars 映射中取该场的头像）
         sideEl.appendChild(buildAvatar(side, matchAvatars ? matchAvatars[side] : null));
 
-        // 选手名字
         const name = document.createElement('div');
         name.className = 'page7-name';
         name.textContent = (side === 'left' ? match.leftPlayer : match.rightPlayer) || (side === 'left' ? '左侧' : '右侧');
         sideEl.appendChild(name);
 
-        // 排位排名图标
         sideEl.appendChild(buildRankIcon(side === 'left' ? match.leftRank : match.rightRank));
 
         // 精灵卡（该小局阵容，最多 6 张，每张 80x80 间隙 12px）
@@ -293,7 +291,6 @@
             card.appendChild(buildSide('left', match, game, matchAvatars));
             card.appendChild(buildSide('right', match, game, matchAvatars));
         } else {
-            // 空占位卡：icon-stay-tuned 居中
             card.className = 'page7-card page7-card-empty';
             const icon = document.createElement('img');
             icon.src = STAY_TUNED_ICON;

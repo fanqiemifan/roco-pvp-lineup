@@ -95,7 +95,6 @@ export function createAppPaths(projectRoot: string, userDataDir: string): AppPat
       return path.join(cacheDir, `${position}.json`);
     },
     avatarDir(matchId) {
-      // 头像按赛事隔离：cache/avatars/{matchId}
       return path.join(cacheDir, 'avatars', matchId ? String(matchId) : 'none');
     },
     avatarFile(side, matchId) {

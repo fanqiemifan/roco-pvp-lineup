@@ -504,7 +504,7 @@ function Dashboard() {
   const [tournaments, setTournaments] = useState<TournamentRecord[]>([]);
   // 本机已「本机移除」的系列赛（localOnly，仅本机视图隐藏）：恢复弹窗与比赛管理/推流选场过滤用
   const [locallyRemoved, setLocallyRemoved] = useState<TournamentRecord[]>([]);
-  // 晋级积分榜是否已配好系列赛：比赛/编排广播到达时决定要不要重取榜单
+  // 保持 page14ConfiguredRef 与最新配置同步（供读不到 state 的 socket 回调用）
   useEffect(() => {
     page14ConfiguredRef.current = Boolean(page14?.tournamentId);
   }, [page14?.tournamentId]);
@@ -520,7 +520,7 @@ function Dashboard() {
       .sort((a, b) => createdMs(a.player.id) - createdMs(b.player.id) || a.index - b.index)
       .map((item) => item.player);
   }, [profiles]);
-  // 信息录入卡片内切换视图：players = 选手信息，teams = 战队信息
+  // 信息录入卡片内切换视图（选手 / 战队）
   const [profileTab, setProfileTab] = useState<'players' | 'teams'>('players');
   const [playerEditorOpen, setPlayerEditorOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<PlayerProfile | null>(null);
@@ -606,7 +606,6 @@ function Dashboard() {
   const [syncExcludedTournamentIds, setSyncExcludedTournamentIds] = useState<string[]>([]);
   const [syncCollapsedGroupKeys, setSyncCollapsedGroupKeys] = useState<string[]>([]);
   const cloudPollTimerRef = useRef<number | null>(null);
-  // 比赛列表懒加载游标：先渲染 6 条，滚动到底部再追加 6 条
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
   const [liveFilePath, setLiveFilePath] = useState<string | null>(null);
@@ -1030,8 +1029,6 @@ function Dashboard() {
   useEffect(() => {
     void loadInitialData();
   }, []);
-
-  // 倒计时剩余时间的 500ms 节拍已下沉到 CountdownRemainingText 小组件，不再触发整个 Dashboard 协调
 
   // 切换/回显到待开始小局时，用赛事草稿槽位回填阵容编辑器：
   // pending 状态下全局面板被服务端清空（未开局阵容不上推流页），此前编辑器直接显示空面板，
@@ -1581,10 +1578,10 @@ function Dashboard() {
     }
   }
 
-  /** 快速创建比赛：从「信息录入」选手多选、校验为双数后随机配对生成多场对局（公平起见随机分配，杜绝固定对阵） */
   function toggleQuickCreatePlayer(name: string) {
     setQuickCreatePlayerNames((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
   }
+  /** 快速创建比赛：从「信息录入」选手多选、校验为双数后随机配对生成多场对局（公平起见随机分配，杜绝固定对阵） */
   async function quickCreateMatches() {
     const players = (profiles?.players ?? []).filter((player) => quickCreatePlayerNames.includes(player.name));
     if (players.length < 2) {
@@ -4370,7 +4367,6 @@ function Dashboard() {
 
   const SYNC_KIND_LABELS: Record<SyncImportItem['kind'], string> = { match: '比赛', player: '选手档案', team: '战队档案' };
   const SYNC_ACTION_LABELS: Record<SyncImportItem['action'], string> = { add: '新增', update: '更新', skip: '跳过' };
-  // 列表排序权重：更新排最前，其次新增，最后跳过
   const SYNC_ACTION_ORDER: Record<SyncImportItem['action'], number> = { update: 0, add: 1, skip: 2 };
   /** 预览条目排序：有变化的（更新 → 新增）在前，跳过在后；同一档里冲突优先 */
   const compareSyncItems = (a: SyncImportItem, b: SyncImportItem) => (
@@ -4418,7 +4414,6 @@ function Dashboard() {
     },
   ];
 
-  // 排序：处理 = 更新 的优先显示（其次新增、跳过）；同一组内冲突优先
   const syncPreviewItems = syncPreview
     ? [...syncPreview.matchItems, ...syncPreview.playerItems, ...syncPreview.teamItems].sort(compareSyncItems)
     : [];

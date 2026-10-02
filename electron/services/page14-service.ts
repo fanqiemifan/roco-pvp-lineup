@@ -6,7 +6,6 @@ import { ensureRuntimeDirs } from './image-service.js';
 import type { AppPaths } from './path-service.js';
 import { getTournamentStore, resolveStageStandings } from './tournament-service.js';
 
-/** 主标题 / 副标题最大字数 */
 const TITLE_MAX_LENGTH = 40;
 const SUBTITLE_MAX_LENGTH = 60;
 

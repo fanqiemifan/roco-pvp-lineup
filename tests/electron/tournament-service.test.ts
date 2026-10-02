@@ -90,7 +90,7 @@ function playMatchToEnd(matchId: string, winnerSide: 'left' | 'right'): void {
 
 /** 从当前 pending 系列赛比赛里逐场打完整个系列赛（随机胜者），返回最终记录 */
 function runWholeSeries(tournamentId: string): TournamentRecord {
-  // setup → running（若已开赛则为 no-op 式重复调用？start 仅 setup 可用）
+  // setup → running（start 仅 setup 可用）
   const initial = getTournamentStore(paths).find((item) => item.id === tournamentId);
   if (initial?.status === 'setup') {
     startTournament(paths, tournamentId);

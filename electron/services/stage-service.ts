@@ -78,7 +78,6 @@ function normalizePage11RankVisible(value: unknown): boolean {
   return typeof value === 'boolean' ? value : DEFAULT_PAGE11_RANK_VISIBLE;
 }
 
-/** 胜者结算画面（page10）停留时长单位：秒 / 分钟 */
 function normalizePage10DurationUnit(value: unknown): NextGameDurationUnit {
   return value === 'minutes' ? 'minutes' : DEFAULT_PAGE10_DURATION_UNIT as NextGameDurationUnit;
 }

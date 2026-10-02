@@ -173,7 +173,6 @@ export function showNextGame(paths: AppPaths, payload: unknown): NextGamePayload
   return getNextGamePayload(paths);
 }
 
-/** 关闭下一局比赛展示 */
 export function hideNextGame(paths: AppPaths): NextGamePayload {
   const current = getNextGameState(paths);
   writeNextGameState(paths, {

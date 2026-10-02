@@ -23,7 +23,6 @@
     // 服务端时钟偏差（serverNow - 收到时的本地时间），用于 endAt 换算
     var clockOffset = 0;
     var tickTimer = null;
-    // 当前状态缓存
     var currentState = null;
     // 上次渲染的秒数（避免重复写 DOM）
     var lastRenderedSeconds = -1;
@@ -86,7 +85,6 @@
         // 显示 / 隐藏（进退场动效由 CSS transition 完成）
         overlayEl.classList.toggle('is-visible', Boolean(state && state.visible));
 
-        // 配色
         var theme = state && state.theme === 'light' ? 'light' : 'dark';
         overlayEl.setAttribute('data-theme', theme);
 

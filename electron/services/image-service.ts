@@ -123,7 +123,6 @@ export async function saveAvatar(
 
   ensureRuntimeDirs(paths);
   fs.mkdirSync(paths.avatarDir(matchId), { recursive: true });
-  // 等比缩放并裁剪为正方形头像，统一压缩为 PNG 落盘
   const resized = await sharp(buffer)
     .rotate()
     .resize(AVATAR_OUTPUT_SIZE, AVATAR_OUTPUT_SIZE, { fit: 'cover' })
@@ -191,7 +190,7 @@ export async function saveProfilePlayerAvatar(paths: AppPaths, playerId: string,
   fs.writeFileSync(filePath, resized);
 }
 
-/** 战队 logo 统一缩放为 192×192 PNG（等比 contain，透明背景，避免裁切主体） */
+/** 战队 logo 统一缩放为 192×192 PNG（cover 裁剪填满，与选手头像一致） */
 export async function saveProfileTeamLogo(paths: AppPaths, teamId: string, buffer: Buffer): Promise<void> {
   const detectedMimeType = detectImageMimeType(buffer);
   if (!detectedMimeType) {

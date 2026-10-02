@@ -602,7 +602,6 @@ export async function createLocalServer(
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
 
-  // Session & cookie middleware for auth
   const sessionMiddleware = session({
     secret: process.env.SESSION_SECRET || 'roco-pvp-session-secret',
     resave: false,
@@ -681,7 +680,7 @@ export async function createLocalServer(
         return res.json({ success: true });
       }
     } catch {
-      // bcrypt compare failed — fall through to error
+      // 密码比对过程抛错 — 落到下方统一 401
     }
     res.status(401).json({ success: false, error: '账号或密码错误' });
   });
@@ -728,7 +727,6 @@ export async function createLocalServer(
         return res.status(401).json({ success: false, error: '请先登录' });
       }
       if (isPublicStatic || isPublicPage || isPublicPage5Api || isPublicAvatarImage || isAuthApi || isFavicon) return next();
-      // Verify both authenticated flag AND single-session ID match
       if (req.session?.isAuthenticated && req.session.sessionId === activeSessionId) return next();
 
     if (req.path.startsWith('/api/')) {

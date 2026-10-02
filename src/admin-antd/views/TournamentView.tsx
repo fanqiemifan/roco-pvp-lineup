@@ -1898,8 +1898,6 @@ function CreateTournamentModal({
   );
 }
 
-/** 阶段表占位辅助已移除（人数变化以 stagesBaseCount 判断） */
-
 /**
  * 向导第 4 步：本地拉取系列赛记录，复用 SetupDraftPanel；
  * 抽签/开赛后经 onChanged 重新拉取（未离开向导时可看到结果）。

@@ -273,8 +273,7 @@ export function TournamentNodeCard({
     </div>
   );
 
-  // 右键由卡片根 div 的 onContextMenu 直接打开 Drawer（不弹菜单，故不包 Dropdown），
-  // cardRef 留在卡片本体上，晋级图连线量测不受影响。
+  // 不包 Dropdown（右键行为见根 div onContextMenu）；cardRef 留在卡片本体上，晋级图连线量测不受影响
   return cardBody;
 }
 

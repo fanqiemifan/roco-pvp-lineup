@@ -26,7 +26,7 @@ function normalizePetId(value: unknown): string {
   return String(value ?? '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** 标签内容：去除首尾空白，最多四个字（空字符串 = 未标记） */
+/** 空字符串 = 未标记 */
 function normalizeTag(value: unknown): string {
   return String(value ?? '').trim().slice(0, MVP_TAG_MAX_LENGTH);
 }

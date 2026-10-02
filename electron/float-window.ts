@@ -219,7 +219,6 @@ function openFloatMenuWindow(
   );
 
   if (parentBounds && hasRect) {
-    // 定位到对应精灵上方，横向居中
     const spriteScreenX = parentBounds.x + rect!.x + rect!.width / 2;
     const spriteScreenY = parentBounds.y + rect!.y;
     x = Math.round(spriteScreenX - FLOAT_MENU_WIDTH / 2);

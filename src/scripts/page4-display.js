@@ -256,17 +256,15 @@
             }
         }
 
-        // tag div：内容可选，未标记时不显示
         const tagEl = itemEl.querySelector('.mvp-item-tag');
         tagEl.hidden = !tag;
         if (tag) {
             itemEl.querySelector('.mvp-item-tag-text').textContent = tag;
         }
 
-        // MVP div：仅标记为 MVP 的精灵显示
         itemEl.querySelector('.mvp-item-mvp').hidden = !isMvp;
 
-        // 精灵头像 div：复用 petsdiv3
+        // 精灵头像复用 petsdiv3 样式
         const avatarEl = itemEl.querySelector('.mvp-item-avatar');
         const avatarImg = avatarEl.querySelector('img');
         const sources = [iconUrl, spritePath].filter(Boolean);
