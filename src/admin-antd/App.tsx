@@ -44,7 +44,7 @@ import {
 import zhCN from 'antd/locale/zh_CN';
 import type { MenuProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { io } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 import { SOCKET_EVENTS } from '../../shared/events';
 import {
@@ -183,6 +183,14 @@ import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
 import { TournamentView } from './views/TournamentView';
+import { MatchLineupEntryCard } from './views/MatchLineupEntryCard';
+import { CardGuideDrawer } from './components/CardGuideDrawer';
+import { createAdminSocket } from './lib/socket';
+import {
+  recordGuideVisit,
+  viewGuideSteps,
+  viewGuideTitle,
+} from './lib/guide';
 
 import { type StatsMetricKey } from './lib/stats';
 
@@ -218,6 +226,49 @@ import type {
 const { Header, Sider, Content } = Layout;
 const { Title, Paragraph, Text, Link } = Typography;
 const { TextArea } = Input;
+
+/** 全部导航视图（用于 `?view=` 深链校验，避免把任意字符串塞进 view 状态） */
+const ALL_VIEW_KEYS: ViewKey[] = ['roster', 'stage', 'tournament', 'mvp', 'history', 'sync', 'profiles', 'page11', 'stats', 'preview', 'live', 'about'];
+
+/**
+ * 是否为「模拟会话」页面（admin-guide-demo 入口，URL 带 ?demo 或 ?view）。
+ * 判定只看 URL 参数：真机后台自己不会带这些参数，所以不会被误判。
+ */
+function isGuideDemoSession(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const params = new URLSearchParams(window.location.search);
+  return params.has('demo') || params.has('view');
+}
+
+/**
+ * 读取 `?view=` 深链：卡片帮助里的「模拟会话」用它直接停在指定视图。
+ * 校验失败返回 null（按默认视图打开）。
+ */
+function readDeepLinkView(): ViewKey | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const requested = new URLSearchParams(window.location.search).get('view');
+  if (requested && (ALL_VIEW_KEYS as string[]).includes(requested)) {
+    return requested as ViewKey;
+  }
+  return null;
+}
+
+/** 模拟会话里要自动打开哪个视图的引导（用于 iframe 深链；非模拟会话返回 null） */
+function readDemoView(): ViewKey | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has('demo') && !params.has('view')) {
+    return null;
+  }
+  const requested = params.get('view');
+  return requested && (ALL_VIEW_KEYS as string[]).includes(requested) ? (requested as ViewKey) : null;
+}
 
 /** 切换当前赛事确认弹窗的「不再提示」标记：按浏览器本地记忆（localStorage），跨会话保留 */
 const SELECT_MATCH_CONFIRM_SUPPRESSED_KEY = 'roco-pvp-lineup:selectMatchConfirmSuppressed';
@@ -622,6 +673,14 @@ function Dashboard() {
   const [createMatchForm] = Form.useForm<CreateMatchValues>();
   const [playerProfileForm] = Form.useForm<PlayerProfileFormValues>();
   const [teamProfileForm] = Form.useForm<TeamProfileFormValues>();
+
+  // === 本页怎么用（顶栏一个入口：右侧抽屉展示当前视图的步骤说明） ===
+  // 只写一条"读过哪些视图"的记录到 localStorage（guide:roco-pvp:v1:visits），不建接口、不进同步包。
+  const [cardGuideOpen, setCardGuideOpen] = useState(false);
+  // 模拟会话（内嵌 iframe）：记录当前要模拟哪个视图
+  const [demoView, setDemoView] = useState<ViewKey | null>(null);
+  // 悬浮窗操作练习（独立仿真页；入口在「本页怎么用」抽屉里，页面本身不再单放入口）
+  const [floatPracticeOpen, setFloatPracticeOpen] = useState(false);
 
   const liveApplyRef = useRef(false);
   const liveWriteRef = useRef(false);
@@ -1036,6 +1095,14 @@ function Dashboard() {
     void loadInitialData();
   }, []);
 
+  // `?view=` 深链：模拟会话直接停在指定视图（只认 URL 参数，不影响手动切视图）
+  useEffect(() => {
+    const deepLinkView = readDeepLinkView();
+    if (deepLinkView) {
+      setView(deepLinkView);
+    }
+  }, []);
+
   // 切换/回显到待开始小局时，用赛事草稿槽位回填阵容编辑器：
   // pending 状态下全局面板被服务端清空（未开局阵容不上推流页），此前编辑器直接显示空面板，
   // 造成“已登记阵容消失”的错觉，且空缓冲区被误编辑后自动保存会覆盖整份草稿
@@ -1064,10 +1131,8 @@ function Dashboard() {
   }, [matchStore, sprites]);
 
   useEffect(() => {
-    const socket = io({
-      transports: ['websocket', 'polling'],
-      query: { role: 'admin' },
-    });
+    // 模拟会话走假连接（一个真实长连接都不建），分流在 lib/socket.ts 里
+    const socket = createAdminSocket();
 
     socket.on(SOCKET_EVENTS.snapshot, (payload) => {
       applyServerState(payload ?? {});
@@ -4691,6 +4756,16 @@ function Dashboard() {
     return Array.from(groups.values()).filter((group) => group.key !== 'plain');
   })();
 
+  /** 是否处于模拟会话页（说明抽屉里不再提供“打开模拟会话”，避免套娃） */
+  const inDemoSession = isGuideDemoSession();
+
+  /** 打开「本页怎么用」抽屉：只记一条本机“读过”记录，不写服务端、不进同步包 */
+  function openCardGuide(targetView: ViewKey): void {
+    setCardGuideOpen(true);
+    recordGuideVisit(targetView);
+  }
+
+
   return (
     <Layout className="admin-shell">
       <Sider
@@ -4700,6 +4775,7 @@ function Dashboard() {
         collapsedWidth={64}
         trigger={null}
         className="admin-sider"
+        data-tour="nav"
       >
         <div className="brand-block">
           <span
@@ -4745,7 +4821,12 @@ function Dashboard() {
             {VIEW_LABEL[view]}
           </Title>
           <Space wrap>
+            {/* 唯一的说明入口：点开右侧抽屉，按步骤讲清当前这个视图怎么操作 */}
+            <Tooltip title={`${VIEW_LABEL[view]}：分成几步怎么操作`}>
+              <Button data-tour="guide-start" onClick={() => openCardGuide(view)}>本页怎么用</Button>
+            </Tooltip>
             <Button
+              data-tour="float-window"
               onClick={() => {
                 if (window.rocoFloat?.toggle) {
                   window.rocoFloat.toggle();
@@ -4783,6 +4864,7 @@ function Dashboard() {
                   <Card
                     className="roster-overview-card roster-match-list-card"
                     title="比赛列表"
+                    data-tour="roster-match-list"
                     extra={
                       <Space size={8}>
                         <Button onClick={() => { setQuickCreateKeyword(''); setQuickCreateOpen(true); }}>快速创建比赛</Button>
@@ -4828,6 +4910,7 @@ function Dashboard() {
                   <Card
                     className="roster-overview-card roster-current-card"
                     title="当前比赛"
+                    data-tour="current-match-panel"
                     extra={(
                       <Space wrap size={8} className="roster-card-head-extra">
                         {rosterNotice ? (
@@ -4927,18 +5010,21 @@ function Dashboard() {
 
               <Card
                 title="比赛管理"
+                data-tour="history-table"
                 extra={(
                   <Space wrap>
                     <Button onClick={exportHistoryCsv} disabled={!filteredMatches.length}>导出 CSV</Button>
                     {selectedHistoryKeys.length > 1 ? (
                       <Button onClick={() => void handleBatchTag()}>批量添加标签</Button>
                     ) : null}
-                    <Button danger disabled={!selectedHistoryKeys.length} onClick={() => void deleteHistoryMatches(selectedHistoryKeys.map(String))}>
-                      删除选中赛事
-                    </Button>
-                    <Button onClick={() => void undoDeletedHistoryMatches()} disabled={!matchStore.undo.canUndoDelete}>
-                      撤回最近删除
-                    </Button>
+                    <span data-tour="history-actions" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                      <Button danger disabled={!selectedHistoryKeys.length} onClick={() => void deleteHistoryMatches(selectedHistoryKeys.map(String))}>
+                        删除选中赛事
+                      </Button>
+                      <Button onClick={() => void undoDeletedHistoryMatches()} disabled={!matchStore.undo.canUndoDelete}>
+                        撤回最近删除
+                      </Button>
+                    </span>
                   </Space>
                 )}
               >
@@ -5167,8 +5253,9 @@ function Dashboard() {
                     <span>数据同步</span>
                   </Space>
                 )}
+                data-tour="sync-cloud"
               >
-                <div className="sync-card-row">
+                <div className="sync-card-row" data-tour="sync-machine">
                   <div className="sync-card-label">本机标识</div>
                   <div className="sync-card-content">
                     <Space size={10} align="center">
@@ -5210,7 +5297,7 @@ function Dashboard() {
                           包含头像与 logo
                         </Checkbox>
                       </Space>
-                      <Button type="primary" onClick={() => void exportSyncBundle()} loading={syncExporting}>导出同步包</Button>
+                      <Button type="primary" data-tour="sync-export" onClick={() => void exportSyncBundle()} loading={syncExporting}>导出同步包</Button>
                     </div>
                     <div className="sync-card-hint">赛前可把包发给另一台机器导入，做「基线分发」；同一场比赛不要在两台机器分别创建</div>
                   </div>
@@ -5219,7 +5306,7 @@ function Dashboard() {
                 <Divider className="sync-card-divider" />
 
                 <div className="sync-card-row">
-                  <div className="sync-card-label">导入同步包</div>
+                  <div className="sync-card-label" data-tour="sync-import">导入同步包</div>
                   <div className="sync-card-content">
                     <Upload
                       accept=".json,application/json"
@@ -6061,6 +6148,7 @@ function Dashboard() {
           {view === 'profiles' ? (
             <Card
               title="信息录入"
+              data-tour="profiles-card"
               extra={
                 <Space size={12}>
                   <Segmented
@@ -6244,7 +6332,12 @@ function Dashboard() {
             <Space direction="vertical" size={18} className="page-stack">
               <Card
                 title="选手介绍画面切换"
-                extra={<Button href="/roco-pvp-page11.html?mode=left" target="_blank">打开介绍页面</Button>}
+                data-tour="page11-switch"
+                extra={(
+                  <Space wrap>
+                    <Button href="/roco-pvp-page11.html?mode=left" target="_blank">打开介绍页面</Button>
+                  </Space>
+                )}
               >
                 <Space direction="vertical" size={16} className="page-stack">
                   <Paragraph type="secondary" style={{ marginBottom: 0 }}>
@@ -6282,6 +6375,7 @@ function Dashboard() {
 
               <Card
                 title="选手介绍数据"
+                data-tour="page11-data"
                 extra={(
                   <Button type="primary" loading={page11Saving} onClick={() => void savePage11Settings()}>
                     保存选手介绍设置
@@ -6416,6 +6510,7 @@ function Dashboard() {
             <Space direction="vertical" size={18} className="page-stack">
               <Card
                 title="实时控制"
+                data-tour="live-control"
                 extra={(
                   <Space wrap>
                     <Button onClick={() => void loadInitialData(true)}>重新加载</Button>
@@ -6433,7 +6528,7 @@ function Dashboard() {
                       onClose={() => setLiveNotice(null)}
                     />
                   ) : null}
-                  <Row gutter={[18, 18]}>
+                  <Row gutter={[18, 18]} data-tour="live-panels">
                     {(['left', 'right'] as PanelSide[]).map((side) => (
                       <Col key={side} xs={24} xl={12}>
                         <Card title={side === 'left' ? '左侧实时面板' : '右侧实时面板'}>
@@ -6519,6 +6614,7 @@ function Dashboard() {
               <Card
                 className="stage-control-card"
                 title="MVP 结算画面（推流页面4）"
+                data-tour="mvp-load"
                 extra={(
                   <Space wrap>
                     <Button href="/roco-pvp-page4.html" target="_blank">打开结算画面</Button>
@@ -6533,7 +6629,7 @@ function Dashboard() {
                   </Paragraph>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} xl={10}>
-                      <Card size="small" className="subtle-card" title="显示控制">
+                      <Card size="small" className="subtle-card" title="显示控制" data-tour="mvp-control">
                         <Space direction="vertical" size={12} className="control-stack">
                           <Space wrap>
                             <Button type="primary" loading={mvpSaving} disabled={!mvpMarked} onClick={() => void showMvpSettlement()}>
@@ -6626,7 +6722,7 @@ function Dashboard() {
                       </Card>
                     </Col>
                   </Row>
-                  <Card size="small" className="subtle-card" title="精灵项标签与 MVP 标记">
+                  <Card size="small" className="subtle-card" title="精灵项标签与 MVP 标记" data-tour="mvp-slots">
                     <Space direction="vertical" size={10} className="page-stack" style={{ width: '100%' }}>
                       {mvpSlotsDraft.map((slot, index) => {
                         const sprite = slot.petId ? spriteMap.get(slot.petId) : null;
@@ -6698,7 +6794,9 @@ function Dashboard() {
                 title="直播推流"
                 extra={
                   <Space wrap>
-                    <Button href="/" target="_blank">打开推流页面</Button>
+                    <span data-tour="stage-address" style={{ display: 'inline-flex' }}>
+                      <Button href="/" target="_blank">打开推流页面</Button>
+                    </span>
                     <Button onClick={handleCopyStageLocalAddress}>复制推流页地址</Button>
                   </Space>
                 }
@@ -6708,7 +6806,7 @@ function Dashboard() {
                     推流软件（OBS 等）只需固定捕获根路径 <code>/</code>。在此切换后，推流页面会实时加载所选画面，无需修改推流来源；画面与倒计时等设置已收进顶栏（倒计时 / 下一场预告 / 画面设置），页面5统计口径改到「数据统计」中设置；团队积分榜为批量录入，仍需点击保存。
                   </Paragraph>
                   <Row gutter={[16, 16]}>
-                    {STAGE_OPTIONS.map((option) => {
+                    {STAGE_OPTIONS.map((option, optionIndex) => {
                       const active = (stage?.page ?? null) === option.value;
                       return (
                         <Col xs={24} sm={12} md={8} key={option.value}>
@@ -6716,6 +6814,9 @@ function Dashboard() {
                             size="small"
                             hoverable
                             className={`stage-card ${active ? 'stage-card-active' : ''}`}
+                            // data-tour：只标第一张卡而不是整排网格——网格有 8 张卡、高度远超一屏，
+                            // 将来若要直接指向它，指整块会把高亮区推出画面外。
+                            data-tour={optionIndex === 0 ? 'stage-cards' : undefined}
                             onClick={() => void saveStage(option.value)}
                           >
                             <Space direction="vertical" size={6} className="page-stack" style={{ width: '100%' }}>
@@ -6736,6 +6837,7 @@ function Dashboard() {
                       <Card
                         size="small"
                         className="subtle-card stage-settings-card"
+                        data-tour="stage-page9"
                         title="团队积分榜设置（推流页面9）"
                         extra={(
                           <Button type="primary" loading={page9Saving} onClick={() => void savePage9Settings()}>
@@ -6833,7 +6935,11 @@ function Dashboard() {
               <Card
                 className="preview-page-card"
                 title={getPreviewPage(previewSlot).title}
-                extra={<Button type="primary" href={buildPreviewUrl(previewSlot)} target="_blank">新窗口打开</Button>}
+                extra={(
+                  <Space wrap>
+                    <Button type="primary" href={buildPreviewUrl(previewSlot)} target="_blank">新窗口打开</Button>
+                  </Space>
+                )}
               >
                 <Space direction="vertical" size={16} className="page-stack">
                   <Segmented
@@ -6855,14 +6961,14 @@ function Dashboard() {
                   />
                   <Row gutter={[16, 16]}>
                     <Col xs={24} md={12}>
-                      <Card size="small" className="subtle-card preview-info-card">
+                      <Card size="small" className="subtle-card preview-info-card" data-tour="preview-address">
                         <Statistic title="本地部署地址" value={getLocalAddressText(previewSlot)} />
                         <Divider />
                         <Button block onClick={() => void handleCopyLocalAddress()}>复制地址</Button>
                       </Card>
                     </Col>
                     <Col xs={24} md={12}>
-                      <Card size="small" className="subtle-card preview-info-card">
+                      <Card size="small" className="subtle-card preview-info-card" data-tour="preview-address">
                         <Statistic title="完整预览链接" value={buildPreviewUrl(previewSlot)} />
                         <Divider />
                         <Button block onClick={() => void handleCopyPreviewLink()}>复制链接</Button>
@@ -6910,7 +7016,7 @@ function Dashboard() {
 
           {view === 'about' ? (
             <Space direction="vertical" size={18} className="page-stack">
-              <Card title="项目链接">
+              <Card title="项目链接" data-tour="about-links">
                 <Space wrap size={12}>
                   <Link href="/login.html" target="_blank">登录页入口</Link>
                   <Link href="/admin.html" target="_blank">当前后台入口</Link>
@@ -7096,6 +7202,65 @@ function Dashboard() {
         onClose={() => setLineupEntry(null)}
         onSaved={(store) => applyServerState({ store })}
       />
+
+      {/* 本页怎么用：右侧抽屉展示当前视图的步骤说明（不跑 Tour、不自动弹，随时可关） */}
+      <CardGuideDrawer
+        open={cardGuideOpen}
+        view={view}
+        inDemoSession={inDemoSession}
+        onOpenDemo={(targetView) => {
+          setCardGuideOpen(false);
+          setDemoView(targetView);
+        }}
+        onOpenFloatPractice={() => {
+          setCardGuideOpen(false);
+          setFloatPracticeOpen(true);
+        }}
+        onClose={() => setCardGuideOpen(false)}
+      />
+
+      {/* 模拟会话：内嵌独立页面（/admin-guide-demo.html?view=xxx）。
+          那边跑的是同一个后台 bundle，但网络出口被换成内存假数据 —— 随便点都不会动到真实赛事。 */}
+      <Drawer
+        title="模拟会话（假数据）"
+        placement="right"
+        width="min(1200px, 96vw)"
+        open={Boolean(demoView)}
+        onClose={() => setDemoView(null)}
+        destroyOnHidden
+        mask={false}
+        zIndex={1040}
+      >
+        {demoView ? (
+          <iframe
+            title="模拟会话"
+            src={`/admin-guide-demo.html?view=${encodeURIComponent(demoView)}`}
+            style={{ width: '100%', height: 'calc(100vh - 130px)', border: 0, borderRadius: 8 }}
+          />
+        ) : null}
+      </Drawer>
+
+      {/* 悬浮窗操作练习：内嵌独立静态页（/float-guide-demo.html）。
+          该页是纯仿真，不连 socket、不写任何运行时数据，也完全不碰真实悬浮窗。
+          入口在「本页怎么用」抽屉里（赛事面板/直播推流的说明带这个流程）。 */}
+      <Drawer
+        title="悬浮窗操作练习"
+        placement="right"
+        width="min(1000px, 92vw)"
+        open={floatPracticeOpen}
+        onClose={() => setFloatPracticeOpen(false)}
+        destroyOnHidden
+        mask={false}
+        zIndex={1040}
+      >
+        {floatPracticeOpen ? (
+          <iframe
+            title="悬浮窗操作练习"
+            src="/float-guide-demo.html"
+            style={{ width: '100%', height: 'calc(100vh - 130px)', border: 0, borderRadius: 8 }}
+          />
+        ) : null}
+      </Drawer>
 
       {/* 顶栏弹窗：倒计时控制（原「直播推流 / 倒计时插件」卡片） */}
       <Modal

@@ -405,10 +405,12 @@ export function TournamentView({
         title="系列赛列表"
         extra={(
           <Space>
+            {/* 卡片帮助：讲创建/继续配置/本机移除/定向同步怎么用 */}
             <Button onClick={() => setLocalRemovedOpen(true)}>
               已本机移除 ({locallyRemoved.length})
             </Button>
-            <Button type="primary" onClick={() => setCreateOpen(true)}>
+            {/* data-tour：新手引导第 2 步的锚点（用属性定位，不依赖组件库内部 class） */}
+            <Button type="primary" data-tour="tournament-create" onClick={() => setCreateOpen(true)}>
               ＋ 创建系列赛
             </Button>
           </Space>
@@ -667,6 +669,7 @@ function TournamentDetail({
   return (
     <Card
       title={`系列赛详情 · ${record.name}`}
+      data-tour="tournament-detail"
       extra={(
         <Space>
           {readOnly ? (
@@ -675,7 +678,8 @@ function TournamentDetail({
           <Tag color={getTournamentStatusMeta(record).color}>
             {getTournamentStatusMeta(record).label}
           </Tag>
-          <Button onClick={() => setLineupExportOpen(true)}>导出阵容模板</Button>
+          {/* 卡片帮助：讲回退上一波 / 卡片右键菜单 / 配对确认台 / 阵容表导入导出怎么用 */}
+          <Button data-tour="tournament-lineup" onClick={() => setLineupExportOpen(true)}>导出阵容模板</Button>
           <Button onClick={() => setLineupImportOpen(true)}>导入阵容</Button>
           <Button onClick={onSync}>定向同步</Button>
           <Popconfirm
@@ -685,7 +689,7 @@ function TournamentDetail({
             cancelText="取消"
             onConfirm={() => void handleRollback()}
           >
-            <Button disabled={record.waves.length === 0 || readOnly}>↺ 回退上一波</Button>
+            <Button data-tour="tournament-rollback" disabled={record.waves.length === 0 || readOnly}>↺ 回退上一波</Button>
           </Popconfirm>
           <Button danger disabled={readOnly} onClick={onDelete}>删除系列赛</Button>
           {readOnly ? (
@@ -1331,7 +1335,7 @@ function PairingConsole({
   };
 
   return (
-    <div>
+    <div data-tour="tournament-pairing">
       <Space style={{ marginBottom: 12 }} wrap>
         <Button
           className={`tournament-shuffle-btn${drawing ? ' is-drawing' : ''}`}

@@ -60,9 +60,78 @@ a {
   z-index: 3;
 }
 
+/* ==================== 新手引导（卡片「怎么用」/ 帮助抽屉 / 模拟会话） ==================== */
+
+/* 卡片右上角的「怎么用」：弱化成链接按钮，不跟卡片主操作抢视觉 */
+.card-guide-btn {
+  padding: 0 4px;
+  height: 24px;
+  color: #8c8378;
+}
+
+.card-guide-btn:hover {
+  color: #c7632f;
+}
+
+/* 帮助抽屉里的步骤卡：当前选中项左侧加一道主色条，读起来像步骤清单 */
+.guide-step-card {
+  border-left: 3px solid transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.guide-step-card.is-active {
+  border-left-color: #c7632f;
+  background: #fff8f2;
+}
+
+/* 模拟会话横幅：常驻页顶，提醒"这是假数据"，自带重置入口 */
+.roco-demo-banner {
+  position: sticky;
+  top: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  background: #fff4e6;
+  border-bottom: 1px solid #f0dcc2;
+  color: #7a6247;
+  font-size: 13px;
+}
+
+.roco-demo-banner-tag {
+  background: #c7632f;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 1px 8px;
+}
+
+.roco-demo-banner-text {
+  flex: 1 1 auto;
+  min-width: 220px;
+}
+
+.roco-demo-banner-btn {
+  appearance: none;
+  border: 1px solid #e2cdb2;
+  border-radius: 6px;
+  background: #fff;
+  color: #7a6247;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 3px 12px;
+  cursor: pointer;
+}
+
+.roco-demo-banner-btn:hover {
+  border-color: #c7632f;
+  color: #c7632f;
+}
+
 /* 导航栏 SVG 图标：跟随菜单文字/选中态配色（素材填充已转 currentColor） */
-.nav-icon {
-  color: inherit;
+.nav-icon {  color: inherit;
   line-height: 0;
   vertical-align: -0.2em;
   display: inline-flex;

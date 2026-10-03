@@ -98,8 +98,11 @@ roco-pvp-lineup/
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、各系列赛阶段趋势；系列赛 / 标签 / 选手筛选） |
 | views/TournamentLineupExportModal.tsx | 系列赛「导出阵容模板」弹窗（范围过滤 → 一场两行 .xlsx，精灵列带下拉） |
 | views/TournamentLineupImportModal.tsx | 系列赛「导入阵容」弹窗（.xlsx/CSV/TSV/JSON → 预览消歧 → 批量写入） |
+| views/MatchLineupEntryCard.tsx | 比赛管理顶部「阵容录入」入口卡（复用上面两个系列赛弹窗，单场录入仍在表格展开行） |
+| components/CardGuideDrawer.tsx | 「本页怎么用」抽屉（顶栏唯一说明入口：当前视图的步骤清单 + 开模拟会话 / 悬浮窗练习），内容取自 lib/guide 的视图注册表 |
+| demo/ | 「模拟会话」内核：demo-store（内存假数据 store + fetch/XHR/WebSocket 拦截）/ demo-fixtures（示例赛事种子）/ demo-session（渲染前装拦截层与横幅）/ demo-socket（假 socket） |
 | components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）、TournamentNodeCard（系列赛对局卡片，晋级图与波次列表共用）、CurrentMatchPanel（「当前比赛」面板，赛事面板与系列赛 Drawer 共用）等小组件 |
-| lib/ | format、history、last-tournament（系列赛「上次操作」本地记忆）、lineup-sheet（系列赛阵容表：模板计划与回填解析）、lineup-template-xlsx（xlsx 模板渲染：隐藏「精灵列表」+ 跨表下拉）、match-actions（对局卡片动作可用性判据）、live、match、panel、preview、request、sprite、stats 通用逻辑 |
+| lib/ | format、guide（「本页怎么用」的每视图步骤注册表 `VIEW_GUIDES` + localStorage `guide:roco-pvp:v1:visits`）、socket（socket 连接工厂：模拟会话走假连接）、history、last-tournament（系列赛「上次操作」本地记忆）、lineup-sheet（系列赛阵容表：模板计划与回填解析）、lineup-template-xlsx（xlsx 模板渲染：隐藏「精灵列表」+ 跨表下拉）、match-actions（对局卡片动作可用性判据）、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |
 | styles.css | 管理后台样式 |
@@ -127,6 +130,7 @@ roco-pvp-lineup/
 | float.js | 桌面阵容悬浮窗脚本 |
 | float-menu.js | 更换精灵菜单脚本 |
 | float-nextgame.js | 「下场对局」选择菜单脚本（列出待开始比赛、搜索、选中后 /api/nextgame/show） |
+| float-guide-demo.js | 悬浮窗操作练习页脚本（纯仿真：假数据 + 页内状态，不连 socket、不调 /api/panels、不写 localStorage） |
 
 ### 页面模板（src/pages）
 
@@ -148,6 +152,8 @@ roco-pvp-lineup/
 | float.html | 桌面阵容悬浮窗 |
 | float-menu.html | 更换精灵菜单 |
 | float-nextgame.html | 「下场对局」选择菜单（300×320 popup，float.js 打开） |
+| float-guide-demo.html | 悬浮窗操作练习页（新手引导内嵌 iframe；公开免鉴权，不进推流画面注册点） |
 | match-result.html | 赛后战绩展示（当前无路由与引用，未接线） |
 | admin-antd.html | 管理后台入口（Vite 构建产物，位于 dist/） |
+| admin-guide-demo.html | 「模拟会话」入口（同一份后台 bundle 的另一个入口，URL 带 ?demo / ?view 时进假数据模式；供卡片帮助内嵌 iframe） |
 | login.html | 登录页入口（Vite 构建产物，位于 dist/） |

@@ -213,6 +213,8 @@ export function TournamentNodeCard({
     <div
       className={`tournament-node-card bracket-card bracket-card-${card.status}${isActive ? ' bracket-card-active' : ''}${isDimmed ? ' bracket-card-dimmed' : ''}`}
       ref={cardRef}
+      // 新手引导锚点：讲「右键打开面板 / ⋯ 菜单 / 弃权」都指向它（每张卡片都有，Tour 取第一个即可）
+      data-tour="tournament-node-card"
       // 右键卡片任意位置 = 直接打开对局面板（Drawer）；菜单走右上「⋯」按钮，不再在这里弹菜单
       onContextMenu={(event) => {
         if (menu && matchId && onOpenPanel) {

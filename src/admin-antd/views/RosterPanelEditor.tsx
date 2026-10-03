@@ -229,6 +229,7 @@ export function RosterPanelEditor({
     <Card
       className="panel-editor-card"
       title="当前阵容"
+      data-tour="roster-slots"
       extra={(
         <Space wrap>
           <Text type="secondary">

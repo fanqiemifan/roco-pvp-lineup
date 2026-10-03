@@ -337,7 +337,10 @@ export function StatsView({
 
   return (
     <Space direction="vertical" size={18} className="page-stack">
-      <Card title="统计口径">
+      <Card
+        title="统计口径"
+        data-tour="stats-scope"
+      >
         <Space wrap size={12}>
           <Segmented
             value={metric}
@@ -377,7 +380,10 @@ export function StatsView({
         </Space>
       </Card>
 
-      <Card title="推流页面5 显示设置">
+      <Card
+        title="推流页面5 显示设置"
+        data-tour="stats-page5"
+      >
         <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
           以下三项控制「推流页面5」的画面内容（标题、统计范围），与上方统计筛选相互独立；修改即时保存生效。
         </Text>

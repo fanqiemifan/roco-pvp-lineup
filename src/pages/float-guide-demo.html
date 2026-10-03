@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>悬浮窗操作练习 · 洛克王国世界阵容同步推流</title>
+    <!--
+      悬浮窗操作练习页（原生 JS，静态伺服，不属于 Vite 构建）。
+
+      为什么单独做一页：真实悬浮窗（float.html）是 electron 的无边框透明置顶小窗，
+      窗口尺寸固定（587×56）且被 setShape 裁成阵容条区域，任何页内引导都会被裁掉；
+      而裁判又恰恰是最需要练手的人。这里用**仿真窗 + 假数据**复刻同一套操作，
+      放在后台用「引导 / 画面设置」里的入口打开练习——完全不动 float.html / float.js。
+
+      ⚠ 本页不连 socket、不调 /api/panels，所有点选只改页内状态：
+        练习不会改真实阵容、不会切推流画面、不写任何运行时数据。
+    -->
+    <link rel="stylesheet" href="/styles/float-guide-demo.css">
+    <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
+</head>
+<body>
+    <main class="demo-shell">
+        <header class="demo-header">
+            <div>
+                <h1 class="demo-title">悬浮窗操作练习</h1>
+                <p class="demo-subtitle">照着真实悬浮窗点一遍，熟悉裁判的日常操作</p>
+            </div>
+            <button id="demoResetBtn" class="demo-btn" type="button">重来一次</button>
+        </header>
+
+        <p class="demo-notice">
+            <span class="demo-notice-tag">模拟页</span>
+            这里用的是<strong>假数据</strong>：点什么都不会改真实阵容、不会切推流画面、不写任何运行时数据。
+            真实悬浮窗在后台顶栏点「阵容悬浮窗」打开。
+        </p>
+
+        <section class="demo-stage" aria-label="悬浮窗模拟区域">
+            <div class="demo-game-layer" aria-hidden="true">
+                <div class="demo-game-hint">游戏画面（示意）</div>
+                <div class="demo-game-vs">洛克王国世界 · PVP 对局</div>
+            </div>
+
+            <!-- 悬浮窗仿真：结构与 float.html 一致（lineup-all-div + 左右 lineup + 中央圆钮 + 关闭按钮） -->
+            <div id="demoFloatBar" class="demo-float-bar" role="region" aria-label="悬浮窗仿真（可拖动）">
+                <div class="lineup-all-div">
+                    <section class="lineup lineup-left" aria-label="左侧阵容"></section>
+                    <section class="lineup lineup-right" aria-label="右侧阵容"></section>
+                    <button id="demoNextGameBtn" class="float-nextgame-btn" type="button" title="选择下场对局"></button>
+                </div>
+                <button id="demoCloseBtn" class="float-close" type="button" title="关闭悬浮窗">×</button>
+            </div>
+
+            <!-- 右键菜单（页内浮层，模拟真实的更换精灵小窗） -->
+            <div id="demoSpriteMenu" class="demo-popup demo-sprite-menu" hidden>
+                <div class="demo-popup-head">
+                    <span id="demoSpriteMenuTitle">更换精灵</span>
+                    <button id="demoSpriteMenuClose" class="demo-popup-close" type="button" title="关闭">×</button>
+                </div>
+                <input id="demoSpriteSearch" class="demo-input" type="text" placeholder="搜索精灵名称">
+                <div id="demoSpriteList" class="demo-sprite-list"></div>
+            </div>
+
+            <!-- 下场对局选择（页内浮层，模拟真实的 float-nextgame 小窗） -->
+            <div id="demoNextGameMenu" class="demo-popup demo-nextgame-menu" hidden>
+                <div class="demo-popup-head">
+                    <span>选择下场对局</span>
+                    <button id="demoNextGameClose" class="demo-popup-close" type="button" title="关闭">×</button>
+                </div>
+                <ul id="demoNextGameList" class="demo-nextgame-list"></ul>
+                <p class="demo-popup-hint">真实窗口里选中后，推流页 3 会显示「下场」预告。</p>
+            </div>
+
+            <!-- 关闭悬浮窗：窗口被隐藏（真实窗口可再从后台顶栏打开） -->
+            <div id="demoHiddenMask" class="demo-hidden-mask" hidden>
+                <p>悬浮窗已隐藏</p>
+                <button id="demoReopenBtn" class="demo-btn demo-btn-primary" type="button">重新显示悬浮窗</button>
+            </div>
+        </section>
+
+        <section class="demo-checklist" aria-label="操作要点">
+            <h2 class="demo-h2">四个操作要点</h2>
+            <ul id="demoChecklist" class="demo-checklist-list">
+                <li data-check="dead">左键点精灵 = 判<strong>阵亡</strong>，再点一次复活（阵亡后头像变灰）</li>
+                <li data-check="swap">右键点精灵 = 打开「更换精灵」，换掉这一只</li>
+                <li data-check="next">点中间圆钮 = 选「下场对局」</li>
+                <li data-check="drag">按住阵容条空白处拖动 = 挪窗口位置</li>
+                <li data-check="close">鼠标移到阵容条上，右上角出现 × = 关闭悬浮窗</li>
+            </ul>
+            <p id="demoProgress" class="demo-progress">已练习 0 / 5</p>
+        </section>
+
+        <section class="demo-notes" aria-label="说明">
+            <h2 class="demo-h2">为什么它总是压在最上面</h2>
+            <p>
+                真实悬浮窗是<b>无边框透明窗口</b>，尺寸固定、整块可拖动，并设置了始终置顶（连全屏游戏上也盖得住），
+                所以裁判可以一边看游戏一边点阵亡，不用切窗口。
+            </p>
+            <p>
+                点阵亡、换精灵都会立刻同步到推流画面与记分牌；<b>录制或投屏时注意</b>：
+                悬浮窗是独立窗口，屏幕录制会把它一起录进去。
+            </p>
+        </section>
+    </main>
+
+    <script src="/scripts/float-guide-demo.js"></script>
+</body>
+</html>

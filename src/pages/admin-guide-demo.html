@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>模拟会话 · 洛克王国世界阵容同步推流</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
+</head>
+<body>
+  <!--
+    「模拟会话」入口：与 admin-antd.html 完全同一个应用，只是 URL 带参数时（?demo / ?view=）
+    由 main.tsx 动态加载 demo/demo-session（拦截层用假数据接管所有网络出口），
+    并按 ?view= 直接停在指定视图。给「卡片帮助」抽屉里内嵌 iframe 用。
+  -->
+  <div id="root"></div>
+  <script type="module" src="/src/admin-antd/main.tsx"></script>
+</body>
+</html>

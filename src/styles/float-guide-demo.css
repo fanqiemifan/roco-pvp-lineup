@@ -1,0 +1,544 @@
+/* 悬浮窗操作练习页样式（原生 CSS，静态伺服）。
+   配色/圆角沿用后台与展示页的暖色调（与 float.css / roco-pvp-lineup.css 同一套视觉语言），
+   但刻意**不 import 生产样式**：练习页要能独立演进，且绝不能因为改了这里而影响真实推流画面。 */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    min-height: 100vh;
+    background: #f5f1ea;
+    color: #3d3d3d;
+    font-family: "Microsoft YaHei", "Avenir Next", sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    padding: 22px 18px 40px;
+}
+
+.demo-shell {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.demo-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.demo-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #2f2f2f;
+}
+
+.demo-subtitle {
+    font-size: 13px;
+    color: #8c8378;
+}
+
+.demo-h2 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #2f2f2f;
+    margin-bottom: 8px;
+}
+
+/* ---------- 按钮 ---------- */
+
+.demo-btn {
+    appearance: none;
+    border: 1px solid #d9cfc0;
+    border-radius: 8px;
+    background: #fff;
+    color: #5b4a37;
+    font-size: 13px;
+    font-family: inherit;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.demo-btn:hover {
+    border-color: #c7632f;
+    color: #c7632f;
+}
+
+.demo-btn-primary {
+    background: #c7632f;
+    border-color: #c7632f;
+    color: #fff;
+}
+
+.demo-btn-primary:hover {
+    background: #b05524;
+    border-color: #b05524;
+    color: #fff;
+}
+
+/* ---------- 顶部提示 ---------- */
+
+.demo-notice {
+    position: relative;
+    background: #fff8ee;
+    border: 1px solid #f0dcc2;
+    border-radius: 10px;
+    padding: 12px 14px 12px 78px;
+    font-size: 13px;
+    color: #7a6247;
+}
+
+.demo-notice-tag {
+    position: absolute;
+    left: 14px;
+    top: 13px;
+    background: #c7632f;
+    color: #fff;
+    border-radius: 6px;
+    font-size: 12px;
+    padding: 1px 8px;
+}
+
+/* ---------- 模拟舞台（16:9） ---------- */
+
+.demo-stage {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    min-height: 320px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: linear-gradient(160deg, #23304a 0%, #1b2436 55%, #12161f 100%);
+    border: 1px solid #2c3550;
+    box-shadow: 0 10px 26px rgba(24, 20, 14, 0.18);
+    user-select: none;
+}
+
+.demo-game-layer {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: rgba(255, 255, 255, 0.34);
+    pointer-events: none;
+}
+
+.demo-game-hint {
+    border: 1px dashed rgba(255, 255, 255, 0.22);
+    border-radius: 8px;
+    padding: 4px 14px;
+    font-size: 12px;
+}
+
+.demo-game-vs {
+    font-size: 20px;
+    letter-spacing: 2px;
+}
+
+/* ---------- 悬浮窗仿真 ----------
+   尺寸口径抄自真实悬浮窗的 roco-pvp-lineup.css + float.css：
+   底板 782×74（圆角 20、浅色 #f7f2e8、2px 描边），两侧 lineup 距边 20px、槽位 98px 缩到 0.61224，
+   整块按 587×56 呈现（真实窗口就是把 782×74 缩到 0.75）。改这里前先看那两份文件。 */
+
+.demo-float-bar {
+    position: absolute;
+    left: 50%;
+    top: 18px;
+    transform: translateX(-50%);
+    width: 587px;
+    height: 56px;
+    cursor: grab;
+    z-index: 4;
+}
+
+.demo-float-bar.is-dragging {
+    cursor: grabbing;
+}
+
+/* 关掉过渡：拖动要跟手（真实窗口拖动也没有缓动） */
+.demo-float-bar.is-dragging .lineup-all-div {
+    transition: none;
+}
+
+.demo-float-bar .lineup-all-div {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 20px;
+    background: #f7f2e8;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    /* 内部按原尺寸 782×74 布局后整体缩放，与真实窗口一致 */
+    zoom: 0.75;
+    transition: box-shadow 0.15s ease;
+}
+
+.demo-float-bar:hover .lineup-all-div {
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+}
+
+/* 描边层：真实悬浮窗的 .lineup-outline */
+.lineup-all-div::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid #c9c9c9;
+    border-radius: 20px;
+    pointer-events: none;
+}
+
+/* 左右两组：真实是 absolute 定位（左 20 / 右 20），这里保留同一视觉结果 */
+.demo-float-bar .lineup {
+    position: absolute;
+    top: 4px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    height: 74px;
+    --petsdiv3-scale: 0.6122448979591837;
+}
+
+.demo-float-bar .lineup-left {
+    left: 20px;
+}
+
+.demo-float-bar .lineup-right {
+    right: 20px;
+}
+
+/* 精灵槽：尺寸与真实 .petsdiv3 一致（98 × 0.61224 ≈ 60px） */
+.demo-slot {
+    position: relative;
+    flex: none;
+    width: calc(98px * var(--petsdiv3-scale));
+    height: calc(98px * var(--petsdiv3-scale));
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.demo-slot:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 0 2px rgba(199, 99, 47, 0.85);
+    border-radius: 8px;
+}
+
+.demo-slot img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
+}
+
+.demo-slot.is-dead img {
+    filter: grayscale(1) brightness(0.6);
+}
+
+.demo-slot.is-dead::after {
+    content: "阵亡";
+    position: absolute;
+    inset: auto 0 2px 0;
+    text-align: center;
+    font-size: 11px;
+    color: #ffd9d9;
+    background: rgba(160, 30, 30, 0.72);
+    border-radius: 3px;
+    margin: 0 4px;
+}
+
+/* 中央圆钮：打开「下场对局」 */
+.float-nextgame-btn {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 24px;
+    height: 24px;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    background: rgba(30, 22, 14, 0.6);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.float-nextgame-btn:hover {
+    background: rgba(199, 99, 47, 0.9);
+    transform: translate(-50%, -50%) scale(1.1);
+}
+
+/* 关闭按钮：悬停才出现（与真实窗口一致） */
+.float-close {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 16px;
+    height: 16px;
+    border: none;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.85);
+    color: #6b4a20;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+
+.demo-float-bar:hover .float-close {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.float-close:hover {
+    background: #d9534f;
+    color: #fff;
+}
+
+/* ---------- 页内浮层（右键菜单 / 下场对局） ---------- */
+
+.demo-popup {
+    position: absolute;
+    z-index: 6;
+    width: 232px;
+    background: #fffdf9;
+    border: 1px solid #e6dccd;
+    border-radius: 10px;
+    box-shadow: 0 12px 28px rgba(30, 22, 14, 0.24);
+    padding: 10px;
+}
+
+.demo-popup[hidden] {
+    display: none;
+}
+
+.demo-sprite-menu {
+    top: 92px;
+    left: 12px;
+}
+
+.demo-nextgame-menu {
+    top: 92px;
+    left: 254px;
+    width: 268px;
+}
+
+.demo-popup-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 700;
+    color: #3d3d3d;
+    margin-bottom: 8px;
+}
+
+.demo-popup-close {
+    border: none;
+    background: transparent;
+    color: #9b9b9b;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+}
+
+.demo-popup-close:hover {
+    color: #d9534f;
+}
+
+.demo-input {
+    width: 100%;
+    border: 1px solid #e2d8c8;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    margin-bottom: 8px;
+    outline: none;
+}
+
+.demo-input:focus {
+    border-color: #c7632f;
+}
+
+.demo-sprite-list {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    max-height: 148px;
+    overflow-y: auto;
+}
+
+.demo-sprite-option {
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: #f7f2ea;
+    padding: 2px;
+    cursor: pointer;
+    text-align: center;
+}
+
+.demo-sprite-option:hover {
+    border-color: #c7632f;
+}
+
+.demo-sprite-option.is-current {
+    border-color: #52c41a;
+    background: #f0fbe8;
+}
+
+.demo-sprite-option img {
+    width: 100%;
+    height: 34px;
+    object-fit: contain;
+    display: block;
+}
+
+.demo-sprite-option span {
+    display: block;
+    font-size: 10px;
+    color: #7a7166;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.demo-nextgame-list {
+    list-style: none;
+    max-height: 168px;
+    overflow-y: auto;
+}
+
+.demo-nextgame-list li {
+    border: 1px solid #ece3d6;
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: #4a443c;
+    cursor: pointer;
+    margin-bottom: 6px;
+}
+
+.demo-nextgame-list li:hover {
+    border-color: #c7632f;
+    background: #fff7ef;
+}
+
+.demo-nextgame-list li.is-current {
+    border-color: #52c41a;
+    background: #f2fbe9;
+}
+
+.demo-popup-hint {
+    font-size: 11px;
+    color: #9b9186;
+}
+
+/* 关闭悬浮窗后的遮罩（模拟窗口被隐藏） */
+.demo-hidden-mask {
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(12, 15, 22, 0.72);
+    color: #fff;
+}
+
+.demo-hidden-mask[hidden] {
+    display: none;
+}
+
+/* ---------- 操作要点 ---------- */
+
+.demo-checklist,
+.demo-notes {
+    background: #fff;
+    border: 1px solid #ece3d6;
+    border-radius: 12px;
+    padding: 14px 18px;
+}
+
+.demo-checklist-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: #55504a;
+}
+
+.demo-checklist-list li {
+    padding-left: 24px;
+    position: relative;
+}
+
+.demo-checklist-list li::before {
+    content: "○";
+    position: absolute;
+    left: 2px;
+    color: #c9c0b2;
+}
+
+.demo-checklist-list li.is-done::before {
+    content: "✓";
+    color: #52c41a;
+}
+
+.demo-checklist-list li.is-done {
+    color: #9b9186;
+}
+
+.demo-progress {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #9b9186;
+}
+
+.demo-notes p {
+    font-size: 13px;
+    color: #5c554c;
+}
+
+.demo-notes p + p {
+    margin-top: 6px;
+}
+
+/* 窗口窄的时候把仿真窗整体缩小，保证一屏能看到全部操作 */
+@media (max-width: 660px) {
+    .demo-float-bar {
+        transform: translateX(-50%) scale(0.62);
+        transform-origin: top center;
+    }
+
+    .demo-sprite-menu,
+    .demo-nextgame-menu {
+        top: auto;
+        bottom: 10px;
+    }
+
+    .demo-sprite-menu {
+        left: 10px;
+    }
+
+    .demo-nextgame-menu {
+        left: auto;
+        right: 10px;
+    }
+}

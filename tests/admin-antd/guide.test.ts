@@ -1,0 +1,169 @@
+/**
+ * 「本页怎么用」纯逻辑（lib/guide）测试。
+ *
+ * 这块只服务顶栏那一个说明入口，所以测试面很窄，但两条不变量必须钉住：
+ * 1. **12 个视图都要有说明**（少一个视图，用户在那一页点按钮就是空抽屉）；
+ * 2. **每步的锚点必须是合法的 `data-tour` 选择器**（将来万一要把某步直接指到界面上，
+ *    锚点写错就是静默失效——那时没人会发现，所以现在就用测试卡住格式）。
+ *
+ * 「读过哪些视图」的记录只写本机 localStorage，读写失败必须静默降级（隐私模式不能把页面带崩）。
+ */
+import { afterEach, describe, expect, it } from 'vitest';
+
+import {
+  GUIDE_VISIT_STORAGE_KEY,
+  readGuideVisits,
+  recordGuideVisit,
+  VIEW_GUIDES,
+  viewGuideDemoView,
+  viewGuideSteps,
+  viewGuideTitle,
+} from '../../src/admin-antd/lib/guide';
+import type { ViewKey } from '../../src/admin-antd/types';
+
+/** 极简 localStorage 假实现 */
+function createFakeStorage(): {
+  entries: Map<string, string>;
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+} {
+  const entries = new Map<string, string>();
+  return {
+    entries,
+    getItem: (key) => entries.get(key) ?? null,
+    setItem: (key, value) => {
+      entries.set(key, value);
+    },
+    removeItem: (key) => {
+      entries.delete(key);
+    },
+  };
+}
+
+function installStorage(storage: unknown): void {
+  (globalThis as { localStorage?: unknown }).localStorage = storage;
+}
+
+/** 12 个导航视图（与 types.ts 的 ViewKey 一致） */
+const ALL_VIEWS: ViewKey[] = ['roster', 'stage', 'tournament', 'mvp', 'history', 'sync', 'profiles', 'page11', 'stats', 'preview', 'live', 'about'];
+
+afterEach(() => {
+  delete (globalThis as { localStorage?: unknown }).localStorage;
+});
+
+describe('「读过哪些视图」的记录（lib/guide · localStorage）', () => {
+  it('没有记录时返回空数组', () => {
+    installStorage(createFakeStorage());
+    expect(readGuideVisits()).toEqual([]);
+  });
+
+  it('记录后能读回来，重复打开不重复记', () => {
+    installStorage(createFakeStorage());
+    recordGuideVisit('tournament');
+    recordGuideVisit('tournament');
+    recordGuideVisit('stage');
+    expect(readGuideVisits()).toEqual(['tournament', 'stage']);
+  });
+
+  it('值损坏时降级为空数组（不抛异常）', () => {
+    const storage = createFakeStorage();
+    storage.setItem(GUIDE_VISIT_STORAGE_KEY, '{不是 JSON');
+    installStorage(storage);
+    expect(readGuideVisits()).toEqual([]);
+
+    storage.setItem(GUIDE_VISIT_STORAGE_KEY, JSON.stringify({ 不是: '数组' }));
+    expect(readGuideVisits()).toEqual([]);
+  });
+
+  it('localStorage 不存在（node / 隐私模式）时读写都不抛异常', () => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+    expect(readGuideVisits()).toEqual([]);
+    expect(() => recordGuideVisit('stage')).not.toThrow();
+  });
+
+  it('存储抛异常时静默降级', () => {
+    installStorage({
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+      removeItem: () => {
+        throw new Error('SecurityError');
+      },
+    });
+    expect(readGuideVisits()).toEqual([]);
+    expect(() => recordGuideVisit('stage')).not.toThrow();
+  });
+});
+
+describe('视图说明注册表不变量（VIEW_GUIDES）', () => {
+  it('覆盖全部 12 个导航视图，且都有标题 / 摘要 / 步骤', () => {
+    expect(Object.keys(VIEW_GUIDES).sort()).toEqual([...ALL_VIEWS].sort());
+    for (const view of ALL_VIEWS) {
+      const guide = VIEW_GUIDES[view];
+      expect(guide.title.trim().length, view).toBeGreaterThan(0);
+      expect(guide.summary.trim().length, view).toBeGreaterThan(0);
+      expect(viewGuideSteps(view).length, view).toBeGreaterThan(0);
+    }
+  });
+
+  it('视图标题与导航名一致（抽屉头部直接显示它）', () => {
+    expect(viewGuideTitle('tournament')).toBe('系列比赛');
+    expect(viewGuideTitle('mvp')).toBe('结算画面');
+    expect(viewGuideTitle('history')).toBe('比赛管理');
+    // 未知视图兜底，不抛异常
+    expect(viewGuideTitle('nope' as ViewKey)).toBe('使用说明');
+  });
+
+  it('每一步都有标题、正文与合法 kind', () => {
+    const kinds = new Set(['step', 'flow']);
+    for (const view of ALL_VIEWS) {
+      for (const step of viewGuideSteps(view)) {
+        expect(step.title.trim().length, view).toBeGreaterThan(0);
+        expect(step.body.trim().length, view).toBeGreaterThan(0);
+        expect(kinds.has(step.kind), `${view} / ${step.title} 的 kind`).toBe(true);
+      }
+    }
+  });
+
+  it('锚点一律是 data-tour 选择器（不依赖组件库内部 class）', () => {
+    for (const view of ALL_VIEWS) {
+      for (const step of viewGuideSteps(view)) {
+        if (step.target === null) {
+          continue;
+        }
+        expect(step.target, `${view} / ${step.title}`).toMatch(/^\[data-tour="[a-z0-9-]+"\]$/);
+      }
+    }
+  });
+
+  it('demoView 若给了必须是合法视图键（抽屉据此开模拟会话）', () => {
+    for (const view of ALL_VIEWS) {
+      for (const step of viewGuideSteps(view)) {
+        if (step.demoView) {
+          expect(ALL_VIEWS).toContain(step.demoView);
+        }
+      }
+    }
+  });
+
+  it('viewGuideDemoView 取该视图第一个带 demoView 的步骤；没有则 null', () => {
+    expect(viewGuideDemoView('tournament')).toBe('tournament');
+    expect(viewGuideDemoView('sync')).toBe('sync');
+    // 关于项目只有纯说明，没有可练的流程
+    expect(viewGuideDemoView('about')).toBeNull();
+  });
+
+  it('「操作流程」类步骤都带 demoView（否则只能读文字、没法练）', () => {
+    for (const view of ALL_VIEWS) {
+      for (const step of viewGuideSteps(view)) {
+        if (step.kind === 'flow') {
+          expect(step.demoView, `${view} / ${step.title} 是操作流程但没有 demoView`).toBeTruthy();
+        }
+      }
+    }
+  });
+});

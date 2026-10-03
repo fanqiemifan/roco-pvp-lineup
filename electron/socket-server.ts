@@ -288,8 +288,15 @@ function withProfileRankFallback(paths: AppPaths, matches: MatchRecord[]): Match
   });
 }
 
-function sendAdminAntdPage(paths: AppPaths, response: Response): void {
-  const builtPage = path.join(paths.rendererDistDir, 'src', 'pages', 'admin-antd.html');
+/**
+ * 发送 Vite 构建的后台页面（admin-antd.html / admin-guide-demo.html 共用同一套兜底）。
+ *
+ * 为什么两页要一起管：模拟会话页 `?view=` 是同一份 bundle 的另一个入口（见 vite.config.ts），
+ * 由「卡片怎么用」抽屉内嵌 iframe 打开，路由与公开白名单都得跟后台入口成对出现——
+ * 漏了白名单，开启鉴权的部署里 iframe 会白屏（桌面模式关闭鉴权，本地不容易发现）。
+ */
+function sendBuiltAntdPage(paths: AppPaths, response: Response, pageFile: string): void {
+  const builtPage = path.join(paths.rendererDistDir, 'src', 'pages', pageFile);
   if (fs.existsSync(builtPage)) {
     response.set('Cache-Control', 'no-cache');
     response.sendFile(builtPage);
@@ -669,6 +676,8 @@ export async function createLocalServer(
   app.get('/float.html', (_request, response) => sendPage(paths, response, 'float.html'));
   app.get('/float-menu.html', (_request, response) => sendPage(paths, response, 'float-menu.html'));
   app.get('/float-nextgame.html', (_request, response) => sendPage(paths, response, 'float-nextgame.html'));
+  // 悬浮窗操作练习页（后台新手引导内嵌 iframe 用；纯仿真页，不连 socket、不写任何运行时数据）
+  app.get('/float-guide-demo.html', (_request, response) => sendPage(paths, response, 'float-guide-demo.html'));
 
   // Auth API — always public
   app.post('/api/auth/login', async (req, res) => {
@@ -720,7 +729,9 @@ export async function createLocalServer(
       const isPublicStatic = publicStaticPrefixes.some(p =>
         req.path === p || req.path.startsWith(p + '/')
       );
-      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/roco-pvp-page14.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
+      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/roco-pvp-page14.html', '/float.html', '/float-menu.html', '/float-nextgame.html', '/float-guide-demo.html',
+      // 模拟会话页：登录后由「卡片怎么用」抽屉 iframe 打开，鉴权模式下必须放行
+      '/admin-guide-demo.html'].includes(req.path);
       // 推流页面仅用于展示，所需的数据 GET 接口公开（含选手头像/录入信息），写操作仍受保护
       const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/page14', '/api/mvp', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
       // 头像图片公开访问（含按赛事隔离的 /api/avatar/{matchId}/{side}-avatar.png），推流页无需登录
@@ -745,8 +756,10 @@ export async function createLocalServer(
   }
 
   // === Protected routes (auth required when authConfig is set) ===
-  app.get('/admin.html', (_request, response) => sendAdminAntdPage(paths, response));
-  app.get('/admin-antd.html', (_request, response) => sendAdminAntdPage(paths, response));
+  app.get('/admin.html', (_request, response) => sendBuiltAntdPage(paths, response, 'admin-antd.html'));
+  app.get('/admin-antd.html', (_request, response) => sendBuiltAntdPage(paths, response, 'admin-antd.html'));
+  // 模拟会话页（卡片「怎么用」内嵌 iframe）：同一份 bundle 的另一个入口，靠 URL 参数进假数据模式
+  app.get('/admin-guide-demo.html', (_request, response) => sendBuiltAntdPage(paths, response, 'admin-guide-demo.html'));
 
   // 阵容面板状态（左右两侧），供推流页与管理后台初始加载
   app.get('/api/panels', (_request, response) => {
