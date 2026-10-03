@@ -14,6 +14,7 @@ import {
   buildViewTourSteps,
   DEMO_SPOTLIGHTS,
   GUIDE_VISIT_STORAGE_KEY,
+  hasDemoSpotlight,
   readGuideVisits,
   recordGuideVisit,
   VIEW_GUIDES,
@@ -205,5 +206,31 @@ describe('视图说明注册表不变量（VIEW_GUIDES）', () => {
     // 每一步的 id 唯一（便于将来埋点/断点续走）
     const ids = spotlight!.map((step) => step.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('「比赛管理」的分步实操：只讲选场 / 展开看对局与录入阵容 / 台账，每步都有锚点', () => {
+    const spotlight = DEMO_SPOTLIGHTS.history;
+    expect(spotlight).toBeDefined();
+    expect(spotlight!.length).toBe(4);
+    for (const step of spotlight!) {
+      expect(step.title.trim().length).toBeGreaterThan(0);
+      expect(step.body.trim().length, step.title).toBeGreaterThan(0);
+      expect(step.target, step.title).toMatch(/^\[data-(?:demo-)?tour="[a-z0-9-]+"\]$/);
+    }
+    // 重点覆盖：四张推流卡选场、展开行看对局（录入阵容并入这一步正文）
+    const ids = spotlight!.map((step) => step.id);
+    expect(ids).toContain('push-cards');
+    expect(ids).toContain('table-row');
+    // 「录入阵容」的说明必须还在（并进展开行那一步的正文）
+    const tableRowStep = spotlight!.find((step) => step.id === 'table-row');
+    expect(tableRowStep?.body).toContain('录入阵容');
+  });
+
+  it('hasDemoSpotlight 与 DEMO_SPOTLIGHTS 同源（抽屉入口据此显示）', () => {
+    expect(hasDemoSpotlight('tournament')).toBe(true);
+    expect(hasDemoSpotlight('history')).toBe(true);
+    // 还没做分步实操的视图不该显示主入口
+    expect(hasDemoSpotlight('about')).toBe(false);
+    expect(hasDemoSpotlight('stats')).toBe(false);
   });
 });

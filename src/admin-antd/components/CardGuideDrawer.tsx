@@ -2,7 +2,7 @@ import React from 'react';
 import { Button, Card, Drawer, Space, Tag, Typography } from 'antd';
 import type { ViewKey } from '../types';
 
-import { VIEW_GUIDES, viewGuideDemoView, viewGuideSteps, viewGuideTitle } from '../lib/guide';
+import { hasDemoSpotlight, VIEW_GUIDES, viewGuideDemoView, viewGuideSteps, viewGuideTitle } from '../lib/guide';
 import type { GuideStep } from '../lib/guide';
 
 const { Paragraph, Text } = Typography;
@@ -24,9 +24,6 @@ export interface CardGuidePanelProps {
 
 /** 说明里提到悬浮窗的视图：给一个「悬浮窗操作练习」入口（页面里没有再单独放入口） */
 const FLOAT_PRACTICE_VIEWS: ViewKey[] = ['roster', 'stage', 'live'];
-
-/** 有"假数据分步实操"的视图（目前只有系列比赛整条流程；其余视图给纯说明） */
-const DEMO_TOUR_VIEWS: ViewKey[] = ['tournament'];
 
 /** 步骤类型 → 展示用标签（语义与颜色只在这里定义） */
 const KIND_META: Record<GuideStep['kind'], { label: string; color: string }> = {
@@ -53,7 +50,8 @@ export function CardGuidePanel({
   const demoView = viewGuideDemoView(view);
   const hasFlowStep = steps.some((step) => step.kind === 'flow');
   const showFloatPractice = FLOAT_PRACTICE_VIEWS.includes(view);
-  const showDemoTour = DEMO_TOUR_VIEWS.includes(view) && !inDemoSession;
+  // 有分步实操的视图才给主入口（与 DEMO_SPOTLIGHTS 同源，别在别处再列一份视图名单）
+  const showDemoTour = hasDemoSpotlight(view) && !inDemoSession;
 
   return (
     <Space direction="vertical" size={14} className="page-stack" style={{ width: '100%' }}>

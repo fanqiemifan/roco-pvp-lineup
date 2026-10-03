@@ -5000,7 +5000,13 @@ function Dashboard() {
             <Space direction="vertical" size={18} className="page-stack">
               {/* 四张推流功能卡片单独一行（不再内嵌进比赛管理卡片）；四卡等高，见 styles.css .match-push-card-row */}
               {/* data-tour：本页怎么用 →「推流选场」那一步的指点目标（整排功能卡） */}
-              <Row gutter={[16, 16]} className="match-push-card-row" data-tour="context-hint">
+              {/* data-demo-tour：模拟会话里「比赛管理」分步实操的第一步（四张卡怎么选场） */}
+              <Row
+                gutter={[16, 16]}
+                className="match-push-card-row"
+                data-tour="context-hint"
+                data-demo-tour="history-push-row"
+              >
                 {page6 ? (
                   <Col xs={24} md={6}>
                     <MatchPushCard
@@ -5061,12 +5067,19 @@ function Dashboard() {
               <Card
                 title="比赛管理"
                 data-tour="history-table"
+                // data-demo-tour：模拟会话里「展开一行看对局信息 / 录入阵容」两步的锚点
+                // （整张表格卡太大，指整卡等于没指）
+                data-demo-tour="history-expand"
                 extra={(
                   <Space wrap>
                     <Button onClick={exportHistoryCsv} disabled={!filteredMatches.length}>导出 CSV</Button>                    {selectedHistoryKeys.length > 1 ? (
                       <Button onClick={() => void handleBatchTag()}>批量添加标签</Button>
                     ) : null}
-                    <span data-tour="history-actions" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+                    <span
+                      data-tour="history-actions"
+                      data-demo-tour="history-actions"
+                      style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}
+                    >
                       <Button danger disabled={!selectedHistoryKeys.length} onClick={() => void deleteHistoryMatches(selectedHistoryKeys.map(String))}>
                         删除选中赛事
                       </Button>

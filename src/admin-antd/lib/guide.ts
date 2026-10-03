@@ -598,10 +598,66 @@ export const TOURNAMENT_SPOTLIGHT_STEPS: readonly SpotlightStep[] = [
   },
 ];
 
+/**
+ * 「比赛管理」的重点流程分步实操（同样跑在模拟会话里）。
+ *
+ * 这一页重点就两块：**四张推流卡怎么选场** → **列表里展开一行看对局信息 / 录入阵容**，
+ * 其余都是台账操作（筛选/标签/批量删除），文字讲得清，合成最后一步。
+ *
+ * 步骤里的目标都取"打开这页就必然存在"的元素（阵容录入卡在演示数据里不一定渲染，
+ * 所以它的用法写进正文而不是指出来）。
+ */
+export const HISTORY_SPOTLIGHT_STEPS: readonly SpotlightStep[] = [
+  {
+    id: 'push-cards',
+    title: '第一步：四张推流卡 = 四条画面的选场入口',
+    body: '「推送比赛结果 / 战绩详情 / 比赛预告 / 晋级积分榜」各一张卡，分别对应推流画面 6 / 7 / 8 / 14。'
+      + '点卡片上的「选择比赛」打开选场弹窗——**选场只决定那一路画面播什么，不影响比赛登记**。'
+      + '四张卡是并列关系：想切哪路画面的内容就点对应那张，互不干扰。',
+    target: '[data-demo-tour="history-push-row"]',
+    placement: 'bottom',
+  },
+  {
+    id: 'push-limit',
+    title: '第二步：两个上限不一样',
+    body: '比赛结果（6）与比赛预告（8）的画面是 3×3 卡片网格，所以**最多 9 场**；'
+      + '战绩详情（7）是一屏 4 行 + 整屏滚动，**不限场数**（弹窗里按「已选 N 场 ≈ M 屏」估算规模）。'
+      + '晋级积分榜不是逐场勾选：它一次性选中一个系列赛的某个阶段，榜单由服务端按赛果算——'
+      + '所以它没有场数上限，只有阶段与翻页。',
+    target: '[data-demo-tour="history-push-row"]',
+    placement: 'bottom',
+  },
+  {
+    id: 'table-row',
+    title: '第三步：展开一行 = 逐局对局信息 + 录入阵容',
+    body: '点表格行左侧的展开箭头：逐局显示双方 6v6 阵容与胜负（只列打过的小局 + 当前未开始那局）；'
+      + '**「录入阵容」就在每一局那一行上**，只有"当前小局且待开始"时可用，其余局置灰并给出原因。'
+      + '这里看到的是比赛自己的快照（与推流面板无关），所以翻别人的场次不会影响正在推的画面。'
+      + '要整届批量填，用上方那张「阵容录入」卡导出/导入模板（一场两行的 Excel，精灵列带下拉）。',
+    target: '[data-demo-tour="history-expand"]',
+    placement: 'top',
+  },
+  {
+    id: 'actions',
+    title: '第四步：剩下的都是台账操作',
+    body: '搜索选手名 / 赛事ID；紫色「系列赛」与蓝色「标签」两组筛选叠加生效（筛选生效时上方会提示'
+      + '"显示 M / 共 N 场"，别把被筛掉的场次当成丢数据）；勾选后可批量加标签、删除，'
+      + '删错了用「撤回最近删除」。带系列赛归属的对局不能用删除清掉，要走系列赛的「回退上一波」。',
+    target: '[data-demo-tour="history-actions"]',
+    placement: 'top',
+  },
+];
+
 /** 模拟会话里要跑的分步实操表（按视图） */
 export const DEMO_SPOTLIGHTS: Partial<Record<ViewKey, readonly SpotlightStep[]>> = {
   tournament: TOURNAMENT_SPOTLIGHT_STEPS,
+  history: HISTORY_SPOTLIGHT_STEPS,
 };
+
+/** 有"假数据分步实操"的视图（抽屉据此显示主入口；与 DEMO_SPOTLIGHTS 同源，别另写一份） */
+export function hasDemoSpotlight(view: ViewKey): boolean {
+  return Boolean(DEMO_SPOTLIGHTS[view]?.length);
+}
 
 /** 标签页关闭后推进到哪一步（刷新/重进模拟会话时从这继续） */
 export const DEMO_TOUR_STEP_STORAGE_KEY = 'guide:roco-pvp:v1:demoTourStep';
