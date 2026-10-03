@@ -11,12 +11,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  allGuideBodies,
   buildViewTourSteps,
+  countUnpairedBoldMarkers,
   DEMO_SPOTLIGHTS,
   GUIDE_VISIT_STORAGE_KEY,
   hasDemoSpotlight,
   readGuideVisits,
   recordGuideVisit,
+  splitBoldSegments,
   VIEW_GUIDES,
   viewGuideDemoView,
   viewGuideSteps,
@@ -196,11 +199,13 @@ describe('视图说明注册表不变量（VIEW_GUIDES）', () => {
     const spotlight = DEMO_SPOTLIGHTS.tournament;
     expect(spotlight).toBeDefined();
     expect(spotlight!.length).toBe(7);
+    // 锚点允许在 data-*tour 属性后追加后代选择器（如 `[data-demo-tour="x"] .ant-modal-body`）
+    const anchorPattern = /^\[data-(?:demo-)?tour="[a-z0-9-]+"\](?:\s+[^\s]+)?$/;
     for (const step of spotlight!) {
       expect(step.id.trim().length, step.title).toBeGreaterThan(0);
       expect(step.title.trim().length).toBeGreaterThan(0);
       expect(step.body.trim().length, step.title).toBeGreaterThan(0);
-      expect(step.target, step.title).toMatch(/^\[data-(?:demo-)?tour="[a-z0-9-]+"\]$/);
+      expect(step.target, step.title).toMatch(anchorPattern);
       expect(['bottom', 'bottomLeft', 'bottomRight', 'top', 'topLeft', 'topRight', 'left', 'right']).toContain(step.placement);
     }
     // 每一步的 id 唯一（便于将来埋点/断点续走）
@@ -250,5 +255,39 @@ describe('视图说明注册表不变量（VIEW_GUIDES）', () => {
     const last = spotlight![spotlight!.length - 1];
     expect(last.body).toContain('BO3');
     expect(last.body).toContain('开始本次对局');
+  });
+
+  it('文案加粗标记：所有正文的 ** 都成对（不成对就会在界面上露出星号）', () => {
+    const bodies = allGuideBodies();
+    expect(bodies.length).toBeGreaterThan(20);
+    for (const entry of bodies) {
+      expect(countUnpairedBoldMarkers(entry.body), `${entry.from} / ${entry.title} 的加粗标记没配对`).toBe(0);
+    }
+  });
+
+  it('splitBoldSegments：奇数下标是加粗段（GuideSpotlight 据此渲染 <strong>）', () => {
+    expect(splitBoldSegments('普通**重点**普通')).toEqual(['普通', '重点', '普通']);
+    expect(splitBoldSegments('没有标记')).toEqual(['没有标记']);
+    // 多段加粗：1/3 下标为加粗
+    const segments = splitBoldSegments('A**B**C**D**E');
+    expect(segments[1]).toBe('B');
+    expect(segments[3]).toBe('D');
+    expect(countUnpairedBoldMarkers('A**B**C')).toBe(0);
+    expect(countUnpairedBoldMarkers('A**B')).toBe(1);
+  });
+
+  it('分步实操里的演示动作只在模拟会话用到的步骤上（且动作名合法）', () => {
+    const allowed = new Set(['open-create-tournament', 'close-modal']);
+    for (const [view, steps] of Object.entries(DEMO_SPOTLIGHTS)) {
+      for (const step of steps ?? []) {
+        if (step.activate) {
+          expect(allowed.has(step.activate), `${view} / ${step.title} 的动作名非法`).toBe(true);
+        }
+      }
+    }
+    // 系列比赛第 1 步必须会替用户打开创建弹窗（用户要求"正常演示弹窗"）
+    expect(DEMO_SPOTLIGHTS.tournament?.[0]?.activate).toBe('open-create-tournament');
+    // 紧接着那一步要把它关掉，否则后面几步的目标会被弹窗挡住
+    expect(DEMO_SPOTLIGHTS.tournament?.[1]?.activate).toBe('close-modal');
   });
 });

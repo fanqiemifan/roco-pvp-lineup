@@ -194,7 +194,7 @@ import {
   viewGuideSteps,
   viewGuideTitle,
 } from './lib/guide';
-import type { GuideStep } from './lib/guide';
+import type { GuideStep, SpotlightActivate } from './lib/guide';
 
 import { type StatsMetricKey } from './lib/stats';
 
@@ -274,7 +274,7 @@ function readDemoView(): ViewKey | null {
   return requested && (ALL_VIEW_KEYS as string[]).includes(requested) ? (requested as ViewKey) : null;
 }
 
-/** 模拟会话里是否要直接开跑分步实操（`?tour=1`）；从上次走到的那一步继续 */
+/** 模拟会话里是否要直接开跑分步实操（`?tour=1`） */
 function readDemoTourRequest(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -282,23 +282,23 @@ function readDemoTourRequest(): boolean {
   return new URLSearchParams(window.location.search).get('tour') === '1';
 }
 
-/** 读「上次走到第几步」（模拟会话的分步实操用；读写都容错） */
-function readDemoTourStep(): number {
-  try {
-    const raw = window.localStorage.getItem(DEMO_TOUR_STEP_STORAGE_KEY);
-    const parsed = raw ? Number.parseInt(raw, 10) : 0;
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-  } catch {
-    return 0;
-  }
-}
+/** 读「上次走到第几步」：现在**不再自动续走**（见 readDemoTourRequest 的说明），保留仅作调试参考 */
 
-/** 记「走到第几步」：关掉标签页再回来能接着走 */
+/** 记「走到第几步」：只用于面板上"看过没有"的统计，不影响下次从哪开始 */
 function writeDemoTourStep(step: number): void {
   try {
     window.localStorage.setItem(DEMO_TOUR_STEP_STORAGE_KEY, String(step));
   } catch {
-    // 隐私模式等写不进去就每次从头走，不影响功能
+    // 隐私模式等写不进去就不记，不影响功能
+  }
+}
+
+/** 清掉「走到第几步」（用户主动点「用模拟数据走一遍」时保证从第 1 步讲） */
+function resetDemoTourStep(): void {
+  try {
+    window.localStorage.removeItem(DEMO_TOUR_STEP_STORAGE_KEY);
+  } catch {
+    // 同上
   }
 }
 
@@ -1141,14 +1141,16 @@ function Dashboard() {
     }
   }, []);
 
-  // 模拟会话 `?tour=1`：直接开跑该视图的分步实操（从上次走到的那一步继续）
+  // 模拟会话 `?tour=1`：开跑该视图的分步实操。
+  // **固定从第 1 步开始**，不做"续走"：入口只有"用模拟数据走一遍"这一种，
+  // 用户点它就是要把整条流程重看一遍；按上次进度续走会让人以为"第二次点没反应"（踩过）。
   useEffect(() => {
     if (!readDemoTourRequest()) {
       return;
     }
     const demoView = readDemoView();
     if (demoView && DEMO_SPOTLIGHTS[demoView]) {
-      setDemoTour({ view: demoView, step: readDemoTourStep() });
+      setDemoTour({ view: demoView, step: 0 });
     }
   }, []);
 
@@ -4814,6 +4816,26 @@ function Dashboard() {
     recordGuideVisit(targetView);
   }
 
+  /**
+   * 模拟会话分步实操里的"演示动作"（步骤里的 `activate`）：
+   * 让引导真的走到那个界面，而不是只指着一个按钮说"你点它"。
+   *
+   * 只在模拟会话里用到（那边是假数据，点坏了刷新即恢复），所以动作都做成"找按钮点一下"。
+   */
+  function runSpotlightActivate(action: SpotlightActivate): void {
+    if (action === 'open-create-tournament') {
+      const button = Array.from(document.querySelectorAll('button'))
+        .find((el) => (el.textContent ?? '').includes('创建系列赛'));
+      button?.click();
+      return;
+    }
+    if (action === 'close-modal') {
+      // 关掉可能开着的弹窗（antd 的关闭按钮带 .ant-modal-close）
+      const close = document.querySelector<HTMLButtonElement>('.ant-modal-close');
+      close?.click();
+    }
+  }
+
 
   return (
     <Layout className="admin-shell">
@@ -7279,8 +7301,11 @@ function Dashboard() {
           setSpotlight({ view: targetView, step: stepIndex });
         }}
         onOpenDemoTour={(targetView) => {
-          // 用假数据把重点流程演示一遍：走 ?tour=1 深链，模拟会话页里自动起引导
+          // 用假数据把重点流程演示一遍：走 ?tour=1 深链，模拟会话页里自动起引导。
+          // **每次都从第 1 步开始**：上次走到哪存在 localStorage，续走只用于"刷新/重进时接着看"，
+          // 用户主动点「走一遍」时必须从头讲（否则进度到底后第二次点会像"没反应"）。
           setCardGuideOpen(false);
+          resetDemoTourStep();
           setDemoView(targetView);
           setDemoTourPending(true);
         }}
@@ -7307,6 +7332,7 @@ function Dashboard() {
         view={demoTour?.view ?? null}
         startStep={demoTour?.step ?? 0}
         steps={demoTour ? DEMO_SPOTLIGHTS[demoTour.view]?.map((step) => ({ ...step, kind: 'flow' as const })) : undefined}
+        onActivate={runSpotlightActivate}
         onStepChange={(step) => {
           setDemoTour((prev) => (prev ? { ...prev, step } : prev));
           writeDemoTourStep(step);

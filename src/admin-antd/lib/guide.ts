@@ -514,7 +514,19 @@ export interface SpotlightStep {
   target: string;
   /** 提示卡片相对目标的方位 */
   placement: GuidePlacement;
+  /**
+   * 可选：进入这一步时先做的动作（让演示"真的走到那个界面"）。
+   * 只在模拟会话里执行，且必须幂等——重复进入同一步不能把界面点乱。
+   */
+  activate?: SpotlightActivate;
 }
+
+/** `activate` 的动作类型（模拟会话里允许做的"演示动作"） */
+export type SpotlightActivate =
+  /** 打开「＋ 创建系列赛」向导弹窗（系列比赛第一步要能看到弹窗长什么样） */
+  | 'open-create-tournament'
+  /** 关掉当前打开的弹窗（下一步要回到列表时用） */
+  | 'close-modal';
 
 /**
  * 「系列比赛」的重点流程分步实操 —— **在模拟会话（假数据）里跑**。
@@ -533,21 +545,24 @@ export const TOURNAMENT_SPOTLIGHT_STEPS: readonly SpotlightStep[] = [
   {
     id: 'create',
     title: '第一步：创建一届',
-    body: '点「＋ 创建系列赛」开向导：①名称 → ②勾选选手（人数只能 4/8/16/32/64，且必须来自「信息录入」档案）'
+    body: '「＋ 创建系列赛」开的向导分 4 步：①名称 → ②勾选选手（人数只能 4/8/16/32/64，且必须来自「信息录入」档案）'
       + '→ ③阶段规则（阶段名 / BO / 配对方式 / 是否需确认；只剩 2 人的总决赛固定单败，可另安排季军赛）'
       + '→ ④抽签并「确认开赛」生成第 1 波。中途关掉可在列表点「继续配置」。'
-      + '**开赛前那一段**（抽签面板与配对确认台）说明在第 6、7 步的正文里。',
-    target: '[data-tour="tournament-create"]',
-    placement: 'bottomRight',
+      + '**这一步已经替你把弹窗打开了**，照着上面的顺序看一遍即可；看完点「取消」或右上角 × 关掉它，再点「下一步」。',
+    target: '[data-demo-tour="tournament-create-modal"] .ant-modal-body',
+    placement: 'bottom',
+    activate: 'open-create-tournament',
   },
   {
     id: 'list',
     title: '第二步：系列赛列表',
     body: '每一行是一届：名称点进去看详情，「当前阶段 / 进度 / 状态」一眼看出打到哪了。'
       + '模拟数据里有两届——「2026 秋季杯」进行中（8进4 打完、半决赛在打）、'
-      + '「春季热身赛」停在抽签（想练"抽签 + 配对确认台"就点开它，那届会显示「抽签与首波对阵」面板）。',
+      + '「春季热身赛」停在抽签（想练"抽签 + 配对确认台"就点开它，那届会显示「抽签与首波对阵」面板）。'
+      + '**开赛前那一段**（抽签面板与配对确认台）的说明在第六步的正文里。',
     target: '[data-demo-tour="tournament-list"]',
     placement: 'bottom',
+    activate: 'close-modal',
   },
   {
     id: 'detail',
@@ -713,6 +728,39 @@ export const DEMO_SPOTLIGHTS: Partial<Record<ViewKey, readonly SpotlightStep[]>>
 /** 有"假数据分步实操"的视图（抽屉据此显示主入口；与 DEMO_SPOTLIGHTS 同源，别另写一份） */
 export function hasDemoSpotlight(view: ViewKey): boolean {
   return Boolean(DEMO_SPOTLIGHTS[view]?.length);
+}
+
+/**
+ * 正文里的 `**加粗**` 标记 → 分段（奇数下标是加粗段）。
+ *
+ * 为什么放在 lib 而不是组件里：这是"文案格式"的约定，必须能被测试钉住——
+ * 一开始组件直接渲染纯文本，结果界面上把 `**` 原样显示出来了（用户反馈"只渲染了符号"）。
+ */
+export function splitBoldSegments(text: string): string[] {
+  return text.split(/\*\*(.+?)\*\*/g);
+}
+
+/** 取一段正文里所有未配对的 `**`（>0 说明文案写坏了，界面上会露出星号） */
+export function countUnpairedBoldMarkers(text: string): number {
+  const segments = splitBoldSegments(text);
+  // 偶数下标是普通段、奇数下标是加粗段；普通段里若还有 `**`，说明没配对
+  return segments.filter((_, index) => index % 2 === 0).join('').split('**').length - 1;
+}
+
+/** 全部视图说明 + 分步实操的正文（给"文案格式"测试用） */
+export function allGuideBodies(): Array<{ from: string; title: string; body: string }> {
+  const entries: Array<{ from: string; title: string; body: string }> = [];
+  for (const [view, guide] of Object.entries(VIEW_GUIDES)) {
+    for (const step of guide.steps) {
+      entries.push({ from: `VIEW_GUIDES.${view}`, title: step.title, body: step.body });
+    }
+  }
+  for (const [view, steps] of Object.entries(DEMO_SPOTLIGHTS)) {
+    for (const step of steps ?? []) {
+      entries.push({ from: `DEMO_SPOTLIGHTS.${view}`, title: step.title, body: step.body });
+    }
+  }
+  return entries;
 }
 
 /** 标签页关闭后推进到哪一步（刷新/重进模拟会话时从这继续） */

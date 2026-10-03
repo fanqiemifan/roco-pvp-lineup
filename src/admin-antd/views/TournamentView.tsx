@@ -1746,6 +1746,8 @@ function CreateTournamentModal({
       onCancel={onClose}
       footer={null}
       destroyOnHidden
+      // data-demo-tour：模拟会话里「系列比赛」分步实操第一步会把弹窗打开并指它
+      data-demo-tour="tournament-create-modal"
     >
       <Steps current={step} items={stepItems} style={{ marginBottom: 20 }} />
 
