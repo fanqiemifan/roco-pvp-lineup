@@ -204,7 +204,9 @@
 |-------------|------|------|------|------|
 | 获取录入列表 | GET | /api/profiles | 获取选手与战队录入（公开 GET，推流页9 战队联想/页面3 战队标识依赖） | electron/socket-server.ts |
 | 保存选手录入 | POST | /api/profiles/players | 新增/更新选手（未传 id 但同名视为更新；name 必填）。保存后跑 `syncTournamentMatchNames` 把系列赛对局的名字快照回写为新档案名（有改动才广播 matches:update）——不回写会让该场登记胜负被「比赛选手与系列赛节点不一致」拒绝 | electron/socket-server.ts |
-| 导入选手（JSON 批量） | POST | /api/profiles/players/import | 接受数组或 `{players:[...]}`；每条仅识别白名单 name/rank/declaration/pets（其余键忽略防注入），rank 仅纯数字、缺 name 跳过、同名沿用旧 id 更新；pets 仅命中 pets.json 才录入，未命中返回 `review`（每条最多 5 个候选）由前端兜底人工确认；响应 `{ success, profiles, review }`，成功广播 profiles:update | electron/socket-server.ts |
+| 导入选手（JSON 批量） | POST | /api/profiles/players/import | 接受数组或 `{players:[...]}`；每条仅识别白名单 name/rank/declaration/pets（其余键忽略防注入），rank 仅纯数字、缺 name 跳过、同名沿用旧 id 更新；pets 仅命中 pets.json 才录入，未命中返回 `review`（每条最多 5 个候选）由前端兜底人工确认；响应 `{ success, profiles, review }`，成功广播 profiles:update；改名时同单条保存跑 `syncTournamentMatchNames` 并在有改动时广播 matches:update | electron/socket-server.ts |
+| 选手表格解表预览 | POST | /api/profiles/players/import/parse-xlsx | multipart（字段 file，仅 .xlsx，50MB 上限）；exceljs 解表 → 返回 `{ sheetName, players:[{rowNumber,name,rank,declaration,pets,hasAvatar}], warnings, errors }`，**只读不落盘**（供确认弹窗）；表头识别见 shared/profile-sheet | electron/socket-server.ts |
+| 导入选手表格 | POST | /api/profiles/players/import-xlsx | multipart（字段 file，仅 .xlsx）；解表 → importPlayerProfiles 写文字信息 → 按图片锚点行匹配选手 id 存头像（saveProfilePlayerAvatar）；返回 `{ success, profiles, review, avatars:{matched,unmatched,failed}, warnings }`；广播 profiles:update + avatar:update，改名时回写系列赛对局名 | electron/socket-server.ts |
 | 删除选手录入 | DELETE | /api/profiles/players/:playerId | 删除选手（连同头像文件） | electron/socket-server.ts |
 | 保存战队录入 | POST | /api/profiles/teams | 新增/更新战队（未传 id 但同名视为更新；name 必填） | electron/socket-server.ts |
 | 删除战队录入 | DELETE | /api/profiles/teams/:teamId | 删除战队（连同 logo 文件） | electron/socket-server.ts |

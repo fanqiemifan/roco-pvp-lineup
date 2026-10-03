@@ -31,6 +31,7 @@ import {
   saveTeamProfile,
   deleteTeamProfile,
 } from './services/profile-service.js';
+import { importProfileXlsx, previewProfileXlsx } from './services/profile-xlsx-service.js';
 import { loadRuntimeConfig, saveRuntimeConfig } from './services/config-service.js';
 import { applySyncImport, exportSyncBundle, previewSyncImport } from './services/sync-service.js';
 import {
@@ -185,6 +186,13 @@ const syncUpload = multer({
 const lineupXlsxUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+});
+
+// 选手信息 .xlsx（含嵌入头像）：单文件 50MB 上限 —— 200 张 480×480 PNG 可能到几十 MB，
+// 阵容模板的 10MB 不够用（见「信息录入 → 导入信息」）。
+const profileXlsxUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024, files: 1 },
 });
 
 // ===== socket 角色分组：每个推流页/悬浮窗连接时声明 role，服务端只投递它需要的事件与快照字段 =====
@@ -987,6 +995,10 @@ export async function createLocalServer(
           ? body.players
           : null;
       const result = importPlayerProfiles(paths, list);
+      // 导入可能改名：与单条保存一致回写系列赛对局名字快照，否则登记胜负会被「选手与节点不一致」拒绝
+      if (syncTournamentMatchNames(paths)) {
+        emitMatchesUpdate(getMatchStore(paths));
+      }
       broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
       emitAvatarUpdate();
       response.json({ success: true, profiles: result.profiles, review: result.review });
@@ -994,6 +1006,81 @@ export async function createLocalServer(
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }
   });
+
+  // 选手信息 .xlsx 解表预览（只读，不写数据）：返回按列映射好的选手行与头像有无，供前端确认后再导入
+  app.post(
+    '/api/profiles/players/import/parse-xlsx',
+    (request, response, next) => {
+      profileXlsxUpload.single('file')(request, response, (error: unknown) => {
+        if (error) {
+          const message = error instanceof Error ? error.message : 'Excel 上传失败';
+          response.status(400).json({
+            success: false,
+            error: /too large|limit/i.test(message) ? 'Excel 文件超过大小上限（50MB）' : message,
+          });
+          return;
+        }
+        next();
+      });
+    },
+    async (request, response) => {
+      const file = request.file;
+      if (!file) {
+        response.status(400).json({ success: false, error: '缺少文件（multipart 字段名 file）' });
+        return;
+      }
+      if (!/\.xlsx$/i.test(file.originalname)) {
+        response.status(400).json({ success: false, error: '仅支持 .xlsx 文件（请使用导出的选手表格模板）' });
+        return;
+      }
+      try {
+        const preview = await previewProfileXlsx(paths, file.buffer);
+        response.json({ success: true, ...preview });
+      } catch (error) {
+        response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  );
+
+  // 选手信息 .xlsx 正式导入（含嵌入头像）：解表 → 导入文字信息 → 按行名字匹配并落盘头像
+  app.post(
+    '/api/profiles/players/import-xlsx',
+    (request, response, next) => {
+      profileXlsxUpload.single('file')(request, response, (error: unknown) => {
+        if (error) {
+          const message = error instanceof Error ? error.message : 'Excel 上传失败';
+          response.status(400).json({
+            success: false,
+            error: /too large|limit/i.test(message) ? 'Excel 文件超过大小上限（50MB）' : message,
+          });
+          return;
+        }
+        next();
+      });
+    },
+    async (request, response) => {
+      const file = request.file;
+      if (!file) {
+        response.status(400).json({ success: false, error: '缺少文件（multipart 字段名 file）' });
+        return;
+      }
+      if (!/\.xlsx$/i.test(file.originalname)) {
+        response.status(400).json({ success: false, error: '仅支持 .xlsx 文件（请使用导出的选手表格模板）' });
+        return;
+      }
+      try {
+        const result = await importProfileXlsx(paths, file.buffer);
+        if (syncTournamentMatchNames(paths)) {
+          emitMatchesUpdate(getMatchStore(paths));
+        }
+        broadcast(SOCKET_EVENTS.profilesUpdate, { profiles: result.profiles }, ROLES_FOR_PROFILES);
+        emitAvatarUpdate();
+        response.json({ success: true, ...result });
+      } catch (error) {
+        response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  );
 
   app.delete('/api/profiles/players/:playerId', (request, response) => {
     try {

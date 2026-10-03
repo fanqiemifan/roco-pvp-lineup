@@ -1,14 +1,13 @@
-import ExcelJS, { type DataValidation } from 'exceljs';
+import ExcelJS from 'exceljs';
 
 import type { SpriteRecord } from '../../../shared/types';
 import { buildLineupTemplateSheet, type LineupTemplatePlan } from './lineup-sheet';
+import { appendSpriteListSheet, attachSpriteDropdown, buildSpriteOptions } from './sprite-dropdown-xlsx';
 
 /* ==================== 系列赛阵容模板：xlsx 渲染（exceljs，带精灵下拉） ==================== */
 
 /** 「阵容」工作表名：服务端解析时按名优先定位（见 electron/services/lineup-xlsx-service.ts） */
 export const LINEUP_SHEET_NAME = '阵容';
-/** 精灵下拉选项所在工作表名（隐藏）：数据校验的跨表引用目标 */
-export const SPRITE_LIST_SHEET_NAME = '精灵列表';
 
 /** 隔场交替底色（淡蓝）：仅视觉辅助，便于线下分辨「一场两行」的对局边界（奇数场留白） */
 const MATCH_STRIPE_ARGB = 'FFE6F4FF';
@@ -16,32 +15,6 @@ const MATCH_STRIPE_ARGB = 'FFE6F4FF';
 const MATCH_BORDER_ARGB = 'FFD9D9D9';
 
 const LINEUP_HEADER_WIDTHS = [18, 18, 20, 8, 12, 26, 26, 26, 26, 26, 26];
-
-/** 下拉选项：`pet_id_名字（形态）`，与导入侧数字前缀匹配、后台录入「只看最终形态」同口径 */
-export interface SpriteOption {
-  id: string;
-  label: string;
-  number: number | null;
-  attribute: string;
-}
-
-/** 取精灵索引中的最终形态（按 id 去重，按图鉴编号排序），生成 `pet_id_名字（形态）` 选项 */
-export function buildSpriteOptions(sprites: SpriteRecord[]): SpriteOption[] {
-  const seen = new Set<string>();
-  return sprites
-    .filter((sprite) => sprite.isFinalForm && !seen.has(sprite.id) && (seen.add(sprite.id), true))
-    .sort((left, right) => {
-      const leftKey = left.number ?? Number(left.id);
-      const rightKey = right.number ?? Number(right.id);
-      return leftKey - rightKey || left.id.localeCompare(right.id, undefined, { numeric: true });
-    })
-    .map((sprite) => ({
-      id: sprite.id,
-      label: `${sprite.id}_${sprite.name}`,
-      number: sprite.number,
-      attribute: sprite.attribute,
-    }));
-}
 
 export interface RenderLineupTemplateInput {
   recordName: string;
@@ -91,29 +64,11 @@ export async function renderLineupTemplateXlsx(input: RenderLineupTemplateInput)
   // 冻结表头行：长表格滚动时列名（对局ID / 位置）始终可见
   lineupSheet.views = [{ state: 'frozen', ySplit: 1 }];
 
-  const listSheet = workbook.addWorksheet(SPRITE_LIST_SHEET_NAME);
-  listSheet.addRow(['精灵选项', '图鉴编号', '属性']);
-  options.forEach((option) => listSheet.addRow([option.label, option.number ?? '', option.attribute]));
-  listSheet.state = 'hidden';
+  appendSpriteListSheet(workbook, options);
 
-  // 跨表下拉：范围动态跟随选项数量；无选项（精灵索引为空）时不挂校验，避免指向空区域。
-  // exceljs 的 index.d.ts 未声明 worksheet.dataValidations（上游把该行注释掉了），运行时可用：窄化补类型
-  if (options.length > 0 && rows.length > 0) {
-    const { dataValidations } = lineupSheet as unknown as {
-      dataValidations: { add(range: string, validation: DataValidation): void };
-    };
-    dataValidations.add(`F2:K${rows.length + 1}`, {
-      type: 'list',
-      allowBlank: true,
-      formulae: [`${SPRITE_LIST_SHEET_NAME}!$A$2:$A$${options.length + 1}`],
-      showErrorMessage: true,
-      errorStyle: 'stop',
-      errorTitle: '精灵不合法',
-      error: '请从下拉列表中选择（格式：pet_id_名字）',
-      showInputMessage: true,
-      promptTitle: '选择精灵',
-      prompt: '从下拉列表中选择最终形态精灵',
-    });
+  // 跨表下拉：范围动态跟随选项数量；无选项（精灵索引为空）时不挂校验，避免指向空区域
+  if (rows.length > 0) {
+    attachSpriteDropdown(lineupSheet, `F2:K${rows.length + 1}`, options.length);
   }
 
   // 统一复制成普通 Uint8Array<ArrayBuffer>：兼容 node 端 Buffer 与浏览器端缓冲区，并满足 Blob 的类型要求

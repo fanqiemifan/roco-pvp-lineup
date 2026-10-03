@@ -18,6 +18,7 @@ main.ts
 │   ├── nextgame-service.ts   → shared/types, shared/constants, image-service, match-service, path-service
 │   ├── countdown-service.ts  → shared/types, shared/constants, image-service, path-service
 │   ├── sync-service.ts       → shared/types, shared/constants, config-service, match-service, profile-service, tournament-service, image-service, path-service
+│   ├── profile-xlsx-service.ts → shared/types, shared/profile-sheet, profile-service, image-service, path-service（exceljs 解表 + 按锚点行落头像）
 │   ├── cloud-sync-service.ts → shared/types, shared/constants, config-service, sync-service, match-service, tournament-service, path-service（跑 fetch 访问 Worker，无 Node 专用依赖）
 │   ├── tournament-service.ts → shared/types, shared/constants, match-service, profile-service, config-service, image-service, path-service
 │   └── stats-service.ts      → shared/types, path-service
@@ -38,6 +39,7 @@ admin-antd/App.tsx
 ├── shared/events.ts
 ├── shared/types.ts
 ├── shared/constants.ts
+├── shared/profile-sheet.ts（选手表格列契约 + 预填/解析纯函数，前端导出与后端导入共用）
 ├── admin-antd/constants.ts / types.ts
 ├── admin-antd/lib/*（request、sprite、match、panel、live、history、stats、format、preview）
 ├── admin-antd/views/*（RosterPanelEditor、HistoryLineupEntryModal、StatsView）
