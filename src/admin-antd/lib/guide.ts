@@ -269,7 +269,7 @@ export const VIEW_GUIDES: Record<ViewKey, ViewGuide> = {
           + '候选按系列赛「阶段 + 语义轮次」分组可整组勾选；结果页与预告页上限 9 场（3×3 网格），战绩详情不限。'
           + '选场只决定推流画面播什么，不影响登记。',
         target: '[data-tour="context-hint"]',
-        placement: 'bottom',
+        placement: 'top',
         kind: 'flow',
         demoView: 'history',
       },
@@ -488,4 +488,15 @@ export function hasViewGuide(view: ViewKey): boolean {
 /** 该视图的说明里是否提供模拟会话（决定抽屉要不要给「开模拟会话」按钮） */
 export function viewGuideDemoView(view: ViewKey): ViewKey | null {
   return (viewGuideSteps(view).map((step) => step.demoView).find(Boolean) ?? null) as ViewKey | null;
+}
+
+/**
+ * 就地指点用的步骤（「在界面上指出来」）：返回副本，不注入抽屉的行为。
+ *
+ * 与 `viewGuideSteps` 的区别只是"给谁用"——抽屉拿它渲染文字清单，
+ * `GuideSpotlight` 拿它翻成 antd Tour 的 steps（高亮框 + 箭头指向 `target`）。
+ * 文案仍然只有一份，改这里两处同时生效。
+ */
+export function buildViewTourSteps(view: ViewKey): GuideStep[] {
+  return viewGuideSteps(view).map((step) => ({ ...step }));
 }

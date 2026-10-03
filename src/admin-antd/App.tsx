@@ -185,6 +185,7 @@ import { StatsView } from './views/StatsView';
 import { TournamentView } from './views/TournamentView';
 import { MatchLineupEntryCard } from './views/MatchLineupEntryCard';
 import { CardGuideDrawer } from './components/CardGuideDrawer';
+import { GuideSpotlight } from './components/GuideSpotlight';
 import { createAdminSocket } from './lib/socket';
 import {
   recordGuideVisit,
@@ -677,6 +678,8 @@ function Dashboard() {
   // === 本页怎么用（顶栏一个入口：右侧抽屉展示当前视图的步骤说明） ===
   // 只写一条"读过哪些视图"的记录到 localStorage（guide:roco-pvp:v1:visits），不建接口、不进同步包。
   const [cardGuideOpen, setCardGuideOpen] = useState(false);
+  // 「在界面上指出来」：非 null 时启动就地指点（高亮框 + 箭头指向该步骤的目标元素）
+  const [spotlight, setSpotlight] = useState<{ view: ViewKey; step: number } | null>(null);
   // 模拟会话（内嵌 iframe）：记录当前要模拟哪个视图
   const [demoView, setDemoView] = useState<ViewKey | null>(null);
   // 悬浮窗操作练习（独立仿真页；入口在「本页怎么用」抽屉里，页面本身不再单放入口）
@@ -4950,7 +4953,8 @@ function Dashboard() {
           {view === 'history' ? (
             <Space direction="vertical" size={18} className="page-stack">
               {/* 四张推流功能卡片单独一行（不再内嵌进比赛管理卡片）；四卡等高，见 styles.css .match-push-card-row */}
-              <Row gutter={[16, 16]} className="match-push-card-row">
+              {/* data-tour：本页怎么用 →「推流选场」那一步的指点目标（整排功能卡） */}
+              <Row gutter={[16, 16]} className="match-push-card-row" data-tour="context-hint">
                 {page6 ? (
                   <Col xs={24} md={6}>
                     <MatchPushCard
@@ -5013,8 +5017,7 @@ function Dashboard() {
                 data-tour="history-table"
                 extra={(
                   <Space wrap>
-                    <Button onClick={exportHistoryCsv} disabled={!filteredMatches.length}>导出 CSV</Button>
-                    {selectedHistoryKeys.length > 1 ? (
+                    <Button onClick={exportHistoryCsv} disabled={!filteredMatches.length}>导出 CSV</Button>                    {selectedHistoryKeys.length > 1 ? (
                       <Button onClick={() => void handleBatchTag()}>批量添加标签</Button>
                     ) : null}
                     <span data-tour="history-actions" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
@@ -6942,6 +6945,8 @@ function Dashboard() {
                 )}
               >
                 <Space direction="vertical" size={16} className="page-stack">
+                  {/* data-tour：只框住这排画面切换（不给整张卡打标，否则高亮会把整页圈进去） */}
+                  <span data-tour="preview-switch" style={{ display: 'inline-flex', maxWidth: '100%' }}>
                   <Segmented
                     value={previewSlot}
                     options={[
@@ -6959,6 +6964,7 @@ function Dashboard() {
                     ]}
                     onChange={(value) => setPreviewSlot(value as PreviewSlotKey)}
                   />
+                  </span>
                   <Row gutter={[16, 16]}>
                     <Col xs={24} md={12}>
                       <Card size="small" className="subtle-card preview-info-card" data-tour="preview-address">
@@ -7203,11 +7209,16 @@ function Dashboard() {
         onSaved={(store) => applyServerState({ store })}
       />
 
-      {/* 本页怎么用：右侧抽屉展示当前视图的步骤说明（不跑 Tour、不自动弹，随时可关） */}
+      {/* 本页怎么用：右侧抽屉展示当前视图的步骤说明（不自动弹，随时可关） */}
       <CardGuideDrawer
         open={cardGuideOpen}
         view={view}
         inDemoSession={inDemoSession}
+        onStartTour={(targetView, stepIndex) => {
+          // 抽屉先收起：指点的目标基本都在抽屉左侧的主内容区，留着重叠会影响看
+          setCardGuideOpen(false);
+          setSpotlight({ view: targetView, step: stepIndex });
+        }}
         onOpenDemo={(targetView) => {
           setCardGuideOpen(false);
           setDemoView(targetView);
@@ -7217,6 +7228,13 @@ function Dashboard() {
           setFloatPracticeOpen(true);
         }}
         onClose={() => setCardGuideOpen(false)}
+      />
+
+      {/* 「在界面上指出来」：高亮当前视图的目标元素并给箭头指引（antd Tour，只由点击触发） */}
+      <GuideSpotlight
+        view={spotlight?.view ?? null}
+        startStep={spotlight?.step ?? 0}
+        onClose={() => setSpotlight(null)}
       />
 
       {/* 模拟会话：内嵌独立页面（/admin-guide-demo.html?view=xxx）。

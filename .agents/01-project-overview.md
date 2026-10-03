@@ -99,7 +99,8 @@ roco-pvp-lineup/
 | views/TournamentLineupExportModal.tsx | 系列赛「导出阵容模板」弹窗（范围过滤 → 一场两行 .xlsx，精灵列带下拉） |
 | views/TournamentLineupImportModal.tsx | 系列赛「导入阵容」弹窗（.xlsx/CSV/TSV/JSON → 预览消歧 → 批量写入） |
 | views/MatchLineupEntryCard.tsx | 比赛管理顶部「阵容录入」入口卡（复用上面两个系列赛弹窗，单场录入仍在表格展开行） |
-| components/CardGuideDrawer.tsx | 「本页怎么用」抽屉（顶栏唯一说明入口：当前视图的步骤清单 + 开模拟会话 / 悬浮窗练习），内容取自 lib/guide 的视图注册表 |
+| components/CardGuideDrawer.tsx | 「本页怎么用」抽屉（顶栏唯一说明入口：当前视图的步骤清单 + 在界面上指出来 / 开模拟会话 / 悬浮窗练习） |
+| components/GuideSpotlight.tsx | 「在界面上指出来」：antd Tour 把某一步的目标元素高亮并给箭头指引（只由点击触发，不自动弹） |
 | demo/ | 「模拟会话」内核：demo-store（内存假数据 store + fetch/XHR/WebSocket 拦截）/ demo-fixtures（示例赛事种子）/ demo-session（渲染前装拦截层与横幅）/ demo-socket（假 socket） |
 | components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）、TournamentNodeCard（系列赛对局卡片，晋级图与波次列表共用）、CurrentMatchPanel（「当前比赛」面板，赛事面板与系列赛 Drawer 共用）等小组件 |
 | lib/ | format、guide（「本页怎么用」的每视图步骤注册表 `VIEW_GUIDES` + localStorage `guide:roco-pvp:v1:visits`）、socket（socket 连接工厂：模拟会话走假连接）、history、last-tournament（系列赛「上次操作」本地记忆）、lineup-sheet（系列赛阵容表：模板计划与回填解析）、lineup-template-xlsx（xlsx 模板渲染：隐藏「精灵列表」+ 跨表下拉）、match-actions（对局卡片动作可用性判据）、live、match、panel、preview、request、sprite、stats 通用逻辑 |

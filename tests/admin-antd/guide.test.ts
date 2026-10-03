@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  buildViewTourSteps,
   GUIDE_VISIT_STORAGE_KEY,
   readGuideVisits,
   recordGuideVisit,
@@ -164,6 +165,25 @@ describe('视图说明注册表不变量（VIEW_GUIDES）', () => {
           expect(step.demoView, `${view} / ${step.title} 是操作流程但没有 demoView`).toBeTruthy();
         }
       }
+    }
+  });
+
+  it('buildViewTourSteps 返回副本（「在界面上指出来」用它翻成 Tour 步骤）', () => {
+    const copy = buildViewTourSteps('series-tournament' as ViewKey);
+    expect(copy).toEqual([]);
+
+    const tournamentCopy = buildViewTourSteps('tournament');
+    expect(tournamentCopy).toHaveLength(viewGuideSteps('tournament').length);
+    // 必须是副本：改它不能污染注册表（抽屉与 Tour 共用同一份文案）
+    tournamentCopy[0]!.title = '被改过';
+    expect(viewGuideSteps('tournament')[0]!.title).not.toBe('被改过');
+  });
+
+  it('每个视图至少有一半步骤可直接指向元素（否则"在界面上指出来"只能居中显示）', () => {
+    for (const view of ALL_VIEWS) {
+      const steps = viewGuideSteps(view);
+      const anchored = steps.filter((step) => step.target !== null).length;
+      expect(anchored, `${view} 可指点的步骤太少`).toBeGreaterThan(0);
     }
   });
 });
