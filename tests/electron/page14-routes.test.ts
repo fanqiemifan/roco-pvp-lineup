@@ -53,7 +53,7 @@ beforeAll(async () => {
     savePlayerProfile(paths, { id: `p${i}`, name: `选手${i}` });
     playerIds.push(`p${i}`);
   }
-  tournamentId = createTournament(paths, { name: '星空杯S1', playerIds, seed: 42 }).id;
+  tournamentId = createTournament(paths, { name: '夏季杯S1', playerIds, seed: 42 }).id;
 
   // 不传 authConfig = 鉴权关闭
   server = await createLocalServer(paths, 0, '127.0.0.1');
@@ -81,7 +81,7 @@ describe('晋级积分榜（page14）路由', () => {
       stageIndexes: [0, 1],
       activeStageIndex: 0,
       page: 5,
-      title: '星空杯 晋级积分榜',
+      title: '夏季杯 晋级积分榜',
       subtitle: '',
     });
 
@@ -92,7 +92,7 @@ describe('晋级积分榜（page14）路由', () => {
       stageIndexes: [0, 1],
       activeStageIndex: 0,
       page: 0,
-      title: '星空杯 晋级积分榜',
+      title: '夏季杯 晋级积分榜',
     });
     // 8 人系列赛的阶段 0 只有 1 页，越界页码被夹到 0
     expect(data.standings.stageIndex).toBe(0);
@@ -101,7 +101,7 @@ describe('晋级积分榜（page14）路由', () => {
     expect(stageCount).toBeGreaterThan(1);
 
     const fetched = await get('/api/page14');
-    expect(fetched.data.state.title).toBe('星空杯 晋级积分榜');
+    expect(fetched.data.state.title).toBe('夏季杯 晋级积分榜');
     expect(fetched.data.standings.rows).toHaveLength(8);
     expect(fetched.data.standings.rows[0].name).toBeTruthy();
 

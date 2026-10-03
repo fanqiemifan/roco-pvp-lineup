@@ -45,7 +45,7 @@ function makeRecord(
   const playerIds = Array.from({ length: playerCount }, (_unused, index) => `p${index}`);
   return {
     id: 'T20260929_A01',
-    name: '星空杯S1',
+    name: '夏季杯S1',
     createdAt: '2026-09-29T10:00:00.000Z',
     updatedAt: '2026-09-29T10:00:00.000Z',
     status: 'setup',
@@ -980,12 +980,12 @@ describe('buildPushCandidateGroups（选场弹窗候选分组）', () => {
     const groups = buildPushCandidateGroups(matches, [record]);
 
     expect(groups.map((group) => group.title)).toEqual([
-      '🏆 星空杯S1 · 总决赛',
-      '🏆 星空杯S1 · 8进4 · 胜者组 R2',
-      '🏆 星空杯S1 · 8进4 · 败者组 R2',
-      '🏆 星空杯S1 · 8进4 · 胜者组 R1',
+      '🏆 夏季杯S1 · 总决赛',
+      '🏆 夏季杯S1 · 8进4 · 胜者组 R2',
+      '🏆 夏季杯S1 · 8进4 · 败者组 R2',
+      '🏆 夏季杯S1 · 8进4 · 胜者组 R1',
       '普通对局',
-      '🏆 星空杯S1 · 8进4 · 败者组 R1',
+      '🏆 夏季杯S1 · 8进4 · 败者组 R1',
     ]);
     expect(groups.map((group) => group.matches.map((match) => match.id))).toEqual([
       ['m7'],
@@ -1013,7 +1013,7 @@ describe('buildPushCandidateGroups（选场弹窗候选分组）', () => {
       [crossRecord],
     );
     expect(groups).toHaveLength(1);
-    expect(groups[0].title).toBe('🏆 星空杯S1 · 8进4');
+    expect(groups[0].title).toBe('🏆 夏季杯S1 · 8进4');
     expect(groups[0].key).toBe(`${crossRecord.id}:0:wave2`);
   });
 

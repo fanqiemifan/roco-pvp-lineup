@@ -263,13 +263,13 @@ describe('page14-display.js 渲染', () => {
   it('后台标题/副标题覆盖自动文案', async () => {
     const harness = createHarness();
     harness.setResponse({
-      state: createState({ title: '星空杯 · 晋级积分榜', subtitle: 'BO1 · 双败淘汰赛' }),
+      state: createState({ title: '夏季杯 · 晋级积分榜', subtitle: 'BO1 · 双败淘汰赛' }),
       standings: createStandings(),
     });
     harness.socketHandlers.snapshot?.({ page14: createState() });
     await settle();
 
-    expect(harness.elements.page14Title.textContent).toBe('星空杯 · 晋级积分榜');
+    expect(harness.elements.page14Title.textContent).toBe('夏季杯 · 晋级积分榜');
     expect(harness.elements.page14Subtitle.textContent).toBe('BO1 · 双败淘汰赛');
   });
 

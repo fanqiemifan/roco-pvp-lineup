@@ -63,7 +63,7 @@ function seedPlayers(count: number): string[] {
 /** 固定 seed 创建系列赛（默认 32 人默认模板） */
 function createSeries(count: number, patch: Record<string, unknown> = {}): TournamentRecord {
   const playerIds = seedPlayers(count);
-  return createTournament(paths, { name: '星空杯S1', playerIds, seed: 42, ...patch });
+  return createTournament(paths, { name: '夏季杯S1', playerIds, seed: 42, ...patch });
 }
 
 /** 打完一场对决（自动适配 BO1/BO3），每登记一小局都调用完成钩子；返回完成后的 MatchRecord */
@@ -1073,7 +1073,7 @@ describe('删除墓碑（写路径与读路径分层）', () => {
     expect(() => deleteTournament(paths, first.id)).toThrow('系列赛不存在');
 
     // id 分配看得见墓碑（读路径分层）：同日再建不会复用已删 id
-    const second = createSeries(4, { name: '星空杯S1·二届' });
+    const second = createSeries(4, { name: '夏季杯S1·二届' });
     expect(second.id).not.toBe(first.id);
     expect(getTournamentStore(paths).map((record) => record.id)).toEqual([second.id]);
   });

@@ -135,7 +135,7 @@ describe('POST /api/tournaments', () => {
     const updatesBefore = tournamentUpdates;
     const playerIds = seedPlayers(8);
     const { status, data } = await postJson('/api/tournaments', {
-      name: '星空杯S1',
+      name: '夏季杯S1',
       playerIds,
       seed: 42,
     });
