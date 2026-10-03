@@ -225,7 +225,8 @@ export function CurrentMatchPanel({
             需要改选手名请到「信息录入」，改赛制请在系列赛的阶段规则里调整；战队与排位排名仍可保存。
           </Text>
         ) : null}
-        <div className="current-match-action-row">
+        {/* data-demo-tour：模拟会话里「赛事面板」分步实操里"开始本局 / 登记胜负 / 下一局"三步的锚点 */}
+        <div className="current-match-action-row" data-demo-tour="current-match-actions">
           <Space wrap size={12} className="current-match-action-group">
             <Button type="primary" onClick={() => onAction('start')} disabled={!canStart}>
               开始本次对局

@@ -488,11 +488,16 @@ export function createDemoStore() {
       return ok({ store: clone(state.matches) });
     }
     if (first === 'matches' && second && (third === 'winner' || third === 'games') && method === 'POST' && path.endsWith('/winner')) {
-      // 登记本局胜负（headless 登记也走这里）
+      // 登记本局胜负（headless 登记也走这里）。
+      // 注意：UI 点「左侧赢了」时**不带 gameNumber**，所以要落到"当前进行中 / 第一个未打"的小局，
+      // 不能默认第 1 局——否则 BO3 打到第 2 局时会把已经打完的第 1 局再登记一次、比分不动（踩过）。
       const match = findMatch(second);
       const winner = body.winner === 'right' ? 'right' : 'left';
-      const gameNumber = Number(body.gameNumber ?? body.games ?? 1);
-      const game = match?.games.find((item) => item.gameNumber === gameNumber);
+      const requestedGame = Number(body.gameNumber ?? body.games);
+      const game = match?.games.find((item) => item.gameNumber === requestedGame)
+        ?? match?.games.find((item) => item.status === 'in_progress')
+        ?? match?.games.find((item) => item.winner === null);
+      const gameNumber = game?.gameNumber ?? 1;
       if (match && game) {
         if (game.winner === null || game.winner !== winner) {
           game.winner = winner;

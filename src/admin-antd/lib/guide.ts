@@ -648,8 +648,64 @@ export const HISTORY_SPOTLIGHT_STEPS: readonly SpotlightStep[] = [
   },
 ];
 
+/**
+ * 「赛事面板」的重点流程分步实操（跑在模拟会话里）。
+ *
+ * 这一页是一场**从选到打完**的主循环，所以顺序按真实操作走：
+ * 选比赛 → 改/录阵容 → 开始本局 → 登记胜负 → 下一局（BO3 就重复"开始→登记"直到有人先到 2 胜）。
+ * 模拟数据里「小明 vs 小红」正好是 BO3、第 1 局已打完、第 2 局进行中，所以这套循环能真演出来。
+ */
+export const ROSTER_SPOTLIGHT_STEPS: readonly SpotlightStep[] = [
+  {
+    id: 'pick-match',
+    title: '第一步：选一场当「当前比赛」',
+    body: '比赛列表每一行是一场比赛（按「赛事 · 阶段 · 轮次」分组）。点行尾的「选择」把它设为**当前比赛**——'
+      + '这一步会覆写推流画面（比分栏 / 阵容页播的就是它），正在推别的场次时会先弹确认（可勾"不再提示"）。'
+      + '右边那张卡是当前比赛的摘要与操作区：选手、BO 赛制、比分、状态。',
+    target: '[data-tour="roster-match-list"]',
+    placement: 'bottom',
+  },
+  {
+    id: 'lineup',
+    title: '第二步：改阵容 / 提前录入阵容',
+    body: '「当前阵容」编的就是**当前比赛当前小局**的双方阵容：先在右侧点「点击选中」决定填哪一侧，'
+      + '再从下面精灵池点选填入 6 个槽位，改完自动保存（600ms 防抖），推流画面立刻跟着变。'
+      + '比赛还没开始时也在这里提前录（这时存的是赛事草稿，开局后才上推流页，所以别让画面空着开打）。',
+    target: '[data-demo-tour="roster-lineup-card"]',
+    placement: 'top',
+  },
+  {
+    id: 'start',
+    title: '第三步：开始本局',
+    body: '「开始本次对局」把当前小局置为进行中。开局前建议先把双方阵容录完；'
+      + '开局后仍可继续改阵容 / 血量，但比分与状态由后面的登记胜负推进。',
+    target: '[data-demo-tour="current-match-actions"]',
+    placement: 'top',
+  },
+  {
+    id: 'register',
+    title: '第四步：登记本局胜负',
+    body: '本局打完点「左侧赢了」或「右侧赢了」：该侧比分 +1 并自动进入下一局。'
+      + '登记**只作用于当前这场比赛**；如果推流画面当时停在页面1-3，会自动切到胜者结算（页面10）停留几秒再切回。'
+      + '点错了用「撤回上一步」回退，「取消撤回」可以再恢复。',
+    target: '[data-demo-tour="current-match-actions"]',
+    placement: 'top',
+  },
+  {
+    id: 'next-game',
+    title: '第五步：下一局 —— BO3 就继续这套循环',
+    body: '登记完胜负，同一块按钮区就进入下一局：**「开始本次对局」→「登记胜负」再来一遍**，'
+      + '直到一方先拿到「半数 + 1」胜：BO3 = 2 胜、BO5 = 3 胜、BO1 = 1 胜。'
+      + '达到后比赛自动完赛（状态变已结束、写入完成时间），这套循环结束——'
+      + '接着回第一步「选择」下一场，或去「系列比赛」看赛果怎么写回对阵图。',
+    target: '[data-demo-tour="current-match-actions"]',
+    placement: 'top',
+  },
+];
+
 /** 模拟会话里要跑的分步实操表（按视图） */
 export const DEMO_SPOTLIGHTS: Partial<Record<ViewKey, readonly SpotlightStep[]>> = {
+  roster: ROSTER_SPOTLIGHT_STEPS,
   tournament: TOURNAMENT_SPOTLIGHT_STEPS,
   history: HISTORY_SPOTLIGHT_STEPS,
 };

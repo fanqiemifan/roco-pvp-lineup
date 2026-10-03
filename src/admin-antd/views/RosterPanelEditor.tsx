@@ -230,6 +230,8 @@ export function RosterPanelEditor({
       className="panel-editor-card"
       title="当前阵容"
       data-tour="roster-slots"
+      // data-demo-tour：模拟会话里「赛事面板」分步实操「改阵容 / 提前录入阵容」那一步的锚点
+      data-demo-tour="roster-lineup-card"
       extra={(
         <Space wrap>
           <Text type="secondary">

@@ -227,10 +227,28 @@ describe('视图说明注册表不变量（VIEW_GUIDES）', () => {
   });
 
   it('hasDemoSpotlight 与 DEMO_SPOTLIGHTS 同源（抽屉入口据此显示）', () => {
+    expect(hasDemoSpotlight('roster')).toBe(true);
     expect(hasDemoSpotlight('tournament')).toBe(true);
     expect(hasDemoSpotlight('history')).toBe(true);
     // 还没做分步实操的视图不该显示主入口
     expect(hasDemoSpotlight('about')).toBe(false);
     expect(hasDemoSpotlight('stats')).toBe(false);
+  });
+
+  it('「赛事面板」的分步实操：5 步覆盖 选比赛→阵容→开始→登记→下一局，每步都有锚点', () => {
+    const spotlight = DEMO_SPOTLIGHTS.roster;
+    expect(spotlight).toBeDefined();
+    expect(spotlight!.length).toBe(5);
+    for (const step of spotlight!) {
+      expect(step.title.trim().length).toBeGreaterThan(0);
+      expect(step.body.trim().length, step.title).toBeGreaterThan(0);
+      expect(step.target, step.title).toMatch(/^\[data-(?:demo-)?tour="[a-z0-9-]+"\]$/);
+    }
+    const ids = spotlight!.map((step) => step.id);
+    expect(ids).toEqual(['pick-match', 'lineup', 'start', 'register', 'next-game']);
+    // BO3 的循环说明必须在最后一步正文里（用户明确要求"BO3 则继续这个流程"）
+    const last = spotlight![spotlight!.length - 1];
+    expect(last.body).toContain('BO3');
+    expect(last.body).toContain('开始本次对局');
   });
 });
