@@ -175,6 +175,13 @@ export async function bootstrapDemoSession(): Promise<void> {
   // 假 socket 工厂：lib/socket.ts 在模拟会话分支里取它（真机后台不会设置这个字段）。
   // 类型上用 unknown 转换：env.d.ts 里写的是宽签名（避免 import socket.io-client 造成类型循环）。
   win.__ROCO_CREATE_ADMIN_SOCKET__ = (() => store.createSocket()) as unknown as Window['__ROCO_CREATE_ADMIN_SOCKET__'];
+  // 默认把「系列比赛」详情停在**进行中**的那一届（2026 秋季杯）：分步实操要讲"右键卡片登记"
+  // 与"回退上一波"，只有有对局的届才演示得出来；抽签阶段的「春季热身赛」在列表里点开即可看。
+  try {
+    window.localStorage.setItem('roco-pvp-lineup:lastTournamentId', 'T20260928_A01');
+  } catch {
+    // 存储不可用就按列表第一条打开，不影响其余功能
+  }
   // 横幅要等 DOM 就绪（script 在 body 里，通常已经就绪）
   if (document.body) {
     mountBanner(win, store);

@@ -550,6 +550,8 @@ export function BracketBoard({
   return (
     <div
       className="bracket-board"
+      // data-demo-tour：模拟会话里「系列比赛」分步实操指晋级图用（整张详情卡太大，指了看不出重点）
+      data-demo-tour="tournament-bracket"
       onClick={(event) => {
         // 拖动平移后的 click 不改变选中态
         if (consumeSuppressedClick()) {

@@ -213,7 +213,7 @@ export const VIEW_GUIDES: Record<ViewKey, ViewGuide> = {
         title: '抽签与配对确认台',
         body: '需确认或手动配对的波先停在「配对确认台」：按桶填两侧选手、可「桶内随机重排」，'
           + '「导入对阵表」支持每行 A vs B 的文本。锁定后才批量建场——锁定前的错配对在这里改，锁定后只能回退重来。',
-        target: '[data-tour="tournament-pairing"]',
+        target: '[data-demo-tour="tournament-waves"]',
         placement: 'top',
         kind: 'flow',
         demoView: 'tournament',
@@ -496,7 +496,112 @@ export function viewGuideDemoView(view: ViewKey): ViewKey | null {
  * 与 `viewGuideSteps` 的区别只是"给谁用"——抽屉拿它渲染文字清单，
  * `GuideSpotlight` 拿它翻成 antd Tour 的 steps（高亮框 + 箭头指向 `target`）。
  * 文案仍然只有一份，改这里两处同时生效。
+ *
+ * 注意：给某一步 `target` 打锚点时**要打在"那排控件/那个按钮"上**，别打在整张大卡片上——
+ * 高亮把整页圈进去等于没指（`GuideSpotlight` 会把量到超过视口 85% 的目标退回居中卡片）。
  */
 export function buildViewTourSteps(view: ViewKey): GuideStep[] {
   return viewGuideSteps(view).map((step) => ({ ...step }));
 }
+
+/* ==================== 系列比赛：模拟会话里的分步实操 ==================== */
+
+export interface SpotlightStep {
+  id: string;
+  title: string;
+  body: string;
+  /** 要指点/高亮的选择器（模拟会话里通常用 `data-demo-tour` 标在演示控件上） */
+  target: string;
+  /** 提示卡片相对目标的方位 */
+  placement: GuidePlacement;
+}
+
+/**
+ * 「系列比赛」的重点流程分步实操 —— **在模拟会话（假数据）里跑**。
+ *
+ * 为什么单独做一条：系列比赛是后台最复杂的一组操作，文字讲不清；而拿真数据做引导会一边讲
+ * 一边改自己的赛事，风险不可接受。所以在假数据里带用户把主流程走一遍，走坏了刷新即恢复。
+ *
+ * **两条硬约束**（决定了下面的步骤与顺序）：
+ * 1. **每一步的目标都要在当下屏幕上存在**，否则 GuideSpotlight 会退回居中卡片（= 指了个寂寞）。
+ *    模拟会话固定停在**进行中**的「2026 秋季杯」，所以每一步都只依赖"打开这个页面就有的元素"，
+ *    需要"换届 / 切波次视图 / 先开赛"的环节（抽签面板、配对确认台）**写进正文讲清楚**，
+ *    不放进步骤里指 —— 那种步骤在自动化与真人手上都会时有时无。
+ * 2. **别指整张大卡片**：宽或高超过视口 1.3 倍的目标会被当作"整页级"退化为居中卡片。
+ */
+export const TOURNAMENT_SPOTLIGHT_STEPS: readonly SpotlightStep[] = [
+  {
+    id: 'create',
+    title: '第一步：创建一届',
+    body: '点「＋ 创建系列赛」开向导：①名称 → ②勾选选手（人数只能 4/8/16/32/64，且必须来自「信息录入」档案）'
+      + '→ ③阶段规则（阶段名 / BO / 配对方式 / 是否需确认；只剩 2 人的总决赛固定单败，可另安排季军赛）'
+      + '→ ④抽签并「确认开赛」生成第 1 波。中途关掉可在列表点「继续配置」。'
+      + '**开赛前那一段**（抽签面板与配对确认台）说明在第 6、7 步的正文里。',
+    target: '[data-tour="tournament-create"]',
+    placement: 'bottomRight',
+  },
+  {
+    id: 'list',
+    title: '第二步：系列赛列表',
+    body: '每一行是一届：名称点进去看详情，「当前阶段 / 进度 / 状态」一眼看出打到哪了。'
+      + '模拟数据里有两届——「2026 秋季杯」进行中（8进4 打完、半决赛在打）、'
+      + '「春季热身赛」停在抽签（想练"抽签 + 配对确认台"就点开它，那届会显示「抽签与首波对阵」面板）。',
+    target: '[data-demo-tour="tournament-list"]',
+    placement: 'bottom',
+  },
+  {
+    id: 'detail',
+    title: '第三步：详情页看什么',
+    body: '详情上方是阶段进度（8进4 → 总决赛），下面是「晋级图 / 波次列表」两种视图：'
+      + '晋级图看整棵树与晋级关系（点选手行看单人链路、点卡片其他位置看整场链路、按住空白处可拖动平移）；'
+      + '波次列表看每一波建场没有。赛果写回后两边都会自动更新。',
+    target: '[data-tour="tournament-detail"]',
+    placement: 'top',
+  },
+  {
+    id: 'node-menu',
+    title: '第四步：右键卡片登记（headless）',
+    body: '右键任意对局卡片 = 直接打开该场的「对局面板」，可以连着登记好几场；'
+      + '点卡片右上「⋯」出菜单：开始本局 / 左赢 / 右赢 / 撤回 / 查看阵容 / 弃权判负 / 进入管理。'
+      + '**这些动作只写目标那场，不会切当前比赛、不会顶掉正在推流的画面**——登记别人的场次也不怕播错。',
+    target: '[data-tour="tournament-node-card"]',
+    placement: 'top',
+  },
+  {
+    id: 'rollback',
+    title: '第五步：回退上一波',
+    body: '整波打错要重来时点它：删掉最后一波**未开始**的比赛并复位战绩。该波已经有结果时引擎会拒绝整波回退，'
+      + '改走逐场「撤回」。季军赛是附加波次、不在晋级链上，重开半决赛时会被一起丢弃并按新落败者重建。',
+    target: '[data-tour="tournament-rollback"]',
+    placement: 'bottom',
+  },
+  {
+    id: 'lineup',
+    title: '第六步：阵容表批量导入导出',
+    body: '「导出阵容模板」把待开始比赛的第 1 局导成「一场两行」的 Excel（精灵列带下拉，不用手打名字），'
+      + '线下填完再「导入阵容」（也支持 CSV / 粘贴表格 / JSON）。只写比赛记录、不碰编排，只读副本也能用。'
+      + '**开赛前的那段流程**：抽签阶段的届打开后是「抽签与首波对阵」——「重新抽签」换一组对阵（seed 可复现，'
+      + '预览只读不建场），满意了才点「确认开赛」生成第 1 波；手动配对 / 需确认的波会停在「配对确认台」'
+      + '（切到波次列表可见）：按桶填选手、可「🎲 桶内随机重排」或「📋 导入对阵表」，'
+      + '「锁定并创建 N 场」才真正建场，锁定后就只能回退重来。',
+    target: '[data-demo-tour="tournament-lineup"]',
+    placement: 'bottom',
+  },
+  {
+    id: 'waves',
+    title: '第七步：波次列表',
+    body: '切到这个 Segmented 就是「波次列表」：最新一波在最上面，每波一张卡显示配对方式与建场状态；'
+      + 'draft 的波显示配对确认台，已锁定的波显示节点卡片（右键 = 开对局面板）。'
+      + '「回退上一波」与详情工具栏的操作都以这里的波顺序为准。',
+    target: '[data-demo-tour="tournament-waves-toggle"]',
+    placement: 'bottom',
+  },
+];
+
+/** 模拟会话里要跑的分步实操表（按视图） */
+export const DEMO_SPOTLIGHTS: Partial<Record<ViewKey, readonly SpotlightStep[]>> = {
+  tournament: TOURNAMENT_SPOTLIGHT_STEPS,
+};
+
+/** 标签页关闭后推进到哪一步（刷新/重进模拟会话时从这继续） */
+export const DEMO_TOUR_STEP_STORAGE_KEY = 'guide:roco-pvp:v1:demoTourStep';

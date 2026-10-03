@@ -12,7 +12,9 @@ export interface CardGuidePanelProps {
   view: ViewKey;
   /** 「在界面上指出来」：从第几步开始在界面上高亮指点 */
   onStartTour: (view: ViewKey, stepIndex: number) => void;
-  /** 打开「模拟会话」（假数据 · 可随便点） */
+  /** 打开「模拟会话」并用假数据把该视图的重点流程演示一遍（`?tour=1`） */
+  onOpenDemoTour: (view: ViewKey) => void;
+  /** 打开「模拟会话」（假数据 · 可随便点，不自动演示） */
   onOpenDemo: (view: ViewKey) => void;
   /** 打开「悬浮窗操作练习」（独立仿真页；只有把悬浮窗写进说明的视图才显示入口） */
   onOpenFloatPractice: () => void;
@@ -22,6 +24,9 @@ export interface CardGuidePanelProps {
 
 /** 说明里提到悬浮窗的视图：给一个「悬浮窗操作练习」入口（页面里没有再单独放入口） */
 const FLOAT_PRACTICE_VIEWS: ViewKey[] = ['roster', 'stage', 'live'];
+
+/** 有"假数据分步实操"的视图（目前只有系列比赛整条流程；其余视图给纯说明） */
+const DEMO_TOUR_VIEWS: ViewKey[] = ['tournament'];
 
 /** 步骤类型 → 展示用标签（语义与颜色只在这里定义） */
 const KIND_META: Record<GuideStep['kind'], { label: string; color: string }> = {
@@ -38,6 +43,7 @@ const KIND_META: Record<GuideStep['kind'], { label: string; color: string }> = {
 export function CardGuidePanel({
   view,
   onStartTour,
+  onOpenDemoTour,
   onOpenDemo,
   onOpenFloatPractice,
   inDemoSession,
@@ -47,6 +53,7 @@ export function CardGuidePanel({
   const demoView = viewGuideDemoView(view);
   const hasFlowStep = steps.some((step) => step.kind === 'flow');
   const showFloatPractice = FLOAT_PRACTICE_VIEWS.includes(view);
+  const showDemoTour = DEMO_TOUR_VIEWS.includes(view) && !inDemoSession;
 
   return (
     <Space direction="vertical" size={14} className="page-stack" style={{ width: '100%' }}>
@@ -55,9 +62,11 @@ export function CardGuidePanel({
         <Paragraph type="secondary" style={{ marginBottom: 0 }}>{guide?.summary ?? ''}</Paragraph>
       </div>
 
-      <Button type="primary" block onClick={() => onStartTour(view, 0)}>
-        在界面上指出来（带高亮与箭头）
-      </Button>
+      {showDemoTour ? (
+        <Button type="primary" block onClick={() => onOpenDemoTour(view)}>
+          用模拟数据走一遍（重点流程，边指边讲）
+        </Button>
+      ) : null}
       {demoView && !inDemoSession ? (
         <Button block onClick={() => onOpenDemo(demoView)}>
           开模拟会话（假数据，可以随便点）
@@ -68,6 +77,9 @@ export function CardGuidePanel({
           悬浮窗操作练习（模拟窗口，随便点）
         </Button>
       ) : null}
+      <Button block onClick={() => onStartTour(view, 0)}>
+        在当前界面上指出来
+      </Button>
 
       {steps.map((step, index) => {
         const meta = KIND_META[step.kind];

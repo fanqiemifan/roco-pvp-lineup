@@ -295,6 +295,18 @@ function buildTournaments(matches: MatchRecord[]): TournamentRecord[] {
       entry('player-8', 0, 1, 'eliminated'),
     ],
     waves: [
+      // draft 波放在最前：新手引导要能演示「配对确认台」（按桶填选手 / 桶内随机重排 / 锁定并建场）
+      {
+        stageIndex: 1,
+        waveIndex: 0,
+        status: 'pending',
+        pairingStatus: 'draft',
+        pairingDraft: [
+          { bucketKey: 'initial', pair: ['player-1', 'player-3'] },
+          { bucketKey: 'initial', pair: ['player-2', 'player-4'] },
+        ],
+        nodes: [],
+      },
       {
         stageIndex: 0,
         waveIndex: 0,
@@ -321,6 +333,8 @@ function buildTournaments(matches: MatchRecord[]): TournamentRecord[] {
   };
 
   // 春季热身赛：4 人，还在抽签阶段（讲"继续配置 → 重新抽签 → 确认开赛"）
+  // 它在列表里排第二位，但**模拟会话默认打开它**（对局数据那块会 `writeDemoTourStep`/置顶），
+  // 因为"抽签 + 配对确认台 + 首波建场"这条前段流程只有它能演。
   const spring: TournamentRecord = {
     id: T2,
     name: '春季热身赛',

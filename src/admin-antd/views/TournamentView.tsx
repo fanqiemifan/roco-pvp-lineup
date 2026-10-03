@@ -403,13 +403,13 @@ export function TournamentView({
     <Space direction="vertical" size={18} className="page-stack">
       <Card
         title="系列赛列表"
+        data-demo-tour="tournament-list"
         extra={(
           <Space>
-            {/* 卡片帮助：讲创建/继续配置/本机移除/定向同步怎么用 */}
             <Button onClick={() => setLocalRemovedOpen(true)}>
               已本机移除 ({locallyRemoved.length})
             </Button>
-            {/* data-tour：新手引导第 2 步的锚点（用属性定位，不依赖组件库内部 class） */}
+            {/* data-tour：模拟会话里「系列比赛」分步实操的锚点（不依赖组件库内部 class） */}
             <Button type="primary" data-tour="tournament-create" onClick={() => setCreateOpen(true)}>
               ＋ 创建系列赛
             </Button>
@@ -678,9 +678,11 @@ function TournamentDetail({
           <Tag color={getTournamentStatusMeta(record).color}>
             {getTournamentStatusMeta(record).label}
           </Tag>
-          {/* 卡片帮助：讲回退上一波 / 卡片右键菜单 / 配对确认台 / 阵容表导入导出怎么用 */}
-          <Button data-tour="tournament-lineup" onClick={() => setLineupExportOpen(true)}>导出阵容模板</Button>
-          <Button onClick={() => setLineupImportOpen(true)}>导入阵容</Button>
+          {/* data-demo-tour：模拟会话分步实操里"阵容表导入导出"那一步的锚点（整张详情卡太大，不能指它） */}
+          <span data-demo-tour="tournament-lineup" style={{ display: 'inline-flex', gap: 8 }}>
+            <Button data-tour="tournament-lineup" onClick={() => setLineupExportOpen(true)}>导出阵容模板</Button>
+            <Button onClick={() => setLineupImportOpen(true)}>导入阵容</Button>
+          </span>
           <Button onClick={onSync}>定向同步</Button>
           <Popconfirm
             title="回退上一波"
@@ -753,6 +755,8 @@ function TournamentDetail({
       ) : (
         <Segmented
           className="tournament-view-switch"
+          // data-demo-tour：模拟会话分步实操「波次列表」那一步的锚点（这个切换器一定在）
+          data-demo-tour="tournament-waves-toggle"
           value={detailView}
           onChange={(value) => setDetailView(value as 'bracket' | 'waves')}
           options={[
@@ -773,7 +777,7 @@ function TournamentDetail({
           cardMenu={cardMenu}
         />
       ) : (
-        <div className="tournament-waves">
+        <div className="tournament-waves" data-demo-tour="tournament-waves">
           {reversedWaves.map((wave) => (
             <WavePanel
               key={`${wave.stageIndex}-${wave.waveIndex}`}
@@ -919,6 +923,7 @@ function SetupDraftPanel({
     <Card
       type="inner"
       title="抽签与首波对阵（确认后开赛）"
+      data-demo-tour="tournament-draw"
       style={{ margin: '16px 0' }}
       extra={(
         <Space>

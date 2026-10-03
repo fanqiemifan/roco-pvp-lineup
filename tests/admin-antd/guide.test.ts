@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   buildViewTourSteps,
+  DEMO_SPOTLIGHTS,
   GUIDE_VISIT_STORAGE_KEY,
   readGuideVisits,
   recordGuideVisit,
@@ -131,12 +132,15 @@ describe('视图说明注册表不变量（VIEW_GUIDES）', () => {
   });
 
   it('锚点一律是 data-tour 选择器（不依赖组件库内部 class）', () => {
+    // 允许 data-tour（真机界面锚点）与 data-demo-tour（模拟会话里的演示锚点）两种；
+    // 两者都是"打标签 + 选择器"，一样不依赖组件库内部 class。
+    const allowed = /^\[data-(?:demo-)?tour="[a-z0-9-]+"\]$/;
     for (const view of ALL_VIEWS) {
       for (const step of viewGuideSteps(view)) {
         if (step.target === null) {
           continue;
         }
-        expect(step.target, `${view} / ${step.title}`).toMatch(/^\[data-tour="[a-z0-9-]+"\]$/);
+        expect(step.target, `${view} / ${step.title}`).toMatch(allowed);
       }
     }
   });
@@ -185,5 +189,21 @@ describe('视图说明注册表不变量（VIEW_GUIDES）', () => {
       const anchored = steps.filter((step) => step.target !== null).length;
       expect(anchored, `${view} 可指点的步骤太少`).toBeGreaterThan(0);
     }
+  });
+
+  it('「系列比赛」的分步实操：7 步、每步都有锚点、且锚点格式合法', () => {
+    const spotlight = DEMO_SPOTLIGHTS.tournament;
+    expect(spotlight).toBeDefined();
+    expect(spotlight!.length).toBe(7);
+    for (const step of spotlight!) {
+      expect(step.id.trim().length, step.title).toBeGreaterThan(0);
+      expect(step.title.trim().length).toBeGreaterThan(0);
+      expect(step.body.trim().length, step.title).toBeGreaterThan(0);
+      expect(step.target, step.title).toMatch(/^\[data-(?:demo-)?tour="[a-z0-9-]+"\]$/);
+      expect(['bottom', 'bottomLeft', 'bottomRight', 'top', 'topLeft', 'topRight', 'left', 'right']).toContain(step.placement);
+    }
+    // 每一步的 id 唯一（便于将来埋点/断点续走）
+    const ids = spotlight!.map((step) => step.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

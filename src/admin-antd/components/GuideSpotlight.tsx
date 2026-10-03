@@ -1,32 +1,38 @@
 /*
 This project uses Ant Design (https://ant.design), licensed under the MIT License.
 */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Tour } from 'antd';
 import type { TourProps } from 'antd';
 
 import { buildViewTourSteps } from '../lib/guide';
+import type { GuidePlacement, GuideStep } from '../lib/guide';
 import type { ViewKey } from '../types';
 
 /**
- * 「本页怎么用」的在界面上指点（antd `Tour`）—— 就是"引导线/高亮框"那一层。
+ * 在界面上「指出来」的引导层（antd `Tour`）：高亮框 + 箭头（指示线）指向具体元素。
  *
- * 与说明抽屉的分工：抽屉负责"按步骤讲文字"，本组件负责"把话指到具体元素上"——
- * 点某一步 → 高亮框 + 箭头（指示线）指向该元素，并且可以一步步走下去。
- * **只由用户点击触发**：不首访自动弹、不主动打断，关掉就结束。
+ * 两种来源（都只由用户点击触发，**不首访自动弹、不主动打断**）：
+ * - **假数据版（主推）**：模拟会话页里跑分步实操（如系列比赛整条流程），带步骤进度与"上次走到哪"；
+ *   真数据版只在当前视图指几处，用来"看一眼在哪"。
+ * - 步骤文案都来自 `lib/guide`，改一处两处生效。
  *
  * 三个实现约束：
- * 1. **锚点用 `data-tour="xxx"` 选择器**，不依赖 antd 内部 class（升级/换肤不会打散）。
- * 2. **目标必须已渲染**：这些步骤都属于当前视图；万一找不到（某卡片当前条件不渲染），
- *    Tour 会把卡片居中显示并附一行兜底说明，不会报错。
- * 3. **箭头/指示线来自 antd Tour 本身**，不要自己画 SVG —— 高亮框与箭头会跟随目标定位。
+ * 1. **锚点用选择器**（`data-tour` / `data-demo-tour`），不依赖 antd 内部 class。
+ * 2. **"指不到"就别硬指**：锚点不存在、或者目标是一整张大卡片（宽/高超过视口 85%）时，
+ *    退回居中卡片并说明原因 —— 画一个把整页圈进去的大框比不指更糟。
+ * 3. **箭头/指示线用 antd Tour 自带的**，不要自己画 SVG。
  */
 
 export interface GuideSpotlightProps {
   /** 要指点的视图；null = 关闭 */
   view: ViewKey | null;
-  /** 从第几步开始（抽屉里点具体某一步时传入） */
+  /** 从第几步开始 */
   startStep: number;
+  /** 步骤来源：不传 = 该视图在真机界面上的说明；传了 = 模拟会话里的分步实操 */
+  steps?: readonly GuideStep[];
+  /** 步骤推进时回调（模拟会话用它记住"走到哪了"） */
+  onStepChange?: (step: number) => void;
   onClose: () => void;
 }
 
@@ -34,21 +40,31 @@ export interface GuideSpotlightProps {
 const DESCRIPTION_STYLE: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.7,
-  maxWidth: 360,
+  maxWidth: 380,
 };
 
-/** 锚点缺失时的兜底提示，避免用户以为引导坏了 */
-const MISSING_ANCHOR_HINT = '（这一步的目标当前不在页面上，先把上一步做出来再看）';
+/** 指不到时的兜底说明，避免用户以为引导坏了 */
+const CANNOT_POINT_HINT = '（这一步要指的位置当前不在页面上，或者它是一整张大卡片、指了也看不出重点，所以居中显示）';
 
 /** 等一帧再定位：抽屉关闭 / 视图切换后布局稳定了再量位置 */
 const ANCHOR_SETTLE_MS = 220;
 
-export function GuideSpotlight({ view, startStep, onClose }: GuideSpotlightProps): React.ReactElement {
+/**
+ * 目标"太大"的判据：宽或高超过视口的这个比例时视为整页级卡片，不指。
+ * 阈值放到 1.3（略超一屏也算"能指"）：详情卡这类 1200×1100 的目标指出来仍然有重点
+ * （用户能看到"就是这张卡"），而真正整页级的（多屏高）才退回居中卡片。
+ */
+const OVERSIZED_TARGET_RATIO = 1.3;
+
+export function GuideSpotlight({ view, startStep, steps: injectedSteps, onStepChange, onClose }: GuideSpotlightProps): React.ReactElement {
   const [current, setCurrent] = useState(startStep);
   const [settled, setSettled] = useState(false);
   const settleTimerRef = useRef<number | null>(null);
 
-  const steps = view ? buildViewTourSteps(view) : [];
+  const steps = useMemo<readonly GuideStep[]>(
+    () => injectedSteps ?? (view ? buildViewTourSteps(view) : []),
+    [injectedSteps, view],
+  );
 
   useEffect(() => {
     if (!view) {
@@ -70,45 +86,47 @@ export function GuideSpotlight({ view, startStep, onClose }: GuideSpotlightProps
         settleTimerRef.current = null;
       }
     };
-  }, [view, startStep]);
-
-  /** 该步骤的目标元素是否真的在页面上（找不到时给一行兜底说明） */
-  function hasAnchor(stepIndex: number): boolean {
-    const anchor = steps[stepIndex]?.target;
-    if (!anchor) {
-      return true;
-    }
-    return typeof document !== 'undefined' && document.querySelector(anchor) !== null;
-  }
+  }, [view, startStep, steps]);
 
   /**
-   * 把 `data-tour="xxx"` 选择器变成 Tour 的 target。
-   * 用函数形式而不是字符串：① 类型上 Tour 只接受元素或返回元素的函数（字符串是运行期扩展，TS 不认）；
-   * ② 每次定位都重新查一次 DOM，抽屉关闭/重新打开后能立刻选中。
-   * 查不到时返回 null → Tour 自动把卡片居中显示（配合上面的兜底提示文案）。
+   * 能不能真的"指"到：锚点存在，且目标不是整页那么大的卡片。
+   * 指不到返回 null → Tour 把卡片居中显示，并附一行原因。
    */
-  function resolveAnchor(anchor: string | null): (() => HTMLElement) | undefined {
-    if (!anchor) {
-      return undefined;
+  function resolveTarget(index: number): HTMLElement | null {
+    const anchor = steps[index]?.target;
+    if (!anchor || typeof document === 'undefined') {
+      return null;
     }
-    return (() => document.querySelector<HTMLElement>(anchor) ?? null) as unknown as () => HTMLElement;
+    const element = document.querySelector<HTMLElement>(anchor);
+    if (!element) {
+      return null;
+    }
+    const rect = element.getBoundingClientRect();
+    const tooWide = rect.width > window.innerWidth * OVERSIZED_TARGET_RATIO;
+    const tooTall = rect.height > window.innerHeight * OVERSIZED_TARGET_RATIO;
+    return tooWide || tooTall ? null : element;
   }
 
   const tourSteps: TourProps['steps'] = steps.map((step, index) => {
     const isLast = index === steps.length - 1;
-    const missing = settled && current === index && !hasAnchor(index);
+    // settled 之后才量：抽屉收起 / 布局稳定前的尺寸不可信
+    const measured = settled && current === index;
+    const target = measured ? resolveTarget(index) : null;
+    const cannotPoint = measured && step.target !== null && target === null;
     return {
       title: step.title,
       description: (
         <div style={DESCRIPTION_STYLE}>
           <div>{step.body}</div>
-          {missing ? (
-            <div style={{ marginTop: 6, color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>{MISSING_ANCHOR_HINT}</div>
+          {cannotPoint ? (
+            <div style={{ marginTop: 6, color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>{CANNOT_POINT_HINT}</div>
           ) : null}
         </div>
       ),
-      target: resolveAnchor(step.target),
-      placement: step.placement,
+      // 类型断言：Tour 的 target 只接受「元素 | 返回元素的函数 | 返回 null 的函数」，
+      // 这里的函数可能返回 null（指不到就居中显示），TS 认不出，故断言一次（运行期行为不变）
+      target: step.target === null ? undefined : (() => resolveTarget(index)) as unknown as () => HTMLElement,
+      placement: (cannotPoint ? 'center' : step.placement) as GuidePlacement,
       nextButtonProps: { children: isLast ? '完成' : '下一步' },
       prevButtonProps: index === 0 ? { style: { display: 'none' } } : undefined,
     };
@@ -116,10 +134,22 @@ export function GuideSpotlight({ view, startStep, onClose }: GuideSpotlightProps
 
   return (
     <Tour
-      open={Boolean(view)}
+      open={Boolean(view) && steps.length > 0}
       current={current}
       steps={tourSteps}
-      onChange={(next) => setCurrent(next)}
+      onChange={(next) => {
+        setCurrent(next);
+        setSettled(false);
+        if (settleTimerRef.current !== null) {
+          window.clearTimeout(settleTimerRef.current);
+        }
+        // 换步后重新等布局稳定（新目标可能触发滚动/展开），避免箭头贴旧坐标
+        settleTimerRef.current = window.setTimeout(() => {
+          settleTimerRef.current = null;
+          setSettled(true);
+        }, ANCHOR_SETTLE_MS);
+        onStepChange?.(next);
+      }}
       onClose={onClose}
       onFinish={onClose}
       // 压在说明抽屉（zIndex 900）之上：抽屉可能还开着，指引用的是它讲的那个元素

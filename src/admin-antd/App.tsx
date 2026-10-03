@@ -188,10 +188,13 @@ import { CardGuideDrawer } from './components/CardGuideDrawer';
 import { GuideSpotlight } from './components/GuideSpotlight';
 import { createAdminSocket } from './lib/socket';
 import {
+  DEMO_SPOTLIGHTS,
+  DEMO_TOUR_STEP_STORAGE_KEY,
   recordGuideVisit,
   viewGuideSteps,
   viewGuideTitle,
 } from './lib/guide';
+import type { GuideStep } from './lib/guide';
 
 import { type StatsMetricKey } from './lib/stats';
 
@@ -269,6 +272,34 @@ function readDemoView(): ViewKey | null {
   }
   const requested = params.get('view');
   return requested && (ALL_VIEW_KEYS as string[]).includes(requested) ? (requested as ViewKey) : null;
+}
+
+/** 模拟会话里是否要直接开跑分步实操（`?tour=1`）；从上次走到的那一步继续 */
+function readDemoTourRequest(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return new URLSearchParams(window.location.search).get('tour') === '1';
+}
+
+/** 读「上次走到第几步」（模拟会话的分步实操用；读写都容错） */
+function readDemoTourStep(): number {
+  try {
+    const raw = window.localStorage.getItem(DEMO_TOUR_STEP_STORAGE_KEY);
+    const parsed = raw ? Number.parseInt(raw, 10) : 0;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** 记「走到第几步」：关掉标签页再回来能接着走 */
+function writeDemoTourStep(step: number): void {
+  try {
+    window.localStorage.setItem(DEMO_TOUR_STEP_STORAGE_KEY, String(step));
+  } catch {
+    // 隐私模式等写不进去就每次从头走，不影响功能
+  }
 }
 
 /** 切换当前赛事确认弹窗的「不再提示」标记：按浏览器本地记忆（localStorage），跨会话保留 */
@@ -680,10 +711,14 @@ function Dashboard() {
   const [cardGuideOpen, setCardGuideOpen] = useState(false);
   // 「在界面上指出来」：非 null 时启动就地指点（高亮框 + 箭头指向该步骤的目标元素）
   const [spotlight, setSpotlight] = useState<{ view: ViewKey; step: number } | null>(null);
+  // 模拟会话里的分步实操（假数据版引导）：`?tour=1` 进来时自动开跑，走完/关掉即结束
+  const [demoTour, setDemoTour] = useState<{ view: ViewKey; step: number } | null>(null);
   // 模拟会话（内嵌 iframe）：记录当前要模拟哪个视图
   const [demoView, setDemoView] = useState<ViewKey | null>(null);
   // 悬浮窗操作练习（独立仿真页；入口在「本页怎么用」抽屉里，页面本身不再单放入口）
   const [floatPracticeOpen, setFloatPracticeOpen] = useState(false);
+  // 「用模拟数据走一遍」：打开模拟会话时带上 tour 参数，让那边的页面自己起引导
+  const [demoTourPending, setDemoTourPending] = useState(false);
 
   const liveApplyRef = useRef(false);
   const liveWriteRef = useRef(false);
@@ -1103,6 +1138,17 @@ function Dashboard() {
     const deepLinkView = readDeepLinkView();
     if (deepLinkView) {
       setView(deepLinkView);
+    }
+  }, []);
+
+  // 模拟会话 `?tour=1`：直接开跑该视图的分步实操（从上次走到的那一步继续）
+  useEffect(() => {
+    if (!readDemoTourRequest()) {
+      return;
+    }
+    const demoView = readDemoView();
+    if (demoView && DEMO_SPOTLIGHTS[demoView]) {
+      setDemoTour({ view: demoView, step: readDemoTourStep() });
     }
   }, []);
 
@@ -7219,6 +7265,12 @@ function Dashboard() {
           setCardGuideOpen(false);
           setSpotlight({ view: targetView, step: stepIndex });
         }}
+        onOpenDemoTour={(targetView) => {
+          // 用假数据把重点流程演示一遍：走 ?tour=1 深链，模拟会话页里自动起引导
+          setCardGuideOpen(false);
+          setDemoView(targetView);
+          setDemoTourPending(true);
+        }}
         onOpenDemo={(targetView) => {
           setCardGuideOpen(false);
           setDemoView(targetView);
@@ -7237,6 +7289,18 @@ function Dashboard() {
         onClose={() => setSpotlight(null)}
       />
 
+      {/* 模拟会话里的分步实操（假数据版引导）：讲系列比赛这种复合流程，走完/关掉即结束 */}
+      <GuideSpotlight
+        view={demoTour?.view ?? null}
+        startStep={demoTour?.step ?? 0}
+        steps={demoTour ? DEMO_SPOTLIGHTS[demoTour.view]?.map((step) => ({ ...step, kind: 'flow' as const })) : undefined}
+        onStepChange={(step) => {
+          setDemoTour((prev) => (prev ? { ...prev, step } : prev));
+          writeDemoTourStep(step);
+        }}
+        onClose={() => setDemoTour(null)}
+      />
+
       {/* 模拟会话：内嵌独立页面（/admin-guide-demo.html?view=xxx）。
           那边跑的是同一个后台 bundle，但网络出口被换成内存假数据 —— 随便点都不会动到真实赛事。 */}
       <Drawer
@@ -7244,7 +7308,10 @@ function Dashboard() {
         placement="right"
         width="min(1200px, 96vw)"
         open={Boolean(demoView)}
-        onClose={() => setDemoView(null)}
+        onClose={() => {
+          setDemoView(null);
+          setDemoTourPending(false);
+        }}
         destroyOnHidden
         mask={false}
         zIndex={1040}
@@ -7252,7 +7319,7 @@ function Dashboard() {
         {demoView ? (
           <iframe
             title="模拟会话"
-            src={`/admin-guide-demo.html?view=${encodeURIComponent(demoView)}`}
+            src={`/admin-guide-demo.html?view=${encodeURIComponent(demoView)}${demoTourPending ? '&tour=1' : ''}`}
             style={{ width: '100%', height: 'calc(100vh - 130px)', border: 0, borderRadius: 8 }}
           />
         ) : null}
