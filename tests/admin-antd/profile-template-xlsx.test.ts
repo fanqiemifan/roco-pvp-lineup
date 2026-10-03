@@ -107,7 +107,7 @@ describe('renderProfileTemplateXlsx（选手表 + 隐藏精灵列表 + 跨表下
     expect(guideText).toContain('贴合单元格');
   });
 
-  it('精灵1..6 挂跨表下拉（D..I 覆盖数据行）', async () => {
+  it('擅长精灵1..6 挂跨表下拉（D..I 覆盖数据行）', async () => {
     const workbook = await loadWroteBytes([
       makePlayer({ id: 'p1', name: '小明' }),
       makePlayer({ id: 'p2', name: '小红' }),

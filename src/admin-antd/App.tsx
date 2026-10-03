@@ -8042,7 +8042,7 @@ function Dashboard() {
         {playerImportSource === 'xlsx' ? (
           <>
             <Paragraph>
-              将导入 <Text strong>{playerImportPreview.length}</Text> 名选手。列口径：名字 / 排位排名 / 宣言 / 精灵1..精灵6；嵌入到「头像」列的浮动图片会一并导入。
+              将导入 <Text strong>{playerImportPreview.length}</Text> 名选手。列口径：名字 / 排位排名 / 宣言 / 擅长精灵1..擅长精灵6；嵌入到「头像」列的浮动图片会一并导入。
             </Paragraph>
             <Paragraph type="secondary" style={{ marginBottom: 12 }}>
               同名选手将更新其排名、宣言与常用精灵，并保留原头像。常用精灵仅在 pets.json 精确命中时录入，未命中的会在导入后提示并给出候选。

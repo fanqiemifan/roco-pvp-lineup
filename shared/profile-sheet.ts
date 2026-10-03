@@ -17,12 +17,12 @@ export const PROFILE_HEADER = [
   '名字',
   '排位排名',
   '宣言',
-  '精灵1',
-  '精灵2',
-  '精灵3',
-  '精灵4',
-  '精灵5',
-  '精灵6',
+  '擅长精灵1',
+  '擅长精灵2',
+  '擅长精灵3',
+  '擅长精灵4',
+  '擅长精灵5',
+  '擅长精灵6',
   '头像',
 ];
 
@@ -63,7 +63,7 @@ interface ProfileColumnMap {
   name: number;
   rank: number;
   declaration: number;
-  /** 精灵1..6 的列下标（缺列为 undefined） */
+  /** 擅长精灵1..6 的列下标（缺列为 undefined） */
   slots: Array<number | undefined>;
   /** 单列「常用精灵」兜底列下标（-1 = 无） */
   singlePets: number;
@@ -129,7 +129,8 @@ function locateProfileColumns(header: string[]): ProfileColumnMap | null {
   let singlePets = -1;
   let avatar = -1;
   tokens.forEach((cell, index) => {
-    const numbered = /^(精灵|slot|fill)([1-6])$/.exec(cell);
+    // 编号列兼容「擅长精灵1..6」与旧的「精灵1..6」（改名前导出的表格仍可导入）
+    const numbered = /^(?:擅长)?(精灵|slot|fill)([1-6])$/.exec(cell);
     if (numbered) {
       slots[Number(numbered[2]) - 1] = index;
       return;
@@ -149,7 +150,7 @@ function locateProfileColumns(header: string[]): ProfileColumnMap | null {
 
 /**
  * 二维表（带真实行号）→ 选手条目。
- * 表头在前 5 个非空行内定位（需含「名字」列）；精灵支持 `精灵1..6` 编号列或单个「常用精灵」列。
+ * 表头在前 5 个非空行内定位（需含「名字」列）；擅长精灵支持 `擅长精灵1..6` 编号列（兼容旧的 `精灵1..6`）或单个「常用精灵」列。
  * 空名字行跳过并给出行号提示；同名重复给 warning（导入时后者覆盖前者）。
  */
 export function parseProfileSheetRows(rows: ProfileSheetRow[]): ProfileSheetParseResult {
@@ -173,7 +174,7 @@ export function parseProfileSheetRows(rows: ProfileSheetRow[]): ProfileSheetPars
       headerRowNumber: null,
       errors: [
         hasNameColumn
-          ? '表头缺少常用精灵列（需要「精灵1..精灵6」或单个「常用精灵」列）'
+          ? '表头缺少常用精灵列（需要「擅长精灵1..擅长精灵6」或单个「常用精灵」列）'
           : '表头缺少可识别的「名字」列（支持 名字 / 选手 / 姓名 / name）',
       ],
       warnings,
@@ -240,7 +241,7 @@ function buildDisplayNameIndex(sprites: SpriteRecord[]): Map<string, SpriteRecor
 }
 
 /**
- * 导出数据行：`名字 / 排位排名 / 宣言 / 精灵1..6 / 头像(留空)`。
+ * 导出数据行：`名字 / 排位排名 / 宣言 / 擅长精灵1..6 / 头像(留空)`。
  * 常用精灵按 displayName 反查精灵，回显成下拉同格式的 `pet_id_名字（形态）`；查不到则原样保留。
  */
 export function buildProfileSheetTextRows(players: PlayerProfile[], sprites: SpriteRecord[]): string[][] {
@@ -263,7 +264,7 @@ export function buildProfileSheetTextRows(players: PlayerProfile[], sprites: Spr
 
 /** 精灵编号列区域（Excel 列号字符串，如 D..I）：挂下拉校验用 */
 export function profileSpriteColumnRange(lastRow: number): string {
-  const startColumn = 3; // 0 基：第 4 列（精灵1）
+  const startColumn = 3; // 0 基：第 4 列（擅长精灵1）
   const toLetters = (index: number): string => String.fromCharCode(65 + index);
   return `${toLetters(startColumn)}2:${toLetters(startColumn + PROFILE_SPRITE_COLUMN_COUNT - 1)}${lastRow}`;
 }

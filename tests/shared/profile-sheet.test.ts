@@ -53,7 +53,7 @@ function makeSprite(id: string, name: string, patch: Partial<SpriteRecord> = {})
 /* ---------- 表头与列映射 ---------- */
 
 describe('parseProfileSheetRows（表头定位与列映射）', () => {
-  it('编号列 精灵1..6 合并为 pets；排名仅保留数字', () => {
+  it('编号列 擅长精灵1..6 合并为 pets；排名仅保留数字', () => {
     const result = parseProfileSheetRows([
       row(1, [...PROFILE_HEADER.slice(0, 9), '头像']),
       row(2, ['小明', '100.0', '冲', '3005_水灵', '', '3287_岚鸟', '', '', '', '']),
@@ -87,6 +87,15 @@ describe('parseProfileSheetRows（表头定位与列映射）', () => {
     ]);
     expect(result.headerRowNumber).toBe(2);
     expect(result.players[0]).toMatchObject({ rowNumber: 3, name: '小刚', pets: '火神' });
+  });
+
+  it('兼容旧表头「精灵1..6」（改名前导出的表格仍可导入）', () => {
+    const result = parseProfileSheetRows([
+      row(1, ['名字', '排位排名', '宣言', '精灵1', '精灵2']),
+      row(2, ['小明', '100', '', '水灵', '']),
+    ]);
+    expect(result.errors).toEqual([]);
+    expect(result.players[0]).toMatchObject({ name: '小明', pets: '水灵' });
   });
 
   it('缺名字列 → 报错；空名字行与重复名字 → warning', () => {

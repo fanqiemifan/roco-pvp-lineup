@@ -168,13 +168,13 @@
 
 ## 选手信息表格 (profile-xlsx-service.ts / shared/profile-sheet.ts)
 
-列契约（工作表「选手信息」）由 `shared/profile-sheet.ts` 唯一定义：`名字 | 排位排名 | 宣言 | 精灵1..6 | 头像`；「常用精灵」拆成 6 个编号列（与系列赛阵容模板同构，才能各挂下拉），导入侧再合并回 `pets`（兼容单列「常用精灵」写法）。
+列契约（工作表「选手信息」）由 `shared/profile-sheet.ts` 唯一定义：`名字 | 排位排名 | 宣言 | 擅长精灵1..6 | 头像`；「擅长精灵」拆成 6 个编号列（与系列赛阵容模板同构，才能各挂下拉），导入侧再合并回 `pets`（兼容单列「常用精灵」与改名前旧表头 `精灵1..6` 的写法）。
 
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
-| 表格 → 选手条目（纯函数） | parseProfileSheetRows | (rows: ProfileSheetRow[]) => { players: ProfileSheetPlayer[]; headerRowNumber: number \| null; errors: string[]; warnings: string[] } | 在带真实行号的二维表上前 5 个非空行内定位表头（判据：既有「名字」列又有常用精灵列，避免把标题行「选手信息登记表」误当表头）；列别名支持中英文与全角；精灵支持 `精灵1..6` 编号列或单个「常用精灵」列；rank 纯小数取整数部分（防 `100.0→1000`）；空名行、重复名字、表内重复给出 warning |
-| 导出预填（纯函数） | buildProfileSheetTextRows | (players: PlayerProfile[], sprites: SpriteRecord[]) => string[][] | 把 `player.pets`（`、` 分隔的 displayName）反查精灵回显为下拉同格式 `pet_id_名字（形态）`，拆进 精灵1..6；查不到原样保留；头像列留空 |
-| 精灵列区域（纯函数） | profileSpriteColumnRange | (lastRow: number) => string | 精灵1..6 对应的 Excel 区域（`D2:I{lastRow}`），挂下拉校验用 |
+| 表格 → 选手条目（纯函数） | parseProfileSheetRows | (rows: ProfileSheetRow[]) => { players: ProfileSheetPlayer[]; headerRowNumber: number \| null; errors: string[]; warnings: string[] } | 在带真实行号的二维表上前 5 个非空行内定位表头（判据：既有「名字」列又有常用精灵列，避免把标题行「选手信息登记表」误当表头）；列别名支持中英文与全角；精灵支持 `擅长精灵1..6` 编号列（兼容改名前旧表头 `精灵1..6`）或单个「常用精灵」列；rank 纯小数取整数部分（防 `100.0→1000`）；空名行、重复名字、表内重复给出 warning |
+| 导出预填（纯函数） | buildProfileSheetTextRows | (players: PlayerProfile[], sprites: SpriteRecord[]) => string[][] | 把 `player.pets`（`、` 分隔的 displayName）反查精灵回显为下拉同格式 `pet_id_名字（形态）`，拆进 擅长精灵1..6；查不到原样保留；头像列留空 |
+| 精灵列区域（纯函数） | profileSpriteColumnRange | (lastRow: number) => string | 擅长精灵1..6 对应的 Excel 区域（`D2:I{lastRow}`），挂下拉校验用 |
 | 解表 | extractProfileSheet | (buffer: Buffer) => Promise<ProfileXlsxTable> | exceljs 解 .xlsx → 带**真实行号**的二维表 + 按图片 `tl.nativeRow+1` 定位的浮动图片 + DISPIMG 检测。**不要复用 lineup-xlsx-service 的解表**（它丢空行、无行号，头像会错行）；按名优先取「选手信息」，回退第一个可见工作表 |
 | 表格预览 | previewProfileXlsx | (paths: AppPaths, buffer: Buffer) => Promise<ProfileXlsxPreview> | 只读：返回映射好的选手行 + 头像有无 + warnings/errors（含超 MAX_PLAYERS 丢弃预估、孤儿头像行、DISPIMG 提示） |
 | 表格导入 | importProfileXlsx | (paths: AppPaths, buffer: Buffer) => Promise<ProfileXlsxImportResult> | 先 importPlayerProfiles 写文字信息，**再从落盘结果重建 name→id**（同名取首个）按行存头像；单张头像失败只记入 failed 不 500；返回 `{ profiles, review, avatars, warnings }` |
