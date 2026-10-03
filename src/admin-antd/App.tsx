@@ -3810,7 +3810,7 @@ function Dashboard() {
   ];
 
   function exportHistoryCsv() {
-    const csv = buildHistoryCsv(sortedMatches, spriteMap);
+    const csv = buildHistoryCsv(sortedMatches, spriteMap, tournaments);
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

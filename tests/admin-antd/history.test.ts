@@ -4,9 +4,11 @@ import type {
   GameRecord,
   MatchRecord,
   MatchSlotSnapshot,
+  SpriteRecord,
   TournamentRecord,
 } from '../../shared/types';
 import {
+  buildHistoryCsv,
   buildHistoryTournamentFilters,
   countPushRows,
   filterLocallyRemovedMatches,
@@ -190,10 +192,10 @@ describe('buildHistoryTournamentFilters', () => {
         tournamentRef: { tournamentId: 'T_GONE', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
       }),
     ];
-    const tournaments = [makeTournament('T1', '星空杯'), makeTournament('T2', '无人杯')];
+    const tournaments = [makeTournament('T1', '夏季杯'), makeTournament('T2', '无人杯')];
 
     const filters = buildHistoryTournamentFilters(matches, tournaments);
-    expect(filters).toEqual([{ id: 'T1', name: '星空杯', count: 2 }]);
+    expect(filters).toEqual([{ id: 'T1', name: '夏季杯', count: 2 }]);
   });
 
   it('顺序按关联赛局首次出现位置（列表新对局在前，近期系列赛优先）', () => {
@@ -247,5 +249,57 @@ describe('filterLocallyRemovedMatches', () => {
     expect(filtered.map((match) => match.id)).toEqual(['m-kept', 'm-plain']);
     // 空集合（没有本机移除记录）原样返回，避免无谓复制
     expect(filterLocallyRemovedMatches(matches, new Set())).toBe(matches);
+  });
+});
+
+describe('buildHistoryCsv（系列赛 / 阶段 / 轮次列）', () => {
+  /** CSV → 二维表（夹具不含带逗号的单元格，按行/逗号拆分即可） */
+  function parseCsv(csv: string): string[][] {
+    return csv
+      .split('\n')
+      .map((line) => line.split(',').map((cell) => cell.replace(/^"|"$/g, '').replace(/""/g, '"')));
+  }
+
+  const spriteMap = new Map<string, SpriteRecord>();
+
+  function makeSingleElimTournament(): TournamentRecord {
+    return {
+      id: 'T20260928_A01',
+      name: '夏季杯',
+      stages: [{ name: '32进16', format: 'single-elim' }],
+      waves: [],
+    } as unknown as TournamentRecord;
+  }
+
+  it('系列赛对局：填「系列赛 / 阶段 / 轮次」（单败轮次留空），普通对局三列留空', () => {
+    const tournamentMatch = makeMatch([makeGame(1, 'completed', ['pet-1'])], {
+      id: 'm-tournament',
+      tournamentRef: { tournamentId: 'T20260928_A01', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+    });
+    const plainMatch = makeMatch([makeGame(1, 'pending')], { id: 'm-plain' });
+
+    const rows = parseCsv(buildHistoryCsv([tournamentMatch, plainMatch], spriteMap, [makeSingleElimTournament()]));
+    const header = rows[0];
+    expect(header.slice(0, 4)).toEqual(['赛事ID', '系列赛', '阶段', '轮次']);
+
+    // 系列赛对局行：id / 系列赛名 / 阶段名 / 轮次（单败无细分 → 空）
+    expect(rows[1][0]).toBe('m-tournament');
+    expect(rows[1][1]).toBe('夏季杯');
+    expect(rows[1][2]).toBe('32进16');
+    expect(rows[1][3]).toBe('');
+
+    // 普通对局行：三列都留空
+    expect(rows[2][1]).toBe('');
+    expect(rows[2][2]).toBe('');
+    expect(rows[2][3]).toBe('');
+  });
+
+  it('引用已删除系列赛（孤儿引用）时三列留空，不报错', () => {
+    const orphanMatch = makeMatch([makeGame(1, 'pending')], {
+      id: 'm-orphan',
+      tournamentRef: { tournamentId: 'T20260928_A99', nodeId: 's0-w1-n00', stageIndex: 0, waveIndex: 1 },
+    });
+    const rows = parseCsv(buildHistoryCsv([orphanMatch], spriteMap, [makeSingleElimTournament()]));
+    expect(rows[1].slice(1, 4)).toEqual(['', '', '']);
   });
 });

@@ -10,6 +10,7 @@ import type { PanelSide } from '../types';
 import { formatDateTime } from './format';
 import { getGameResultLabel, getGameStatusLabel, getCurrentGame } from './match';
 import { resolveSpriteStatsName } from './sprite';
+import { resolveMatchSemanticRound, resolveMatchStageTitle } from './tournament';
 
 export function buildHistoryLineupEntries(
   game: GameRecord,
@@ -199,13 +200,25 @@ export function buildHistoryTags(matches: MatchStoreState['matches']): string[] 
   return Array.from(tagSet);
 }
 
-export function buildHistoryCsv(matches: MatchRecord[], spriteMap: Map<string, SpriteRecord>): string {
-  const header = ['赛事ID', '完成时间', '左侧选手', '右侧选手', '比分', '赛制', '标签', '局数', '该局胜方', '该局状态', '左侧阵容', '右侧阵容'];
+export function buildHistoryCsv(
+  matches: MatchRecord[],
+  spriteMap: Map<string, SpriteRecord>,
+  tournaments: TournamentRecord[],
+): string {
+  const tournamentById = new Map(tournaments.map((record) => [record.id, record]));
+  const header = ['赛事ID', '系列赛', '阶段', '轮次', '完成时间', '左侧选手', '右侧选手', '比分', '赛制', '标签', '局数', '该局胜方', '该局状态', '左侧阵容', '右侧阵容'];
   const lines: string[][] = [];
 
   matches.forEach((match) => {
+    // 系列赛归属：由 tournamentRef + 编排实时派生（与列表标签列同口径），普通对局留空
+    const ref = match.tournamentRef;
+    const tournament = ref ? tournamentById.get(ref.tournamentId) : undefined;
+    const usableTournament = tournament && Array.isArray(tournament.stages) ? tournament : undefined;
     const base = [
       match.id,
+      usableTournament?.name ?? '',
+      ref && usableTournament ? (resolveMatchStageTitle(usableTournament, ref) ?? '') : '',
+      ref && usableTournament ? resolveMatchSemanticRound(usableTournament, ref).label : '',
       match.completedAt ? formatDateTime(match.completedAt) : '',
       match.leftPlayer || '左侧',
       match.rightPlayer || '右侧',
