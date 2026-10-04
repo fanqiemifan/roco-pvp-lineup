@@ -11,12 +11,14 @@ import {
   findThirdPlaceWave,
   formatStageRoundLabel,
   getCurrentPositionText,
+  getCurrentStageWavePosition,
   getDraftBucketSpecs,
   getNodeStatus,
   getPairingLabel,
   getPlayerStateText,
   getStagePlayerCount,
   getStageState,
+  getStageWaveRoundLabels,
   getThirdPlaceRankText,
   getTournamentOwnerCode,
   getTournamentStatusMeta,
@@ -286,6 +288,75 @@ describe('getCurrentPositionText', () => {
     expect(getCurrentPositionText(running)).toBe('8进4 · 第 2 波');
 
     expect(getCurrentPositionText(makeRecord({ status: 'completed' }))).toBe('已结束');
+  });
+});
+
+describe('getStageWaveRoundLabels / getCurrentStageWavePosition（编辑赛制弹窗口径）', () => {
+  it('双败波次语义轮次：W2 败者组 R1 在胜者组 R2 之前；单败无轮次', () => {
+    const stages = buildDefaultStages(8);
+    const doubleLife = stages[0]; // 8进4 双败
+    expect(getStageWaveRoundLabels(doubleLife, 1)).toEqual(['胜者组 R1']);
+    expect(getStageWaveRoundLabels(doubleLife, 2)).toEqual(['败者组 R1', '胜者组 R2']);
+    expect(getStageWaveRoundLabels(doubleLife, 3)).toEqual(['败者组 R2']);
+    const single = stages[1]; // 4进2 单败
+    expect(getStageWaveRoundLabels(single, 1)).toEqual([]);
+  });
+
+  it('当前进度：取当前阶段最后建出的主赛波（季军赛不算）；未开赛 / 已结束为 null', () => {
+    expect(getCurrentStageWavePosition(makeRecord())).toBeNull();
+    expect(getCurrentStageWavePosition(makeRecord({ status: 'completed' }))).toBeNull();
+
+    const record = makeRecord({
+      status: 'running',
+      currentStageIndex: 0,
+      waves: [
+        makeWave(0, 1),
+        makeWave(0, 2, { status: 'running' }),
+        // 季军赛波次序号更大但不属于当前进度
+        makeWave(0, 4, { kind: 'third-place' }),
+      ],
+    });
+    const position = getCurrentStageWavePosition(record);
+    expect(position?.stageName).toBe('8进4');
+    expect(position?.waveIndex).toBe(2);
+    expect(position?.roundLabels).toEqual(['败者组 R1', '胜者组 R2']);
+  });
+
+  it('单败阶段的当前进度：W1、无轮次标签；尚未建波时 waveIndex 为 null', () => {
+    const single = makeRecord({
+      status: 'running',
+      currentStageIndex: 1,
+      waves: [makeWave(1, 1, { status: 'running' })],
+    });
+    const position = getCurrentStageWavePosition(single);
+    expect(position?.stageName).toBe('4进2');
+    expect(position?.waveIndex).toBe(1);
+    expect(position?.roundLabels).toEqual([]);
+
+    const noWave = getCurrentStageWavePosition(
+      makeRecord({ status: 'running', currentStageIndex: 0, waves: [] }),
+    );
+    expect(noWave?.waveIndex).toBeNull();
+    expect(noWave?.roundLabels).toEqual([]);
+  });
+
+  it('影响预览行带语义轮次（双败；单败为空）', () => {
+    const review = buildStageBestOfReview(
+      makeRecord({ status: 'running' }),
+      [],
+      [{ index: 0, bestOf: 3 }],
+    );
+    expect(review.rows.map((row) => row.roundLabels)).toEqual([
+      ['胜者组 R1'],
+      ['败者组 R1', '胜者组 R2'],
+      ['败者组 R2'],
+    ]);
+    const singleReview = buildStageBestOfReview(
+      makeRecord({ status: 'running' }),
+      [],
+      [{ index: 1, bestOf: 5 }],
+    );
+    expect(singleReview.rows[0]?.roundLabels).toEqual([]);
   });
 });
 

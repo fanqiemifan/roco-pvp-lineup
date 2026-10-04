@@ -99,7 +99,7 @@ roco-pvp-lineup/
 | views/StatsView.tsx | 数据统计视图（使用率/胜率排行、属性分布、各系列赛阶段趋势；系列赛 / 标签 / 选手筛选） |
 | views/TournamentLineupExportModal.tsx | 系列赛「导出阵容模板」弹窗（范围过滤 → 一场两行 .xlsx，精灵列带下拉） |
 | views/TournamentLineupImportModal.tsx | 系列赛「导入阵容」弹窗（.xlsx/CSV/TSV/JSON → 预览消歧 → 批量写入） |
-| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）、TournamentNodeCard（系列赛对局卡片，晋级图与波次列表共用）、CurrentMatchPanel（「当前比赛」面板，赛事面板与系列赛 Drawer 共用）等小组件 |
+| components/ | SettingField、SpritePetCard、StageThumb、MatchPushCard（比赛管理推流选场卡片+弹窗）、AdvanceRankCard（比赛管理第四张卡片：晋级积分榜，选系列赛+一次性选中阶段+内联切阶段/翻页）、BracketBoard（系列赛晋级图）、TournamentNodeCard（系列赛对局卡片，晋级图与波次列表共用）、StageWaveBestOfRow（波次局数行：编辑赛制弹窗与创建向导「高级设置」共用）、CurrentMatchPanel（「当前比赛」面板，赛事面板与系列赛 Drawer 共用）等小组件 |
 | lib/ | format、history、last-tournament（系列赛「上次操作」本地记忆）、lineup-sheet（系列赛阵容表：模板计划与回填解析）、sprite-dropdown-xlsx（xlsx 精灵下拉公共原语：buildSpriteOptions/隐藏「精灵列表」表/跨表校验，系列赛模板与选手表格共用）、lineup-template-xlsx（系列赛阵容 xlsx 模板渲染）、profile-template-xlsx（选手信息 xlsx 导出渲染：表头 + 头像浮动图 + 精灵下拉 + 填写说明）、match-actions（对局卡片动作可用性判据）、live、match、panel、preview、request、sprite、stats 通用逻辑 |
 | constants.ts / types.ts | 管理后台本地常量与类型 |
 | env.d.ts | `*.svg?raw` 模块类型声明（导航图标字符串引入） |

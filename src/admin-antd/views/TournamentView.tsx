@@ -54,6 +54,7 @@ import {
   getDraftBucketSpecs,
   getPairingLabel,
   getStageState,
+  getStageWaveRoundLabels,
   getTournamentOwnerCode,
   getTournamentStatusMeta,
   getWaveGlobalIndex,
@@ -85,6 +86,7 @@ import {
 import { deriveMatchActionAvailability } from '../lib/match-actions';
 import { readLastTournamentId, writeLastTournamentId } from '../lib/last-tournament';
 import { BracketBoard } from '../components/BracketBoard';
+import { StageWaveBestOfRow } from '../components/StageWaveBestOfRow';
 import { TournamentNodeCard } from '../components/TournamentNodeCard';
 import { TournamentStageBestOfModal } from '../components/TournamentStageBestOfModal';
 import type { TournamentCardMenuHandlers } from '../components/TournamentNodeCard';
@@ -1654,6 +1656,8 @@ function CreateTournamentModal({
   const [stagesBaseCount, setStagesBaseCount] = useState(0);
   /** 季军赛局数（0 = 不安排）：半决赛打完后自动用两名落败者建场，赛制在这里选定 */
   const [thirdPlaceBestOf, setThirdPlaceBestOf] = useState<number>(3);
+  /** 高级设置：按波次设置局数（双败阶段的 W2/W3 覆盖）；关闭时保持基础表格面板、覆盖一并清掉 */
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [playerSearch, setPlayerSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const createdIdRef = useRef<string | null>(null);
@@ -1667,6 +1671,7 @@ function CreateTournamentModal({
       setStages([]);
       setStagesBaseCount(0);
       setThirdPlaceBestOf(3);
+      setAdvancedOpen(false);
       setPlayerSearch('');
       setSaving(false);
       createdIdRef.current = null;
@@ -1683,6 +1688,14 @@ function CreateTournamentModal({
       ? list.filter((player) => player.name.toLowerCase().includes(keyword))
       : list;
   }, [profiles, playerSearch]);
+
+  // 高级设置面板：只列双败阶段（单败只有一波，按波次设置无从谈起）
+  const doubleLifeStageEntries = useMemo(
+    () => stages
+      .map((stage, index) => ({ stage, index }))
+      .filter((entry) => entry.stage.format === 'double-life'),
+    [stages],
+  );
 
   function togglePlayer(id: string): void {
     setPlayerIds((current) =>
@@ -1708,9 +1721,50 @@ function CreateTournamentModal({
           return stage;
         }
         const next = { ...stage, ...patch };
-        // 赛制变化：配对方式复位为该赛制默认
+        // 赛制变化：配对方式复位为该赛制默认；单败没有按波次覆盖，一并清掉
         if (patch.format && patch.format !== stage.format) {
           next.pairing = patch.format === 'double-life' ? 'random-bucket' : 'bracket-seed';
+          if (patch.format === 'single-elim') {
+            delete next.waveBestOf;
+          }
+        }
+        // 基础局数变化：覆盖值等于新基础 = 跟随基础，删掉覆盖（与编辑赛制 / 服务端归一同一口径）
+        if (patch.bestOf !== undefined && next.waveBestOf) {
+          const pruned: Partial<Record<2 | 3, StageRule['bestOf']>> = { ...next.waveBestOf };
+          ([2, 3] as const).forEach((waveIndex) => {
+            if (pruned[waveIndex] === patch.bestOf) {
+              delete pruned[waveIndex];
+            }
+          });
+          if (Object.keys(pruned).length) {
+            next.waveBestOf = pruned;
+          } else {
+            delete next.waveBestOf;
+          }
+        }
+        return next;
+      }),
+    );
+  }
+
+  /** 高级设置：双败 W2/W3 的波次覆盖；等于基础值 = 跟随基础（不落覆盖，与服务端归一一致） */
+  function setWaveOverride(stageIndex: number, waveIndex: 2 | 3, value: StageRule['bestOf']): void {
+    setStages((current) =>
+      current.map((stage, index) => {
+        if (index !== stageIndex) {
+          return stage;
+        }
+        const overrides: Partial<Record<2 | 3, StageRule['bestOf']>> = { ...(stage.waveBestOf ?? {}) };
+        if (value === stage.bestOf) {
+          delete overrides[waveIndex];
+        } else {
+          overrides[waveIndex] = value;
+        }
+        const next = { ...stage };
+        if (Object.keys(overrides).length) {
+          next.waveBestOf = overrides;
+        } else {
+          delete next.waveBestOf;
         }
         return next;
       }),
@@ -1927,6 +1981,75 @@ function CreateTournamentModal({
               选「不安排」则不建场
             </Text>
           </Space>
+        </div>
+      ) : null}
+
+      {step === 2 ? (
+        <div className="tournament-advanced-block">
+          <Space size={10} wrap>
+            <Text strong>高级设置</Text>
+            <Switch
+              size="small"
+              checked={advancedOpen}
+              onChange={(checked) => {
+                setAdvancedOpen(checked);
+                // 关闭 = 回到「全阶段统一基础局数」：按波次覆盖一并清掉
+                if (!checked) {
+                  setStages((current) => current.map((stage) => {
+                    if (!stage.waveBestOf) {
+                      return stage;
+                    }
+                    const next = { ...stage };
+                    delete next.waveBestOf;
+                    return next;
+                  }));
+                }
+              }}
+            />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              按波次设置局数：双败阶段的 W2 / W3 可单独用不同 BO，默认跟随基础局数（W1）
+            </Text>
+          </Space>
+          {advancedOpen ? (
+            doubleLifeStageEntries.length ? (
+              <div>
+                {doubleLifeStageEntries.map(({ stage, index }) => (
+                  <div key={stage.id} className="tournament-advanced-stage">
+                    <Space size={8}>
+                      <Text strong style={{ fontSize: 12 }}>{stage.name}</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        双败 · {formatStageBestOf(stage)}
+                      </Text>
+                    </Space>
+                    {([1, 2, 3] as const).map((waveIndex) => {
+                      const explicit = waveIndex === 1 ? undefined : stage.waveBestOf?.[waveIndex];
+                      const follows = waveIndex > 1 && (explicit === undefined || explicit === stage.bestOf);
+                      return (
+                        <StageWaveBestOfRow
+                          key={waveIndex}
+                          waveIndex={waveIndex}
+                          roundLabels={getStageWaveRoundLabels(stage, waveIndex)}
+                          value={waveIndex === 1 ? stage.bestOf : explicit ?? stage.bestOf}
+                          hint={waveIndex === 1 ? '基础' : follows ? '跟随基础' : '独立覆盖'}
+                          onChange={(next) => {
+                            if (waveIndex === 1) {
+                              updateStage(index, { bestOf: next as StageRule['bestOf'] });
+                              return;
+                            }
+                            setWaveOverride(index, waveIndex, next as StageRule['bestOf']);
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                当前阶段配置中没有双败阶段（单败只有一波），无需按波次设置
+              </Text>
+            )
+          ) : null}
         </div>
       ) : null}
 

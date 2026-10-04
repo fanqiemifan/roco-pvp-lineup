@@ -116,6 +116,8 @@ export interface StageBestOfReviewRow {
   stageIndex: number;
   /** 1/2/3（单败阶段恒为 1） */
   waveIndex: number;
+  /** 该波语义轮次（W2 = 败者组 R1 / 胜者组 R2）；单败为空数组 */
+  roundLabels: string[];
   stageName: string;
   fromBestOf: number;
   toBestOf: number;
@@ -227,6 +229,7 @@ export function buildStageBestOfReview(
       rows.push({
         stageIndex: change.index,
         waveIndex,
+        roundLabels: getStageWaveRoundLabels(stage, waveIndex),
         stageName: stage.name,
         fromBestOf,
         toBestOf,
@@ -312,6 +315,39 @@ export function getCurrentPositionText(record: TournamentRecord): string {
     return '已结束';
   }
   return `${stage.name} · 第 ${lastWave.waveIndex} 波`;
+}
+
+/**
+ * 当前进行到的阶段与主赛波次（编辑赛制弹窗展示「当前阶段 · W几」用）：
+ * 取当前阶段最后建出的主赛波（季军赛不算——它挂靠半决赛阶段但波次序号更大）；
+ * 未开赛 / 已结束返回 null，尚未建波时 waveIndex 为 null。
+ */
+export function getCurrentStageWavePosition(record: TournamentRecord): {
+  stageIndex: number;
+  stageName: string;
+  waveIndex: number | null;
+  /** 该波的语义轮次（单败为空数组），口径与波次列表 / 晋级图一致 */
+  roundLabels: string[];
+} | null {
+  if (record.status === 'setup' || record.status === 'completed') {
+    return null;
+  }
+  const stage = record.stages[record.currentStageIndex];
+  if (!stage) {
+    return null;
+  }
+  const stageWaves = record.waves.filter(
+    (wave) => wave.stageIndex === record.currentStageIndex && wave.kind !== 'third-place',
+  );
+  const waveIndex = stageWaves.length
+    ? Math.max(...stageWaves.map((wave) => wave.waveIndex))
+    : null;
+  return {
+    stageIndex: record.currentStageIndex,
+    stageName: stage.name,
+    waveIndex,
+    roundLabels: waveIndex === null ? [] : getStageWaveRoundLabels(stage, waveIndex),
+  };
 }
 
 /** 季军赛波次（每届最多一条）；未安排 / 还没打出来时为 null */
@@ -959,20 +995,42 @@ export function buildWaveCards(
 }
 
 /**
+ * 双败波次 → 战绩桶（与 getDraftBucketSpecs 的结构口径一致；W2 的显示顺序按晋级图列序，
+ * 即 0-1 败者组 R1 在 1-0 胜者组 R2 之前）；W3 及以后收敛在决胜池。
+ */
+const DOUBLE_LIFE_WAVE_BUCKETS: Record<number, string[]> = {
+  1: ['0-0'],
+  2: ['0-1', '1-0'],
+  3: ['1-1'],
+};
+
+/**
+ * 双败阶段某波的语义轮次标签（W1 胜者组 R1 / W2 败者组 R1·胜者组 R2 / W3 败者组 R2）：
+ * 编辑赛制与创建向导的波次行使用，未建出的波也能提前展示；单败阶段没有轮次细分，返回空数组。
+ */
+export function getStageWaveRoundLabels(
+  stage: Pick<StageRule, 'format'>,
+  waveIndex: number,
+): string[] {
+  if (stage.format !== 'double-life') {
+    return [];
+  }
+  return (DOUBLE_LIFE_WAVE_BUCKETS[waveIndex] ?? ['1-1'])
+    .map((bucketKey) => DOUBLE_LIFE_ROUND_LABELS[bucketKey])
+    .filter((label): label is string => Boolean(label));
+}
+
+/**
  * 某波的轮次表述（双败按战绩桶给出「胜者组 R1 / 败者组 R1」等；单败返回空数组，直接用阶段名）。
  * 波次列表用它替代「第 N 波」，与晋级图列标题同一套术语。季军赛没有轮次，固定空数组
  * （它的波次序号在阶段主赛之后，getDraftBucketSpecs 会按 record.entries 推出错误的桶）。
  */
 export function getWaveRoundLabels(record: TournamentRecord, wave: TournamentWave): string[] {
   const stage = record.stages[wave.stageIndex];
-  if (!stage || stage.format !== 'double-life' || wave.kind === 'third-place') {
+  if (!stage || wave.kind === 'third-place') {
     return [];
   }
-  return getDraftBucketSpecs(record, wave)
-    .map((spec) => spec.bucketKey)
-    .filter((key): key is string => Boolean(key))
-    .sort((left, right) => getRoundOrder(left) - getRoundOrder(right))
-    .map((key) => DOUBLE_LIFE_ROUND_LABELS[key] ?? key);
+  return getStageWaveRoundLabels(stage, wave.waveIndex);
 }
 
 /** 配对方式的中文表述（创建向导的同名字段：双败 随机/手动，单败 沿对阵树/每轮随机） */

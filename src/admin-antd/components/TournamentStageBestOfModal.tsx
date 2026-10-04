@@ -3,21 +3,27 @@ import { Alert, App, Modal, Select, Tag, Typography } from 'antd';
 
 import { resolveThirdPlaceBestOf, resolveWaveBestOf } from '../../../shared/constants';
 import type { MatchRecord, TournamentRecord } from '../../../shared/types';
-import { buildStageBestOfReview } from '../lib/tournament';
+import {
+  buildStageBestOfReview,
+  getCurrentStageWavePosition,
+  getStageState,
+  getStageWaveRoundLabels,
+} from '../lib/tournament';
 import type { StageBestOfChange, StageBestOfReviewRow } from '../lib/tournament';
 import { updateTournamentStagesApi } from '../lib/tournament-api';
+import { StageWaveBestOfRow } from './StageWaveBestOfRow';
 
-const { Paragraph, Text } = Typography;
+const { Paragraph } = Typography;
 
-const STAGE_BEST_OF_OPTIONS = [1, 3, 5, 7].map((value) => ({ value, label: `BO${value}` }));
 const THIRD_PLACE_OPTIONS = [0, 1, 3, 5, 7].map((value) => ({
   value,
   label: value === 0 ? '不安排' : `BO${value}`,
 }));
 
-/** 影响预览单行文案（弹窗与确认框共用） */
+/** 影响预览单行文案（弹窗与确认框共用），带语义轮次（如「W2（败者组 R1 / 胜者组 R2）」） */
 function describeRow(row: StageBestOfReviewRow): string {
-  const parts = [`${row.stageName} · W${row.waveIndex}：BO${row.fromBestOf} → BO${row.toBestOf}`];
+  const round = row.roundLabels.length ? `（${row.roundLabels.join(' / ')}）` : '';
+  const parts = [`${row.stageName} · W${row.waveIndex}${round}：BO${row.fromBestOf} → BO${row.toBestOf}`];
   if (row.completed) {
     parts.push(`${row.completed} 场已完赛将清除赛果（保第 1 局阵容）`);
   }
@@ -113,6 +119,8 @@ export function TournamentStageBestOfModal({
     () => buildStageBestOfReview(record, matches, changes, thirdChanged ? thirdDraft : undefined),
     [record, matches, changes, thirdDraft, thirdChanged],
   );
+  // 当前进行到的阶段与主赛波次（顶部进度提示 + 阶段卡片 / 波次行高亮）
+  const currentPosition = useMemo(() => getCurrentStageWavePosition(record), [record]);
 
   async function submit(confirmReopen: boolean): Promise<void> {
     setSaving(true);
@@ -207,80 +215,93 @@ export function TournamentStageBestOfModal({
       onOk={() => void handleSave()}
       onCancel={onClose}
     >
+      {currentPosition ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={
+            currentPosition.waveIndex
+              ? `当前进行：${currentPosition.stageName} · W${currentPosition.waveIndex}${
+                  currentPosition.roundLabels.length
+                    ? `（${currentPosition.roundLabels.join(' / ')}）`
+                    : ''
+                }`
+              : `当前进行：${currentPosition.stageName}（尚未建出首波对阵）`
+          }
+        />
+      ) : null}
+
       <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        基础赛制作用于 W1 与未覆盖的波次；双败阶段的 W2/W3 可单独覆盖。改动只影响所选波次及其之后——
-        该波已有进行中 / 已完赛时会「重开该波」（清除赛况、保留阵容），配对依赖旧结果的后续波作废重建；
-        更早的波不动。
+        基础（W1）局数作用于未覆盖的波次；双败阶段的 W2/W3 可单独覆盖，等于基础值时自动跟随基础。
+        改动只影响所选波次及其之后——该波已有进行中 / 已完赛时会「重开该波」（清除赛况、保留阵容），
+        配对依赖旧结果的后续波作废重建；更早的波不动。
       </Paragraph>
 
       {record.stages.map((stage, index) => {
-        const stageDone = record.status !== 'setup' && index < record.currentStageIndex;
-        const isCurrent = record.status !== 'setup' && index === record.currentStageIndex;
+        const state = getStageState(record, index);
+        // setup 阶段尚未开赛：不标「当前阶段」（getStageState 在 setup 下会把阶段 0 视为 current）
+        const isCurrent = record.status !== 'setup' && state === 'current';
+        const stageDone = state === 'done';
         const isDoubleLife = stage.format === 'double-life';
         const baseValue = stageDrafts[index] ?? stage.bestOf;
+        const waveIndexes: Array<1 | 2 | 3> = isDoubleLife ? [1, 2, 3] : [1];
         return (
-          <div key={stage.id} style={{ borderBottom: '1px dashed #f0f0f0', paddingBottom: 4 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0 2px' }}>
-              <span style={{ width: 76, fontWeight: 600 }}>{stage.name}</span>
-              <Text type="secondary" style={{ width: 40 }}>
-                {isDoubleLife ? '双败' : '单败'}
-              </Text>
-              {isDoubleLife ? <Text type="secondary" style={{ fontSize: 12 }}>W1</Text> : null}
-              <Select
-                size="small"
-                style={{ width: 92 }}
-                value={baseValue}
-                disabled={stageDone}
-                options={STAGE_BEST_OF_OPTIONS}
-                onChange={(value) => setStageDrafts((prev) => ({ ...prev, [index]: value }))}
-              />
-              {stageDone ? <Tag>已结束 · 不可改</Tag> : null}
-              {isCurrent ? <Tag color="blue">当前阶段</Tag> : null}
+          <div key={stage.id} className={`bestof-stage-card${isCurrent ? ' is-current' : ''}`}>
+            <div className="bestof-stage-head">
+              <span className="bestof-stage-name">{stage.name}</span>
+              <Tag style={{ marginInlineEnd: 0 }}>{isDoubleLife ? '双败' : '单败'}</Tag>
+              {isCurrent ? (
+                <Tag color="blue" style={{ marginInlineEnd: 0 }}>
+                  当前阶段{currentPosition?.waveIndex ? ` · W${currentPosition.waveIndex}` : ''}
+                </Tag>
+              ) : null}
+              {stageDone ? <Tag style={{ marginInlineEnd: 0 }}>已结束 · 不可改</Tag> : null}
             </div>
-            {isDoubleLife ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 0 6px 86px' }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>按波次</Text>
-                {([2, 3] as const).map((waveIndex) => (
-                  <span key={waveIndex} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>W{waveIndex}</Text>
-                    <Select
-                      size="small"
-                      style={{ width: 92 }}
-                      disabled={stageDone}
-                      value={waveOverrides[index]?.[waveIndex] ?? baseValue}
-                      options={STAGE_BEST_OF_OPTIONS}
-                      onChange={(value) => setWaveOverrides((prev) => ({
-                        ...prev,
-                        [index]: { ...(prev[index] ?? {}), [waveIndex]: value },
-                      }))}
-                    />
-                  </span>
-                ))}
-                <Text type="secondary" style={{ fontSize: 12 }}>等于基础值时自动跟随基础</Text>
-              </div>
-            ) : null}
+            {waveIndexes.map((waveIndex) => {
+              const explicit = waveIndex === 1 ? undefined : waveOverrides[index]?.[waveIndex];
+              const follows = waveIndex > 1 && (explicit === undefined || explicit === baseValue);
+              return (
+                <StageWaveBestOfRow
+                  key={waveIndex}
+                  waveIndex={waveIndex}
+                  roundLabels={getStageWaveRoundLabels(stage, waveIndex)}
+                  value={waveIndex === 1 ? baseValue : explicit ?? baseValue}
+                  disabled={stageDone}
+                  isCurrent={isCurrent && currentPosition?.waveIndex === waveIndex}
+                  hint={waveIndex === 1 ? '基础' : follows ? '跟随基础' : '独立覆盖'}
+                  onChange={(next) => {
+                    if (waveIndex === 1) {
+                      setStageDrafts((prev) => ({ ...prev, [index]: next }));
+                      return;
+                    }
+                    setWaveOverrides((prev) => ({
+                      ...prev,
+                      [index]: { ...(prev[index] ?? {}), [waveIndex]: next },
+                    }));
+                  }}
+                />
+              );
+            })}
           </div>
         );
       })}
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '6px 0',
-        }}
-      >
-        <span style={{ width: 76, fontWeight: 600 }}>季军赛</span>
-        <Text type="secondary" style={{ width: 40 }}>单败</Text>
-        <Select
-          size="small"
-          style={{ width: 92 }}
-          value={thirdDraft}
-          options={THIRD_PLACE_OPTIONS}
-          onChange={(value) => setThirdDraft(value)}
-        />
-        <Text type="secondary" style={{ fontSize: 12 }}>独立赛制，不随总决赛联动</Text>
+      <div className="bestof-stage-card">
+        <div className="bestof-stage-head">
+          <span className="bestof-stage-name">季军赛</span>
+          <Tag style={{ marginInlineEnd: 0 }}>单败 · 附加赛</Tag>
+        </div>
+        <div className="bestof-wave-row">
+          <span className="bestof-wave-label">4 进 2 结束后用两名落败者建场；独立赛制，不随总决赛联动</span>
+          <Select
+            size="small"
+            style={{ width: 88 }}
+            value={thirdDraft}
+            options={THIRD_PLACE_OPTIONS}
+            onChange={(value) => setThirdDraft(value)}
+          />
+        </div>
       </div>
 
       {changes.length || thirdChanged ? (
