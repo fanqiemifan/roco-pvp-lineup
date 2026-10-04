@@ -4,10 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { parseLineupSheetTable, type LineupTemplatePlan } from '../../src/admin-antd/lib/lineup-sheet';
 import {
   LINEUP_SHEET_NAME,
-  SPRITE_LIST_SHEET_NAME,
-  buildSpriteOptions,
   renderLineupTemplateXlsx,
 } from '../../src/admin-antd/lib/lineup-template-xlsx';
+import { SPRITE_LIST_SHEET_NAME, buildSpriteOptions } from '../../src/admin-antd/lib/sprite-dropdown-xlsx';
 import type { GameRecord, MatchRecord, MatchSlotSnapshot, SpriteRecord } from '../../shared/types';
 
 /* ---------- 夹具 ---------- */

@@ -1749,7 +1749,7 @@ function CreateTournamentModal({
             help={name.trim() ? undefined : '请输入名称'}
           >
             <Input
-              placeholder="如：星空杯 S1"
+              placeholder="如：夏季杯 S1"
               value={name}
               maxLength={40}
               onChange={(event) => setName(event.target.value)}

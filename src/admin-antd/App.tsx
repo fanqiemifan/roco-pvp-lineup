@@ -14,6 +14,7 @@ import {
   ConfigProvider,
   Divider,
   Drawer,
+  Dropdown,
   Empty,
   Form,
   Image,
@@ -175,6 +176,8 @@ import {
 } from './lib/panel';
 import { buildPreviewUrl, getLocalAddressText, getPreviewPage } from './lib/preview';
 import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from './lib/request';
+import { renderProfileTemplateXlsx } from './lib/profile-template-xlsx';
+import type { ProfileXlsxImportResponse, ProfileXlsxPreviewResponse } from './types';
 import { buildSpriteLookup } from './lib/sprite';
 import { deriveMatchActionAvailability } from './lib/match-actions';
 import { CurrentMatchPanel } from './components/CurrentMatchPanel';
@@ -542,10 +545,15 @@ function Dashboard() {
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  // 选手批量导入（JSON）：预览确认弹窗与解析结果
+  // 选手批量导入（JSON / Excel）：预览确认弹窗与解析结果
   const [playerImportOpen, setPlayerImportOpen] = useState(false);
-  const [playerImportPreview, setPlayerImportPreview] = useState<Array<{ name: string; rank: string; declaration: string; pets: string }>>([]);
+  const [playerImportPreview, setPlayerImportPreview] = useState<Array<{ name: string; rank: string; declaration: string; pets: string; hasAvatar?: boolean }>>([]);
   const [playerImporting, setPlayerImporting] = useState(false);
+  const [playerExporting, setPlayerExporting] = useState(false);
+  // 导入来源：json（前端解析）| xlsx（服务端解表，确认时二次上传原文件）。xlsx 的 File 仅在预览期间持有，用完即清。
+  const [playerImportSource, setPlayerImportSource] = useState<'json' | 'xlsx'>('json');
+  const [playerImportXlsxFile, setPlayerImportXlsxFile] = useState<File | null>(null);
+  const [playerImportWarnings, setPlayerImportWarnings] = useState<string[]>([]);
   // 常用精灵未命中 pets.json 的兜底人工确认：review 列表 + 每条选中的候选
   const [playerImportReview, setPlayerImportReview] = useState<Array<{ name: string; input: string; candidates: Array<{ name: string; number: number | null }> }>>([]);
   const [playerImportReviewOpen, setPlayerImportReviewOpen] = useState(false);
@@ -1895,12 +1903,54 @@ function Dashboard() {
     URL.revokeObjectURL(url);
   }
 
+  /** 清空选手导入的临时状态（xlsx 原文件用完即弃，避免大文件常驻内存） */
+  function resetPlayerImportState() {
+    setPlayerImportPreview([]);
+    setPlayerImportWarnings([]);
+    setPlayerImportXlsxFile(null);
+    setPlayerImportSource('json');
+  }
+
+  /** 选手信息 .xlsx：交服务端解表（带行号 + 头像有无 + 提示），返回后打开确认弹窗 */
+  async function handlePlayerImportXlsx(file: File) {
+    try {
+      const data = await uploadSingleFile<ProfileXlsxPreviewResponse>('/api/profiles/players/import/parse-xlsx', file);
+      if (data.errors && data.errors.length > 0) {
+        message.error(data.errors.join('；'));
+        return;
+      }
+      if (!data.players || data.players.length === 0) {
+        message.error('表格里没有可导入的选手（需要表头 + 至少一行填写「名字」）。');
+        return;
+      }
+      setPlayerImportSource('xlsx');
+      setPlayerImportXlsxFile(file);
+      setPlayerImportWarnings(data.warnings ?? []);
+      setPlayerImportPreview(
+        data.players.map((player) => ({
+          name: player.name,
+          rank: player.rank,
+          declaration: player.declaration,
+          pets: player.pets,
+          hasAvatar: player.hasAvatar,
+        })),
+      );
+      setPlayerImportOpen(true);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   /**
-   * 解析选手导入 JSON：仅白名单读取英文字段 名字 name / 排位排名 rank / 宣言 declaration / 常用精灵 pets，
-   * 其余字段一律丢弃（防注入病毒）；排名仅保留数字、pets 保留原始文本交由后端匹配 pets.json。
+   * 解析选手导入文件：`.xlsx` 交服务端解表（可携带浮动头像）；否则按 JSON 白名单读取
+   * 英文字段 名字 name / 排位排名 rank / 宣言 declaration / 常用精灵 pets，其余字段一律丢弃（防注入）。
    * 解析通过后打开确认弹窗。
    */
   function handlePlayerImportFile(file: File) {
+    if (/\.xlsx$/i.test(file.name)) {
+      void handlePlayerImportXlsx(file);
+      return false;
+    }
     void file
       .text()
       .then((text) => {
@@ -1932,6 +1982,9 @@ function Dashboard() {
           message.error('文件中没有可导入的有效选手记录（每条至少需要英文字段「name」）。');
           return;
         }
+        setPlayerImportSource('json');
+        setPlayerImportXlsxFile(null);
+        setPlayerImportWarnings([]);
         setPlayerImportPreview(cleaned);
         setPlayerImportOpen(true);
       })
@@ -1941,10 +1994,36 @@ function Dashboard() {
     return false;
   }
 
-  /** 确认批量导入选手（排除额外字段后提交后端做二次白名单校验）；若有未命中常用精灵则打开兜底确认 */
+  /** 确认批量导入选手：JSON 走原接口；xlsx 二次上传原文件（解表 + 导入 + 落头像由服务端一次完成） */
   async function confirmPlayerImport() {
     setPlayerImporting(true);
     try {
+      if (playerImportSource === 'xlsx') {
+        if (!playerImportXlsxFile) {
+          message.error('表格文件已失效，请重新选择后再导入。');
+          return;
+        }
+        const importedCount = playerImportPreview.length;
+        const data = await uploadSingleFile<ProfileXlsxImportResponse>('/api/profiles/players/import-xlsx', playerImportXlsxFile);
+        setProfiles(data.profiles);
+        setPlayerImportOpen(false);
+        resetPlayerImportState();
+        const avatarText = data.avatars.matched > 0 ? `，头像 ${data.avatars.matched} 张` : '';
+        if (data.avatars.unmatched.length > 0 || data.avatars.failed.length > 0) {
+          setAvatarBatchResult({ matched: data.avatars.matched, unmatched: data.avatars.unmatched, failed: data.avatars.failed });
+          setAvatarBatchResultOpen(true);
+        }
+        if (data.review && data.review.length > 0) {
+          setPlayerImportReview(data.review);
+          setPetReviewSelection({});
+          setPlayerImportReviewOpen(true);
+          message.warning(`已导入 ${importedCount} 名选手${avatarText}，但 ${data.review.length} 个常用精灵未命中，请人工确认。`);
+        } else {
+          message.success(`已导入 ${importedCount} 名选手${avatarText}（同名记录已更新）`);
+        }
+        return;
+      }
+
       const data = await requestJson<{
         success: boolean;
         profiles: ProfileStoreState;
@@ -1969,6 +2048,61 @@ function Dashboard() {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setPlayerImporting(false);
+    }
+  }
+
+  /** 把生成的 xlsx 字节下载为文件（选手导出 / 模板共用） */
+  function downloadXlsxBytes(bytes: Uint8Array<ArrayBuffer>, filename: string): void {
+    const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** 导出当前选手为带头像的 Excel 表格（列与导入模板一致；常用精灵带下拉，可用 WPS 编辑后直接导回） */
+  async function exportPlayersXlsx() {
+    if (!profiles) {
+      message.error('选手档案尚未加载，请稍后重试。');
+      return;
+    }
+    if (sprites.length === 0) {
+      message.warning('精灵索引尚未加载，导出的表格将没有常用精灵下拉，请稍后重试');
+    }
+    setPlayerExporting(true);
+    try {
+      const data = await renderProfileTemplateXlsx({ players: profiles.players, sprites });
+      const stamp = new Date();
+      const pad = (value: number): string => String(value).padStart(2, '0');
+      downloadXlsxBytes(data, `选手信息_${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}.xlsx`);
+      message.success(
+        profiles.players.length > 0
+          ? `已导出 ${profiles.players.length} 名选手（含头像与常用精灵下拉）`
+          : '已导出空白模板（表头 + 填写说明）',
+      );
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '导出失败');
+    } finally {
+      setPlayerExporting(false);
+    }
+  }
+
+  /** 下载 Excel 导入模板（空白：表头 + 精灵下拉 + 填写说明；导入时按同口径解析） */
+  async function downloadPlayerImportXlsxTemplate() {
+    if (sprites.length === 0) {
+      message.warning('精灵索引尚未加载，模板将没有常用精灵下拉，请稍后重试');
+    }
+    setPlayerExporting(true);
+    try {
+      const data = await renderProfileTemplateXlsx({ players: [], sprites });
+      downloadXlsxBytes(data, '选手导入模板.xlsx');
+      message.success('已下载 Excel 模板（表头 + 常用精灵下拉 + 填写说明）');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '下载模板失败');
+    } finally {
+      setPlayerExporting(false);
     }
   }
 
@@ -3676,7 +3810,7 @@ function Dashboard() {
   ];
 
   function exportHistoryCsv() {
-    const csv = buildHistoryCsv(sortedMatches, spriteMap);
+    const csv = buildHistoryCsv(sortedMatches, spriteMap, tournaments);
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -6077,14 +6211,35 @@ function Dashboard() {
                   />
                   {profileTab === 'players' ? (
                     <>
-                      <Button onClick={downloadPlayerImportTemplate}>下载示例</Button>
-                      <Upload
-                        accept=".json,application/json"
-                        showUploadList={false}
-                        beforeUpload={(file) => handlePlayerImportFile(file as File)}
+                      <Dropdown
+                        menu={{
+                          items: [
+                            { key: 'json', label: '下载 JSON 示例' },
+                            { key: 'xlsx', label: '下载 Excel 模板' },
+                          ],
+                          onClick: ({ key }) => {
+                            if (key === 'json') {
+                              downloadPlayerImportTemplate();
+                            } else {
+                              void downloadPlayerImportXlsxTemplate();
+                            }
+                          },
+                        }}
                       >
-                        <Button>导入JSON</Button>
-                      </Upload>
+                        <Button loading={playerExporting}>下载示例</Button>
+                      </Dropdown>
+                      <Tooltip title="导出当前选手为 Excel（含头像、常用精灵带下拉），可用 WPS 编辑后再导入；无选手时导出空白模板">
+                        <Button loading={playerExporting} onClick={() => void exportPlayersXlsx()}>导出信息</Button>
+                      </Tooltip>
+                      <Tooltip title="支持 .xlsx（可携带嵌入的浮动头像）与 .json（仅文字字段）">
+                        <Upload
+                          accept=".json,.xlsx,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                          showUploadList={false}
+                          beforeUpload={(file) => handlePlayerImportFile(file as File)}
+                        >
+                          <Button>导入信息</Button>
+                        </Upload>
+                      </Tooltip>
                       <Tooltip title="一次多选图片，先按文件名（去掉扩展名）匹配选手并预览原/新头像对比，确认后才覆盖保存；未命中的不上传">
                         <Button loading={avatarBatchUploading} onClick={() => avatarBatchInputRef.current?.click()}>批量头像</Button>
                       </Tooltip>
@@ -7872,27 +8027,58 @@ function Dashboard() {
       </Modal>
 
       <Modal
-        title="导入选手（JSON）"
+        title={playerImportSource === 'xlsx' ? '导入选手（Excel）' : '导入选手（JSON）'}
         open={playerImportOpen}
-        onCancel={() => setPlayerImportOpen(false)}
+        onCancel={() => {
+          setPlayerImportOpen(false);
+          resetPlayerImportState();
+        }}
         onOk={() => void confirmPlayerImport()}
         okText="确认导入"
         cancelText="取消"
         confirmLoading={playerImporting}
-        width={560}
+        width={640}
       >
-        <Paragraph>
-          将导入 <Text strong>{playerImportPreview.length}</Text> 条选手记录。仅识别以下英文字段，其余字段一律忽略（防止恶意字段注入）：
-        </Paragraph>
-        <Space size={16} wrap style={{ marginBottom: 12 }}>
-          <span><Text code>name</Text> <Text type="secondary">选手名字（必填）</Text></span>
-          <span><Text code>rank</Text> <Text type="secondary">排位排名（仅数字）</Text></span>
-          <span><Text code>declaration</Text> <Text type="secondary">宣言</Text></span>
-          <span><Text code>pets</Text> <Text type="secondary">常用精灵（需在 pets.json 中命中）</Text></span>
-        </Space>
-        <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-          同名选手将更新其排名、宣言与常用精灵，并保留原头像。常用精灵仅在 pets.json 精确命中时录入，未命中的会在导入后提示并给出候选。
-        </Paragraph>
+        {playerImportSource === 'xlsx' ? (
+          <>
+            <Paragraph>
+              将导入 <Text strong>{playerImportPreview.length}</Text> 名选手。列口径：名字 / 排位排名 / 宣言 / 擅长精灵1..擅长精灵6；嵌入到「头像」列的浮动图片会一并导入。
+            </Paragraph>
+            <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+              同名选手将更新其排名、宣言与常用精灵，并保留原头像。常用精灵仅在 pets.json 精确命中时录入，未命中的会在导入后提示并给出候选。
+            </Paragraph>
+          </>
+        ) : (
+          <>
+            <Paragraph>
+              将导入 <Text strong>{playerImportPreview.length}</Text> 条选手记录。仅识别以下英文字段，其余字段一律忽略（防止恶意字段注入）：
+            </Paragraph>
+            <Space size={16} wrap style={{ marginBottom: 12 }}>
+              <span><Text code>name</Text> <Text type="secondary">选手名字（必填）</Text></span>
+              <span><Text code>rank</Text> <Text type="secondary">排位排名（仅数字）</Text></span>
+              <span><Text code>declaration</Text> <Text type="secondary">宣言</Text></span>
+              <span><Text code>pets</Text> <Text type="secondary">常用精灵（需在 pets.json 中命中）</Text></span>
+            </Space>
+            <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+              同名选手将更新其排名、宣言与常用精灵，并保留原头像。常用精灵仅在 pets.json 精确命中时录入，未命中的会在导入后提示并给出候选。
+            </Paragraph>
+          </>
+        )}
+        {playerImportWarnings.length > 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`导入提示（${playerImportWarnings.length}）`}
+            description={(
+              <div>
+                {playerImportWarnings.map((warning, index) => (
+                  <div key={index}>· {warning}</div>
+                ))}
+              </div>
+            )}
+          />
+        ) : null}
         <Table
           size="small"
           rowKey={(record, index) => `${index}`}
@@ -7905,6 +8091,9 @@ function Dashboard() {
             { title: '排位排名', dataIndex: 'rank', key: 'rank', width: 90, render: (value: string) => value || '-' },
             { title: '常用精灵', dataIndex: 'pets', key: 'pets', ellipsis: true, render: (value: string) => value || '-' },
             { title: '宣言', dataIndex: 'declaration', key: 'declaration', ellipsis: true, render: (value: string) => value || '-' },
+            ...(playerImportSource === 'xlsx'
+              ? [{ title: '头像', dataIndex: 'hasAvatar', key: 'hasAvatar', width: 64, render: (value: boolean) => (value ? '有' : '无') }]
+              : []),
           ]}
         />
       </Modal>

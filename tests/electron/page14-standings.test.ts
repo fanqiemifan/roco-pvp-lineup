@@ -41,7 +41,7 @@ function seedPlayers(count: number): string[] {
 }
 
 function createSeries(count: number): string {
-  const record = createTournament(paths, { name: '星空杯S1', playerIds: seedPlayers(count), seed: 42 });
+  const record = createTournament(paths, { name: '夏季杯S1', playerIds: seedPlayers(count), seed: 42 });
   return record.id;
 }
 

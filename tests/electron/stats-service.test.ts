@@ -55,8 +55,8 @@ function playFirstGame(matchId: string, left: string[], right: string[]): void {
 
 describe('getSpriteRanking（系列赛维度）', () => {
   it('按 tournamentId 精确过滤：同名系列赛不合并统计，并回传系列赛名', () => {
-    const first = startSameNameSeries('星空杯S1', 0);
-    const second = startSameNameSeries('星空杯S1', 10);
+    const first = startSameNameSeries('夏季杯S1', 0);
+    const second = startSameNameSeries('夏季杯S1', 10);
     playFirstGame(first.matchId, ['pet-a', 'pet-b'], ['pet-c']);
     playFirstGame(second.matchId, ['pet-d'], ['pet-e']);
 
@@ -70,13 +70,13 @@ describe('getSpriteRanking（系列赛维度）', () => {
     // 两场系列赛同名：按 id 过滤只应拿到 first 的阵容（不按名字合并）
     const scoped = getSpriteRanking(paths, { player: null, tag: null, tournamentId: first.id });
     expect(scoped.tournamentId).toBe(first.id);
-    expect(scoped.tournamentName).toBe('星空杯S1');
+    expect(scoped.tournamentName).toBe('夏季杯S1');
     expect(new Set(scoped.rows.map((row) => row.key))).toEqual(new Set(['pet-a', 'pet-b', 'pet-c']));
     expect(scoped.totalPicks).toBe(3);
   });
 
   it('未知/已删除系列赛 id：返回空榜单与空名字，不报错', () => {
-    const first = startSameNameSeries('星空杯S1', 0);
+    const first = startSameNameSeries('夏季杯S1', 0);
     playFirstGame(first.matchId, ['pet-a'], ['pet-b']);
 
     const scoped = getSpriteRanking(paths, { player: null, tag: null, tournamentId: 'T19990101_A99' });

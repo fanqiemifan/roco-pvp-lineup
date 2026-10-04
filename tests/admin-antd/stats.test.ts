@@ -57,7 +57,7 @@ function makeRecord(patch: Partial<TournamentRecord> = {}, playerCount = 8): Tou
   const playerIds = Array.from({ length: playerCount }, (_unused, index) => `p${index}`);
   return {
     id: 'T20260929_A01',
-    name: '星空杯S1',
+    name: '夏季杯S1',
     createdAt: '2026-09-29T10:00:00.000Z',
     updatedAt: '2026-09-29T10:00:00.000Z',
     status: 'running',
@@ -150,8 +150,8 @@ describe('buildStatsStageAxis', () => {
 });
 
 describe('buildUsageStats（系列赛维度）', () => {
-  const first = makeRecord({ id: 'T20260929_A01', name: '星空杯S1' });
-  const second = makeRecord({ id: 'T20260929_B01', name: '星空杯S1' });
+  const first = makeRecord({ id: 'T20260929_A01', name: '夏季杯S1' });
+  const second = makeRecord({ id: 'T20260929_B01', name: '夏季杯S1' });
   const matches = [
     makeMatch('ma', {
       tournamentRef: ref(first.id, 's0-w1-n00', 0, 1),

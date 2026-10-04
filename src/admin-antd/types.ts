@@ -46,6 +46,41 @@ export type PlayerAvatarBatchResponse = {
   failed: Array<{ name: string; reason: string }>;
 };
 
+/** 常用精灵未命中 pets.json 时的兜底候选（导入回执） */
+export type PetSuggestionReviewItem = {
+  name: string;
+  input: string;
+  candidates: Array<{ name: string; number: number | null }>;
+};
+
+/** 选手信息 .xlsx 解表预览回执（只读，供确认弹窗展示） */
+export type ProfileXlsxPreviewPlayer = {
+  /** 来源工作表行号（1 基），用于把该行头像配回来 */
+  rowNumber: number;
+  name: string;
+  rank: string;
+  declaration: string;
+  pets: string;
+  hasAvatar: boolean;
+};
+
+export type ProfileXlsxPreviewResponse = {
+  success: boolean;
+  sheetName: string;
+  players: ProfileXlsxPreviewPlayer[];
+  warnings: string[];
+  errors: string[];
+};
+
+/** 选手信息 .xlsx 导入回执（含头像落盘结果） */
+export type ProfileXlsxImportResponse = {
+  success: boolean;
+  profiles: ProfileStoreState;
+  review: PetSuggestionReviewItem[];
+  avatars: { matched: number; unmatched: string[]; failed: Array<{ name: string; reason: string }> };
+  warnings: string[];
+};
+
 export type CreateMatchValues = MatchFormValues;
 
 export type PanelEditorState = {
