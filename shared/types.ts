@@ -307,6 +307,8 @@ export interface StageStandings {
   stageName: string;
   format: StageFormat;
   bestOf: number;
+  /** 赛制展示文本（含双败波次覆盖，如「BO1」/「W1 BO1 / W2·W3 BO3」）；展示页直接用，缺省回退 `BO{bestOf}` */
+  bestOfText?: string;
   /** 参赛人数（= rows.length） */
   total: number;
   /** 每页最多展示行数（PAGE14_ROWS_PER_PAGE） */
@@ -1026,6 +1028,12 @@ export interface StageRule {
   format: StageFormat;
   /** 本阶段每场对决的局数（后台规则表放出 BO1 / BO3 / BO5 / BO7） */
   bestOf: 1 | 3 | 5 | 7;
+  /**
+   * 双败阶段按波次的赛制覆盖（只有 W2/W3 可覆盖；W1 与单败阶段一律沿用 bestOf）。
+   * 缺省（或覆盖值等于 bestOf）= 全阶段同 BO；编辑某一波只重开该波，不动更早的波。
+   * 统一口径见 shared/constants 的 resolveWaveBestOf / formatStageBestOf。
+   */
+  waveBestOf?: Partial<Record<2 | 3, 1 | 3 | 5 | 7>>;
   /** 配对方式：双败默认 random-bucket，单败默认 bracket-seed */
   pairing: PairingRule;
   /** 同阶段尽量避开已交手对手 */

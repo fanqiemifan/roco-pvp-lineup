@@ -222,7 +222,7 @@ export function CurrentMatchPanel({
         {tournamentLocked ? (
           <Text type="secondary" className="current-match-meta">
             这是系列赛对局：选手名与赛制由编排决定（登记胜负时按选手名写回对阵图），此处不可修改。
-            需要改选手名请到「信息录入」，改赛制请在系列赛的阶段规则里调整；战队与排位排名仍可保存。
+            需要改选手名请到「信息录入」，改赛制请到系列赛详情用「编辑赛制」调整；战队与排位排名仍可保存。
           </Text>
         ) : null}
         <div className="current-match-action-row">

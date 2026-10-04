@@ -4,6 +4,7 @@ import {
   buildBracketGraph,
   buildPlayerNameMap,
   buildPushCandidateGroups,
+  buildStageBestOfReview,
   buildWaveCards,
   countCompletedMatches,
   crossPairDeciderPool,
@@ -106,6 +107,129 @@ function makeMatch(id: string, patch: Partial<MatchRecord> = {}): MatchRecord {
     ...patch,
   };
 }
+
+describe('buildStageBestOfReview（编辑赛制影响评估）', () => {
+  const playedGame = (status: 'in_progress' | 'completed') => ({
+    gameNumber: 1,
+    leftLineup: [],
+    rightLineup: [],
+    leftSlots: [],
+    rightSlots: [],
+    winner: status === 'completed' ? ('left' as const) : null,
+    status,
+  });
+
+  const node = (index: number, matchId: string, waveIndex = 1) => ({
+    id: `s0-w${waveIndex}-n${index}`,
+    matchId,
+    playerAId: `p${index}`,
+    playerBId: `p${index + 1}`,
+    winnerId: null,
+    isBye: false,
+  });
+
+  it('阶段全未开打：仅统计未开打、无需重开', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [makeWave(0, 1, { nodes: [node(0, '20260929_A001')] })],
+    });
+    const review = buildStageBestOfReview(
+      record,
+      [makeMatch('20260929_A001')],
+      [{ index: 0, bestOf: 3 }],
+    );
+    expect(review.rows).toHaveLength(3);
+    expect(review.rows[0]).toMatchObject({ waveIndex: 1, completed: 0, inProgress: 0, pending: 1 });
+    expect(review.rows[1]).toMatchObject({ waveIndex: 2, pending: 0 });
+    expect(review.destructive).toBe(false);
+    expect(review.blockers).toEqual([]);
+  });
+
+  it('存在进行中 / 已完赛：destructive 为 true 并给出数量', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [makeWave(0, 1, {
+        nodes: [node(0, '20260929_A001'), node(1, '20260929_A002'), node(2, '20260929_A003')],
+      })],
+    });
+    const matches = [
+      makeMatch('20260929_A001', { status: 'completed', games: [playedGame('completed')] }),
+      makeMatch('20260929_A002', { status: 'in_progress', games: [playedGame('in_progress')] }),
+      makeMatch('20260929_A003'),
+    ];
+    const review = buildStageBestOfReview(record, matches, [{ index: 0, bestOf: 5 }]);
+    expect(review.rows[0]).toMatchObject({ waveIndex: 1, completed: 1, inProgress: 1, pending: 1 });
+    expect(review.destructive).toBe(true);
+    expect(review.blockers).toEqual([]);
+  });
+
+  it('波次覆盖只影响该波：W1 已完成也照旧不动', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, { nodes: [node(0, '20260929_A001')] }),
+        makeWave(0, 2, { status: 'running', nodes: [node(2, '20260929_A003', 2)] }),
+      ],
+    });
+    const matches = [
+      makeMatch('20260929_A001', { status: 'completed', games: [playedGame('completed')] }),
+      makeMatch('20260929_A003', { status: 'completed', games: [playedGame('completed')] }),
+    ];
+    const review = buildStageBestOfReview(record, matches, [{ index: 0, waveBestOf: { 2: 3 } }]);
+    expect(review.rows).toHaveLength(1);
+    expect(review.rows[0]).toMatchObject({ waveIndex: 2, fromBestOf: 1, toBestOf: 3, completed: 1 });
+    expect(review.destructive).toBe(true);
+    expect(review.discardWaveLabels).toEqual([]);
+    expect(review.blockers).toEqual([]);
+  });
+
+  it('后续波已有赛果：给出作废名单并阻断', () => {
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, { nodes: [node(0, '20260929_A001')] }),
+        makeWave(0, 2, { status: 'running', nodes: [{ ...node(2, '20260929_A003', 2), winnerId: 'p2' }] }),
+      ],
+    });
+    const matches = [
+      makeMatch('20260929_A001', { status: 'completed', games: [playedGame('completed')] }),
+      makeMatch('20260929_A003', { status: 'completed', games: [playedGame('completed')] }),
+    ];
+    const review = buildStageBestOfReview(record, matches, [{ index: 0, bestOf: 3 }]);
+    expect(review.discardWaveLabels[0]).toContain('W2');
+    expect(review.blockers).toHaveLength(1);
+    expect(review.blockers[0]).toContain('后续波次');
+    expect(review.destructive).toBe(true);
+  });
+
+  it('未变化的选择被忽略；季军赛独立评估（已打阻断）', () => {
+    const thirdPlaceNode = {
+      id: 's0-w4-n0',
+      matchId: '20260929_A009',
+      playerAId: 'p0',
+      playerBId: 'p1',
+      winnerId: null,
+      isBye: false,
+    };
+    const record = makeRecord({
+      status: 'running',
+      waves: [
+        makeWave(0, 1, { nodes: [node(0, '20260929_A001')] }),
+        makeWave(0, 4, { kind: 'third-place', nodes: [thirdPlaceNode] }),
+      ],
+    });
+    const matches = [
+      makeMatch('20260929_A001'),
+      makeMatch('20260929_A009', { status: 'completed', games: [playedGame('completed')] }),
+    ];
+    expect(buildStageBestOfReview(record, matches, [{ index: 0, bestOf: 1 }]).rows).toEqual([]);
+
+    const review = buildStageBestOfReview(record, matches, [], 5);
+    expect(review.thirdPlaceChanged).toBe(true);
+    expect(review.thirdPlaceBlocked).toBe(true);
+    expect(review.blockers[0]).toContain('季军赛');
+  });
+});
 
 describe('buildPlayerNameMap / resolvePlayerName', () => {
   const profiles: ProfileStoreState = {

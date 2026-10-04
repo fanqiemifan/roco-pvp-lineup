@@ -103,6 +103,31 @@ export async function rollbackWaveApi(tournamentId: string): Promise<TournamentR
   return data.tournament;
 }
 
+/**
+ * 编辑赛制：只提交发生变化的阶段 / 波次。stages[].bestOf = 基础赛制（W1 与未覆盖波次）；
+ * stages[].waveBestOf = 双败按波次覆盖（null = 恢复跟随基础）。阶段内已有赛况时须先由界面强确认、
+ * 再带 confirmReopen=true 重试，服务端复核通过后执行「重开该波」（清赛况、保留阵容、后续波作废）。
+ */
+export async function updateTournamentStagesApi(
+  tournamentId: string,
+  body: {
+    stages: Array<{
+      index: number;
+      bestOf?: number;
+      waveBestOf?: Partial<Record<2 | 3, number | null>>;
+    }>;
+    thirdPlaceBestOf?: number;
+    confirmReopen?: boolean;
+  },
+): Promise<{
+  tournament: TournamentRecord;
+  reopenedMatchIds: string[];
+  updatedMatchIds: string[];
+  discardedWaveCount: number;
+}> {
+  return requestJson(`/api/tournaments/${tournamentId}/stages`, { method: 'PUT', json: body });
+}
+
 export async function forfeitApi(
   tournamentId: string,
   matchId: string,

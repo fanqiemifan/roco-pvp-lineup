@@ -309,6 +309,72 @@ describe('rollback-wave（管理级回退）', () => {
   });
 });
 
+describe('PUT /api/tournaments/:id/stages（编辑赛制）', () => {
+  it('全未开打：200 更新阶段与对局赛制并广播', async () => {
+    const playerIds = seedPlayers(8);
+    const created = (await postJson('/api/tournaments', { name: '改赛制杯', playerIds, seed: 21 })).data.tournament;
+    await postJson(`/api/tournaments/${created.id}/start`);
+
+    const updatesBefore = tournamentUpdates;
+    const { status, data } = await putJson(`/api/tournaments/${created.id}/stages`, {
+      stages: [{ index: 0, bestOf: 3 }],
+    });
+    expect(status).toBe(200);
+    expect(data.tournament.stages[0].bestOf).toBe(3);
+    expect(data.updatedMatchIds).toHaveLength(4);
+    expect(data.reopenedMatchIds).toEqual([]);
+
+    const matches = (await getJson('/api/matches')).data.matches.filter(
+      (match: { tournamentRef?: { tournamentId: string } }) => match.tournamentRef?.tournamentId === created.id,
+    );
+    expect(matches.every((match: { bestOf: number }) => match.bestOf === 3)).toBe(true);
+    await flushEvents();
+    expect(tournamentUpdates).toBe(updatesBefore + 1);
+  }, 30000);
+
+  it('有赛况未确认：400；确认后 200 重开（清赛况保阵容）', async () => {
+    const playerIds = seedPlayers(8);
+    const created = (await postJson('/api/tournaments', { name: '重开杯', playerIds, seed: 22 })).data.tournament;
+    await postJson(`/api/tournaments/${created.id}/start`);
+    const firstMatch = (await getJson('/api/matches')).data.matches.find(
+      (match: { tournamentRef?: { tournamentId: string } }) => match.tournamentRef?.tournamentId === created.id,
+    );
+    await playMatchHttp(firstMatch.id, 'left');
+
+    const denied = await putJson(`/api/tournaments/${created.id}/stages`, {
+      stages: [{ index: 0, bestOf: 3 }],
+    });
+    expect(denied.status).toBe(400);
+    expect(denied.data.error).toContain('重开该波');
+
+    const confirmed = await putJson(`/api/tournaments/${created.id}/stages`, {
+      stages: [{ index: 0, bestOf: 3 }],
+      confirmReopen: true,
+    });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.data.reopenedMatchIds).toHaveLength(1);
+
+    const reopened = (await getJson('/api/matches')).data.matches.find(
+      (match: { id: string }) => match.id === firstMatch.id,
+    );
+    expect(reopened.status).toBe('pending');
+    expect(reopened.bestOf).toBe(3);
+    expect(reopened.leftScore).toBe(0);
+  }, 30000);
+
+  it('只读副本（机器码不符）：400', async () => {
+    const playerIds = seedPlayers(8);
+    const created = (await postJson('/api/tournaments', { name: '只读杯', playerIds, seed: 23 })).data.tournament;
+    saveRuntimeConfig(paths, { machineCode: 'B' });
+    const denied = await putJson(`/api/tournaments/${created.id}/stages`, {
+      stages: [{ index: 0, bestOf: 3 }],
+    });
+    saveRuntimeConfig(paths, { machineCode: 'A' });
+    expect(denied.status).toBe(400);
+    expect(denied.data.error).toContain('机器 A');
+  });
+});
+
 describe('POST /api/matches/:matchId/undo（系列赛对局撤回）', () => {
   it('后续波已有赛果：400 拒绝，且比赛未被撤回（不留「比赛撤了、系列赛没撤」的半吊子状态）', async () => {
     const playerIds = seedPlayers(4);

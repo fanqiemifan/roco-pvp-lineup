@@ -223,6 +223,55 @@ export function resolveThirdPlaceBestOf(record: {
 }
 
 /**
+ * 某波生效的赛制：W1 与单败阶段取阶段基础值；双败 W2/W3 取 waveBestOf 覆盖（缺省回落到基础）。
+ * 建场、编辑校验、榜单标签与前端展示都走它，别各写一份。
+ */
+export function resolveWaveBestOf(
+  stage: Pick<StageRule, 'bestOf' | 'waveBestOf'>,
+  waveIndex: number,
+): StageRule['bestOf'] {
+  if (waveIndex >= 2) {
+    const override = stage.waveBestOf?.[waveIndex as 2 | 3];
+    if (override) {
+      return override;
+    }
+  }
+  return stage.bestOf;
+}
+
+/**
+ * 阶段赛制展示文本：无波次覆盖时是「BO1」；有覆盖时按连续段压缩（如「W1 BO1 / W2·W3 BO3」）。
+ * 供详情 Steps、晋级图横幅、page14 副标题、推流卡片等处统一使用。
+ */
+export function formatStageBestOf(
+  stage: Pick<StageRule, 'bestOf' | 'waveBestOf' | 'format'>,
+): string {
+  if (stage.format !== 'double-life' || !stage.waveBestOf) {
+    return `BO${stage.bestOf}`;
+  }
+  const waves = [1, 2, 3].map((waveIndex) => resolveWaveBestOf(stage, waveIndex));
+  const groups: Array<{ from: number; to: number; bo: StageRule['bestOf'] }> = [];
+  waves.forEach((bo, index) => {
+    const waveIndex = index + 1;
+    const last = groups[groups.length - 1];
+    if (last && last.bo === bo) {
+      last.to = waveIndex;
+    } else {
+      groups.push({ from: waveIndex, to: waveIndex, bo });
+    }
+  });
+  if (groups.length === 1) {
+    return `BO${groups[0].bo}`;
+  }
+  return groups
+    .map((group) => {
+      const label = group.from === group.to ? `W${group.from}` : `W${group.from}·W${group.to}`;
+      return `${label} BO${group.bo}`;
+    })
+    .join(' / ');
+}
+
+/**
  * 按参赛人数生成默认阶段规则（创建系列赛时 stages 可省略）：
  * - 64 人：64进32 双败BO1 → 32进16 双败BO1 → 16进8 单败BO3 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛 单败BO3
  * - 32 人：32进16 双败BO1 → 16进8 双败BO1 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛 单败BO3

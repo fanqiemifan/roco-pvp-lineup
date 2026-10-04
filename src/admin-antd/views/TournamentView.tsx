@@ -25,7 +25,9 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import {
   buildDefaultStages,
+  formatStageBestOf,
   resolveThirdPlaceBestOf,
+  resolveWaveBestOf,
   SUPPORTED_TOURNAMENT_SIZES,
   THIRD_PLACE_BEST_OF_OPTIONS,
   THIRD_PLACE_LABEL,
@@ -84,6 +86,7 @@ import { deriveMatchActionAvailability } from '../lib/match-actions';
 import { readLastTournamentId, writeLastTournamentId } from '../lib/last-tournament';
 import { BracketBoard } from '../components/BracketBoard';
 import { TournamentNodeCard } from '../components/TournamentNodeCard';
+import { TournamentStageBestOfModal } from '../components/TournamentStageBestOfModal';
 import type { TournamentCardMenuHandlers } from '../components/TournamentNodeCard';
 import { HistoryLineupEntryModal } from './HistoryLineupEntryModal';
 import { MatchLineupDetailModal } from './MatchLineupDetailModal';
@@ -635,6 +638,8 @@ function TournamentDetail({
   const [lineupDetailMatchId, setLineupDetailMatchId] = useState<string | null>(null);
   // 「录入阵容」弹窗上下文（与比赛管理同口径：仅当前小局 + 待开始可录入）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
+  // 「编辑赛制」弹窗：编排机专属；阶段内已有赛况时走「重开本阶段」（强确认）
+  const [stageEditOpen, setStageEditOpen] = useState(false);
 
   async function handleRollback(): Promise<void> {
     try {
@@ -675,6 +680,9 @@ function TournamentDetail({
           <Tag color={getTournamentStatusMeta(record).color}>
             {getTournamentStatusMeta(record).label}
           </Tag>
+          {!readOnly && record.status !== 'completed' ? (
+            <Button onClick={() => setStageEditOpen(true)}>编辑赛制</Button>
+          ) : null}
           <Button onClick={() => setLineupExportOpen(true)}>导出阵容模板</Button>
           <Button onClick={() => setLineupImportOpen(true)}>导入阵容</Button>
           <Button onClick={onSync}>定向同步</Button>
@@ -736,7 +744,7 @@ function TournamentDetail({
             description: (
               <Space size={4} wrap>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  {stage.format === 'double-life' ? '双败' : '单败'} · BO{stage.bestOf}
+                  {stage.format === 'double-life' ? '双败' : '单败'} · {formatStageBestOf(stage)}
                 </Text>
               </Space>
             ),
@@ -834,6 +842,12 @@ function TournamentDetail({
         sprites={sprites}
         onClose={() => setLineupEntry(null)}
         onSaved={(store) => onMatchesStore?.(store)}
+      />
+      <TournamentStageBestOfModal
+        open={stageEditOpen}
+        record={record}
+        matches={matches}
+        onClose={() => setStageEditOpen(false)}
       />
     </Card>
   );
@@ -1007,7 +1021,7 @@ function WavePanel({
           <Tag>
             {isThirdPlace
               ? `单败 · BO${resolveThirdPlaceBestOf(record)}`
-              : `${stage.name} · ${stage.format === 'double-life' ? '双败' : '单败'}`}
+              : `${stage.name} · ${stage.format === 'double-life' ? '双败' : '单败'} · BO${resolveWaveBestOf(stage, wave.waveIndex)}`}
           </Tag>
           <Tag color={wave.pairingStatus === 'draft' ? 'warning' : 'default'}>
             {isThirdPlace ? '自动建场' : getPairingLabel(stage.pairing)} · {wave.pairingStatus === 'draft' ? '配对草稿' : '已锁定'}

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { App, Button, Card, Input, InputNumber, Modal, Segmented, Select, Space, Table, Tag, Typography } from 'antd';
 
-import { PAGE14_ROWS_PER_PAGE } from '../../../shared/constants';
+import { formatStageBestOf, PAGE14_ROWS_PER_PAGE } from '../../../shared/constants';
 import type { Page14State, StageStandings, TournamentRecord } from '../../../shared/types';
 import { getStagePlayerCount, summarizeStageMatches } from '../lib/tournament';
 
@@ -34,7 +34,8 @@ interface StageRow {
   index: number;
   name: string;
   formatText: string;
-  bestOf: number;
+  /** 赛制展示文本（含双败波次覆盖，如「BO1」/「W1 BO1 / W2·W3 BO3」） */
+  bestOfText: string;
   playerCount: number;
   completed: number;
   total: number;
@@ -93,7 +94,7 @@ export function AdvanceRankCard({ tournaments, state, standings, saving, onSave 
         index,
         name: stage.name,
         formatText: stage.format === 'double-life' ? '双败' : '单败',
-        bestOf: stage.bestOf,
+        bestOfText: formatStageBestOf(stage),
         playerCount: getStagePlayerCount(draftRecord, index),
         completed: summary.completed,
         total: summary.total,
@@ -160,7 +161,7 @@ export function AdvanceRankCard({ tournaments, state, standings, saving, onSave 
     ? draftRecord.stages[activeDraft] ?? null
     : null;
   const draftSubtitlePlaceholder = draftActiveStage
-    ? `留空自动生成「${draftActiveStage.name} · ${draftActiveStage.format === 'double-life' ? '双败淘汰' : '单败淘汰'} · BO${draftActiveStage.bestOf}」`
+    ? `留空自动生成「${draftActiveStage.name} · ${draftActiveStage.format === 'double-life' ? '双败淘汰' : '单败淘汰'} · ${formatStageBestOf(draftActiveStage)}」`
     : '留空自动生成副标题';
 
   return (
@@ -292,7 +293,7 @@ export function AdvanceRankCard({ tournaments, state, standings, saving, onSave 
             columns={[
               { title: '阶段', dataIndex: 'name' },
               { title: '赛制', dataIndex: 'formatText', width: 80 },
-              { title: 'BO', dataIndex: 'bestOf', width: 70, render: (value: number) => `BO${value}` },
+              { title: 'BO', dataIndex: 'bestOfText', width: 150 },
               {
                 title: '参赛人数',
                 dataIndex: 'playerCount',

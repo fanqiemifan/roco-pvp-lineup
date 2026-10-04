@@ -35,7 +35,7 @@
 | Page9TeamEntry | 团队积分榜单支战队录入项（name 战队名称, r1/r2/r3 三轮积分仅数字字符串, 空字符串 = 未输入显示「-」） | shared/types.ts |
 | Page9State | 团队积分榜配置（title 主标题留空用默认「团队积分榜」, teams 最多 4 支战队, 排名与总积分由页面自动计算不落盘, mtime） | shared/types.ts |
 | StageStandingRow | 晋级积分榜单行选手战绩：playerId / name（档案名，缺失回退 id）/ rank（同分按种子顺序依次编号）/ wins / losses / score（10×胜 − 负，只用于排序）/ state（alive 存活 / promoted 已晋级 / eliminated 已淘汰，淘汰行页面压暗） | shared/types.ts |
-| StageStandings | 某阶段完整榜单：stageIndex / stageName / format / bestOf / total / pageSize / pageCount（至少 1）/ completedMatches / totalMatches / rows（全部参赛者，分页由展示页按 pageSize 切片） | shared/types.ts |
+| StageStandings | 某阶段完整榜单：stageIndex / stageName / format / bestOf / bestOfText（赛制展示文本，含双败波次覆盖如「W1 BO1 / W2·W3 BO3」，可缺省回退 `BO{bestOf}`）/ total / pageSize / pageCount（至少 1）/ completedMatches / totalMatches / rows（全部参赛者，分页由展示页按 pageSize 切片） | shared/types.ts |
 | Page14State | 晋级积分榜配置：tournamentId（空 = 未选择）/ stageIndexes（可播阶段，弹窗一次性选中）/ activeStageIndex（-1 = 未选）/ page（0 起，每页 PAGE14_ROWS_PER_PAGE=32 行，由裁判端后台翻页）/ title / subtitle（留空各自兜底）/ mtime | shared/types.ts |
 | Page11SideConfig | 选手介绍单侧配置（source: manual/match, name/rank/declaration/pets 手动填写, 留空字段回退「信息录入」按名字匹配值） | shared/types.ts |
 | Page11State | 选手介绍（page11-13）状态（left, right 两侧 Page11SideConfig, mtime） | shared/types.ts |
@@ -135,7 +135,7 @@
 |---------|------|------|
 | StageFormat | 阶段晋级赛制：'double-life'（双败积分：2胜晋级/2败淘汰、最多 3 波）/ 'single-elim'（单败：1 波定胜负） | shared/types.ts |
 | PairingRule | 配对规则：'random-bucket'（双败同桶随机）/ 'manual-bucket'（双败同桶手动，配对确认台）/ 'bracket-seed'（单败种子位沿树推进）/ 'random-round'（单败每轮重新随机，备选） | shared/types.ts |
-| StageRule | 阶段规则（id, name 阶段名, format, bestOf 1/3/5/7, pairing, avoidRematch, requireConfirm）。requireConfirm = 下一波/下一阶段需手动确认（否则自动锁定建场） | shared/types.ts |
+| StageRule | 阶段规则（id, name 阶段名, format, bestOf 1/3/5/7, waveBestOf 双败按波次覆盖——仅 W2/W3、缺省=全阶段同 BO、覆盖值=bestOf 时归一为跟随，W1 与单败阶段一律取 bestOf, pairing, avoidRematch, requireConfirm）。requireConfirm = 下一波/下一阶段需手动确认（否则自动锁定建场） | shared/types.ts |
 | TournamentEntry | 选手当前阶段战绩（playerId, stageWins, stageLosses, state: alive/promoted/eliminated），换阶段清零 | shared/types.ts |
 | TournamentNode | 系列赛节点（id 形如 s0-w2-n03, matchId 关联比赛, playerAId/playerBId, winnerId, isBye, next? 单败树连线——V1 单败每阶段一波未用） | shared/types.ts |
 | TournamentWave | 波次（stageIndex, waveIndex 双败1..3/单败1, status: pending/running/completed, pairingStatus: draft/locked, pairingDraft? 草稿, nodes） | shared/types.ts |
