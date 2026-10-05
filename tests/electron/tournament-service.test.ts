@@ -1845,7 +1845,8 @@ function simulateWhole(size: number): TournamentRecord {
     }
     playMatchOn(targetPaths, pending[0].id, Math.random() < 0.5 ? 'left' : 'right');
     guard += 1;
-    if (guard > 200) {
+    // 整程场数随人数增长（128 人默认模板 ≈ 300 场），guard 按人数缩放
+    if (guard > size * 3) {
       throw new Error('模拟无法收敛');
     }
   }
@@ -1931,6 +1932,8 @@ describe('随机全赛程模拟（多届属性检查）', () => {
     { size: 32, rounds: 2, timeout: 20000 },
     // 64 人：双败桶与人数无关，扩人数后跑一届整程验证（64进32 → … → 总决赛，共 6 个阶段）
     { size: 64, rounds: 1, timeout: 60000 },
+    // 128 人：目前最大档位，跑一届整程验证（128进64 → … → 总决赛，共 7 个阶段）
+    { size: 128, rounds: 1, timeout: 120000 },
   ];
 
   table.forEach(({ size, rounds, timeout }) => {

@@ -186,7 +186,7 @@ export const DOUBLE_LIFE_ROUND_LABELS: Record<string, string> = {
   '1-1': '败者组 R2',
 };
 /** 仅支持 2 的幂人数（双败桶恒偶，零轮空分支） */
-export const SUPPORTED_TOURNAMENT_SIZES = new Set([4, 8, 16, 32, 64]);
+export const SUPPORTED_TOURNAMENT_SIZES = new Set([4, 8, 16, 32, 64, 128]);
 /**
  * 「总决赛」= 只剩 2 人的阶段（每阶段晋级半额，人数逐阶段减半）：必须单败。
  * 双败在 2 人阶段既产出不了冠军、也配不出下一波；创建校验、编辑赛制守卫与前端向导共用这一判据。
@@ -281,6 +281,7 @@ export function formatStageBestOf(
 
 /**
  * 按参赛人数生成默认阶段规则（创建系列赛时 stages 可省略）：
+ * - 128 人：128进64 双败BO1 → 64进32 双败BO1 → 32进16 单败BO3 → 16进8 单败BO3 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛 单败BO3
  * - 64 人：64进32 双败BO1 → 32进16 双败BO1 → 16进8 单败BO3 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛 单败BO3
  * - 32 人：32进16 双败BO1 → 16进8 双败BO1 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛 单败BO3
  * - 16 人：16进8 双败BO1 → 8进4 单败BO3 → 4进2 单败BO3 → 总决赛
@@ -306,6 +307,16 @@ export function buildDefaultStages(playerCount: number): StageRule[] {
   });
 
   switch (playerCount) {
+    case 128:
+      return [
+        stage(0, '128进64', 'double-life', 1, 'random-bucket'),
+        stage(1, '64进32', 'double-life', 1, 'random-bucket'),
+        stage(2, '32进16', 'single-elim', 3, 'bracket-seed'),
+        stage(3, '16进8', 'single-elim', 3, 'bracket-seed'),
+        stage(4, '8进4', 'single-elim', 3, 'bracket-seed'),
+        stage(5, '4进2', 'single-elim', 3, 'bracket-seed'),
+        stage(6, '总决赛', 'single-elim', 3, 'bracket-seed'),
+      ];
     case 64:
       return [
         stage(0, '64进32', 'double-life', 1, 'random-bucket'),

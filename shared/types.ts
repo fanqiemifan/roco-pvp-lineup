@@ -1099,7 +1099,7 @@ export interface TournamentRecord {
   seed: number;
   /** 重抽次数 */
   drawVersion: number;
-  /** 参赛选手 profile id，长度必须为 4/8/16/32/64（见 SUPPORTED_TOURNAMENT_SIZES），顺序即种子顺序 */
+  /** 参赛选手 profile id，长度必须为 4/8/16/32/64/128（见 SUPPORTED_TOURNAMENT_SIZES），顺序即种子顺序 */
   playerIds: string[];
   stages: StageRule[];
   currentStageIndex: number;
