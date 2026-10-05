@@ -2323,3 +2323,81 @@ export function resetMatchRegistrations(paths: AppPaths, matchIds: string[]): Ma
   syncAfterStoreChange(paths, publicStore);
   return getMatchStore(paths);
 }
+
+/**
+ * 系列赛「编辑赛制」专用：批量应用阶段新赛制并（必要时）重开对局，单次写盘。
+ * - 「干净未打」（pending 且无任何小局结果）的对局：只更新 bestOf；
+ * - 有赛况的对局（进行中 / 已完赛）：清掉比分、小局结果、胜者、完成时间与「弃权」标签，
+ *   保留一局阵容后回到 pending —— 进行中保本局阵容、已完赛保第 1 局阵容；
+ * - 保留 tournamentRef；清空该场 flowHistory（管理级动作，不进撤销栈）。
+ * 调用方（系列赛引擎）保证前置校验已完成：编排机、阶段未结束、须确认的重开已确认。
+ */
+export function applyStageBestOfToMatches(
+  paths: AppPaths,
+  updates: Array<{ matchId: string; bestOf: number }>,
+): { store: MatchStoreState; reopenedIds: string[]; updatedIds: string[] } {
+  const targets = new Map<string, number>();
+  updates.forEach((item) => {
+    const matchId = String(item?.matchId ?? '').trim();
+    if (matchId) {
+      targets.set(matchId, normalizeBestOf(item.bestOf));
+    }
+  });
+  if (!targets.size) {
+    return { store: getMatchStore(paths), reopenedIds: [], updatedIds: [] };
+  }
+
+  const { store } = readStoreFile(paths);
+  const reopenedIds: string[] = [];
+  const updatedIds: string[] = [];
+  const now = new Date().toISOString();
+
+  store.matches = store.matches.map((match) => {
+    const nextBestOf = targets.get(match.id);
+    if (nextBestOf === undefined) {
+      return match;
+    }
+
+    const pristine = match.status === 'pending'
+      && match.games.every((game) => game.status === 'pending' && game.winner === null);
+    if (pristine) {
+      if (match.bestOf === nextBestOf) {
+        return match;
+      }
+      updatedIds.push(match.id);
+      return { ...match, bestOf: nextBestOf, updatedAt: now };
+    }
+
+    // 有赛况：清赛况、保留一局阵容（进行中保本局，已完赛保第 1 局）
+    const keptGame = match.games.find((game) => game.status === 'in_progress')
+      ?? match.games[0]
+      ?? createEmptyGameRecord(1);
+    const resetGame: GameRecord = {
+      gameNumber: 1,
+      leftLineup: [...keptGame.leftLineup],
+      rightLineup: [...keptGame.rightLineup],
+      leftSlots: sanitizeSlotSnapshots(keptGame.leftSlots),
+      rightSlots: sanitizeSlotSnapshots(keptGame.rightSlots),
+      winner: null,
+      status: 'pending',
+    };
+    delete store.flowHistory[match.id];
+    reopenedIds.push(match.id);
+    return computeMatchProgress({
+      ...match,
+      bestOf: nextBestOf,
+      games: [resetGame],
+      tags: (match.tags ?? []).filter((tag) => tag !== TOURNAMENT_FORFEIT_TAG),
+      completedAt: null,
+      updatedAt: now,
+    });
+  });
+
+  if (!reopenedIds.length && !updatedIds.length) {
+    return { store: getMatchStore(paths), reopenedIds, updatedIds };
+  }
+
+  const publicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, publicStore);
+  return { store: getMatchStore(paths), reopenedIds, updatedIds };
+}

@@ -34,6 +34,7 @@
 | MACHINE_CODE_REGEX / MATCH_ID_REGEX | ^[A-Z]{1,2}$ / ^(\d{8})_([A-Za-z]{0,2})(\d+)$ | 本机标识（1-2 位大写字母，空 = 未设置）与比赛 id（日期 + 机器码 + 序号；解析端容忍小写，机器码只允许字母避免与序号歧义） | shared/constants.ts |
 | TOURNAMENT_TARGET_WINS / TOURNAMENT_TARGET_LOSSES | 2 / 2 | 双败阶段晋级线（2胜）与淘汰线（2败） | shared/constants.ts |
 | SUPPORTED_TOURNAMENT_SIZES | {4,8,16,32,64} | 系列赛允许人数（2 的幂，桶恒偶零轮空）；前端创建向导的校验数组由同一集合派生（TOURNAMENT_SIZE_OPTIONS，别再硬编码） | shared/constants.ts |
+| isFinalStage | (playerCount, stageIndex) => playerCount / 2^stageIndex === 2 | 「总决赛」判据（只剩 2 人的阶段必须单败：双败产不出冠军、也配不出下一波）；创建校验 / 编辑赛制守卫 / 前端向导共用，别再各自内联 | shared/constants.ts |
 | TOURNAMENT_ID_REGEX | ^T(\d{8})_([A-Za-z]{0,2})(\d+)$ | 系列赛 id 白名单：T 前缀 + 日期 + 机器码 + 序号（如 T20260928_A01），外部导入必过该校验防路径穿越 | shared/constants.ts |
 | TOURNAMENT_CROSS_BUCKET_TAG / TOURNAMENT_FORFEIT_TAG | 跨桶 / 弃权 | 标注标签：跨桶配对 / 弃权场次（建场只写「跨桶」，赛事名/阶段/波次已不再写入标签，身份走 tournamentRef） | shared/constants.ts |
 | CLOUD_SYNC_ROLES / CLOUD_SYNC_ROSTER_MAX | {main,sub} / 8 | 云同步角色枚举（主控 / 分控）与房间名册容量上限（1 主 + N 分，机器码必须互不相同） | shared/constants.ts |

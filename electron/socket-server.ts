@@ -152,6 +152,7 @@ import {
   savePairingDraft,
   startTournament,
   syncTournamentMatchNames,
+  updateTournamentStages,
 } from './services/tournament-service.js';
 import {
   clearPanelState,
@@ -1887,6 +1888,23 @@ export async function createLocalServer(
       const pagePush = emitMatchesUpdate(getMatchStore(paths));
       emitTournamentUpdate();
       response.json({ success: true, tournament, pagePush });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 编辑赛制（阶段规则：BO + 未开始阶段的晋级赛制/配对/开关）：编排机专属；
+  // 阶段内已有赛况的 BO 改动走「重开该波」，须显式 confirmReopen 才执行（清赛况、保留阵容、后续波作废）
+  app.put('/api/tournaments/:tournamentId/stages', (request, response) => {
+    try {
+      const result = updateTournamentStages(paths, request.params.tournamentId, request.body ?? {});
+      const matchChanged = Boolean(
+        result.reopenedMatchIds.length || result.updatedMatchIds.length || result.discardedWaveCount,
+      );
+      // 有对局变更（重开 / 换赛制 / 作废后续波）时再广播，并同步清理推流选场里的被删引用
+      const pagePush = matchChanged ? emitMatchesUpdate(getMatchStore(paths)) : undefined;
+      emitTournamentUpdate();
+      response.json({ success: true, ...result, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

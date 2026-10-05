@@ -188,6 +188,14 @@ export const DOUBLE_LIFE_ROUND_LABELS: Record<string, string> = {
 /** 仅支持 2 的幂人数（双败桶恒偶，零轮空分支） */
 export const SUPPORTED_TOURNAMENT_SIZES = new Set([4, 8, 16, 32, 64]);
 /**
+ * 「总决赛」= 只剩 2 人的阶段（每阶段晋级半额，人数逐阶段减半）：必须单败。
+ * 双败在 2 人阶段既产出不了冠军、也配不出下一波；创建校验、编辑赛制守卫与前端向导共用这一判据。
+ * 用「阶段人数」而不是「最后一个阶段」判定：自定义阶段列表的末阶段不一定是 2 人。
+ */
+export function isFinalStage(playerCount: number, stageIndex: number): boolean {
+  return playerCount / 2 ** stageIndex === 2;
+}
+/**
  * 系列赛 id：T 前缀 + 8 位日期 + 「_」+ 机器码（0-2 位字母）+ 序号，如 T20260928_A01。
  * 外部导入数据只接受该形态，防止路径穿越与字段注入。
  */
@@ -220,6 +228,55 @@ export function resolveThirdPlaceBestOf(record: {
     return parsed;
   }
   return record.stages[record.stages.length - 1]?.bestOf ?? 3;
+}
+
+/**
+ * 某波生效的赛制：W1 与单败阶段取阶段基础值；双败 W2/W3 取 waveBestOf 覆盖（缺省回落到基础）。
+ * 建场、编辑校验、榜单标签与前端展示都走它，别各写一份。
+ */
+export function resolveWaveBestOf(
+  stage: Pick<StageRule, 'bestOf' | 'waveBestOf'>,
+  waveIndex: number,
+): StageRule['bestOf'] {
+  if (waveIndex >= 2) {
+    const override = stage.waveBestOf?.[waveIndex as 2 | 3];
+    if (override) {
+      return override;
+    }
+  }
+  return stage.bestOf;
+}
+
+/**
+ * 阶段赛制展示文本：无波次覆盖时是「BO1」；有覆盖时按连续段压缩（如「W1 BO1 / W2·W3 BO3」）。
+ * 供详情 Steps、晋级图横幅、page14 副标题、推流卡片等处统一使用。
+ */
+export function formatStageBestOf(
+  stage: Pick<StageRule, 'bestOf' | 'waveBestOf' | 'format'>,
+): string {
+  if (stage.format !== 'double-life' || !stage.waveBestOf) {
+    return `BO${stage.bestOf}`;
+  }
+  const waves = [1, 2, 3].map((waveIndex) => resolveWaveBestOf(stage, waveIndex));
+  const groups: Array<{ from: number; to: number; bo: StageRule['bestOf'] }> = [];
+  waves.forEach((bo, index) => {
+    const waveIndex = index + 1;
+    const last = groups[groups.length - 1];
+    if (last && last.bo === bo) {
+      last.to = waveIndex;
+    } else {
+      groups.push({ from: waveIndex, to: waveIndex, bo });
+    }
+  });
+  if (groups.length === 1) {
+    return `BO${groups[0].bo}`;
+  }
+  return groups
+    .map((group) => {
+      const label = group.from === group.to ? `W${group.from}` : `W${group.from}·W${group.to}`;
+      return `${label} BO${group.bo}`;
+    })
+    .join(' / ');
 }
 
 /**

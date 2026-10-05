@@ -106,7 +106,7 @@
         }
         var formatText = standings.format === 'double-life' ? '双败淘汰' : '单败淘汰';
         var rule = standings.format === 'double-life' ? ' · 赢满 2 场晋级' : ' · 胜者晋级';
-        return standings.stageName + ' · ' + formatText + ' · BO' + standings.bestOf + rule;
+        return standings.stageName + ' · ' + formatText + ' · ' + (standings.bestOfText || ('BO' + standings.bestOf)) + rule;
     }
 
     function renderTitle(state, standings) {

@@ -1,6 +1,7 @@
 import {
   DOUBLE_LIFE_ROUND_LABELS,
   resolveThirdPlaceBestOf,
+  resolveWaveBestOf,
   THIRD_PLACE_LABEL,
   TOURNAMENT_ID_REGEX,
   TOURNAMENT_TARGET_LOSSES,
@@ -101,6 +102,258 @@ export function getStageState(
   return 'pending';
 }
 
+/* ---------- 编辑赛制：界面侧影响评估（仅为预览提示，判定以服务端为准） ---------- */
+
+/** 形态中文名（编辑赛制预览文案用） */
+const STAGE_FORMAT_LABELS: Record<StageFormat, string> = {
+  'double-life': '双败',
+  'single-elim': '单败',
+};
+
+/**
+ * 形态切换时的配对复位口径（与创建向导、服务端兼容归一同一份规则）：
+ * 双败 → 随机配对，单败 → 沿对阵树。
+ */
+export function defaultPairingForFormat(format: StageFormat): StageRule['pairing'] {
+  return format === 'double-life' ? 'random-bucket' : 'bracket-seed';
+}
+
+export interface StageBestOfChange {
+  index: number;
+  /** 基础赛制（W1 与未覆盖波次）变化；undefined = 未改 */
+  bestOf?: number;
+  /** 按波次覆盖变化（值 = 选择的新赛制；等于新基础时由服务端归一为跟随）；undefined = 未改 */
+  waveBestOf?: Partial<Record<2 | 3, number>>;
+  /** 形态类字段（仅未开始阶段可改，直接生效）；undefined = 未改 */
+  format?: StageFormat;
+  pairing?: StageRule['pairing'];
+  avoidRematch?: boolean;
+  requireConfirm?: boolean;
+}
+
+/** 规则变更单行：不触发重开、直接生效（服务端只放未开始阶段，界面侧仅作预览与防御提示） */
+export interface StageRuleReviewRow {
+  stageIndex: number;
+  stageName: string;
+  /** 变更描述，如「晋级赛制 单败 → 双败；配对方式 沿对阵树 → 随机配对」 */
+  description: string;
+  /** 预期管理提示（如 4 人阶段改双败的场次变化说明）；无则为 undefined */
+  hint?: string;
+}
+
+export interface StageBestOfReviewRow {
+  stageIndex: number;
+  /** 1/2/3（单败阶段恒为 1） */
+  waveIndex: number;
+  /** 该波语义轮次（W2 = 败者组 R1 / 胜者组 R2）；单败为空数组 */
+  roundLabels: string[];
+  stageName: string;
+  fromBestOf: number;
+  toBestOf: number;
+  completed: number;
+  inProgress: number;
+  pending: number;
+}
+
+export interface StageBestOfReview {
+  rows: StageBestOfReviewRow[];
+  /** 未开始阶段的规则变更（直接生效，无需重开确认；服务端成功后会即时刷新记录） */
+  ruleRows: StageRuleReviewRow[];
+  /** 将被作废重建的已建后续波（label 形如「16进8 · W3」） */
+  discardWaveLabels: string[];
+  thirdPlaceChanged: boolean;
+  thirdPlaceBlocked: boolean;
+  /** 需要重开（被改的波存在进行中 / 已完赛对局） */
+  destructive: boolean;
+  /** 阻断保存的问题：先给客户端提示，服务端仍会复核 */
+  blockers: string[];
+}
+
+/** 「干净未打」= pending 且无任何小局结果（与服务端 / 回退撤回同口径） */
+function isMatchPristine(match: MatchRecord | undefined): boolean {
+  return Boolean(match)
+    && match!.status === 'pending'
+    && match!.games.every((game) => game.status === 'pending' && game.winner === null);
+}
+
+/**
+ * 评估「编辑赛制」将产生的影响（波次级，与服务端同口径）：
+ * - 逐波比较生效赛制（W1 跟随基础；双败 W2/W3 可覆盖），只统计真正变化的波；
+ * - 被改的波全未开打 → 仅更新赛制；存在有赛况的对局 → destructive（需强确认「重开该波」）；
+ * - 最早重开波之后的已建波作废重建；其中已有赛果或人工草稿 → 阻断并提示先处理。
+ */
+export function buildStageBestOfReview(
+  record: TournamentRecord,
+  matches: MatchRecord[],
+  changes: StageBestOfChange[],
+  thirdPlaceBestOf?: number,
+): StageBestOfReview {
+  const matchById = new Map(matches.map((match) => [match.id, match]));
+  const rows: StageBestOfReviewRow[] = [];
+  const ruleRows: StageRuleReviewRow[] = [];
+  const discardWaveLabels: string[] = [];
+  const blockers: string[] = [];
+  const blockedStages = new Set<number>();
+
+  changes.forEach((change) => {
+    const stage = record.stages[change.index];
+    if (!stage) {
+      return;
+    }
+    // 规则变更（仅未开始阶段可改）：直接生效，不进重开逻辑；非未开始阶段给阻断提示（服务端仍会复核）
+    const ruleParts: string[] = [];
+    if (change.format !== undefined && change.format !== stage.format) {
+      ruleParts.push(`晋级赛制 ${STAGE_FORMAT_LABELS[stage.format]} → ${STAGE_FORMAT_LABELS[change.format]}`);
+    }
+    if (change.pairing !== undefined && change.pairing !== stage.pairing) {
+      ruleParts.push(`配对方式 ${getPairingLabel(stage.pairing)} → ${getPairingLabel(change.pairing)}`);
+    }
+    if (change.avoidRematch !== undefined && change.avoidRematch !== stage.avoidRematch) {
+      ruleParts.push(`避重复 ${stage.avoidRematch ? '开' : '关'} → ${change.avoidRematch ? '开' : '关'}`);
+    }
+    if (change.requireConfirm !== undefined && change.requireConfirm !== stage.requireConfirm) {
+      ruleParts.push(`需确认 ${stage.requireConfirm ? '开' : '关'} → ${change.requireConfirm ? '开' : '关'}`);
+    }
+    if (ruleParts.length) {
+      const ruleRow: StageRuleReviewRow = {
+        stageIndex: change.index,
+        stageName: stage.name,
+        description: ruleParts.join('；'),
+      };
+      // 4 人阶段（半决赛）单败改双败：场次会变多，且季军赛仍由两名落败者产生（与形态无关）——做预期管理
+      if (change.format === 'double-life' && stage.format === 'single-elim'
+        && record.playerIds.length / 2 ** change.index === 4) {
+        ruleRow.hint = '该阶段场次将增加；季军赛仍按两名落败者生成，与形态无关';
+      }
+      ruleRows.push(ruleRow);
+      if (!(record.status === 'setup' || change.index > record.currentStageIndex)) {
+        blockers.push(
+          `「${stage.name}」已开始（或已结束），晋级赛制 / 配对方式等阶段规则只能在该阶段开始前修改`,
+        );
+      }
+    }
+    // 计算新规则（合并覆盖并归一，与服务端 updateTournamentStages 同口径）
+    const nextBestOf = change.bestOf ?? stage.bestOf;
+    const nextOverrides: Partial<Record<2 | 3, number>> = { ...(stage.waveBestOf ?? {}) };
+    if (change.waveBestOf) {
+      ([2, 3] as const).forEach((waveIndex) => {
+        const value = change.waveBestOf![waveIndex];
+        if (value !== undefined) {
+          nextOverrides[waveIndex] = value;
+        }
+      });
+    }
+    ([2, 3] as const).forEach((waveIndex) => {
+      if (nextOverrides[waveIndex] === nextBestOf) {
+        delete nextOverrides[waveIndex];
+      }
+    });
+    const nextRule: StageRule = {
+      ...stage,
+      bestOf: nextBestOf as StageRule['bestOf'],
+      waveBestOf: Object.keys(nextOverrides).length
+        ? (nextOverrides as StageRule['waveBestOf'])
+        : undefined,
+    };
+
+    const mainWaves = record.waves
+      .filter((wave) => wave.stageIndex === change.index && wave.kind !== 'third-place')
+      .sort((left, right) => left.waveIndex - right.waveIndex);
+    const maxWave = stage.format === 'double-life' ? 3 : 1;
+    const reopenIndexes: number[] = [];
+
+    for (let waveIndex = 1; waveIndex <= maxWave; waveIndex += 1) {
+      const fromBestOf = resolveWaveBestOf(stage, waveIndex);
+      const toBestOf = resolveWaveBestOf(nextRule, waveIndex);
+      if (fromBestOf === toBestOf) {
+        continue;
+      }
+      const wave = mainWaves.find((item) => item.waveIndex === waveIndex) ?? null;
+      let completed = 0;
+      let inProgress = 0;
+      let pending = 0;
+      wave?.nodes.forEach((node) => {
+        const match = node.matchId ? matchById.get(node.matchId) : undefined;
+        if (!match) {
+          return;
+        }
+        if (isMatchPristine(match)) {
+          pending += 1;
+          return;
+        }
+        if (match.status === 'completed') {
+          completed += 1;
+        } else {
+          inProgress += 1;
+        }
+      });
+      if (completed + inProgress > 0) {
+        reopenIndexes.push(waveIndex);
+      }
+      rows.push({
+        stageIndex: change.index,
+        waveIndex,
+        roundLabels: getStageWaveRoundLabels(stage, waveIndex),
+        stageName: stage.name,
+        fromBestOf,
+        toBestOf,
+        completed,
+        inProgress,
+        pending,
+      });
+    }
+
+    // 作废范围：最早重开波之后的已建波（与服务端一致；不可安全作废 → 阻断）
+    if (reopenIndexes.length) {
+      const firstReopen = Math.min(...reopenIndexes);
+      mainWaves
+        .filter((wave) => wave.waveIndex > firstReopen)
+        .forEach((wave) => {
+          discardWaveLabels.push(`${stage.name} · W${wave.waveIndex}`);
+          const blocked = wave.pairingStatus !== 'locked'
+            || wave.nodes.some((node) => {
+              if (node.winnerId) {
+                return true;
+              }
+              const match = node.matchId ? matchById.get(node.matchId) : undefined;
+              return Boolean(match) && !isMatchPristine(match);
+            });
+          if (blocked && !blockedStages.has(change.index)) {
+            blockedStages.add(change.index);
+            blockers.push(`「${stage.name}」的后续波次已有赛果或为人工对阵，需先处理后续波次（「回退上一波」或逐场撤回）`);
+          }
+        });
+    }
+  });
+
+  let thirdPlaceChanged = false;
+  let thirdPlaceBlocked = false;
+  if (thirdPlaceBestOf !== undefined && thirdPlaceBestOf !== resolveThirdPlaceBestOf(record)) {
+    thirdPlaceChanged = true;
+    const thirdPlaceWave = record.waves.find((wave) => wave.kind === 'third-place');
+    if (thirdPlaceWave) {
+      const hasResult = thirdPlaceWave.nodes.some((node) => {
+        const match = node.matchId ? matchById.get(node.matchId) : undefined;
+        return Boolean(match) && !isMatchPristine(match);
+      });
+      if (hasResult) {
+        thirdPlaceBlocked = true;
+        blockers.push('季军赛对局已开打或完赛，季军赛赛制不能直接修改');
+      }
+    }
+  }
+
+  return {
+    rows,
+    ruleRows,
+    discardWaveLabels,
+    thirdPlaceChanged,
+    thirdPlaceBlocked,
+    destructive: rows.some((row) => row.completed + row.inProgress > 0),
+    blockers,
+  };
+}
+
 /** 波次全局下标（waves 是跨阶段的扁平数组）；找不到返回 -1 */
 export function getWaveGlobalIndex(
   record: TournamentRecord,
@@ -127,6 +380,39 @@ export function getCurrentPositionText(record: TournamentRecord): string {
     return '已结束';
   }
   return `${stage.name} · 第 ${lastWave.waveIndex} 波`;
+}
+
+/**
+ * 当前进行到的阶段与主赛波次（编辑赛制弹窗展示「当前阶段 · W几」用）：
+ * 取当前阶段最后建出的主赛波（季军赛不算——它挂靠半决赛阶段但波次序号更大）；
+ * 未开赛 / 已结束返回 null，尚未建波时 waveIndex 为 null。
+ */
+export function getCurrentStageWavePosition(record: TournamentRecord): {
+  stageIndex: number;
+  stageName: string;
+  waveIndex: number | null;
+  /** 该波的语义轮次（单败为空数组），口径与波次列表 / 晋级图一致 */
+  roundLabels: string[];
+} | null {
+  if (record.status === 'setup' || record.status === 'completed') {
+    return null;
+  }
+  const stage = record.stages[record.currentStageIndex];
+  if (!stage) {
+    return null;
+  }
+  const stageWaves = record.waves.filter(
+    (wave) => wave.stageIndex === record.currentStageIndex && wave.kind !== 'third-place',
+  );
+  const waveIndex = stageWaves.length
+    ? Math.max(...stageWaves.map((wave) => wave.waveIndex))
+    : null;
+  return {
+    stageIndex: record.currentStageIndex,
+    stageName: stage.name,
+    waveIndex,
+    roundLabels: waveIndex === null ? [] : getStageWaveRoundLabels(stage, waveIndex),
+  };
 }
 
 /** 季军赛波次（每届最多一条）；未安排 / 还没打出来时为 null */
@@ -774,20 +1060,42 @@ export function buildWaveCards(
 }
 
 /**
+ * 双败波次 → 战绩桶（与 getDraftBucketSpecs 的结构口径一致；W2 的显示顺序按晋级图列序，
+ * 即 0-1 败者组 R1 在 1-0 胜者组 R2 之前）；W3 及以后收敛在决胜池。
+ */
+const DOUBLE_LIFE_WAVE_BUCKETS: Record<number, string[]> = {
+  1: ['0-0'],
+  2: ['0-1', '1-0'],
+  3: ['1-1'],
+};
+
+/**
+ * 双败阶段某波的语义轮次标签（W1 胜者组 R1 / W2 败者组 R1·胜者组 R2 / W3 败者组 R2）：
+ * 编辑赛制与创建向导的波次行使用，未建出的波也能提前展示；单败阶段没有轮次细分，返回空数组。
+ */
+export function getStageWaveRoundLabels(
+  stage: Pick<StageRule, 'format'>,
+  waveIndex: number,
+): string[] {
+  if (stage.format !== 'double-life') {
+    return [];
+  }
+  return (DOUBLE_LIFE_WAVE_BUCKETS[waveIndex] ?? ['1-1'])
+    .map((bucketKey) => DOUBLE_LIFE_ROUND_LABELS[bucketKey])
+    .filter((label): label is string => Boolean(label));
+}
+
+/**
  * 某波的轮次表述（双败按战绩桶给出「胜者组 R1 / 败者组 R1」等；单败返回空数组，直接用阶段名）。
  * 波次列表用它替代「第 N 波」，与晋级图列标题同一套术语。季军赛没有轮次，固定空数组
  * （它的波次序号在阶段主赛之后，getDraftBucketSpecs 会按 record.entries 推出错误的桶）。
  */
 export function getWaveRoundLabels(record: TournamentRecord, wave: TournamentWave): string[] {
   const stage = record.stages[wave.stageIndex];
-  if (!stage || stage.format !== 'double-life' || wave.kind === 'third-place') {
+  if (!stage || wave.kind === 'third-place') {
     return [];
   }
-  return getDraftBucketSpecs(record, wave)
-    .map((spec) => spec.bucketKey)
-    .filter((key): key is string => Boolean(key))
-    .sort((left, right) => getRoundOrder(left) - getRoundOrder(right))
-    .map((key) => DOUBLE_LIFE_ROUND_LABELS[key] ?? key);
+  return getStageWaveRoundLabels(stage, wave.waveIndex);
 }
 
 /** 配对方式的中文表述（创建向导的同名字段：双败 随机/手动，单败 沿对阵树/每轮随机） */

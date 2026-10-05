@@ -1,6 +1,7 @@
 import type {
   LineupImportApplyResult,
   LineupImportPreviewRow,
+  StageFormat,
   StageRule,
   SyncBundle,
   TournamentRecord,
@@ -101,6 +102,37 @@ export async function rollbackWaveApi(tournamentId: string): Promise<TournamentR
     { method: 'POST' },
   );
   return data.tournament;
+}
+
+/**
+ * 编辑赛制：只提交发生变化的阶段 / 波次。stages[].bestOf = 基础赛制（W1 与未覆盖波次）；
+ * stages[].waveBestOf = 双败按波次覆盖（null = 恢复跟随基础）。阶段内已有赛况的 BO 改动须先由界面强确认、
+ * 再带 confirmReopen=true 重试，服务端复核通过后执行「重开该波」（清赛况、保留阵容、后续波作废）。
+ * stages[].format / pairing / avoidRematch / requireConfirm = 阶段规则：仅未开始阶段可改、直接生效
+ * （服务端守卫，形态切换时配对按兼容归一，总决赛禁止双败）。
+ */
+export async function updateTournamentStagesApi(
+  tournamentId: string,
+  body: {
+    stages: Array<{
+      index: number;
+      bestOf?: number;
+      waveBestOf?: Partial<Record<2 | 3, number | null>>;
+      format?: StageFormat;
+      pairing?: StageRule['pairing'];
+      avoidRematch?: boolean;
+      requireConfirm?: boolean;
+    }>;
+    thirdPlaceBestOf?: number;
+    confirmReopen?: boolean;
+  },
+): Promise<{
+  tournament: TournamentRecord;
+  reopenedMatchIds: string[];
+  updatedMatchIds: string[];
+  discardedWaveCount: number;
+}> {
+  return requestJson(`/api/tournaments/${tournamentId}/stages`, { method: 'PUT', json: body });
 }
 
 export async function forfeitApi(

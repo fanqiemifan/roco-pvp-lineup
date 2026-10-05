@@ -25,6 +25,7 @@ import {
   rollbackWave,
   savePairingDraft,
   startTournament,
+  updateTournamentStages,
 } from '../../electron/services/tournament-service';
 import {
   createMatch,
@@ -883,6 +884,400 @@ describe('rollbackWave（波次回退）', () => {
   it('无波可回退时报错', () => {
     const tournament = createSeries(4);
     expect(() => rollbackWave(paths, tournament.id)).toThrow(/波次/);
+  });
+});
+
+describe('updateTournamentStages（编辑赛制 / 重开本阶段）', () => {
+  it('纯规则更新：无已建对局时直接改阶段与季军赛赛制', () => {
+    const tournament = createSeries(8);
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 2, bestOf: 5 }],
+      thirdPlaceBestOf: 5,
+    });
+    expect(report.tournament.stages[2].bestOf).toBe(5);
+    expect(report.tournament.thirdPlaceBestOf).toBe(5);
+    expect(report.reopenedMatchIds).toEqual([]);
+    expect(report.updatedMatchIds).toEqual([]);
+    expect(report.discardedWaveCount).toBe(0);
+  });
+
+  it('未开打的已建对局：直接换赛制，无需确认', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    const report = updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, bestOf: 3 }] });
+    expect(report.reopenedMatchIds).toEqual([]);
+    expect(report.updatedMatchIds).toHaveLength(4);
+    const after = getMatchStore(paths).matches.filter(
+      (match) => match.tournamentRef?.tournamentId === tournament.id,
+    );
+    expect(after.every((match) => match.bestOf === 3)).toBe(true);
+  });
+
+  it('有赛况未确认 → 拒绝；确认后重开：清赛况、保阵容、节点与战绩复位', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    const first = getMatchStore(paths).matches
+      .filter((match) => match.tournamentRef?.tournamentId === tournament.id)
+      .sort((left, right) => left.id.localeCompare(right.id))[0];
+    playMatchToEnd(first.id, 'left');
+    const before = getMatchStore(paths).matches.find((match) => match.id === first.id)!;
+    expect(before.status).toBe('completed');
+    const keptLineup = [...before.games[0].leftLineup];
+
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, bestOf: 3 }] }))
+      .toThrow(/重开该波/);
+
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, bestOf: 3 }],
+      confirmReopen: true,
+    });
+    expect(report.reopenedMatchIds).toEqual([first.id]);
+    expect(report.updatedMatchIds).toHaveLength(3);
+
+    const reopened = getMatchStore(paths).matches.find((match) => match.id === first.id)!;
+    expect(reopened.status).toBe('pending');
+    expect(reopened.bestOf).toBe(3);
+    expect(reopened.leftScore).toBe(0);
+    expect(reopened.winner).toBeNull();
+    expect(reopened.games).toHaveLength(1);
+    expect(reopened.games[0].leftLineup).toEqual(keptLineup);
+
+    const record = report.tournament;
+    const wave = record.waves.find((item) => item.stageIndex === 0 && item.waveIndex === 1)!;
+    expect(wave.nodes.every((node) => node.winnerId === null)).toBe(true);
+    expect(wave.status).toBe('running');
+    expect(record.entries.every((entry) => (
+      entry.stageWins === 0 && entry.stageLosses === 0 && entry.state === 'alive'
+    ))).toBe(true);
+  });
+
+  it('重开时后续未打波自动作废（软删可恢复）', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    record.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId!, 'left'));
+    record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    expect(record.waves).toHaveLength(2);
+    const w2Ids = record.waves[1].nodes.map((node) => node.matchId!).filter(Boolean);
+    expect(w2Ids.length).toBeGreaterThan(0);
+
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, bestOf: 3 }],
+      confirmReopen: true,
+    });
+    expect(report.discardedWaveCount).toBe(1);
+    expect(report.tournament.waves).toHaveLength(1);
+    const after = getMatchStore(paths).matches;
+    expect(w2Ids.every((id) => !after.some((match) => match.id === id))).toBe(true);
+
+    // 软删进「撤回最近删除」：可恢复
+    undoDeletedMatches(paths);
+    const restored = getMatchStore(paths).matches;
+    expect(w2Ids.every((id) => restored.some((match) => match.id === id))).toBe(true);
+  });
+
+  it('后续波已有赛果：拒绝并提示先处理后续波次', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    record.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId!, 'left'));
+    record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    const w2First = record.waves[1].nodes[0].matchId!;
+    playMatchToEnd(w2First, 'left');
+
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, bestOf: 3 }],
+      confirmReopen: true,
+    })).toThrow(/后续波次/);
+  });
+
+  it('波次覆盖：W1 已打完只改 W2 → W1 完全不动，W2 未开打直接更新', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    record.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId!, 'left'));
+    record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    expect(record.waves).toHaveLength(2); // W2 已自动建场（未打）
+    const w1Matches = record.waves[0].nodes.map((node) => node.matchId!);
+    const w2Matches = record.waves[1].nodes.map((node) => node.matchId!);
+
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, waveBestOf: { 2: 3 } }],
+    });
+    expect(report.reopenedMatchIds).toEqual([]);
+    expect(report.updatedMatchIds.sort()).toEqual([...w2Matches].sort());
+    expect(report.tournament.stages[0].waveBestOf).toEqual({ 2: 3 });
+
+    // W1 结果与赛制原样保留（不重开、不改 BO）
+    const store = getMatchStore(paths);
+    w1Matches.forEach((id) => {
+      const match = store.matches.find((item) => item.id === id)!;
+      expect(match.status).toBe('completed');
+      expect(match.bestOf).toBe(1);
+    });
+    w2Matches.forEach((id) => {
+      expect(getMatchStore(paths).matches.find((item) => item.id === id)!.bestOf).toBe(3);
+    });
+    const w1 = report.tournament.waves.find((wave) => wave.waveIndex === 1)!;
+    expect(w1.nodes.every((node) => node.winnerId !== null)).toBe(true);
+  }, 30000);
+
+  it('W2 已有赛果：未确认拒绝，确认后只重开 W2（W1 保留、W3 作废）', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    // 打完 W1 + W2 → W3 自动建场（未打）
+    let guard = 0;
+    while (getTournamentStore(paths).find((item) => item.id === tournament.id)!.waves.length < 3) {
+      const pending = getMatchStore(paths).matches.filter(
+        (match) => match.status === 'pending' && match.tournamentRef?.tournamentId === tournament.id,
+      );
+      expect(pending.length).toBeGreaterThan(0);
+      pending.forEach((match) => playMatchToEnd(match.id, 'left'));
+      guard += 1;
+      if (guard > 12) {
+        throw new Error('不收敛');
+      }
+    }
+    let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    expect(record.waves).toHaveLength(3);
+    const w1Matches = record.waves[0].nodes.map((node) => node.matchId!);
+    const w2Matches = record.waves[1].nodes.map((node) => node.matchId!);
+    const w3Matches = record.waves[2].nodes.map((node) => node.matchId!);
+
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, waveBestOf: { 2: 3 } }] }))
+      .toThrow(/重开该波/);
+
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, waveBestOf: { 2: 3 } }],
+      confirmReopen: true,
+    });
+    expect(report.discardedWaveCount).toBe(1);
+    expect(report.tournament.waves).toHaveLength(2);
+    expect(report.reopenedMatchIds.sort()).toEqual([...w2Matches].sort());
+    expect(report.updatedMatchIds).toEqual([]);
+
+    // W1 完全不动；W2 全部清赛况换 BO3；W3 软删
+    const store = getMatchStore(paths);
+    w1Matches.forEach((id) => {
+      const match = store.matches.find((item) => item.id === id)!;
+      expect(match.status).toBe('completed');
+      expect(match.bestOf).toBe(1);
+    });
+    w2Matches.forEach((id) => {
+      const match = getMatchStore(paths).matches.find((item) => item.id === id)!;
+      expect(match.status).toBe('pending');
+      expect(match.bestOf).toBe(3);
+    });
+    expect(w3Matches.every((id) => !getMatchStore(paths).matches.some((item) => item.id === id))).toBe(true);
+    // 阶段战绩重算：W1 胜者仍计 1 胜（W2 清零）
+    expect(report.tournament.entries.some((entry) => entry.stageWins === 1)).toBe(true);
+  }, 30000);
+
+  it('W2 未建场时改覆盖：之后建场即用新赛制', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, waveBestOf: { 2: 3 } }],
+    });
+    expect(report.updatedMatchIds).toEqual([]);
+    expect(report.tournament.stages[0].waveBestOf).toEqual({ 2: 3 });
+
+    let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    record.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId!, 'left'));
+    record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    const w2 = record.waves.find((wave) => wave.waveIndex === 2)!;
+    const store = getMatchStore(paths);
+    w2.nodes.forEach((node) => {
+      expect(store.matches.find((item) => item.id === node.matchId!)!.bestOf).toBe(3);
+    });
+    // W1 仍按基础 BO1 打完
+    record.waves[0].nodes.forEach((node) => {
+      expect(getMatchStore(paths).matches.find((item) => item.id === node.matchId!)!.bestOf).toBe(1);
+    });
+  }, 30000);
+
+  it('覆盖值等于基础值时归一为跟随基础（不落存储）', () => {
+    const tournament = createSeries(8);
+    const first = updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, waveBestOf: { 2: 3 } }] });
+    expect(first.tournament.stages[0].waveBestOf).toEqual({ 2: 3 });
+    const back = updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, waveBestOf: { 2: 1 } }] });
+    expect(back.tournament.stages[0].waveBestOf).toBeUndefined();
+  });
+
+  it('季军赛：未开打可改；已开打拒绝', () => {
+    const tournament = createSeries(4);
+    startTournament(paths, tournament.id);
+    playStage(tournament.id, 0);
+    let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    const thirdWave = record.waves.find((wave) => wave.kind === 'third-place')!;
+    expect(thirdWave).toBeTruthy();
+    const thirdMatchId = thirdWave.nodes[0].matchId!;
+
+    const report = updateTournamentStages(paths, tournament.id, { thirdPlaceBestOf: 5 });
+    expect(report.tournament.thirdPlaceBestOf).toBe(5);
+    expect(report.updatedMatchIds).toContain(thirdMatchId);
+    expect(getMatchStore(paths).matches.find((match) => match.id === thirdMatchId)!.bestOf).toBe(5);
+
+    playMatchToEnd(thirdMatchId, 'left');
+    expect(() => updateTournamentStages(paths, tournament.id, { thirdPlaceBestOf: 3 }))
+      .toThrow(/季军赛/);
+  });
+
+  it('只读副本 / 非法值 / 已结束阶段 / 已完成系列赛拒绝', () => {
+    const tournament = createSeries(8);
+    saveRuntimeConfig(paths, { machineCode: 'B' });
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, bestOf: 3 }] }))
+      .toThrow(/机器 A/);
+    saveRuntimeConfig(paths, { machineCode: 'A' });
+
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, bestOf: 2 }] }))
+      .toThrow(/BO1 \/ BO3/);
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 99, bestOf: 3 }] }))
+      .toThrow(/阶段不存在/);
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 1, waveBestOf: { 2: 3 } }] }))
+      .toThrow(/单败阶段/);
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, bestOf: 1 }] }))
+      .toThrow(/未检测到赛制变化/);
+
+    // 推进过 stage0 后回头改它 → 已结束阶段
+    startTournament(paths, tournament.id);
+    let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    while (record.currentStageIndex === 0) {
+      const pending = getMatchStore(paths).matches.filter(
+        (match) => match.status === 'pending' && match.tournamentRef?.tournamentId === tournament.id,
+      );
+      if (!pending.length) {
+        break;
+      }
+      pending.forEach((match) => playMatchToEnd(match.id, 'left'));
+      record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    }
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, bestOf: 3 }] }))
+      .toThrow(/阶段已结束/);
+
+    const finished = createSeries(4);
+    runWholeSeries(finished.id);
+    expect(() => updateTournamentStages(paths, finished.id, { stages: [{ index: 1, bestOf: 5 }] }))
+      .toThrow(/系列赛已结束/);
+  });
+
+  it('未开始阶段改阶段规则（形态/配对/开关）：直接生效，不产生对局操作', () => {
+    const tournament = createSeries(8);
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [{
+        index: 1,
+        format: 'double-life',
+        pairing: 'manual-bucket',
+        avoidRematch: false,
+        requireConfirm: true,
+      }],
+    });
+    const stage = report.tournament.stages[1];
+    expect(stage.format).toBe('double-life');
+    expect(stage.pairing).toBe('manual-bucket');
+    expect(stage.avoidRematch).toBe(false);
+    expect(stage.requireConfirm).toBe(true);
+    expect(report.reopenedMatchIds).toEqual([]);
+    expect(report.updatedMatchIds).toEqual([]);
+    expect(report.discardedWaveCount).toBe(0);
+  });
+
+  it('运行中改未开始阶段规则：推进到该阶段时按新规则生成（单败改双败 → 出现 W2）', () => {
+    const tournament = createSeries(8);
+    updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, format: 'double-life', pairing: 'random-bucket' }],
+    });
+    startTournament(paths, tournament.id);
+    playStage(tournament.id, 0); // 8进4 打完 → 推进到 4进2
+    let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    expect(record.currentStageIndex).toBe(1);
+    expect(record.stages[1].format).toBe('double-life');
+
+    const w1Ids = record.waves
+      .filter((wave) => wave.stageIndex === 1 && wave.waveIndex === 1)
+      .flatMap((wave) => wave.nodes.map((node) => node.matchId))
+      .filter((id): id is string => Boolean(id));
+    expect(w1Ids).toHaveLength(2);
+    w1Ids.forEach((id) => playMatchToEnd(id, 'left'));
+    record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    // 双败按新规则生成后续波：W1 打齐不推进阶段，而是建出 W2
+    expect(record.currentStageIndex).toBe(1);
+    expect(record.waves.some((wave) => wave.stageIndex === 1 && wave.waveIndex === 2)).toBe(true);
+  });
+
+  it('进行中阶段改规则拒绝；同批「进行中改 BO + 未开始改规则」互不牵连', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, format: 'single-elim' }],
+    })).toThrow(/只能在该阶段开始前修改/);
+
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [
+        { index: 0, bestOf: 3 },
+        { index: 1, format: 'double-life', pairing: 'random-bucket' },
+      ],
+    });
+    expect(report.updatedMatchIds).toHaveLength(4); // stage0 W1 未开打：BO 直接换
+    expect(report.tournament.stages[1].format).toBe('double-life');
+    expect(report.tournament.stages[1].pairing).toBe('random-bucket');
+  });
+
+  it('已结束阶段改规则与改 BO 分口径拒绝', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    playStage(tournament.id, 0);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, avoidRematch: false }],
+    })).toThrow(/只能在该阶段开始前修改/);
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, bestOf: 3 }] }))
+      .toThrow(/阶段已结束/);
+  });
+
+  it('总决赛（只剩 2 人）改双败拒绝', () => {
+    const tournament = createSeries(8);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 2, format: 'double-life', pairing: 'random-bucket' }],
+    })).toThrow(/总决赛阶段必须为单败/);
+  });
+
+  it('配对兼容归一：不兼容请求归到该形态默认；改单败清 waveBestOf', () => {
+    const tournament = createSeries(8);
+    updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, pairing: 'manual-bucket', waveBestOf: { 2: 3 } }],
+    });
+
+    // 手改请求带单败式配对（与双败不兼容）→ 归一到随机配对
+    const normalized = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, pairing: 'random-round' }],
+    });
+    expect(normalized.tournament.stages[0].pairing).toBe('random-bucket');
+
+    // 改为单败：配对复位为沿对阵树，W2/W3 覆盖失去意义一并清除
+    const single = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, format: 'single-elim' }],
+    });
+    expect(single.tournament.stages[0].format).toBe('single-elim');
+    expect(single.tournament.stages[0].pairing).toBe('bracket-seed');
+    expect(single.tournament.stages[0].waveBestOf).toBeUndefined();
+  });
+
+  it('规则字段非法值 / 只读副本拒绝', () => {
+    const tournament = createSeries(8);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, format: 'round-robin' }],
+    })).toThrow(/晋级赛制不合法/);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, pairing: 'unknown-pairing' }],
+    })).toThrow(/配对方式不合法/);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, avoidRematch: 'yes' }],
+    })).toThrow(/避重复开关不合法/);
+
+    saveRuntimeConfig(paths, { machineCode: 'B' });
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, format: 'double-life' }],
+    })).toThrow(/机器 A/);
   });
 });
 

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { App, Button, Empty, Modal, Space, Tag, Typography } from 'antd';
-import { resolveThirdPlaceBestOf, THIRD_PLACE_LABEL } from '../../../shared/constants';
+import { formatStageBestOf, resolveThirdPlaceBestOf, THIRD_PLACE_LABEL } from '../../../shared/constants';
 import type { MatchRecord, TournamentNode, TournamentRecord } from '../../../shared/types';
 import { buildBracketGraph, getStageState } from '../lib/tournament';
 import type { BracketCard, BracketColumn, BracketSlot } from '../lib/tournament';
@@ -645,7 +645,7 @@ export function BracketBoard({
                       <span className="bracket-stage-title">{group.columns[0].stageName}</span>
                       <Text type="secondary" className="bracket-stage-meta">
                         {group.columns[0].formatLabel}
-                        {stage ? ` · BO${stage.bestOf}` : ''}
+                        {stage ? ` · ${formatStageBestOf(stage)}` : ''}
                       </Text>
                       <Tag className="bracket-stage-status" color={stageState.color}>
                         {stageState.label}
