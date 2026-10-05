@@ -228,7 +228,7 @@
 | 保存战绩详情配置 | savePage7State | (paths: AppPaths, payload: unknown) => Page7State | 保存 page7 配置（matchIds 任意状态现存比赛 / title / notice） |
 | 清理选场悬空引用 | prunePage7State | (paths: AppPaths) => Page7State \| null | 移除已删比赛的引用（page7 不限状态）；有变化落盘并返回新状态，无变化返回 null；由 socket-server 的比赛广播出口 emitMatchesUpdate 调用 |
 
-> **page7 选场不设产品上限**（`PAGE7_MAX_MATCHES = 200` 只是兜底）：原来 9 场是"整列表滚动"结构的容量；画面改成"一屏 4 行 + 整屏交叉淡入淡出"后，行数只影响翻屏轮数、不影响 DOM 规模，所以支持整届（64 人最多 156 场）与按阶段·波次整组勾选，`normalizeMatchIds` 在超过兜底值时才截断。
+> **page7 选场上限 = 20 场**（`PAGE7_MAX_MATCHES = 20`，产品限制）：原来是 9（"整列表滚动"结构的容量），画面改成"一屏 4 行 + 整屏交叉淡入淡出"后放开到 200 兜底，2026-10 运营定为 20 场上限；`normalizeMatchIds` 超过 20 场静默截断（整届勾选大届会被截到前 20 场）。
 >
 > 同口径的 `prunePage6State`（page6-service.ts，额外要求「已结束」）/ `prunePage8State`（page8-service.ts，额外要求「待开始/进行中」）签名与行为一致；page6/page8 的收录状态白名单为 PAGE6_MATCH_STATUSES / PAGE8_MATCH_STATUSES（保存与清理共用，避免口径漂移）。**page6/page8 的 9 场上限是画面结构（3×3 卡片网格）决定的，不要跟着 page7 一起放开。**
 

@@ -33,7 +33,7 @@
 | SYNC_APP_ID / SYNC_BUNDLE_SCHEMA / SYNC_BUNDLE_MAX_BYTES | roco-pvp-lineup / 1 / 64MB | 双机同步包的应用标识、结构版本与文件大小上限（导入上传限制 + 前端预检） | shared/constants.ts |
 | MACHINE_CODE_REGEX / MATCH_ID_REGEX | ^[A-Z]{1,2}$ / ^(\d{8})_([A-Za-z]{0,2})(\d+)$ | 本机标识（1-2 位大写字母，空 = 未设置）与比赛 id（日期 + 机器码 + 序号；解析端容忍小写，机器码只允许字母避免与序号歧义） | shared/constants.ts |
 | TOURNAMENT_TARGET_WINS / TOURNAMENT_TARGET_LOSSES | 2 / 2 | 双败阶段晋级线（2胜）与淘汰线（2败） | shared/constants.ts |
-| SUPPORTED_TOURNAMENT_SIZES | {4,8,16,32,64} | 系列赛允许人数（2 的幂，桶恒偶零轮空）；前端创建向导的校验数组由同一集合派生（TOURNAMENT_SIZE_OPTIONS，别再硬编码） | shared/constants.ts |
+| SUPPORTED_TOURNAMENT_SIZES | {4,8,16,32,64,128} | 系列赛允许人数（2 的幂，桶恒偶零轮空）；前端创建向导的校验数组由同一集合派生（TOURNAMENT_SIZE_OPTIONS，别再硬编码） | shared/constants.ts |
 | isFinalStage | (playerCount, stageIndex) => playerCount / 2^stageIndex === 2 | 「总决赛」判据（只剩 2 人的阶段必须单败：双败产不出冠军、也配不出下一波）；创建校验 / 编辑赛制守卫 / 前端向导共用，别再各自内联 | shared/constants.ts |
 | TOURNAMENT_ID_REGEX | ^T(\d{8})_([A-Za-z]{0,2})(\d+)$ | 系列赛 id 白名单：T 前缀 + 日期 + 机器码 + 序号（如 T20260928_A01），外部导入必过该校验防路径穿越 | shared/constants.ts |
 | TOURNAMENT_CROSS_BUCKET_TAG / TOURNAMENT_FORFEIT_TAG | 跨桶 / 弃权 | 标注标签：跨桶配对 / 弃权场次（建场只写「跨桶」，赛事名/阶段/波次已不再写入标签，身份走 tournamentRef） | shared/constants.ts |
@@ -43,9 +43,9 @@
 | CLOUD_SYNC_REQUEST_TIMEOUT_MS | 20000 | 访问 Worker 的 HTTP 超时（超时给中文提示而不是让界面空转） | shared/constants.ts |
 | CLOUD_SYNC_STALE_MINUTES | 30 | 主控端提示「对端尚未分发/回传」的展示阈值（分钟） | shared/constants.ts |
 
-> 系列赛默认阶段模板构建器 `buildDefaultStages(playerCount): StageRule[]` 位于 shared/constants.ts：64人=双败BO1×2（64进32/32进16）+ 单败BO3×4（16进8/8进4/4进2/总决赛），32人=双败BO1×2（32进16/16进8）+ 单败BO3×3（8进4/4进2/总决赛），16/8/4 人类似递减；默认 avoidRematch=true、requireConfirm=false。「总决赛」判据是**阶段人数 = 2**（不是「最后一个阶段」），该阶段必须单败。
+> 系列赛默认阶段模板构建器 `buildDefaultStages(playerCount): StageRule[]` 位于 shared/constants.ts：128人=双败BO1×2（128进64/64进32）+ 单败BO3×5（32进16/16进8/8进4/4进2/总决赛），64人=双败BO1×2（64进32/32进16）+ 单败BO3×4（16进8/8进4/4进2/总决赛），32人=双败BO1×2（32进16/16进8）+ 单败BO3×3（8进4/4进2/总决赛），16/8/4 人类似递减；默认 avoidRematch=true、requireConfirm=false。「总决赛」判据是**阶段人数 = 2**（不是「最后一个阶段」），该阶段必须单败。
 
-> 推流选场上限**不是三页统一**：PAGE6_MAX_MATCHES / PAGE8_MAX_MATCHES = 9（3×3 卡片网格的结构决定，位于 electron/services/page6-service.ts、page8-service.ts），**page7 不限**（PAGE7_MAX_MATCHES = 200 只是兜底，位于 page7-service.ts；后台 page7 不传 maxCount）。场序排期常量 MATCH_SLOT_MINUTES_PER_BO = 30 位于 shared/match-schedule.ts（每场占用 = BO 数 × 30 分钟）。
+> 推流选场上限**不是三页统一**：PAGE6_MAX_MATCHES / PAGE8_MAX_MATCHES = 9（3×3 卡片网格的结构决定，位于 electron/services/page6-service.ts、page8-service.ts），**page7 上限 20 场**（PAGE7_MAX_MATCHES = 20，位于 page7-service.ts，产品限制，超出静默截断）。场序排期常量 MATCH_SLOT_MINUTES_BO1 = 30 / MATCH_SLOT_MINUTES_PER_BO = 20 位于 shared/match-schedule.ts（每场占用：BO1 = 30 分钟；BO3 及以上 = BO 数 × 20 分钟，即 BO3=60、BO5=100、BO7=140，函数 matchSlotMinutes）。
 >
 > 页面9（团队积分榜）在 SUPPORTED_STAGE_PAGES 中；战队上限常量 PAGE9_MAX_TEAMS = 4 位于 electron/services/page9-service.ts，后台表单行数常量 PAGE9_TEAM_COUNT = 4 位于 src/admin-antd/App.tsx；单项积分最长 3 位数字（0-999）。
 >

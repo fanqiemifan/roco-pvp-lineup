@@ -86,7 +86,7 @@ roco-pvp-lineup/
 | shared/types.ts | 所有 TypeScript 类型定义 |
 | shared/events.ts | Socket.IO 事件名称常量 |
 | shared/constants.ts | 全局常量（端口、默认值、推流页面/过渡枚举） |
-| shared/match-schedule.ts | page6/8 卡片场序时间排期纯函数（开始时间 + BO×30 分钟累加、手动覆盖、中文序数文案），electron 下发与后台选场弹窗共用 |
+| shared/match-schedule.ts | page6/8 卡片场序时间排期纯函数（开始时间 + 每场占用累加：BO1=30 分钟、BO3 及以上=BO×20 分钟、手动覆盖、中文序数文案），electron 下发与后台选场弹窗共用 |
 
 ### 管理后台（src/admin-antd）
 
