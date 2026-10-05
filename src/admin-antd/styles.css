@@ -3194,6 +3194,47 @@ a {
   color: rgba(0, 0, 0, 0.25);
 }
 
+/* 回退上一波影响预览弹窗：逐场处置行 + 连带影响清单 */
+.rollback-preview-list {
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rollback-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 12px;
+  border-bottom: 1px dashed #f0f0f0;
+  background: #fff;
+}
+
+.rollback-preview-row:last-child {
+  border-bottom: none;
+}
+
+.rollback-preview-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.rollback-preview-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.rollback-preview-impacts {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.rollback-preview-impacts li {
+  margin: 3px 0;
+}
+
 /* 阶段卡片：当前进行阶段高亮描边（波次行共用同一套横向布局） */
 .bestof-stage-card {
   border: 1px solid rgba(91, 67, 43, 0.16);

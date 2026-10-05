@@ -1898,6 +1898,64 @@ export function resetMatchesToPending(paths: AppPaths, matchIds: string[]): Matc
 }
 
 /**
+ * 系列赛波次回退专用：把一批比赛复位为未开始，但**保留第 1 局阵容**
+ * （进行中保本局阵容、已完赛保第 1 局阵容，与编辑赛制重开 / 云同步复位登记同口径）——
+ * 回退重开的是同一批节点同一批配对，阵容不会错配，只清胜负状态（比分 / 小局结果 / 胜者 /
+ * completedAt / 「弃权」标签 / undo 历史）。保留 tournamentRef。
+ * 不进 deletedHistory/undo 栈——管理级动作，语义由调用方（tournament-service）保证。
+ */
+export function resetMatchesToPendingKeepFirstGame(paths: AppPaths, matchIds: string[]): MatchStoreState {
+  if (!Array.isArray(matchIds) || !matchIds.length) {
+    return getMatchStore(paths);
+  }
+
+  const { store } = readStoreFile(paths);
+  const idSet = new Set(matchIds);
+  let changed = false;
+  const now = new Date().toISOString();
+
+  store.matches = store.matches.map((match) => {
+    if (!idSet.has(match.id)) {
+      return match;
+    }
+    changed = true;
+    // 进行中保本局，已完赛保第 1 局（applyStageBestOfToMatches 同口径）
+    const keptGame = match.games.find((game) => game.status === 'in_progress')
+      ?? match.games[0]
+      ?? createEmptyGameRecord(1);
+    const resetGame: GameRecord = {
+      gameNumber: 1,
+      leftLineup: [...keptGame.leftLineup],
+      rightLineup: [...keptGame.rightLineup],
+      leftSlots: sanitizeSlotSnapshots(keptGame.leftSlots),
+      rightSlots: sanitizeSlotSnapshots(keptGame.rightSlots),
+      winner: null,
+      status: 'pending',
+    };
+    delete store.flowHistory[match.id];
+    return computeMatchProgress({
+      ...match,
+      status: 'pending' as const,
+      games: [resetGame],
+      tags: (match.tags ?? []).filter((tag) => tag !== TOURNAMENT_FORFEIT_TAG),
+      leftScore: 0,
+      rightScore: 0,
+      winner: null,
+      completedAt: null,
+      updatedAt: now,
+    });
+  });
+
+  if (!changed) {
+    return getMatchStore(paths);
+  }
+
+  const publicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, publicStore);
+  return getMatchStore(paths);
+}
+
+/**
  * 解除一批比赛与某系列赛的关联（删除 tournamentRef），比赛本身保留为普通对局。
  * 删除系列赛前调用：即使随后 deleteMatches 把比赛放进撤销栈，撤回恢复的快照
  * 也已经是无关联版本，不会留下指向不存在系列赛的孤儿引用。

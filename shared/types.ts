@@ -322,6 +322,40 @@ export interface StageStandings {
   rows: StageStandingRow[];
 }
 
+/** 回退上一波影响预览的单场处置行（服务端只读预计算，与 rollbackWave 同口径） */
+export interface RollbackWavePreviewRow {
+  matchId: string;
+  leftPlayer: string;
+  rightPlayer: string;
+  bestOf: number;
+  /** 现状描述（如「已完赛 2:0」「未打」「进行中 1:0」） */
+  stateLabel: string;
+  /** 处置方式：reset-keep-lineup=复位保第 1 局阵容 / delete-recoverable=删除可恢复 /
+   *  discard-third-place=丢弃季军赛 / needs-undo=有赛况需逐场撤销 / none=无需处理 */
+  action: 'reset-keep-lineup' | 'delete-recoverable' | 'discard-third-place' | 'needs-undo' | 'none';
+  /** 处置展示文案（预览行右侧 Tag 文本） */
+  actionLabel: string;
+}
+
+/** 回退上一波影响预览（GET /api/tournaments/:id/rollback-preview 响应；判定与执行同源，以执行一刻为准） */
+export interface RollbackWavePreview {
+  /** false = 无法整体回退（部分进行 / 无波可退），界面渲染拒绝态 */
+  executable: boolean;
+  /** 不可回退时的原因（executable=false 必有） */
+  reason?: string;
+  /** 命中的回退分支：final-done=整波打完（撤销冠军）/ pristine=整波未打（删波重开前一波）/
+   *  third-place=季军赛波 / to-setup=第一波回退整届回 setup */
+  branch?: 'final-done' | 'pristine' | 'third-place' | 'to-setup';
+  /** 波次标题（「阶段名 · 轮次」或「季军赛」，空字符串 = 无波可退） */
+  waveLabel: string;
+  /** 逐场处置清单（多对局时前端可截断展示，汇总剩余） */
+  rows: RollbackWavePreviewRow[];
+  /** 连带影响清单（撤销冠军 / 阶段回落 / 战绩重算 / 回到 setup 等） */
+  impacts: string[];
+  /** 是否存在「复位 · 保留第 1 局阵容」处置（前端用它展示安心提示） */
+  keepLineup: boolean;
+}
+
 /**
  * 晋级积分榜（page14）状态：选一个系列赛、若干可播阶段与当前阶段，标题/副标题可改。
  * 每页最多展示 PAGE14_ROWS_PER_PAGE 行，超出（如 64进32 的 64 人）由裁判端在后台翻页。

@@ -79,7 +79,6 @@ import {
   localRestoreTournamentApi,
   lockPairingsApi,
   previewOpeningWaveApi,
-  rollbackWaveApi,
   savePairingDraftApi,
   selectMatchApi,
   startTournamentApi,
@@ -90,6 +89,7 @@ import { BracketBoard } from '../components/BracketBoard';
 import { StageWaveBestOfRow } from '../components/StageWaveBestOfRow';
 import { TournamentNodeCard } from '../components/TournamentNodeCard';
 import { TournamentStageBestOfModal } from '../components/TournamentStageBestOfModal';
+import { RollbackWavePreviewModal } from '../components/RollbackWavePreviewModal';
 import type { TournamentCardMenuHandlers } from '../components/TournamentNodeCard';
 import { HistoryLineupEntryModal } from './HistoryLineupEntryModal';
 import { MatchLineupDetailModal } from './MatchLineupDetailModal';
@@ -628,7 +628,6 @@ function TournamentDetail({
   onLocalRemove,
   onSync,
 }: DetailProps): React.ReactElement {
-  const { message, modal } = App.useApp();
   // 只读副本（系列赛由另一台机器编排）：可查看与登记对局，编排/推进由服务端拒绝
   const ownerCode = getTournamentOwnerCode(record.id);
   const readOnly = !isTournamentOwnedByLocal(record.id, machineCode);
@@ -643,15 +642,8 @@ function TournamentDetail({
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
   // 「编辑赛制」弹窗：编排机专属；阶段内已有赛况时走「重开本阶段」（强确认）
   const [stageEditOpen, setStageEditOpen] = useState(false);
-
-  async function handleRollback(): Promise<void> {
-    try {
-      await rollbackWaveApi(record.id);
-      message.success('已回退上一波');
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
+  // 「回退上一波」影响预览弹窗：打开即拉服务端同口径预览，确认后才执行
+  const [rollbackOpen, setRollbackOpen] = useState(false);
 
   // 波次最新在前（裁判只需操作当前波）
   const reversedWaves = [...record.waves].reverse();
@@ -689,15 +681,12 @@ function TournamentDetail({
           <Button onClick={() => setLineupExportOpen(true)}>导出阵容模板</Button>
           <Button onClick={() => setLineupImportOpen(true)}>导入阵容</Button>
           <Button onClick={onSync}>定向同步</Button>
-          <Popconfirm
-            title="回退上一波"
-            description="将删除最后波未开始的比赛并复位战绩，确定？"
-            okText="回退"
-            cancelText="取消"
-            onConfirm={() => void handleRollback()}
+          <Button
+            disabled={record.waves.length === 0 || readOnly}
+            onClick={() => setRollbackOpen(true)}
           >
-            <Button disabled={record.waves.length === 0 || readOnly}>↺ 回退上一波</Button>
-          </Popconfirm>
+            ↺ 回退上一波
+          </Button>
           <Button danger disabled={readOnly} onClick={onDelete}>删除系列赛</Button>
           {readOnly ? (
             <Popconfirm
@@ -851,6 +840,11 @@ function TournamentDetail({
         record={record}
         matches={matches}
         onClose={() => setStageEditOpen(false)}
+      />
+      <RollbackWavePreviewModal
+        open={rollbackOpen}
+        record={record}
+        onClose={() => setRollbackOpen(false)}
       />
     </Card>
   );

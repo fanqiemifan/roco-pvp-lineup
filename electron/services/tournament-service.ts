@@ -23,6 +23,8 @@ import type {
   PairingImportResult,
   PairingRule,
   PairingValidation,
+  RollbackWavePreview,
+  RollbackWavePreviewRow,
   StageFormat,
   StageRule,
   StageStandingRow,
@@ -42,7 +44,7 @@ import {
   getMatchStore,
   normalizeBestOf,
   normalizePlayerName,
-  resetMatchesToPending,
+  resetMatchesToPendingKeepFirstGame,
   updateMatch,
 } from './match-service.js';
 import { getProfileStore } from './profile-service.js';
@@ -1930,9 +1932,10 @@ function recomputeStageEntries(record: TournamentRecord, stageIndex: number): vo
 
 /**
  * 管理级波次回退（最后波）：
- * - 整波刚打完（总决赛完赛）：波保留，比赛复位 pending、清节点胜者、撤销冠军、重算战绩；
+ * - 整波刚打完（总决赛完赛）：波保留，比赛复位 pending（保留第 1 局阵容）、清节点胜者、撤销冠军、重算战绩；
  * - 波未打（pending/draft）：删除未打比赛与波（deleteMatches 可恢复），重开上一波；
  * - 部分进行：拒绝，提示逐场撤销。跨阶段时 currentStageIndex 回落。
+ * 分支判定抽在 analyzeLastWave，与 buildRollbackWavePreview 共用（预览与执行同一口径）。
  */
 export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentRecord {
   return mutateRecord(paths, tournamentId, (record) => {
@@ -1940,30 +1943,10 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
       throw new Error('没有可回退的波次');
     }
 
-    const globalIndex = record.waves.length - 1;
-    const wave = record.waves[globalIndex];
-    const matches = getMatchStore(paths).matches;
-
-    let matchIds: string[] = [];
-    // 「干净未打」= pending 且无任何小局结果；「整波完成」= 波已完成且比赛全 completed
-    let wavePristine = true;
-    let waveFullyCompleted = wave.status === 'completed';
-
-    if (wave.pairingStatus === 'locked') {
-      matchIds = wave.nodes.map((node) => node.matchId).filter((id): id is string => Boolean(id));
-      matchIds.forEach((matchId) => {
-        const match = matches.find((item) => item.id === matchId);
-        const pristine = Boolean(match)
-          && match!.status === 'pending'
-          && match!.games.every((game) => game.status === 'pending' && game.winner === null);
-        if (!pristine) {
-          wavePristine = false;
-        }
-        if (!match || match.status !== 'completed') {
-          waveFullyCompleted = false;
-        }
-      });
-    }
+    const { globalIndex, wave, matchIds, wavePristine, waveFullyCompleted } = analyzeLastWave(
+      record,
+      getMatchStore(paths).matches,
+    );
 
     /**
      * 季军赛（附加赛）单独一档：它不在晋级链上，回退只作用于这一场本身 ——
@@ -1975,7 +1958,7 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
         wave.nodes.forEach((node) => {
           node.winnerId = null;
         });
-        resetMatchesToPending(paths, matchIds);
+        resetMatchesToPendingKeepFirstGame(paths, matchIds);
         wave.status = 'running';
         return;
       }
@@ -1991,13 +1974,13 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
 
     /**
      * 分支 A：整波刚打完（总决赛完赛、系列赛 completed）。
-     * 波本身保留：清节点胜者、比赛复位 pending、撤销冠军结果，重算该阶段 entries。
+     * 波本身保留：清节点胜者、比赛复位 pending（保留第 1 局阵容）、撤销冠军结果，重算该阶段 entries。
      */
     if (wave.pairingStatus === 'locked' && waveFullyCompleted) {
       wave.nodes.forEach((node) => {
         node.winnerId = null;
       });
-      resetMatchesToPending(paths, matchIds);
+      resetMatchesToPendingKeepFirstGame(paths, matchIds);
       wave.status = 'running';
       record.status = 'running';
       delete record.result;
@@ -2039,7 +2022,7 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
         });
         const resetIds = lastWave.nodes.map((node) => node.matchId).filter((id): id is string => Boolean(id));
         if (resetIds.length) {
-          resetMatchesToPending(paths, resetIds);
+          resetMatchesToPendingKeepFirstGame(paths, resetIds);
         }
       }
       if (lastWave) {
@@ -2065,6 +2048,232 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
       recomputeStageEntries(record, previousStage);
     }
   });
+}
+
+/** 最后波回退分支分析（rollbackWave 与 buildRollbackWavePreview 共用：预览与执行同一口径） */
+interface LastWaveAnalysis {
+  globalIndex: number;
+  wave: TournamentWave;
+  matchIds: string[];
+  /** 「干净未打」= 全部比赛 pending 且无任何小局结果 */
+  wavePristine: boolean;
+  /** 「整波完成」= 波已完成且比赛全 completed */
+  waveFullyCompleted: boolean;
+}
+
+function analyzeLastWave(record: TournamentRecord, matches: MatchRecord[]): LastWaveAnalysis {
+  const globalIndex = record.waves.length - 1;
+  const wave = record.waves[globalIndex];
+  const matchIds = wave.pairingStatus === 'locked'
+    ? wave.nodes.map((node) => node.matchId).filter((id): id is string => Boolean(id))
+    : [];
+  let wavePristine = true;
+  let waveFullyCompleted = wave.status === 'completed';
+  matchIds.forEach((matchId) => {
+    const match = matches.find((item) => item.id === matchId);
+    if (!isMatchPristine(match)) {
+      wavePristine = false;
+    }
+    if (!match || match.status !== 'completed') {
+      waveFullyCompleted = false;
+    }
+  });
+  return { globalIndex, wave, matchIds, wavePristine, waveFullyCompleted };
+}
+
+/* ==================== 回退上一波 · 影响预览 ==================== */
+
+/** 处置文案唯一真源（预览行 actionLabel，前端弹窗直接展示） */
+const ROLLBACK_ACTION_LABELS: Record<RollbackWavePreviewRow['action'], string> = {
+  'reset-keep-lineup': '复位 · 保留第 1 局阵容',
+  'delete-recoverable': '删除 · 可在「撤回最近删除」恢复',
+  'discard-third-place': '丢弃季军赛 · 阶段收口后按新落败者重建',
+  'needs-undo': '有赛况 · 请先逐场撤销',
+  none: '无需处理',
+};
+
+/** 波次展示标题：季军赛固定「季军赛」；双败给语义轮次（与晋级图/波次列表同一套术语）；单败给阶段名 */
+function previewWaveLabel(record: TournamentRecord, wave: TournamentWave): string {
+  const stage = record.stages[wave.stageIndex];
+  if (wave.kind === 'third-place') {
+    return THIRD_PLACE_LABEL;
+  }
+  if (!stage) {
+    return `第 ${wave.waveIndex} 波`;
+  }
+  if (stage.format !== 'double-life') {
+    return `${stage.name} · W${wave.waveIndex}`;
+  }
+  const round = wave.waveIndex === 1
+    ? DOUBLE_LIFE_ROUND_LABELS['0-0']
+    : wave.waveIndex === 3
+      ? DOUBLE_LIFE_ROUND_LABELS['1-1']
+      : `${DOUBLE_LIFE_ROUND_LABELS['0-1']} / ${DOUBLE_LIFE_ROUND_LABELS['1-0']}`;
+  return `${stage.name} · W${wave.waveIndex}（${round}）`;
+}
+
+/**
+ * 回退上一波影响预览（只读，不改任何状态）：分支判定走 analyzeLastWave，
+ * 与 rollbackWave 完全同源；「重开前一波 / 丢弃季军赛」的连带处置也按引擎逻辑只读镜像。
+ * 以执行一刻为准：预览与执行之间状态可能变化，引擎侧校验照旧兜底。
+ */
+export function buildRollbackWavePreview(paths: AppPaths, tournamentId: string): RollbackWavePreview {
+  const record = getTournamentStore(paths).find((item) => item.id === tournamentId);
+  if (!record) {
+    throw new Error('系列赛不存在');
+  }
+  if (!record.waves.length) {
+    return { executable: false, reason: '没有可回退的波次', waveLabel: '', rows: [], impacts: [], keepLineup: false };
+  }
+
+  const matches = getMatchStore(paths).matches;
+  const { globalIndex, wave, matchIds, wavePristine, waveFullyCompleted } = analyzeLastWave(record, matches);
+  const stage = record.stages[wave.stageIndex];
+  const waveLabel = previewWaveLabel(record, wave);
+  const rowBestOf = wave.kind === 'third-place'
+    ? resolveThirdPlaceBestOf(record)
+    : resolveWaveBestOf(stage, wave.waveIndex);
+
+  const rowOf = (matchId: string, action: RollbackWavePreviewRow['action']): RollbackWavePreviewRow => {
+    const match = matches.find((item) => item.id === matchId);
+    const stateLabel = !match
+      ? '对局不存在'
+      : match.status === 'completed'
+        ? `已完赛 ${match.leftScore}:${match.rightScore}`
+        : match.status === 'in_progress'
+          ? `进行中 ${match.leftScore}:${match.rightScore}`
+          : '未打';
+    return {
+      matchId,
+      leftPlayer: match?.leftPlayer ?? '',
+      rightPlayer: match?.rightPlayer ?? '',
+      bestOf: match?.bestOf ?? rowBestOf,
+      stateLabel,
+      action,
+      actionLabel: ROLLBACK_ACTION_LABELS[action],
+    };
+  };
+  const commonImpacts = ['本操作不进撤销栈；对局若正在推流，建议先切走画面'];
+
+  /** 只读镜像 reopenStageLastWave：该阶段被重开时的连带处置（季军赛丢弃 + 最后主赛波复位） */
+  const stageReopenRows = (stageIndex: number, impacts: string[]): void => {
+    const wavesAfter = record.waves.slice(0, globalIndex);
+    wavesAfter
+      .filter((item) => item.stageIndex === stageIndex && item.kind === 'third-place')
+      .forEach((item) => {
+        item.nodes.forEach((node) => {
+          if (node.matchId) {
+            rows.push(rowOf(node.matchId, 'discard-third-place'));
+          }
+        });
+      });
+    const stageWaves = wavesAfter.filter((item) => item.stageIndex === stageIndex && item.kind !== 'third-place');
+    const lastWave = stageWaves[stageWaves.length - 1];
+    if (lastWave?.pairingStatus === 'locked') {
+      lastWave.nodes.forEach((node) => {
+        if (node.matchId) {
+          rows.push(rowOf(node.matchId, 'reset-keep-lineup'));
+        }
+      });
+      impacts.push(`「${previewWaveLabel(record, lastWave)}」重开，可直接重新登记`);
+    }
+  };
+
+  let rows: RollbackWavePreviewRow[] = [];
+
+  // 季军赛波：只作用于这一场本身
+  if (wave.kind === 'third-place') {
+    if (wave.pairingStatus === 'locked' && waveFullyCompleted) {
+      return {
+        executable: true,
+        branch: 'third-place',
+        waveLabel,
+        rows: matchIds.map((id) => rowOf(id, 'reset-keep-lineup')),
+        impacts: ['季军赛波保留，节点胜者清空后可直接重登', ...commonImpacts],
+        keepLineup: true,
+      };
+    }
+    if (wave.pairingStatus === 'locked' && !wavePristine) {
+      return {
+        executable: false,
+        reason: '季军赛正在进行中（已有部分小局结果），不能整体回退；请先在赛事面板逐场撤销',
+        waveLabel,
+        rows: matchIds.map((id) => rowOf(id, isMatchPristine(matches.find((item) => item.id === id)) ? 'none' : 'needs-undo')),
+        impacts: [],
+        keepLineup: false,
+      };
+    }
+    return {
+      executable: true,
+      branch: 'third-place',
+      waveLabel,
+      rows: matchIds.map((id) => rowOf(id, 'delete-recoverable')),
+      impacts: ['撤掉这场季军赛；阶段已然推进，引擎不会自动重建它', ...commonImpacts],
+      keepLineup: false,
+    };
+  }
+
+  // 分支 A：整波刚打完（通常 = 总决赛完赛、冠军已产出）
+  if (wave.pairingStatus === 'locked' && waveFullyCompleted) {
+    return {
+      executable: true,
+      branch: 'final-done',
+      waveLabel,
+      rows: matchIds.map((id) => rowOf(id, 'reset-keep-lineup')),
+      impacts: [
+        record.result ? '撤销冠军 / 亚军结果，系列赛回到「进行中」' : '系列赛回到「进行中」',
+        `「${stage?.name ?? wave.stageIndex}」阶段战绩按复位结果重算`,
+        ...commonImpacts,
+      ],
+      keepLineup: true,
+    };
+  }
+
+  // 分支 B：部分进行 —— 预览态直接给拒绝结论 + 逐场撤销指引
+  if (wave.pairingStatus === 'locked' && !wavePristine) {
+    return {
+      executable: false,
+      reason: '该波比赛正在进行中（已有部分小局结果），不能整体回退；请先在赛事面板对已登记的场次逐场撤销',
+      waveLabel,
+      rows: matchIds.map((id) => rowOf(id, isMatchPristine(matches.find((item) => item.id === id)) ? 'none' : 'needs-undo')),
+      impacts: [],
+      keepLineup: false,
+    };
+  }
+
+  // 分支 C：整波未打 —— 删波 + 重开前一波 / 回 setup
+  rows = matchIds.map((id) => rowOf(id, 'delete-recoverable'));
+  const impacts: string[] = [];
+  const wavesAfter = record.waves.slice(0, globalIndex);
+  if (wavesAfter.some((item) => item.stageIndex === wave.stageIndex)) {
+    stageReopenRows(wave.stageIndex, impacts);
+    impacts.push(`阶段回落：当前阶段回到「${stage?.name ?? wave.stageIndex}」`);
+    impacts.push(`「${stage?.name ?? wave.stageIndex}」阶段战绩按复位结果重算`);
+  } else if (wave.stageIndex === 0) {
+    // 开赛第一波被整体回退：整届回 setup
+    return {
+      executable: true,
+      branch: 'to-setup',
+      waveLabel,
+      rows,
+      impacts: ['整届回到抽签配置（setup），晋级进度清空', ...commonImpacts],
+      keepLineup: false,
+    };
+  } else {
+    const previousStage = record.stages[wave.stageIndex - 1];
+    stageReopenRows(wave.stageIndex - 1, impacts);
+    impacts.push(`跨阶段回落：当前阶段回到「${previousStage?.name ?? wave.stageIndex - 1}」`);
+    impacts.push(`「${previousStage?.name ?? wave.stageIndex - 1}」阶段战绩按复位结果重算`);
+  }
+
+  return {
+    executable: true,
+    branch: 'pristine',
+    waveLabel,
+    rows,
+    impacts: [...impacts, ...commonImpacts],
+    keepLineup: rows.some((row) => row.action === 'reset-keep-lineup'),
+  };
 }
 
 /* ==================== 编辑赛制（阶段规则） ==================== */

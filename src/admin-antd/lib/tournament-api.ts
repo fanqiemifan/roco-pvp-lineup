@@ -1,6 +1,7 @@
 import type {
   LineupImportApplyResult,
   LineupImportPreviewRow,
+  RollbackWavePreview,
   StageFormat,
   StageRule,
   SyncBundle,
@@ -102,6 +103,14 @@ export async function rollbackWaveApi(tournamentId: string): Promise<TournamentR
     { method: 'POST' },
   );
   return data.tournament;
+}
+
+/** 回退上一波影响预览（只读）：逐场处置 + 连带影响，判定与执行同源，以执行一刻为准 */
+export async function previewRollbackWaveApi(tournamentId: string): Promise<RollbackWavePreview> {
+  const data = await requestJson<{ preview: RollbackWavePreview }>(
+    `/api/tournaments/${tournamentId}/rollback-preview`,
+  );
+  return data.preview;
 }
 
 /**

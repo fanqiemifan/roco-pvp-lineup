@@ -134,6 +134,7 @@ import {
 import {
   advanceTournament,
   assertTournamentMatchFieldsEditable,
+  buildRollbackWavePreview,
   createTournament,
   deleteTournament,
   getLocallyRemovedTournaments,
@@ -1876,6 +1877,17 @@ export async function createLocalServer(
       );
       emitTournamentUpdate();
       response.json({ success: true, ...result });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 回退上一波影响预览（只读，不改状态）：逐场处置 + 连带影响，判定与 rollbackWave 同源；
+  // 执行仍走下方 POST /rollback-wave（编排机专属闸门在 mutateRecord 内）
+  app.get('/api/tournaments/:tournamentId/rollback-preview', (request, response) => {
+    try {
+      const preview = buildRollbackWavePreview(paths, request.params.tournamentId);
+      response.json({ success: true, preview });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

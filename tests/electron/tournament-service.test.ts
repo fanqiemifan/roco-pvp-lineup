@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   advanceTournament,
+  buildRollbackWavePreview,
   createTournament,
   deleteTournament,
   getLocallyRemovedTournaments,
@@ -790,6 +791,20 @@ describe('rollbackWave（波次回退）', () => {
     expect(rolled.waves[0].nodes.every((node) => !node.winnerId)).toBe(true);
     expect(rolled.entries.every((entry) => entry.state === 'alive' && entry.stageWins === 0 && entry.stageLosses === 0)).toBe(true);
     expect(getMatchStore(paths).matches).toHaveLength(4);
+    // 重开的 W1 对局：复位 pending 且保留第 1 局阵容（playMatchToEnd 每局都录过阵容）
+    const w1Matches = getMatchStore(paths).matches.filter(
+      (match) => match.tournamentRef?.tournamentId === tournament.id,
+    );
+    expect(w1Matches).toHaveLength(4);
+    w1Matches.forEach((match) => {
+      expect(match.status).toBe('pending');
+      expect(match.leftScore).toBe(0);
+      expect(match.winner).toBeNull();
+      expect(match.games).toHaveLength(1);
+      expect(match.games[0].winner).toBeNull();
+      expect(match.games[0].leftLineup[0]).toBe('3001');
+      expect(match.games[0].rightLineup[0]).toBe('3002');
+    });
   });
 
   it('draft 波直接删除，回到上一波进行中状态', () => {
@@ -840,11 +855,15 @@ describe('rollbackWave（波次回退）', () => {
     expect(rolled.entries).toHaveLength(2);
     expect(rolled.entries.every((entry) =>
       entry.state === 'alive' && entry.stageWins === 0 && entry.stageLosses === 0)).toBe(true);
-    // 决赛比赛已复位 pending
+    // 决赛比赛已复位 pending（保留第 1 局阵容）
     const finalMatchIds = new Set(lastWave.nodes.map((node) => node.matchId));
     const finalMatches = getMatchStore(paths).matches.filter((match) => finalMatchIds.has(match.id));
     expect(finalMatches).toHaveLength(1);
     expect(finalMatches[0].status).toBe('pending');
+    expect(finalMatches[0].games).toHaveLength(1);
+    expect(finalMatches[0].games[0].winner).toBeNull();
+    expect(finalMatches[0].games[0].leftLineup[0]).toBe('3001');
+    expect(finalMatches[0].games[0].rightLineup[0]).toBe('3002');
 
     // 第二次回退：pending 决赛波按原语义删除 → 跨阶段重开 4进2
     rolled = rollbackWave(paths, rolled.id);
@@ -884,6 +903,98 @@ describe('rollbackWave（波次回退）', () => {
   it('无波可回退时报错', () => {
     const tournament = createSeries(4);
     expect(() => rollbackWave(paths, tournament.id)).toThrow(/波次/);
+  });
+});
+
+describe('buildRollbackWavePreview（回退影响预览，只读）', () => {
+  it('无波可回退：executable=false', () => {
+    const tournament = createSeries(4);
+    const preview = buildRollbackWavePreview(paths, tournament.id);
+    expect(preview.executable).toBe(false);
+    expect(preview.reason).toMatch(/波次/);
+  });
+
+  it('分支 A（总决赛完赛）：single 场复位保阵容 + 撤销冠军影响', () => {
+    const tournament = createSeries(4, { thirdPlaceBestOf: 0 });
+    const finalRecord = runWholeSeries(tournament.id);
+    expect(finalRecord.status).toBe('completed');
+
+    const preview = buildRollbackWavePreview(paths, tournament.id);
+    expect(preview.executable).toBe(true);
+    expect(preview.branch).toBe('final-done');
+    expect(preview.waveLabel).toContain('总决赛');
+    expect(preview.rows).toHaveLength(1);
+    expect(preview.rows[0].action).toBe('reset-keep-lineup');
+    expect(preview.rows[0].actionLabel).toContain('保留第 1 局阵容');
+    expect(preview.rows[0].stateLabel).toMatch(/已完赛/);
+    expect(preview.keepLineup).toBe(true);
+    expect(preview.impacts.join('；')).toMatch(/冠军/);
+
+    // 预览只读：不动波次与比赛
+    expect(getTournamentStore(paths).find((item) => item.id === tournament.id)?.waves).toHaveLength(
+      finalRecord.waves.length,
+    );
+    expect(
+      getMatchStore(paths).matches.filter((match) => match.tournamentRef?.tournamentId === tournament.id),
+    ).toHaveLength(finalRecord.waves.reduce((sum, wave) => sum + wave.nodes.filter((node) => node.matchId).length, 0));
+  });
+
+  it('分支 B（部分进行）：拒绝态 + 指出需逐场撤销的场次', () => {
+    const tournament = createSeries(8);
+    const started = startTournament(paths, tournament.id);
+    playMatchToEnd(started.waves[0].nodes[0].matchId ?? '', 'left');
+
+    const preview = buildRollbackWavePreview(paths, tournament.id);
+    expect(preview.executable).toBe(false);
+    expect(preview.reason).toMatch(/进行中|逐场/);
+    expect(preview.rows.some((row) => row.action === 'needs-undo')).toBe(true);
+    expect(preview.rows.some((row) => row.action === 'none')).toBe(true);
+  });
+
+  it('分支 C（整波未打）：删除未打波 + 重开前一波（复位保阵容）', () => {
+    const tournament = createSeries(8);
+    let record = startTournament(paths, tournament.id);
+    record.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId ?? '', 'left'));
+    record = getTournamentStore(paths)[0];
+    expect(record.waves).toHaveLength(2);
+
+    const preview = buildRollbackWavePreview(paths, tournament.id);
+    expect(preview.executable).toBe(true);
+    expect(preview.branch).toBe('pristine');
+    // W2 未打 4 场删除 + W1 已打 4 场复位保阵容
+    expect(preview.rows.filter((row) => row.action === 'delete-recoverable')).toHaveLength(4);
+    expect(preview.rows.filter((row) => row.action === 'reset-keep-lineup')).toHaveLength(4);
+    expect(preview.keepLineup).toBe(true);
+    expect(preview.impacts.join('；')).toMatch(/阶段回落|战绩/);
+  });
+
+  it('分支 C（跨阶段）：未打首波连带列出上一阶段重开与季军赛丢弃', () => {
+    const tournament = createSeries(4);
+    let record = startTournament(paths, tournament.id);
+    // 打完双败 stage0 全部对局 → 阶段推进 + 季军赛建场 + 总决赛首波未打
+    while (record.currentStageIndex === 0) {
+      const pending = getMatchStore(paths).matches.filter(
+        (match) => match.status === 'pending' && match.tournamentRef?.tournamentId === tournament.id,
+      );
+      pending.forEach((match) => playMatchToEnd(match.id, 'left'));
+      record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    }
+    expect(record.waves.some((wave) => wave.kind === 'third-place')).toBe(true);
+
+    const preview = buildRollbackWavePreview(paths, tournament.id);
+    expect(preview.executable).toBe(true);
+    expect(preview.rows.some((row) => row.action === 'discard-third-place')).toBe(true);
+    expect(preview.rows.some((row) => row.action === 'reset-keep-lineup')).toBe(true);
+    expect(preview.impacts.join('；')).toMatch(/跨阶段回落/);
+  });
+
+  it('第一波未打回退：整届回 setup', () => {
+    const tournament = createSeries(4);
+    startTournament(paths, tournament.id);
+    const preview = buildRollbackWavePreview(paths, tournament.id);
+    expect(preview.executable).toBe(true);
+    expect(preview.branch).toBe('to-setup');
+    expect(preview.impacts.join('；')).toMatch(/setup/);
   });
 });
 

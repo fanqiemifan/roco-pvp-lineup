@@ -32,6 +32,7 @@
 | Page7State | 战绩详情页配置（matchIds 任意状态现存比赛、顺序即行序（上限 20 场 PAGE7_MAX_MATCHES，超出静默截断）, title 主标题留空用默认「战绩详情」, notice 温馨提示留空用默认, mtime） | shared/types.ts |
 | Page8State | 比赛预告页配置（matchIds 最多 9 个待开始/进行中比赛且顺序即卡片场序, title 大标题（空=兜底「比赛预告」）, startTime, matchTimes 按比赛 id 的固定时间（推送时固化、可手改），mtime）。背景固定蓝色渐变无背景类型字段 | shared/types.ts |
 | 场序时间排期 | normalizeHHmm / addMinutesToHHmm / computeScheduleTimes / formatScheduleLabel / CHINESE_ORDINALS / matchSlotMinutes(MATCH_SLOT_MINUTES_BO1=30、MATCH_SLOT_MINUTES_PER_BO=20)：第一场=startTime，之后每场按「该场占用」累加——BO1=30 分钟、BO3 及以上=BO 数×20 分钟（BO3=60、BO5=100、BO7=140），手动覆盖只替换该场不影响后续；electron 下发与后台选场弹窗共用 | shared/match-schedule.ts |
+| RollbackWavePreview / RollbackWavePreviewRow | 回退上一波影响预览（executable 拒绝态 / branch 四分支 / waveLabel 阶段·语义轮次 / rows 逐场处置 action+actionLabel / impacts 连带影响 / keepLineup 安心提示）；GET /api/tournaments/:id/rollback-preview 下发 | shared/types.ts |
 | Page9TeamEntry | 团队积分榜单支战队录入项（name 战队名称, r1/r2/r3 三轮积分仅数字字符串, 空字符串 = 未输入显示「-」） | shared/types.ts |
 | Page9State | 团队积分榜配置（title 主标题留空用默认「团队积分榜」, teams 最多 4 支战队, 排名与总积分由页面自动计算不落盘, mtime） | shared/types.ts |
 | StageStandingRow | 晋级积分榜单行选手战绩：playerId / name（档案名，缺失回退 id）/ rank（同分按种子顺序依次编号）/ wins / losses / score（10×胜 − 负，只用于排序）/ state（alive 存活 / promoted 已晋级 / eliminated 已淘汰，淘汰行页面压暗） | shared/types.ts |
