@@ -4,8 +4,18 @@ import {
   addMinutesToHHmm,
   computeScheduleTimes,
   formatScheduleLabel,
+  matchSlotMinutes,
   normalizeHHmm,
 } from '../../shared/match-schedule';
+
+describe('matchSlotMinutes', () => {
+  it('BO1 每场 30 分钟；BO3 及以上按每小局 20 分钟（BO3=60、BO5=100、BO7=140）', () => {
+    expect(matchSlotMinutes(1)).toBe(30);
+    expect(matchSlotMinutes(3)).toBe(60);
+    expect(matchSlotMinutes(5)).toBe(100);
+    expect(matchSlotMinutes(7)).toBe(140);
+  });
+});
 
 describe('normalizeHHmm', () => {
   it('接受合法时间并补齐两位小时', () => {
@@ -45,11 +55,11 @@ describe('computeScheduleTimes', () => {
     { id: 'm3', bestOf: 5 },
   ];
 
-  it('按 BO 数 × 30 分钟累加（BO1=30、BO3=90、BO5=150）', () => {
+  it('按新规则累加（BO1=+30、BO3=+60、BO5=+100）', () => {
     expect(computeScheduleTimes(items, '19:00', {})).toEqual({
       m1: '19:00',
       m2: '19:30',
-      m3: '21:00',
+      m3: '20:30',
     });
   });
 
@@ -66,7 +76,7 @@ describe('computeScheduleTimes', () => {
     expect(computeScheduleTimes(items, '19:00', { m2: '20:00' })).toEqual({
       m1: '19:00',
       m2: '20:00',
-      m3: '21:00',
+      m3: '20:30',
     });
   });
 
@@ -74,7 +84,7 @@ describe('computeScheduleTimes', () => {
     expect(computeScheduleTimes(items, '19:00', { m2: 'bad' })).toEqual({
       m1: '19:00',
       m2: '19:30',
-      m3: '21:00',
+      m3: '20:30',
     });
   });
 });

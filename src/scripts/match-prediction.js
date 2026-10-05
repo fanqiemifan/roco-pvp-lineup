@@ -5,7 +5,7 @@
  * （均 mp-info-tag 样式）；两页都不显示「第N场」（卡片内已有场序数字）。
  * - page6（比赛结果）：系列赛对局只显示语义标签；普通对局显示时间
  * - page8（比赛预告）：系列赛对局显示语义标签 + 时间（showTimeWithLabel=true）；普通对局显示时间
- * 时间由后端在 scheduleTimes 中下发（开始时间 + BO×30 分钟累加，手动覆盖由后台维护）。
+ * 时间由后端在 scheduleTimes 中下发（开始时间 + 每场占用累加：BO1=30 分钟、BO3 及以上=BO×20 分钟，手动覆盖由后台维护）。
  * 用法：MatchPredictionPage.mount({ apiUrl, role, updateEvent, defaultTitle, useTournamentLabel, showTimeWithLabel })
  */
 (function () {

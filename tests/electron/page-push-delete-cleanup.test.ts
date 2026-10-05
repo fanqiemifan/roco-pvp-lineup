@@ -179,7 +179,7 @@ describe('推流选场（page6/7/8）删除比赛后的状态同步', () => {
   });
 
   it('场序时间固化：page8 掉场后剩余比赛的固定时间不重排', async () => {
-    // 模拟后台「确认推送」：把 19:00 起按 BO×30 分钟累加的结果整份写入 matchTimes（固化）
+    // 模拟后台「确认推送」：把 19:00 起按每场占用累加的结果整份写入 matchTimes（固化）
     const first = await createMatch('固化甲', '固化乙');
     const second = await createMatch('固化丙', '固化丁');
     const third = await createMatch('固化戊', '固化己');

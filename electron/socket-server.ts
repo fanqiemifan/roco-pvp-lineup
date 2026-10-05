@@ -815,7 +815,7 @@ export async function createLocalServer(
     for (const match of matches) {
       avatars[match.id] = avatarResolver.forMatch(match);
     }
-    // 卡片场序时间：开始时间 + 按 BO×30 分钟累加（手动覆盖由 service 归一化在 state.matchTimes）
+    // 卡片场序时间：开始时间 + 每场占用累加（BO1=30 分钟、BO3 及以上=BO×20 分钟）（手动覆盖由 service 归一化在 state.matchTimes）
     const scheduleTimes = computeScheduleTimes(
       matches.map((match) => ({ id: match.id, bestOf: match.bestOf })),
       state.startTime,
@@ -885,7 +885,7 @@ export async function createLocalServer(
     for (const match of matches) {
       avatars[match.id] = avatarResolver.forMatch(match);
     }
-    // 卡片场序时间：开始时间 + 按 BO×30 分钟累加（手动覆盖由 service 归一化在 state.matchTimes）
+    // 卡片场序时间：开始时间 + 每场占用累加（BO1=30 分钟、BO3 及以上=BO×20 分钟）（手动覆盖由 service 归一化在 state.matchTimes）
     const scheduleTimes = computeScheduleTimes(
       matches.map((match) => ({ id: match.id, bestOf: match.bestOf })),
       state.startTime,

@@ -1,13 +1,22 @@
 /**
  * 比赛预告 / 比赛结果卡片的场序时间排期纯函数（electron 下发与后台选场弹窗共用）。
  *
- * 规则：第一场 = 用户填写的开始时间；之后每场累加「该场之前各场 BO 数 × 30 分钟」
- * （BO1 +30 分钟、BO3 +90 分钟、BO5 +150 分钟……）。每场可手动输入时间覆盖，
- * 手动值只替换该场的显示结果，不影响后续场次的自动累加链。
+ * 规则：第一场 = 用户填写的开始时间；之后每场累加「该场的占用时长」——
+ * BO1 每场 +30 分钟（含开场缓冲），BO3 及以上按每小局 20 分钟（BO3 +60、BO5 +100、BO7 +140）。
+ * 每场可手动输入时间覆盖，手动值只替换该场的显示结果，不影响后续场次的自动累加链。
  */
 
-/** 每一小场（BO 的 1）占用的时长（分钟） */
-export const MATCH_SLOT_MINUTES_PER_BO = 30;
+/** BO1 每场占用时长（分钟，含开场缓冲） */
+export const MATCH_SLOT_MINUTES_BO1 = 30;
+
+/** BO3 及以上每一小局占用时长（分钟）：BO3=+60、BO5=+100、BO7=+140 */
+export const MATCH_SLOT_MINUTES_PER_BO = 20;
+
+/** 每一场的自动累加时长（分钟）：BO1 = 30；BO3 及以上 = BO 数 × 20 */
+export function matchSlotMinutes(bestOf: number): number {
+  const bo = Math.max(0, Number(bestOf) || 0);
+  return bo <= 1 ? MATCH_SLOT_MINUTES_BO1 : bo * MATCH_SLOT_MINUTES_PER_BO;
+}
 
 /** 卡片场序中文序数（上限 9 场） */
 export const CHINESE_ORDINALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九'] as const;
@@ -62,7 +71,7 @@ export function computeScheduleTimes(
       result[item.id] = resolved;
     }
     // 累加链始终基于自动值：手动覆盖不影响后续场次
-    elapsedMinutes += Math.max(0, Number(item.bestOf) || 0) * MATCH_SLOT_MINUTES_PER_BO;
+    elapsedMinutes += matchSlotMinutes(item.bestOf);
   });
   return result;
 }

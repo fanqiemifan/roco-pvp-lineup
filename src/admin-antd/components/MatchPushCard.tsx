@@ -113,6 +113,15 @@ function hhmmToDayjs(value: string): Dayjs | null {
   return dayjs().hour(hour).minute(minute).second(0).millisecond(0);
 }
 
+/** 比赛预告（page8）第一场开始时间默认值：当前时间向上取整到半点（18:52→19:00、19:02→19:30，整点/半点保持不变） */
+function roundedNowHHmm(): string {
+  const now = new Date();
+  const total = now.getHours() * 60 + now.getMinutes();
+  const rounded = total % 30 === 0 ? total : (Math.floor(total / 30) + 1) * 30;
+  const wrapped = rounded % 1440;
+  return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
+}
+
 /**
  * 比赛管理上方的推流功能卡片：展示已选摘要，点击后弹出比赛管理详情选场弹窗。
  * 弹窗内候选按「系列赛阶段/轮次 + 普通对局」分组（组头可整组勾选），
@@ -138,10 +147,12 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
     setDraftIds(maxCount === undefined ? state.matchIds : state.matchIds.slice(0, maxCount));
     setTitleDraft('title' in state ? state.title : '');
     setNoticeDraft('notice' in state ? state.notice : '');
-    setStartTimeDraft('startTime' in state ? state.startTime : '');
+    const nextStart = 'startTime' in state ? state.startTime : '';
+    // 比赛预告（page8）尚未配置开始时间时，默认填当前时间向上取整到半点（19:00 / 19:30）
+    setStartTimeDraft(kind === 'page8' && !nextStart ? roundedNowHHmm() : nextStart);
     setMatchTimesDraft('matchTimes' in state ? { ...state.matchTimes } : {});
     setSearch('');
-  }, [open, state, maxCount]);
+  }, [open, state, maxCount, kind]);
 
   // 解析池用全量 allMatches（不是候选池）：已推送的「本机移除」对局不在候选表里，
   // 但必须能解析出名称/BO 参与已选排序与手动时间——否则 draftIds 与渲染列表索引错位
@@ -177,7 +188,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
    */
   const estimatedScreens = Math.max(1, Math.ceil(countPushRows(selectedMatches) / PAGE7_ROWS_PER_SCREEN));
 
-  // 自动场序时间：开始时间 + 前场各场 BO×30 分钟累加；手动值只替换该场显示
+  // 自动场序时间：开始时间 + 前场各场占用（BO1=30 分钟、BO3 及以上=BO×20 分钟）累加；手动值只替换该场显示
   const autoTimes = useMemo(
     () => computeScheduleTimes(
       selectedMatches.map((match) => ({ id: match.id, bestOf: match.bestOf })),
@@ -493,7 +504,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
             {withSchedule ? (
               <div>
                 <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                  第一场开始时间（每场按 BO×30 分钟自动累加，确认推送时固化为每场固定时间）：
+                  第一场开始时间（BO1 每场 +30 分钟、BO3 及以上每小局 +20 分钟自动累加，确认推送时固化为每场固定时间）：
                 </Text>
                 <Space size={8}>
                   <TimePicker
