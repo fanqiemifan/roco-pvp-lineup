@@ -26,6 +26,7 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   buildDefaultStages,
   formatStageBestOf,
+  isFinalStage,
   resolveThirdPlaceBestOf,
   resolveWaveBestOf,
   SUPPORTED_TOURNAMENT_SIZES,
@@ -1503,14 +1504,6 @@ function expectedPairCount(
   specs: ReturnType<typeof getDraftBucketSpecs>,
 ): number {
   return specs.reduce((sum, spec) => sum + spec.playerIds.length, 0) / 2;
-}
-
-/**
- * 是否总决赛阶段：引擎每阶段晋级半额，人数逐阶段减半，只剩 2 人的那个阶段即总决赛。
- * 与后端 createTournament 的校验同一判据（该阶段必须单败）。
- */
-function isFinalStage(playerCount: number, stageIndex: number): boolean {
-  return playerCount / 2 ** stageIndex === 2;
 }
 
 /** 桶 key → 中文池名 */

@@ -4,6 +4,7 @@ import {
   buildDefaultStages,
   DOUBLE_LIFE_ROUND_LABELS,
   formatStageBestOf,
+  isFinalStage,
   MATCH_ID_REGEX,
   PAGE14_ROWS_PER_PAGE,
   resolveThirdPlaceBestOf,
@@ -133,6 +134,9 @@ function normalizeWaveBestOf(value: unknown): StageRule['waveBestOf'] {
   });
   return out[2] !== undefined || out[3] !== undefined ? out : undefined;
 }
+
+/** 配对方式白名单（兼容性由形态决定：双败=随机/手动，单败=沿树/每轮随机） */
+const SUPPORTED_PAIRING_RULES: PairingRule[] = ['random-bucket', 'manual-bucket', 'bracket-seed', 'random-round'];
 
 function normalizeStageRule(value: unknown, index: number): StageRule | null {
   if (!value || typeof value !== 'object') {
@@ -553,10 +557,8 @@ export function createTournament(paths: AppPaths, payload: unknown): TournamentR
   // 「总决赛」= 只剩 2 人的那个阶段（每阶段晋级半额，人数逐阶段减半）必须单败。
   // 2 人双败跑不出来：打完 W1 后两人分别停在 1-0 / 0-1，谁都到不了 2 胜或 2 负，
   // 接着生成的 W2 在两个「单人桶」里配不出任何一场，锁定校验会直接报「选手漏配」把系列赛卡死。
-  // 判据用阶段人数而不是「最后一个阶段」：自定义阶段列表的末阶段不一定是 2 人
-  // （例如只配一个 8 人双败阶段时末阶段是 8 人，那是能正常跑完的配置）。
   stages.forEach((stage, index) => {
-    if (playerIds.length / 2 ** index === 2 && stage.format !== 'single-elim') {
+    if (isFinalStage(playerIds.length, index) && stage.format !== 'single-elim') {
       throw new Error('总决赛阶段必须为单败');
     }
   });
@@ -2091,6 +2093,9 @@ function isMatchPristine(match: MatchRecord | undefined): boolean {
  *   换新赛制，配对依赖旧结果的后续波作废重建；必须显式 confirmReopen 才执行；
  * - W1 跟随 stage.bestOf；双败 W2/W3 可单独覆盖（覆盖值 = 基础值时自动归一为跟随基础）；
  *   改某一波只影响这一波及之后，**不动更早的波**；
+ * - 阶段规则（晋级赛制 / 配对方式 / 避重复 / 需确认）：只放开未开始阶段（setup 全部 + currentStageIndex 之后），
+ *   直接生效（该阶段尚无波次与对局，无需重开）；形态切换时配对按兼容归一（双败 = 随机/手动，
+ *   单败 = 沿树/每轮随机），改为单败清除 waveBestOf；总决赛（只剩 2 人）禁止双败；
  * - 季军赛赛制独立编辑（不随总决赛联动）：已建未开打时一并更新，已有赛况时拒绝；
  * - 已结束阶段 / 系列赛已完成 / 后续波已有赛果或为人工对阵 → 拒绝，引导先「回退上一波」；
  * - 管理级动作：不进撤销栈（与回退同口径），"清了多少场"由返回报告给界面展示。
@@ -2113,6 +2118,10 @@ export function updateTournamentStages(
   interface StageChangeRequest {
     bestOf?: StageRule['bestOf'];
     waveBestOf?: WaveBestOfChange;
+    format?: StageFormat;
+    pairing?: PairingRule;
+    avoidRematch?: boolean;
+    requireConfirm?: boolean;
   }
 
   const stageChanges = new Map<number, StageChangeRequest>();
@@ -2132,7 +2141,11 @@ export function updateTournamentStages(
       if (stageChanges.has(index)) {
         throw new Error('阶段序号不能重复');
       }
-      if (entry.bestOf === undefined && entry.waveBestOf === undefined) {
+      if (
+        entry.bestOf === undefined && entry.waveBestOf === undefined
+        && entry.format === undefined && entry.pairing === undefined
+        && entry.avoidRematch === undefined && entry.requireConfirm === undefined
+      ) {
         throw new Error('阶段规则条目不合法');
       }
       const change: StageChangeRequest = {};
@@ -2167,6 +2180,30 @@ export function updateTournamentStages(
           set[waveIndex] = parsed as StageRule['bestOf'];
         });
         change.waveBestOf = { set, clear };
+      }
+      if (entry.format !== undefined) {
+        if (entry.format !== 'double-life' && entry.format !== 'single-elim') {
+          throw new Error('晋级赛制不合法（仅支持 双败 / 单败）');
+        }
+        change.format = entry.format;
+      }
+      if (entry.pairing !== undefined) {
+        if (!SUPPORTED_PAIRING_RULES.includes(entry.pairing as PairingRule)) {
+          throw new Error('配对方式不合法');
+        }
+        change.pairing = entry.pairing as PairingRule;
+      }
+      if (entry.avoidRematch !== undefined) {
+        if (typeof entry.avoidRematch !== 'boolean') {
+          throw new Error('避重复开关不合法');
+        }
+        change.avoidRematch = entry.avoidRematch;
+      }
+      if (entry.requireConfirm !== undefined) {
+        if (typeof entry.requireConfirm !== 'boolean') {
+          throw new Error('需确认开关不合法');
+        }
+        change.requireConfirm = entry.requireConfirm;
       }
       stageChanges.set(index, change);
     });
@@ -2221,10 +2258,34 @@ export function updateTournamentStages(
       if (!stage) {
         throw new Error('阶段不存在');
       }
+      const hasRuleChange = change.format !== undefined || change.pairing !== undefined
+        || change.avoidRematch !== undefined || change.requireConfirm !== undefined;
+      // 形态类字段只放开「未开始阶段」（setup 时所有阶段都未开始）：进行中 / 已结束阶段的波已按原形态生成，
+      // 改形态意味着重算整段晋级链，超出编辑赛制的能力面（引导先在该阶段开始前调整）。
+      if (hasRuleChange && record.status !== 'setup' && stageIndex <= record.currentStageIndex) {
+        throw new Error(
+          `「${stage.name}」已开始（或已结束），晋级赛制 / 配对方式等阶段规则只能在该阶段开始前修改`,
+        );
+      }
       if (record.status !== 'setup' && stageIndex < record.currentStageIndex) {
         throw new Error(`「${stage.name}」阶段已结束，不能修改赛制；请先用「回退上一波」退回后再改`);
       }
-      if (change.waveBestOf && stage.format !== 'double-life') {
+
+      // 新形态 / 新配对：形态切换与手改请求都按「兼容归一」处理——不兼容的配对归到该形态默认
+      //（双败 = 随机配对，单败 = 沿对阵树），与创建向导 / normalizeStageRule 同一口径。
+      const nextFormat: StageFormat = change.format ?? stage.format;
+      let nextPairing: PairingRule = change.pairing ?? stage.pairing;
+      const pairingCompatible = nextFormat === 'double-life'
+        ? nextPairing === 'random-bucket' || nextPairing === 'manual-bucket'
+        : nextPairing === 'bracket-seed' || nextPairing === 'random-round';
+      if (!pairingCompatible) {
+        nextPairing = nextFormat === 'double-life' ? 'random-bucket' : 'bracket-seed';
+      }
+      // 总决赛（只剩 2 人）禁止改为双败：双败既产出不了冠军、也配不出下一波（与创建校验同一判据）
+      if (change.format === 'double-life' && isFinalStage(record.playerIds.length, stageIndex)) {
+        throw new Error('总决赛阶段必须为单败');
+      }
+      if (change.waveBestOf && nextFormat !== 'double-life') {
         throw new Error('单败阶段没有按波次赛制（只有双败的 W2/W3 可单独配置）');
       }
 
@@ -2247,10 +2308,20 @@ export function updateTournamentStages(
           delete nextOverrides[waveIndex];
         }
       });
+      // 改为单败：按波次覆盖失去意义，一并清除（与 normalizeStageRule 对单败丢弃 waveBestOf 同口径）
+      if (nextFormat === 'single-elim') {
+        ([2, 3] as const).forEach((waveIndex) => {
+          delete nextOverrides[waveIndex];
+        });
+      }
       const nextRule: StageRule = {
         ...stage,
         bestOf: nextBestOf,
         waveBestOf: Object.keys(nextOverrides).length ? nextOverrides : undefined,
+        format: nextFormat,
+        pairing: nextPairing,
+        avoidRematch: change.avoidRematch ?? stage.avoidRematch,
+        requireConfirm: change.requireConfirm ?? stage.requireConfirm,
       };
 
       // 逐波比较「生效赛制」，只处理真正变化的波（W1 跟随基础；双败最多 3 波）
@@ -2277,8 +2348,13 @@ export function updateTournamentStages(
           matchIds,
         });
       }
-      if (!ops.length) {
-        return; // 该阶段无有效变化（覆盖值归一后与现状等价）
+      // 规则字段变化与波次赛制变化各自独立：纯规则改动（未开始阶段）没有波次可比较，也要走进执行计划
+      const ruleFieldsChanged = nextRule.format !== stage.format
+        || nextRule.pairing !== stage.pairing
+        || nextRule.avoidRematch !== stage.avoidRematch
+        || nextRule.requireConfirm !== stage.requireConfirm;
+      if (!ops.length && !ruleFieldsChanged) {
+        return; // 该阶段无有效变化（赛制归一后与现状等价，且阶段规则没改）
       }
       changed = true;
 
@@ -2360,6 +2436,12 @@ export function updateTournamentStages(
       } else {
         delete stage.waveBestOf;
       }
+      // 阶段规则（形态 / 配对 / 开关）：只在未开始阶段可改（守卫已过），直接生效；
+      // 该阶段尚无波次与对局，不需要也不产生任何「重开 / 作废」。
+      stage.format = plan.nextRule.format;
+      stage.pairing = plan.nextRule.pairing;
+      stage.avoidRematch = plan.nextRule.avoidRematch;
+      stage.requireConfirm = plan.nextRule.requireConfirm;
 
       if (plan.discardWaves.length) {
         // 作废后续波：配对由旧结果生成，重打后按新结果重建（软删，可在比赛管理「撤回最近删除」恢复）

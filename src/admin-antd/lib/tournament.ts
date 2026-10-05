@@ -104,12 +104,41 @@ export function getStageState(
 
 /* ---------- 编辑赛制：界面侧影响评估（仅为预览提示，判定以服务端为准） ---------- */
 
+/** 形态中文名（编辑赛制预览文案用） */
+const STAGE_FORMAT_LABELS: Record<StageFormat, string> = {
+  'double-life': '双败',
+  'single-elim': '单败',
+};
+
+/**
+ * 形态切换时的配对复位口径（与创建向导、服务端兼容归一同一份规则）：
+ * 双败 → 随机配对，单败 → 沿对阵树。
+ */
+export function defaultPairingForFormat(format: StageFormat): StageRule['pairing'] {
+  return format === 'double-life' ? 'random-bucket' : 'bracket-seed';
+}
+
 export interface StageBestOfChange {
   index: number;
   /** 基础赛制（W1 与未覆盖波次）变化；undefined = 未改 */
   bestOf?: number;
   /** 按波次覆盖变化（值 = 选择的新赛制；等于新基础时由服务端归一为跟随）；undefined = 未改 */
   waveBestOf?: Partial<Record<2 | 3, number>>;
+  /** 形态类字段（仅未开始阶段可改，直接生效）；undefined = 未改 */
+  format?: StageFormat;
+  pairing?: StageRule['pairing'];
+  avoidRematch?: boolean;
+  requireConfirm?: boolean;
+}
+
+/** 规则变更单行：不触发重开、直接生效（服务端只放未开始阶段，界面侧仅作预览与防御提示） */
+export interface StageRuleReviewRow {
+  stageIndex: number;
+  stageName: string;
+  /** 变更描述，如「晋级赛制 单败 → 双败；配对方式 沿对阵树 → 随机配对」 */
+  description: string;
+  /** 预期管理提示（如 4 人阶段改双败的场次变化说明）；无则为 undefined */
+  hint?: string;
 }
 
 export interface StageBestOfReviewRow {
@@ -128,6 +157,8 @@ export interface StageBestOfReviewRow {
 
 export interface StageBestOfReview {
   rows: StageBestOfReviewRow[];
+  /** 未开始阶段的规则变更（直接生效，无需重开确认；服务端成功后会即时刷新记录） */
+  ruleRows: StageRuleReviewRow[];
   /** 将被作废重建的已建后续波（label 形如「16进8 · W3」） */
   discardWaveLabels: string[];
   thirdPlaceChanged: boolean;
@@ -159,6 +190,7 @@ export function buildStageBestOfReview(
 ): StageBestOfReview {
   const matchById = new Map(matches.map((match) => [match.id, match]));
   const rows: StageBestOfReviewRow[] = [];
+  const ruleRows: StageRuleReviewRow[] = [];
   const discardWaveLabels: string[] = [];
   const blockers: string[] = [];
   const blockedStages = new Set<number>();
@@ -167,6 +199,38 @@ export function buildStageBestOfReview(
     const stage = record.stages[change.index];
     if (!stage) {
       return;
+    }
+    // 规则变更（仅未开始阶段可改）：直接生效，不进重开逻辑；非未开始阶段给阻断提示（服务端仍会复核）
+    const ruleParts: string[] = [];
+    if (change.format !== undefined && change.format !== stage.format) {
+      ruleParts.push(`晋级赛制 ${STAGE_FORMAT_LABELS[stage.format]} → ${STAGE_FORMAT_LABELS[change.format]}`);
+    }
+    if (change.pairing !== undefined && change.pairing !== stage.pairing) {
+      ruleParts.push(`配对方式 ${getPairingLabel(stage.pairing)} → ${getPairingLabel(change.pairing)}`);
+    }
+    if (change.avoidRematch !== undefined && change.avoidRematch !== stage.avoidRematch) {
+      ruleParts.push(`避重复 ${stage.avoidRematch ? '开' : '关'} → ${change.avoidRematch ? '开' : '关'}`);
+    }
+    if (change.requireConfirm !== undefined && change.requireConfirm !== stage.requireConfirm) {
+      ruleParts.push(`需确认 ${stage.requireConfirm ? '开' : '关'} → ${change.requireConfirm ? '开' : '关'}`);
+    }
+    if (ruleParts.length) {
+      const ruleRow: StageRuleReviewRow = {
+        stageIndex: change.index,
+        stageName: stage.name,
+        description: ruleParts.join('；'),
+      };
+      // 4 人阶段（半决赛）单败改双败：场次会变多，且季军赛仍由两名落败者产生（与形态无关）——做预期管理
+      if (change.format === 'double-life' && stage.format === 'single-elim'
+        && record.playerIds.length / 2 ** change.index === 4) {
+        ruleRow.hint = '该阶段场次将增加；季军赛仍按两名落败者生成，与形态无关';
+      }
+      ruleRows.push(ruleRow);
+      if (!(record.status === 'setup' || change.index > record.currentStageIndex)) {
+        blockers.push(
+          `「${stage.name}」已开始（或已结束），晋级赛制 / 配对方式等阶段规则只能在该阶段开始前修改`,
+        );
+      }
     }
     // 计算新规则（合并覆盖并归一，与服务端 updateTournamentStages 同口径）
     const nextBestOf = change.bestOf ?? stage.bestOf;
@@ -281,6 +345,7 @@ export function buildStageBestOfReview(
 
   return {
     rows,
+    ruleRows,
     discardWaveLabels,
     thirdPlaceChanged,
     thirdPlaceBlocked,

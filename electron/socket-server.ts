@@ -1893,8 +1893,8 @@ export async function createLocalServer(
     }
   });
 
-  // 编辑赛制（阶段规则）：编排机专属；阶段内已有赛况时走「重开本阶段」，
-  // 须显式 confirmReopen 才执行（清赛况、保留阵容、后续波作废）
+  // 编辑赛制（阶段规则：BO + 未开始阶段的晋级赛制/配对/开关）：编排机专属；
+  // 阶段内已有赛况的 BO 改动走「重开该波」，须显式 confirmReopen 才执行（清赛况、保留阵容、后续波作废）
   app.put('/api/tournaments/:tournamentId/stages', (request, response) => {
     try {
       const result = updateTournamentStages(paths, request.params.tournamentId, request.body ?? {});

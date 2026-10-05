@@ -1160,6 +1160,125 @@ describe('updateTournamentStages（编辑赛制 / 重开本阶段）', () => {
     expect(() => updateTournamentStages(paths, finished.id, { stages: [{ index: 1, bestOf: 5 }] }))
       .toThrow(/系列赛已结束/);
   });
+
+  it('未开始阶段改阶段规则（形态/配对/开关）：直接生效，不产生对局操作', () => {
+    const tournament = createSeries(8);
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [{
+        index: 1,
+        format: 'double-life',
+        pairing: 'manual-bucket',
+        avoidRematch: false,
+        requireConfirm: true,
+      }],
+    });
+    const stage = report.tournament.stages[1];
+    expect(stage.format).toBe('double-life');
+    expect(stage.pairing).toBe('manual-bucket');
+    expect(stage.avoidRematch).toBe(false);
+    expect(stage.requireConfirm).toBe(true);
+    expect(report.reopenedMatchIds).toEqual([]);
+    expect(report.updatedMatchIds).toEqual([]);
+    expect(report.discardedWaveCount).toBe(0);
+  });
+
+  it('运行中改未开始阶段规则：推进到该阶段时按新规则生成（单败改双败 → 出现 W2）', () => {
+    const tournament = createSeries(8);
+    updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, format: 'double-life', pairing: 'random-bucket' }],
+    });
+    startTournament(paths, tournament.id);
+    playStage(tournament.id, 0); // 8进4 打完 → 推进到 4进2
+    let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    expect(record.currentStageIndex).toBe(1);
+    expect(record.stages[1].format).toBe('double-life');
+
+    const w1Ids = record.waves
+      .filter((wave) => wave.stageIndex === 1 && wave.waveIndex === 1)
+      .flatMap((wave) => wave.nodes.map((node) => node.matchId))
+      .filter((id): id is string => Boolean(id));
+    expect(w1Ids).toHaveLength(2);
+    w1Ids.forEach((id) => playMatchToEnd(id, 'left'));
+    record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    // 双败按新规则生成后续波：W1 打齐不推进阶段，而是建出 W2
+    expect(record.currentStageIndex).toBe(1);
+    expect(record.waves.some((wave) => wave.stageIndex === 1 && wave.waveIndex === 2)).toBe(true);
+  });
+
+  it('进行中阶段改规则拒绝；同批「进行中改 BO + 未开始改规则」互不牵连', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, format: 'single-elim' }],
+    })).toThrow(/只能在该阶段开始前修改/);
+
+    const report = updateTournamentStages(paths, tournament.id, {
+      stages: [
+        { index: 0, bestOf: 3 },
+        { index: 1, format: 'double-life', pairing: 'random-bucket' },
+      ],
+    });
+    expect(report.updatedMatchIds).toHaveLength(4); // stage0 W1 未开打：BO 直接换
+    expect(report.tournament.stages[1].format).toBe('double-life');
+    expect(report.tournament.stages[1].pairing).toBe('random-bucket');
+  });
+
+  it('已结束阶段改规则与改 BO 分口径拒绝', () => {
+    const tournament = createSeries(8);
+    startTournament(paths, tournament.id);
+    playStage(tournament.id, 0);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, avoidRematch: false }],
+    })).toThrow(/只能在该阶段开始前修改/);
+    expect(() => updateTournamentStages(paths, tournament.id, { stages: [{ index: 0, bestOf: 3 }] }))
+      .toThrow(/阶段已结束/);
+  });
+
+  it('总决赛（只剩 2 人）改双败拒绝', () => {
+    const tournament = createSeries(8);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 2, format: 'double-life', pairing: 'random-bucket' }],
+    })).toThrow(/总决赛阶段必须为单败/);
+  });
+
+  it('配对兼容归一：不兼容请求归到该形态默认；改单败清 waveBestOf', () => {
+    const tournament = createSeries(8);
+    updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, pairing: 'manual-bucket', waveBestOf: { 2: 3 } }],
+    });
+
+    // 手改请求带单败式配对（与双败不兼容）→ 归一到随机配对
+    const normalized = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, pairing: 'random-round' }],
+    });
+    expect(normalized.tournament.stages[0].pairing).toBe('random-bucket');
+
+    // 改为单败：配对复位为沿对阵树，W2/W3 覆盖失去意义一并清除
+    const single = updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 0, format: 'single-elim' }],
+    });
+    expect(single.tournament.stages[0].format).toBe('single-elim');
+    expect(single.tournament.stages[0].pairing).toBe('bracket-seed');
+    expect(single.tournament.stages[0].waveBestOf).toBeUndefined();
+  });
+
+  it('规则字段非法值 / 只读副本拒绝', () => {
+    const tournament = createSeries(8);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, format: 'round-robin' }],
+    })).toThrow(/晋级赛制不合法/);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, pairing: 'unknown-pairing' }],
+    })).toThrow(/配对方式不合法/);
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, avoidRematch: 'yes' }],
+    })).toThrow(/避重复开关不合法/);
+
+    saveRuntimeConfig(paths, { machineCode: 'B' });
+    expect(() => updateTournamentStages(paths, tournament.id, {
+      stages: [{ index: 1, format: 'double-life' }],
+    })).toThrow(/机器 A/);
+  });
 });
 
 describe('advanceTournament（requireConfirm 手动确认）', () => {

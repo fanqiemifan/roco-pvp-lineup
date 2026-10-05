@@ -188,6 +188,14 @@ export const DOUBLE_LIFE_ROUND_LABELS: Record<string, string> = {
 /** 仅支持 2 的幂人数（双败桶恒偶，零轮空分支） */
 export const SUPPORTED_TOURNAMENT_SIZES = new Set([4, 8, 16, 32, 64]);
 /**
+ * 「总决赛」= 只剩 2 人的阶段（每阶段晋级半额，人数逐阶段减半）：必须单败。
+ * 双败在 2 人阶段既产出不了冠军、也配不出下一波；创建校验、编辑赛制守卫与前端向导共用这一判据。
+ * 用「阶段人数」而不是「最后一个阶段」判定：自定义阶段列表的末阶段不一定是 2 人。
+ */
+export function isFinalStage(playerCount: number, stageIndex: number): boolean {
+  return playerCount / 2 ** stageIndex === 2;
+}
+/**
  * 系列赛 id：T 前缀 + 8 位日期 + 「_」+ 机器码（0-2 位字母）+ 序号，如 T20260928_A01。
  * 外部导入数据只接受该形态，防止路径穿越与字段注入。
  */

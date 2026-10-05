@@ -8,6 +8,7 @@ import {
   buildWaveCards,
   countCompletedMatches,
   crossPairDeciderPool,
+  defaultPairingForFormat,
   findThirdPlaceWave,
   formatStageRoundLabel,
   getCurrentPositionText,
@@ -31,7 +32,7 @@ import {
   summarizeStageMatches,
   validateDraftPairs,
 } from '../../src/admin-antd/lib/tournament';
-import { buildDefaultStages, THIRD_PLACE_LABEL } from '../../shared/constants';
+import { buildDefaultStages, isFinalStage, THIRD_PLACE_LABEL } from '../../shared/constants';
 import type {
   MatchRecord,
   ProfileStoreState,
@@ -357,6 +358,99 @@ describe('getStageWaveRoundLabels / getCurrentStageWavePosition（编辑赛制�
       [{ index: 1, bestOf: 5 }],
     );
     expect(singleReview.rows[0]?.roundLabels).toEqual([]);
+  });
+});
+
+describe('defaultPairingForFormat / 阶段规则变更审查（编辑赛制）', () => {
+  it('形态切换的配对复位口径：双败 → 随机配对，单败 → 沿对阵树', () => {
+    expect(defaultPairingForFormat('double-life')).toBe('random-bucket');
+    expect(defaultPairingForFormat('single-elim')).toBe('bracket-seed');
+  });
+
+  it('isFinalStage：只剩 2 人的阶段（创建校验 / 编辑守卫 / 向导共用判据）', () => {
+    expect(isFinalStage(8, 2)).toBe(true);
+    expect(isFinalStage(8, 1)).toBe(false);
+    expect(isFinalStage(16, 3)).toBe(true);
+    expect(isFinalStage(16, 2)).toBe(false);
+  });
+
+  it('未开始阶段规则变更进入 ruleRows（无阻断），描述含形态/配对/开关变更', () => {
+    const record = makeRecord({ status: 'running', currentStageIndex: 0, waves: [makeWave(0, 1)] });
+    const review = buildStageBestOfReview(record, [], [{
+      index: 1,
+      format: 'double-life',
+      pairing: 'random-bucket',
+      avoidRematch: false,
+    }]);
+    expect(review.rows).toEqual([]);
+    expect(review.ruleRows).toHaveLength(1);
+    expect(review.ruleRows[0].stageName).toBe('4进2');
+    expect(review.ruleRows[0].description)
+      .toBe('晋级赛制 单败 → 双败；配对方式 沿对阵树 → 随机配对；避重复 开 → 关');
+    expect(review.blockers).toEqual([]);
+    expect(review.destructive).toBe(false);
+  });
+
+  it('已开始阶段规则变更给阻断提示（服务端同口径复核）', () => {
+    const record = makeRecord({ status: 'running', currentStageIndex: 0, waves: [makeWave(0, 1)] });
+    const review = buildStageBestOfReview(record, [], [{ index: 0, format: 'single-elim' }]);
+    expect(review.ruleRows).toHaveLength(1);
+    expect(review.blockers[0]).toMatch(/只能在该阶段开始前修改/);
+  });
+
+  it('setup 记录任意阶段的规则变更不阻断', () => {
+    const review = buildStageBestOfReview(makeRecord(), [], [{ index: 2, requireConfirm: true }]);
+    expect(review.ruleRows[0].description).toBe('需确认 关 → 开');
+    expect(review.blockers).toEqual([]);
+  });
+
+  it('4 人阶段单败改双败：预览补场次预期提示；非 4 人阶段不提示', () => {
+    const record = makeRecord({ status: 'running', currentStageIndex: 0, waves: [makeWave(0, 1)] });
+    const semifinal = buildStageBestOfReview(record, [], [{ index: 1, format: 'double-life' }]);
+    expect(semifinal.ruleRows[0].hint).toBe('该阶段场次将增加；季军赛仍按两名落败者生成，与形态无关');
+
+    // 16 人的 8进4（index 1）不是 4 人阶段 → 无此提示
+    const wider = makeRecord({ status: 'running', currentStageIndex: 0, waves: [makeWave(0, 1)] }, 16);
+    expect(buildStageBestOfReview(wider, [], [{ index: 1, format: 'double-life' }]).ruleRows[0].hint)
+      .toBeUndefined();
+  });
+
+  it('规则变更与 BO 重开同批：ruleRows / rows 分组正确，destructive 由 BO 决定', () => {
+    const record = makeRecord({
+      status: 'running',
+      currentStageIndex: 0,
+      waves: [makeWave(0, 1, {
+        nodes: [{
+          id: 's0-w1-n0',
+          matchId: '20260929_A001',
+          playerAId: 'p0',
+          playerBId: 'p1',
+          winnerId: null,
+          isBye: false,
+        }],
+      })],
+    });
+    const matches = [makeMatch('20260929_A001', {
+      status: 'completed',
+      games: [{
+        gameNumber: 1,
+        leftLineup: [],
+        rightLineup: [],
+        leftSlots: [],
+        rightSlots: [],
+        winner: 'left',
+        status: 'completed',
+      }],
+    })];
+    const review = buildStageBestOfReview(record, matches, [
+      { index: 0, bestOf: 3 },
+      { index: 1, format: 'double-life', pairing: 'random-bucket' },
+    ]);
+    expect(review.ruleRows.map((row) => row.stageName)).toEqual(['4进2']);
+    expect(review.rows.map((row) => row.waveIndex)).toEqual([1, 2, 3]);
+    expect(review.rows[0]).toMatchObject({ completed: 1, inProgress: 0 });
+    expect(review.destructive).toBe(true);
+    expect(review.blockers).toEqual([]);
   });
 });
 

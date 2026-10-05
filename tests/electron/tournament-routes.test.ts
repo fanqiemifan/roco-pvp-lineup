@@ -373,6 +373,32 @@ describe('PUT /api/tournaments/:id/stages（编辑赛制）', () => {
     expect(denied.status).toBe(400);
     expect(denied.data.error).toContain('机器 A');
   });
+
+  it('未开始阶段改阶段规则：200 直接生效（不产生对局变更，仅 tournament:update 广播）', async () => {
+    const playerIds = seedPlayers(8);
+    const created = (await postJson('/api/tournaments', { name: '改规则杯', playerIds, seed: 24 })).data.tournament;
+    await postJson(`/api/tournaments/${created.id}/start`);
+
+    const updatesBefore = tournamentUpdates;
+    const { status, data } = await putJson(`/api/tournaments/${created.id}/stages`, {
+      stages: [{ index: 1, format: 'double-life', pairing: 'random-bucket', avoidRematch: false }],
+    });
+    expect(status).toBe(200);
+    expect(data.tournament.stages[1].format).toBe('double-life');
+    expect(data.tournament.stages[1].pairing).toBe('random-bucket');
+    expect(data.tournament.stages[1].avoidRematch).toBe(false);
+    expect(data.updatedMatchIds).toEqual([]);
+    expect(data.reopenedMatchIds).toEqual([]);
+    await flushEvents();
+    expect(tournamentUpdates).toBe(updatesBefore + 1);
+
+    // 进行中阶段改形态 → 400（同批 BO 改动之外，规则字段只放开未开始阶段）
+    const denied = await putJson(`/api/tournaments/${created.id}/stages`, {
+      stages: [{ index: 0, format: 'single-elim' }],
+    });
+    expect(denied.status).toBe(400);
+    expect(denied.data.error).toContain('只能在该阶段开始前修改');
+  }, 30000);
 });
 
 describe('POST /api/matches/:matchId/undo（系列赛对局撤回）', () => {
