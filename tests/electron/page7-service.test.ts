@@ -46,8 +46,11 @@ describe('page7-service 选场状态', () => {
     expect(saved.matchIds).toEqual([ids[0], ids[1]]);
   });
 
-  it('兜底上限必须装得下 64 人整届（156 场），否则整届勾选会被静默截断', () => {
-    expect(PAGE7_MAX_MATCHES).toBeGreaterThanOrEqual(156);
+  it('选场上限为 20 场（产品限制），超出部分静默截断', () => {
+    const ids = seedMatches(PAGE7_MAX_MATCHES + 5);
+    const saved = savePage7State(paths, { matchIds: ids });
+    expect(saved.matchIds).toHaveLength(PAGE7_MAX_MATCHES);
+    expect(saved.matchIds).toEqual(ids.slice(0, PAGE7_MAX_MATCHES));
   });
 
   it('只更新部分字段时保留其余字段（标题 / 温馨提示）', () => {
