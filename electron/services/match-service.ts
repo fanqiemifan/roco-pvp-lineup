@@ -61,6 +61,8 @@ interface DeletedMatchEntry {
 interface DeletedMatchBatch {
   entries: DeletedMatchEntry[];
   previousActiveMatchId: string | null;
+  /** 不可恢复批次（回退上一波等管理级删除）：id 仍占位防复用，但「撤回最近删除」跳过 */
+  purged?: boolean;
 }
 
 interface MatchStoreFile {
@@ -661,7 +663,7 @@ function normalizeDeletedHistory(
   }
 
   return value
-    .map((item) => {
+    .map((item): DeletedMatchBatch | null => {
       if (!item || typeof item !== 'object') {
         return null;
       }
@@ -694,6 +696,7 @@ function normalizeDeletedHistory(
       return {
         entries,
         previousActiveMatchId: typeof raw.previousActiveMatchId === 'string' ? raw.previousActiveMatchId : null,
+        purged: raw.purged === true,
       } satisfies DeletedMatchBatch;
     })
     .filter((item): item is DeletedMatchBatch => Boolean(item))
@@ -826,8 +829,8 @@ function toPublicStore(store: MatchStoreFile, mtime: number | null): MatchStoreS
     undo: {
       canUndo: Boolean(activeHistory && activeHistory.undoStack.length > 0),
       canRedo: Boolean(activeHistory && activeHistory.redoStack.length > 0),
-      canUndoDelete: store.deletedHistory.length > 0,
-      deleteUndoCount: store.deletedHistory.length,
+      canUndoDelete: store.deletedHistory.some((batch) => !batch.purged),
+      deleteUndoCount: store.deletedHistory.filter((batch) => !batch.purged).length,
       byMatch: summarizeFlowHistory(store),
     },
     mtime,
@@ -1345,10 +1348,21 @@ export function deleteMatch(paths: AppPaths, matchId: string): MatchStoreState {
   return deleteMatches(paths, [matchId]);
 }
 
-export function deleteMatches(paths: AppPaths, matchIds: unknown): MatchStoreState {
+/**
+ * 批量删除比赛。默认软删（整批快照压入 deletedHistory，比赛管理「撤回最近删除」可整批恢复）；
+ * options.recoverable = false 时跳过删除栈直接删除——供「回退上一波」等管理级操作使用：
+ * 回退本身承诺不可撤回，恢复出来的系列赛对局是孤儿引用（不在晋级链上、登记不写回），
+ * 留在恢复栈里只会误导。恢复语义见 undoDeletedMatches。
+ */
+export function deleteMatches(
+  paths: AppPaths,
+  matchIds: unknown,
+  options?: { recoverable?: boolean },
+): MatchStoreState {
   if (!Array.isArray(matchIds)) {
     throw new Error('matchIds must be a list');
   }
+  const recoverable = options?.recoverable ?? true;
 
   const { store } = readStoreFile(paths);
   const uniqueMatchIds = Array.from(new Set(
@@ -1374,10 +1388,20 @@ export function deleteMatches(paths: AppPaths, matchIds: unknown): MatchStoreSta
     throw new Error('比赛不存在');
   }
 
-  store.deletedHistory.push({
-    entries,
-    previousActiveMatchId: store.activeMatchId,
-  });
+  if (recoverable) {
+    store.deletedHistory.push({
+      entries,
+      previousActiveMatchId: store.activeMatchId,
+    });
+  } else {
+    // 不可恢复批次：purged 标记让「撤回最近删除」跳过，但批次本身留在栈里——
+    // id 分配（collectNextMatchIndexes）靠它占位，防止删后重建复用同 id（头像目录 / 跨机同步都以 id 为主键）
+    store.deletedHistory.push({
+      entries,
+      previousActiveMatchId: store.activeMatchId,
+      purged: true,
+    });
+  }
   if (store.deletedHistory.length > DELETE_HISTORY_LIMIT) {
     store.deletedHistory = store.deletedHistory.slice(store.deletedHistory.length - DELETE_HISTORY_LIMIT);
   }
@@ -1400,12 +1424,21 @@ export function deleteMatches(paths: AppPaths, matchIds: unknown): MatchStoreSta
 
 export function undoDeletedMatches(paths: AppPaths): MatchStoreState {
   const { store } = readStoreFile(paths);
-  const batch = store.deletedHistory[store.deletedHistory.length - 1];
-  if (!batch) {
+  // purged 批次（回退上一波等不可恢复删除）不能恢复，找最后一批可恢复的
+  let batchIndex = -1;
+  for (let i = store.deletedHistory.length - 1; i >= 0; i -= 1) {
+    if (!store.deletedHistory[i].purged) {
+      batchIndex = i;
+      break;
+    }
+  }
+  if (batchIndex === -1) {
     throw new Error('没有可撤回的删除记录');
   }
+  const batch = store.deletedHistory[batchIndex];
 
-  store.deletedHistory = store.deletedHistory.slice(0, -1);
+  // 只移除被恢复的批次；purged 批次保留在栈里继续为 id 分配占位
+  store.deletedHistory = store.deletedHistory.filter((_, index) => index !== batchIndex);
   const restoredEntries = [...batch.entries].sort((left, right) => left.index - right.index);
   const nextMatches = [...store.matches];
 

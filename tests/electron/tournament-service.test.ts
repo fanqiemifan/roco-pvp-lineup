@@ -904,6 +904,26 @@ describe('rollbackWave（波次回退）', () => {
     const tournament = createSeries(4);
     expect(() => rollbackWave(paths, tournament.id)).toThrow(/波次/);
   });
+
+  it('回退删除的未打对局不可从「撤回最近删除」恢复（回退不可撤回，删除栈为空）', () => {
+    const tournament = createSeries(8);
+    let record = startTournament(paths, tournament.id);
+    record.waves[0].nodes.forEach((node) => playMatchToEnd(node.matchId ?? '', 'left'));
+    record = getTournamentStore(paths)[0];
+    const w2MatchIds = record.waves[1].nodes
+      .map((node) => node.matchId)
+      .filter((id): id is string => Boolean(id));
+    expect(w2MatchIds.length).toBeGreaterThan(0);
+
+    rollbackWave(paths, tournament.id);
+    const afterRollback = getMatchStore(paths);
+    w2MatchIds.forEach((id) => {
+      expect(afterRollback.matches.find((match) => match.id === id)).toBeUndefined();
+    });
+
+    // 未打对局走不可恢复删除：删除栈为空，「撤回最近删除」无可回退
+    expect(() => undoDeletedMatches(paths)).toThrow(/没有可撤回的删除记录/);
+  });
 });
 
 describe('buildRollbackWavePreview（回退影响预览，只读）', () => {
@@ -962,7 +982,7 @@ describe('buildRollbackWavePreview（回退影响预览，只读）', () => {
     expect(preview.executable).toBe(true);
     expect(preview.branch).toBe('pristine');
     // W2 未打 4 场删除 + W1 已打 4 场复位保阵容
-    expect(preview.rows.filter((row) => row.action === 'delete-recoverable')).toHaveLength(4);
+    expect(preview.rows.filter((row) => row.action === 'delete')).toHaveLength(4);
     expect(preview.rows.filter((row) => row.action === 'reset-keep-lineup')).toHaveLength(4);
     expect(preview.keepLineup).toBe(true);
     expect(preview.impacts.join('；')).toMatch(/阶段回落|战绩/);

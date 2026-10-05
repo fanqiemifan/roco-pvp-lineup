@@ -330,9 +330,9 @@ export interface RollbackWavePreviewRow {
   bestOf: number;
   /** 现状描述（如「已完赛 2:0」「未打」「进行中 1:0」） */
   stateLabel: string;
-  /** 处置方式：reset-keep-lineup=复位保第 1 局阵容 / delete-recoverable=删除可恢复 /
+  /** 处置方式：reset-keep-lineup=复位保第 1 局阵容 / delete=删除（不可恢复，回退不可撤回）/
    *  discard-third-place=丢弃季军赛 / needs-undo=有赛况需逐场撤销 / none=无需处理 */
-  action: 'reset-keep-lineup' | 'delete-recoverable' | 'discard-third-place' | 'needs-undo' | 'none';
+  action: 'reset-keep-lineup' | 'delete' | 'discard-third-place' | 'needs-undo' | 'none';
   /** 处置展示文案（预览行右侧 Tag 文本） */
   actionLabel: string;
 }

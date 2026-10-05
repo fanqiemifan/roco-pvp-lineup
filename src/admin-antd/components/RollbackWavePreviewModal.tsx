@@ -12,7 +12,7 @@ const MAX_PREVIEW_ROWS = 8;
 /** 处置方式 → Tag 配色（蓝 = 复位保阵容 / 橙 = 有代价 / 红 = 需人工处理 / 灰 = 无需处理） */
 const ACTION_TAG_COLOR: Record<RollbackWavePreviewRow['action'], string> = {
   'reset-keep-lineup': 'blue',
-  'delete-recoverable': 'orange',
+  'delete': 'orange',
   'discard-third-place': 'orange',
   'needs-undo': 'red',
   none: 'default',

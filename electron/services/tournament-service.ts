@@ -1316,10 +1316,16 @@ function createThirdPlaceWave(
  * 丢掉某阶段挂靠的季军赛（回退要重开该阶段主赛时用）。
  *
  * 为什么必须一起丢：季军赛的两名落败者是「本阶段结果」算出来的——重开决胜轮/半决赛后改判，
- * 落败者会换人，留着旧波次就会拿旧对阵当季军赛名单（线上踩到的名单错误）。比赛与其它波次同口径
- * 软删（可在比赛管理「撤回最近删除」恢复），阶段再次收口时由 createThirdPlaceWave 按新落败者重建。
+ * 落败者会换人，留着旧波次就会拿旧对阵当季军赛名单（线上踩到的名单错误）。阶段再次收口时由
+ * createThirdPlaceWave 按新落败者重建。删除是否可恢复随 options.recoverable 走：
+ * 「回退上一波」传 false（不可恢复，回退本身不可撤回），其余调用方（撤回级联 / 编辑赛制作废）默认软删可恢复。
  */
-function discardThirdPlaceWave(paths: AppPaths, record: TournamentRecord, stageIndex: number): void {
+function discardThirdPlaceWave(
+  paths: AppPaths,
+  record: TournamentRecord,
+  stageIndex: number,
+  options?: { recoverable?: boolean },
+): void {
   const index = record.waves.findIndex(
     (wave) => wave.stageIndex === stageIndex && wave.kind === 'third-place',
   );
@@ -1330,7 +1336,7 @@ function discardThirdPlaceWave(paths: AppPaths, record: TournamentRecord, stageI
     .map((node) => node.matchId)
     .filter((id): id is string => Boolean(id));
   if (matchIds.length) {
-    deleteMatches(paths, matchIds);
+    deleteMatches(paths, matchIds, options);
   }
   record.waves.splice(index, 1);
 }
@@ -1995,9 +2001,11 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
       );
     }
 
-    /** 分支 C：最后波未打（locked pending 或 draft）——删除未打比赛与波，重开前一波 */
+    /** 分支 C：最后波未打（locked pending 或 draft）——删除未打比赛与波，重开前一波。
+     *  删除不可恢复（recoverable: false）：回退本身承诺「不可撤回」，被删对局是孤儿引用
+     *  （波次已移除、登记不写回），不进「撤回最近删除」栈。 */
     if (matchIds.length) {
-      deleteMatches(paths, matchIds);
+      deleteMatches(paths, matchIds, { recoverable: false });
     }
 
     record.waves = record.waves.slice(0, globalIndex);
@@ -2010,7 +2018,7 @@ export function rollbackWave(paths: AppPaths, tournamentId: string): TournamentR
       // 季军赛不算「本阶段最后波」：否则回退总决赛时会去复位季军赛，而真正的半决赛决胜场
       // 仍带着胜者 → 阶段看着已完结，总决赛却再也推进不出来
       // 但它是「本阶段结果的产物」：重开本阶段就必须把它一起回退，否则改判后季军赛还挂着旧对阵
-      discardThirdPlaceWave(paths, record, stageIndex);
+      discardThirdPlaceWave(paths, record, stageIndex, { recoverable: false });
       const stageWaves = record.waves.filter(
         (item) => item.stageIndex === stageIndex && item.kind !== 'third-place',
       );
@@ -2086,7 +2094,7 @@ function analyzeLastWave(record: TournamentRecord, matches: MatchRecord[]): Last
 /** 处置文案唯一真源（预览行 actionLabel，前端弹窗直接展示） */
 const ROLLBACK_ACTION_LABELS: Record<RollbackWavePreviewRow['action'], string> = {
   'reset-keep-lineup': '复位 · 保留第 1 局阵容',
-  'delete-recoverable': '删除 · 可在「撤回最近删除」恢复',
+  delete: '删除 · 不可恢复',
   'discard-third-place': '丢弃季军赛 · 阶段收口后按新落败者重建',
   'needs-undo': '有赛况 · 请先逐场撤销',
   none: '无需处理',
@@ -2207,8 +2215,12 @@ export function buildRollbackWavePreview(paths: AppPaths, tournamentId: string):
       executable: true,
       branch: 'third-place',
       waveLabel,
-      rows: matchIds.map((id) => rowOf(id, 'delete-recoverable')),
-      impacts: ['撤掉这场季军赛；阶段已然推进，引擎不会自动重建它', ...commonImpacts],
+      rows: matchIds.map((id) => rowOf(id, 'delete')),
+      impacts: [
+        '撤掉这场季军赛；阶段已然推进，引擎不会自动重建它',
+        '被删除的对局不进「撤回最近删除」（回退不可撤回）',
+        ...commonImpacts,
+      ],
       keepLineup: false,
     };
   }
@@ -2241,9 +2253,9 @@ export function buildRollbackWavePreview(paths: AppPaths, tournamentId: string):
     };
   }
 
-  // 分支 C：整波未打 —— 删波 + 重开前一波 / 回 setup
-  rows = matchIds.map((id) => rowOf(id, 'delete-recoverable'));
-  const impacts: string[] = [];
+  // 分支 C：整波未打 —— 删波 + 重开前一波 / 回 setup（被删对局不可恢复，回退不可撤回）
+  rows = matchIds.map((id) => rowOf(id, 'delete'));
+  const impacts: string[] = ['被删除的对局不进「撤回最近删除」；系列赛按新配对重建对局'];
   const wavesAfter = record.waves.slice(0, globalIndex);
   if (wavesAfter.some((item) => item.stageIndex === wave.stageIndex)) {
     stageReopenRows(wave.stageIndex, impacts);
