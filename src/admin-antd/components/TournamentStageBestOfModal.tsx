@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, App, Modal, Segmented, Select, Switch, Tag, Typography } from 'antd';
+import { Alert, App, Modal, Segmented, Select, Switch, Tag, Tooltip, Typography } from 'antd';
 
 import { isFinalStage, resolveThirdPlaceBestOf, resolveWaveBestOf } from '../../../shared/constants';
 import type { MatchRecord, StageFormat, StageRule, TournamentRecord } from '../../../shared/types';
@@ -15,7 +15,7 @@ import type { StageBestOfChange, StageBestOfReviewRow } from '../lib/tournament'
 import { updateTournamentStagesApi } from '../lib/tournament-api';
 import { StageWaveBestOfRow } from './StageWaveBestOfRow';
 
-const { Paragraph, Text } = Typography;
+const { Paragraph } = Typography;
 
 const THIRD_PLACE_OPTIONS = [0, 1, 3, 5, 7].map((value) => ({
   value,
@@ -317,12 +317,33 @@ export function TournamentStageBestOfModal({
         />
       ) : null}
 
-      <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        基础（W1）局数作用于未覆盖的波次；双败阶段的 W2/W3 可单独覆盖，等于基础值时自动跟随基础。
-        改动只影响所选波次及其之后——该波已有进行中 / 已完赛时会「重开该波」（清除赛况、保留阵容），
-        配对依赖旧结果的后续波作废重建；更早的波不动。未开始阶段（含抽签前）还可直改晋级赛制 /
-        配对方式 / 避重复 / 需确认，保存即生效；进行中与已结束阶段仅局数可改（进行中）或全锁定。
-      </Paragraph>
+      {/* 顶部说明：三行「关键词 + 视觉流」，替代整段散文（改动范围用芯片流表达波次顺序） */}
+      <div className="bestof-guide">
+        <div className="bestof-guide-row">
+          <span className="bestof-guide-key">局数</span>
+          <span className="bestof-guide-text">
+            W1 = 基础，未覆盖的波次都跟随它；双败 W2 / W3 可单独覆盖，等于基础值时自动跟随基础
+          </span>
+        </div>
+        <div className="bestof-guide-row">
+          <span className="bestof-guide-key">影响范围</span>
+          <span className="bestof-guide-flow">
+            <span className="bestof-guide-chip">更早的波 · 不动</span>
+            <span className="bestof-guide-arrow">→</span>
+            <span className="bestof-guide-chip is-warn">所选波 · 已有赛况则重开（清赛况、保阵容）</span>
+            <span className="bestof-guide-arrow">→</span>
+            <span className="bestof-guide-chip is-warn">后续波 · 作废重建</span>
+          </span>
+        </div>
+        <div className="bestof-guide-row">
+          <span className="bestof-guide-key">阶段规则</span>
+          <span className="bestof-guide-flow">
+            <span className="bestof-guide-chip is-ok">未开始 · 可直改晋级赛制 / 配对 / 避重复 / 需确认</span>
+            <span className="bestof-guide-chip is-warn">进行中 · 仅局数可改</span>
+            <span className="bestof-guide-chip">已结束 · 锁定</span>
+          </span>
+        </div>
+      </div>
 
       {record.stages.map((stage, index) => {
         const state = getStageState(record, index);
@@ -377,7 +398,14 @@ export function TournamentStageBestOfModal({
               );
             })}
             <div className={`bestof-rule-row${ruleEditable ? '' : ' is-locked'}`}>
-              <span className="bestof-rule-label">阶段规则</span>
+              {/* 进行中阶段的锁定原因默认不显示（省空间），悬停「阶段规则」标签时以 Tooltip 展开 */}
+              {!ruleEditable && state === 'current' ? (
+                <Tooltip title="进行中：BO 可改（有赛况将重开该波）；晋级方式不可改">
+                  <span className="bestof-rule-label has-note">阶段规则</span>
+                </Tooltip>
+              ) : (
+                <span className="bestof-rule-label">阶段规则</span>
+              )}
               <Segmented
                 size="small"
                 disabled={!ruleEditable}
@@ -419,11 +447,6 @@ export function TournamentStageBestOfModal({
                 />
                 需确认
               </span>
-              {!ruleEditable && state === 'current' ? (
-                <Text type="secondary" className="bestof-rule-note">
-                  进行中：BO 可改（有赛况将重开该波）；晋级方式不可改
-                </Text>
-              ) : null}
             </div>
           </div>
         );
