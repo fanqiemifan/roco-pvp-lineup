@@ -157,8 +157,9 @@ export async function forfeitApi(
 }
 
 /**
- * 删除系列赛：默认仅解除对局关联（对局保留为普通比赛）；
- * deleteRelatedMatches=true 时连同关联对局一并删除（比赛管理可「撤回最近删除」）。
+ * 删除系列赛：进回收站保留 7 天（可整届恢复）。
+ * deleteRelatedMatches=true：对局保留 tournamentRef 原地隐藏，恢复 = 整届还原，到期才真正删除；
+ * false：对局立即解除关联转为普通对局（现状行为），恢复只还原编排记录。
  */
 export async function deleteTournamentApi(
   tournamentId: string,
@@ -168,6 +169,26 @@ export async function deleteTournamentApi(
     method: 'DELETE',
     json: { deleteMatches: deleteRelatedMatches },
   });
+}
+
+/** 系列赛回收站：本机删除、7 天保留期内的系列赛（到期自动终结） */
+export async function listRecycleBinApi(): Promise<TournamentRecord[]> {
+  const data = await requestJson<{ tournaments: TournamentRecord[] }>('/api/tournaments/recycle-bin');
+  return data.tournaments;
+}
+
+/** 整届恢复回收站里的系列赛：编排 + 波次 + 进度 + 名下对局一体还原 */
+export async function restoreTournamentApi(tournamentId: string): Promise<TournamentRecord> {
+  const data = await requestJson<{ tournament: TournamentRecord }>(
+    `/api/tournaments/${tournamentId}/restore`,
+    { method: 'POST' },
+  );
+  return data.tournament;
+}
+
+/** 彻底删除：立即终结回收站里的系列赛（对局真正删除不可恢复，墓碑留为跨机标记） */
+export async function purgeTournamentApi(tournamentId: string): Promise<void> {
+  await requestJson(`/api/tournaments/${tournamentId}/purge`, { method: 'POST' });
 }
 
 /** 本机已「本机移除」的系列赛（localOnly，仅本机存在）：恢复弹窗数据源 */

@@ -43,7 +43,12 @@ import { loadRuntimeConfig, normalizeMachineCode, normalizeSyncKey, saveRuntimeC
 import { getMatchStore, resetMatchRegistrations } from './match-service.js';
 import type { AppPaths } from './path-service.js';
 import { applySyncImport, exportSyncBundle, parseSyncBundle, previewSyncImport, type SyncBundlePayload } from './sync-service.js';
-import { getTournamentStore, resolveTournamentLabels, runTournamentWriteBack } from './tournament-service.js';
+import {
+  getTournamentStore,
+  isTournamentInRecycleBin,
+  resolveTournamentLabels,
+  runTournamentWriteBack,
+} from './tournament-service.js';
 
 /* ==================== 云端信箱（Worker + KV）读写 ==================== */
 
@@ -475,7 +480,9 @@ export function computePendingQueue(paths: AppPaths): CloudSyncPendingQueue {
   const acked = new Set(state.ackedMatchIds);
   const matches = getMatchStore(paths).matches
     .filter((match) => match.status === 'completed' && match.winner && !acked.has(match.id))
-    .filter((match) => code !== '' && assignmentScopeOf(paths, match.id) === code);
+    .filter((match) => code !== '' && assignmentScopeOf(paths, match.id) === code)
+    // 回收站里的系列赛（已删除、待恢复/终结）：对局不参与上行，防止恢复前的陈旧赛果回流编排机
+    .filter((match) => !match.tournamentRef || !isTournamentInRecycleBin(paths, match.tournamentRef.tournamentId));
   const labels = resolveTournamentLabels(paths, matches);
   const submittedAt = state.submittedAt;
   // 上次交回时间之后没再改过的比赛 = 已经交回、还在等确认（用时间判断，不额外存提交快照）

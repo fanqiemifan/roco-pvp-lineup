@@ -141,6 +141,6 @@
 | TournamentNode | 系列赛节点（id 形如 s0-w2-n03, matchId 关联比赛, playerAId/playerBId, winnerId, isBye, next? 单败树连线——V1 单败每阶段一波未用） | shared/types.ts |
 | TournamentWave | 波次（stageIndex, waveIndex 双败1..3/单败1, status: pending/running/completed, pairingStatus: draft/locked, pairingDraft? 草稿, nodes） | shared/types.ts |
 | PairingSlot | 配对确认台槽位（bucketKey? 桶 key，单败 undefined, playerId 可空） | shared/types.ts |
-| TournamentRecord | 系列赛记录（id 形如 T20260928_A01, name, createdAt/updatedAt, status: setup/running/completed, seed, drawVersion, playerIds, stages, currentStageIndex, entries, waves, result? championId/runnerUpId）；墓碑字段 deletedAt/deletedMatchIds/deletedMatches（随同步传播）；localOnly = 本机移除标记（仅本机存在、绝不外传、不解绑/不删对局、恢复即清） | shared/types.ts |
+| TournamentRecord | 系列赛记录（id 形如 T20260928_A01, name, createdAt/updatedAt, status: setup/running/completed, seed, drawVersion, playerIds, stages, currentStageIndex, entries, waves, result? championId/runnerUpId）；墓碑字段 deletedAt/deletedMatchIds/deletedMatches（随同步传播）+ graceUntil（回收站保留截止，仅编排机本机语义、对端不使用，缺省=已终结）；localOnly = 本机移除标记（仅本机存在、绝不外传、不解绑/不删对局、恢复即清） | shared/types.ts |
 | PairingValidation | 配对校验结果（valid, errors, warnings——已交手仅提醒不阻断） | shared/types.ts |
 | PairingImportResult | 外部对阵导入结果（tournament, unmatched 未能唯一匹配档案的行） | shared/types.ts |

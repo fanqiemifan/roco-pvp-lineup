@@ -137,7 +137,10 @@ import {
   buildRollbackWavePreview,
   createTournament,
   deleteTournament,
+  finalizeExpiredGraceTombstones,
+  finalizeTombstone,
   getLocallyRemovedTournaments,
+  getRecycleBinTournaments,
   getTournamentStore,
   importPairings,
   lockPairings,
@@ -147,8 +150,9 @@ import {
   previewOpeningWave,
   redrawTournament,
   removeLocalTournament,
-  resolveTournamentLabels,
   restoreLocalTournament,
+  restoreTournament,
+  resolveTournamentLabels,
   rollbackWave,
   savePairingDraft,
   startTournament,
@@ -269,6 +273,7 @@ function snapshotPayload(paths: AppPaths): SnapshotPayload {
     mvp: getMvpState(paths),
     tournaments: getTournamentStore(paths),
     locallyRemoved: getLocallyRemovedTournaments(paths),
+    recycleBin: getRecycleBinTournaments(paths),
   };
 }
 
@@ -554,11 +559,16 @@ export async function createLocalServer(
   };
 
   // 系列赛数据广播：admin（第 11 视图）与 page14（晋级积分榜按阶段重算榜单）消费；
-  // locallyRemoved 只在本机口径出现（恢复列表 / 对局过滤），绝不进出站同步包
+  // locallyRemoved 只在本机口径出现（恢复列表 / 对局过滤），绝不进出站同步包；
+  // recycleBin = 回收站（grace 墓碑），同样只在本机口径出现
   const emitTournamentUpdate = (): void => {
     broadcast(
       SOCKET_EVENTS.tournamentUpdate,
-      { tournaments: getTournamentStore(paths), locallyRemoved: getLocallyRemovedTournaments(paths) },
+      {
+        tournaments: getTournamentStore(paths),
+        locallyRemoved: getLocallyRemovedTournaments(paths),
+        recycleBin: getRecycleBinTournaments(paths),
+      },
       ['page14'],
     );
   };
@@ -614,8 +624,46 @@ export async function createLocalServer(
     return next;
   };
 
+  // 回收站删除（对局保留在 matches.json、grace 期可整届恢复）专用：按 matchIds 显式清退推流选场。
+  // 常规 prune 按「比赛存在性」清理，覆盖不到这种"比赛还在但不该出现"的场景。
+  const prunePageSelectionsForMatchIds = (ids: string[]): PagePushPruneResult => {
+    const next: PagePushPruneResult = {};
+    if (!ids.length) {
+      return next;
+    }
+    const idSet = new Set(ids);
+
+    const page6 = getPage6State(paths);
+    const filtered6 = page6.matchIds.filter((id) => !idSet.has(id));
+    if (filtered6.length !== page6.matchIds.length) {
+      const state = savePage6State(paths, { matchIds: filtered6 });
+      broadcast(SOCKET_EVENTS.page6Update, { state }, ['page6']);
+      next.page6 = state;
+    }
+
+    const page7 = getPage7State(paths);
+    const filtered7 = page7.matchIds.filter((id) => !idSet.has(id));
+    if (filtered7.length !== page7.matchIds.length) {
+      const state = savePage7State(paths, { matchIds: filtered7 });
+      broadcast(SOCKET_EVENTS.page7Update, { state }, ['page7']);
+      next.page7 = state;
+    }
+
+    const page8 = getPage8State(paths);
+    const filtered8 = page8.matchIds.filter((id) => !idSet.has(id));
+    if (filtered8.length !== page8.matchIds.length) {
+      const state = savePage8State(paths, { matchIds: filtered8 });
+      broadcast(SOCKET_EVENTS.page8Update, { state }, ['page8']);
+      next.page8 = state;
+    }
+
+    return next;
+  };
+
   // 记录启动基线，保证服务启动后首次进入下一局也能被识别
   redLightBoundaryBase = redLightBoundarySnapshot(getMatchStore(paths));
+  // 启动时终结回收站里已过 7 天保留期的系列赛（对局真正删除、墓碑留为跨机标记）
+  finalizeExpiredGraceTombstones(paths);
 
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
@@ -1670,6 +1718,17 @@ export async function createLocalServer(
     response.json({ tournaments: getLocallyRemovedTournaments(paths) });
   });
 
+  // 系列赛回收站：本机删除、7 天保留期内的系列赛（连同到期终结；只在本机口径出现）。
+  // 必须注册在 GET /:tournamentId 之前，否则会被当成 id 吃掉
+  app.get('/api/tournaments/recycle-bin', (_request, response) => {
+    try {
+      finalizeExpiredGraceTombstones(paths);
+      response.json({ tournaments: getRecycleBinTournaments(paths) });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.get('/api/tournaments/:tournamentId', (request, response) => {
     const tournament = getTournamentStore(paths).find((item) => item.id === request.params.tournamentId);
     if (!tournament) {
@@ -1955,7 +2014,8 @@ export async function createLocalServer(
     }
   });
 
-  // 删除系列赛：默认仅解绑关联比赛（保留为普通对局）；body.deleteMatches=true 连同比赛一起删
+  // 删除系列赛：进回收站（7 天内可整届恢复，graceUntil 到期自动终结）。
+  // body.deleteMatches=true 时不解绑不删对局（恢复=整届还原）；false 时对局立即解绑转普通（现状行为）。
   app.delete('/api/tournaments/:tournamentId', (request, response) => {
     try {
       const body = (request.body ?? {}) as { deleteMatches?: unknown };
@@ -1964,10 +2024,37 @@ export async function createLocalServer(
         request.params.tournamentId,
         { deleteMatches: body.deleteMatches === true },
       );
-      // 连同对局删除时由广播出口同步清理推流选场里的引用（仅解绑不影响选场）
-      const pagePush = emitMatchesUpdate(getMatchStore(paths));
+      // 回收站模式下对局仍在 matches.json：按名单显式清退 page6/7/8 选场；
+      // 仅解绑模式下 prune*（按存在性）不变
+      const pagePush = result.matchesDeleted
+        ? { ...prunePageSelectionsForMatchIds(result.matchIds), ...emitMatchesUpdate(getMatchStore(paths)) }
+        : emitMatchesUpdate(getMatchStore(paths));
       emitTournamentUpdate();
       response.json({ success: true, ...result, pagePush });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 整届恢复：清墓碑标记，编排 + 波次 + 进度 + 名下对局（grace 模式未删）一体还原
+  app.post('/api/tournaments/:tournamentId/restore', (request, response) => {
+    try {
+      const tournament = restoreTournament(paths, request.params.tournamentId);
+      emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, tournament });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 彻底删除：立即终结回收站里的系列赛（对局真正删除不可恢复，墓碑留为跨机标记）
+  app.post('/api/tournaments/:tournamentId/purge', (request, response) => {
+    try {
+      finalizeTombstone(paths, request.params.tournamentId);
+      const pagePush = emitMatchesUpdate(getMatchStore(paths));
+      emitTournamentUpdate();
+      response.json({ success: true, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

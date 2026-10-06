@@ -513,6 +513,8 @@ function Dashboard() {
   const [tournaments, setTournaments] = useState<TournamentRecord[]>([]);
   // 本机已「本机移除」的系列赛（localOnly，仅本机视图隐藏）：恢复弹窗与比赛管理/推流选场过滤用
   const [locallyRemoved, setLocallyRemoved] = useState<TournamentRecord[]>([]);
+  // 系列赛回收站（删除后 7 天内可整届恢复的 grace 墓碑）：恢复弹窗与比赛管理/推流选场过滤用
+  const [recycleBin, setRecycleBin] = useState<TournamentRecord[]>([]);
   // 保持 page14ConfiguredRef 与最新配置同步（供读不到 state 的 socket 回调用）
   useEffect(() => {
     page14ConfiguredRef.current = Boolean(page14?.tournamentId);
@@ -702,9 +704,18 @@ function Dashboard() {
     () => new Set(locallyRemoved.map((tournament) => tournament.id)),
     [locallyRemoved],
   );
+  // 回收站系列赛（grace 墓碑）：对局仍在 matches.json，管理面视图层一并隐藏（与本机移除同款）
+  const recycleBinIdSet = useMemo(
+    () => new Set(recycleBin.map((tournament) => tournament.id)),
+    [recycleBin],
+  );
   const adminVisibleMatches = useMemo(
-    () => filterLocallyRemovedMatches(matchStore.matches, locallyRemovedIdSet),
-    [matchStore.matches, locallyRemovedIdSet],
+    () => filterLocallyRemovedMatches(matchStore.matches, locallyRemovedIdSet)
+      .filter((match) => {
+        const tournamentId = match.tournamentRef?.tournamentId;
+        return !tournamentId || !recycleBinIdSet.has(tournamentId);
+      }),
+    [matchStore.matches, locallyRemovedIdSet, recycleBinIdSet],
   );
   const historyTournamentFilters = useMemo(
     () => buildHistoryTournamentFilters(matchStore.matches, tournaments),
@@ -893,6 +904,7 @@ function Dashboard() {
     profiles?: ProfileStoreState;
     tournaments?: TournamentRecord[];
     locallyRemoved?: TournamentRecord[];
+    recycleBin?: TournamentRecord[];
     countdown?: CountdownPayload;
     mvp?: MvpState;
   }) {
@@ -956,6 +968,9 @@ function Dashboard() {
       }
       if (payload.locallyRemoved) {
         setLocallyRemoved(payload.locallyRemoved);
+      }
+      if (payload.recycleBin) {
+        setRecycleBin(payload.recycleBin);
       }
       if (payload.mvp) {
         setMvp(payload.mvp);
@@ -1191,6 +1206,9 @@ function Dashboard() {
       }
       if (Array.isArray(payload?.locallyRemoved)) {
         applyServerState({ locallyRemoved: payload.locallyRemoved });
+      }
+      if (Array.isArray(payload?.recycleBin)) {
+        applyServerState({ recycleBin: payload.recycleBin });
       }
       // 阶段推进/回退、阶段改名都会影响榜单标题与行
       if (page14ConfiguredRef.current) {
@@ -7058,6 +7076,7 @@ function Dashboard() {
               sprites={sprites}
               machineCode={machineCodeInput}
               locallyRemoved={locallyRemoved}
+              recycleBin={recycleBin}
               onJumpToRoster={() => setView('roster')}
               onMatchesStore={(store) => applyServerState({ store })}
             />
