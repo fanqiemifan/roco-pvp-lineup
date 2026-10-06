@@ -8,8 +8,11 @@ import {
   createMatch,
   deleteMatches,
   getMatchStore,
+  getRecycleBinEntries,
+  pruneRecycleBin,
   recordMatchWinner,
   redoMatchAction,
+  restoreDeletedMatches,
   saveGameLineupForMatch,
   setActiveMatch,
   startCurrentGame,
@@ -177,6 +180,41 @@ describe('赛事删除与恢复', () => {
   });
 
   it('没有删除记录时撤销报错', () => {
+    expect(() => undoDeletedMatches(paths)).toThrow('没有可撤回的删除记录');
+  });
+
+  it('回收站：清单可见、逐条恢复不影响其余条目、批次摘空自动移除', () => {
+    const m1 = createMatch(paths, { leftPlayer: '甲', rightPlayer: '乙' }).matches[0].id;
+    const m2 = createMatch(paths, { leftPlayer: '丙', rightPlayer: '丁' }).matches[0].id;
+    const m3 = createMatch(paths, { leftPlayer: '戊', rightPlayer: '己' }).matches[0].id;
+
+    deleteMatches(paths, [m1, m2]);
+    deleteMatches(paths, [m3]);
+
+    // 清单包含全部三条（同一毫秒内删除时顺序不稳定，只断言集合）；purged 批次不出现
+    const bin = getRecycleBinEntries(paths);
+    expect(bin.map((entry) => entry.matchId).sort()).toEqual([m1, m2, m3].sort());
+    expect(bin.every((entry) => entry.deletedAt)).toBe(true);
+
+    // 只恢复 m1：m2 / m3 留在回收站
+    const restored = restoreDeletedMatches(paths, [m1]);
+    expect(restored.matches.map((match) => match.id)).toContain(m1);
+    expect(getRecycleBinEntries(paths).map((entry) => entry.matchId).sort()).toEqual([m2, m3].sort());
+
+    // 全部恢复：批次摘空自动移除，回收站清空（多次逐条恢复后顺序按恢复时刻插入，断言集合）
+    restoreDeletedMatches(paths, [m2, m3]);
+    expect(getMatchStore(paths).matches.map((match) => match.id).sort()).toEqual([m1, m2, m3].sort());
+    expect(getRecycleBinEntries(paths)).toHaveLength(0);
+  });
+
+  it('回收站 7 天过期自动清理（含 purged 批次的 id 占位释放）', () => {
+    const m1 = createMatch(paths, { leftPlayer: '甲', rightPlayer: '乙' }).matches[0].id;
+    deleteMatches(paths, [m1]);
+    expect(getRecycleBinEntries(paths)).toHaveLength(1);
+
+    // 注入 8 天后的时钟：保留期已过，条目清理、id 占位释放
+    pruneRecycleBin(paths, Date.now() + 8 * 24 * 60 * 60 * 1000);
+    expect(getRecycleBinEntries(paths)).toHaveLength(0);
     expect(() => undoDeletedMatches(paths)).toThrow('没有可撤回的删除记录');
   });
 });

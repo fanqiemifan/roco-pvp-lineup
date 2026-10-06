@@ -79,6 +79,8 @@ import {
   localRestoreTournamentApi,
   lockPairingsApi,
   previewOpeningWaveApi,
+  purgeTournamentApi,
+  restoreTournamentApi,
   savePairingDraftApi,
   selectMatchApi,
   startTournamentApi,
@@ -157,6 +159,8 @@ export interface TournamentViewProps {
   machineCode: string;
   /** 本机已「本机移除」的系列赛（仅本机视图隐藏，可在恢复弹窗中恢复） */
   locallyRemoved: TournamentRecord[];
+  /** 系列赛回收站（删除后 7 天内可整届恢复）：恢复弹窗数据源 */
+  recycleBin: TournamentRecord[];
   /** 「进入管理」：切换为当前比赛后跳转赛事面板（App 提供） */
   onJumpToRoster?: () => void;
   /** 阵容录入保存后回传最新赛事 store（App 统一应用，免等 socket 广播） */
@@ -176,6 +180,7 @@ export function TournamentView({
   sprites,
   machineCode,
   locallyRemoved,
+  recycleBin,
   onJumpToRoster,
   onMatchesStore,
 }: TournamentViewProps): React.ReactElement {
@@ -207,10 +212,13 @@ export function TournamentView({
   const [createOpen, setCreateOpen] = useState(false);
   // 详情默认打开「上次操作的系列赛」（本地记忆，见 lib/last-tournament）；无记忆/记录已失效时回退列表第一条
   const [selectedId, setSelectedId] = useState<string | null>(() => readLastTournamentId());
-  // 删除系列赛确认弹窗：deleteWithMatches=连同关联对局一起删（可在比赛管理撤回）
+  // 删除系列赛确认弹窗：deleteWithMatches=连同关联对局一起删（进回收站 7 天，可整届恢复）
   const [deleteTarget, setDeleteTarget] = useState<TournamentRecord | null>(null);
   const [deleteWithMatches, setDeleteWithMatches] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
+  // 系列赛回收站：恢复弹窗（grace 墓碑清单）+ 单条操作的进行态
+  const [recycleBinOpen, setRecycleBinOpen] = useState(false);
+  const [recycleBusyId, setRecycleBusyId] = useState<string | null>(null);
   // 本机移除：恢复弹窗（已移除清单）+ 单条恢复的进行态
   const [localRemovedOpen, setLocalRemovedOpen] = useState(false);
   const [restoreSavingId, setRestoreSavingId] = useState<string | null>(null);
@@ -237,10 +245,10 @@ export function TournamentView({
       }
       message.success(
         result.matchesDeleted
-          ? `已删除系列赛及其 ${result.matchIds.length} 场对局（可在比赛管理撤回）`
+          ? `已删除系列赛及其 ${result.matchIds.length} 场对局（回收站保留 7 天，可整届恢复）`
           : result.matchIds.length > 0
-            ? `已删除系列赛，${result.matchIds.length} 场对局已转为普通对局`
-            : '已删除系列赛',
+            ? `已删除系列赛，${result.matchIds.length} 场对局已转为普通对局（回收站保留 7 天）`
+            : '已删除系列赛（回收站保留 7 天）',
       );
       setDeleteTarget(null);
       setDeleteWithMatches(false);
@@ -249,6 +257,42 @@ export function TournamentView({
     } finally {
       setDeleteSaving(false);
     }
+  }
+
+  /** 整届恢复回收站里的系列赛：编排 + 波次 + 进度 + 名下对局一体还原 */
+  async function handleRecycleRestore(record: TournamentRecord): Promise<void> {
+    setRecycleBusyId(record.id);
+    try {
+      await restoreTournamentApi(record.id);
+      message.success(`已恢复系列赛「${record.name || record.id}」`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRecycleBusyId(null);
+    }
+  }
+
+  /** 彻底删除：立即终结回收站里的系列赛（对局真正删除，不可恢复） */
+  async function handleRecyclePurge(record: TournamentRecord): Promise<void> {
+    setRecycleBusyId(record.id);
+    try {
+      await purgeTournamentApi(record.id);
+      message.success(`已彻底删除「${record.name || record.id}」`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRecycleBusyId(null);
+    }
+  }
+
+  /** 回收站条目的剩余保留天数（向上取整，<1 天显示「今日到期」） */
+  function recycleDaysLeft(record: TournamentRecord): string {
+    const until = Date.parse(record.graceUntil ?? '');
+    if (!Number.isFinite(until)) {
+      return '已到期';
+    }
+    const days = Math.ceil((until - Date.now()) / (24 * 60 * 60 * 1000));
+    return days <= 0 ? '今日到期' : `剩余 ${days} 天`;
   }
 
   /** 本机移除：仅本机视图隐藏（不影响编排机、不删数据），列表 / 恢复弹窗状态由广播刷新 */
@@ -411,6 +455,9 @@ export function TournamentView({
         title="系列赛列表"
         extra={(
           <Space>
+            {recycleBin.length ? (
+              <Button onClick={() => setRecycleBinOpen(true)}>♻ 回收站 ({recycleBin.length})</Button>
+            ) : null}
             <Button onClick={() => setLocalRemovedOpen(true)}>
               已本机移除 ({locallyRemoved.length})
             </Button>
@@ -468,7 +515,8 @@ export function TournamentView({
             return (
               <Space direction="vertical" size={12} style={{ marginTop: 8 }}>
                 <Paragraph style={{ marginBottom: 0 }}>
-                  确定删除系列赛「<b>{deleteTarget.name}</b>」？编排记录（阶段、波次、对阵树）将被删除且不可恢复。
+                  确定删除系列赛「<b>{deleteTarget.name}</b>」？删除后进入<b>回收站保留 7 天</b>，期间可在
+                  「系列比赛 → ♻ 回收站」<b>整届恢复</b>（编排、进度、对局一体还原）；到期自动彻底删除。
                   删除会随同步下发到分控端：分控端的副本（与名单内的关联对局）会在下次同步时自动清理。
                 </Paragraph>
                 {summary.total > 0 ? (
@@ -480,25 +528,91 @@ export function TournamentView({
                       checked={deleteWithMatches}
                       onChange={(event) => setDeleteWithMatches(event.target.checked)}
                     >
-                      同时删除这 {summary.total} 场对局（之后仍可在比赛管理「撤回最近删除」恢复）
+                      连同这 {summary.total} 场对局一起删除（7 天内整届恢复时对局一并还原；到期自动彻底删除）
                     </Checkbox>
                     {!deleteWithMatches ? (
                       <Text type="secondary">
-                        不勾选时对局全部保留，解除系列赛关联后转为普通对局，已有标签与战绩不受影响。
+                        不勾选时对局立即解除关联转为普通对局（不受回收站影响），恢复系列赛时对局不会自动重挂。
                       </Text>
                     ) : (
-                      <Text type="warning">
-                        对局删除后若不及时撤回，将与普通删除一样受七天清理期限限制。
+                      <Text type="secondary">
+                        对局保留在原处并随系列赛一起隐藏；到期未恢复则与系列赛一并彻底删除。
                       </Text>
                     )}
                   </>
                 ) : (
-                  <Text type="secondary">该系列赛尚未创建任何对局，将仅删除编排记录。</Text>
+                  <Text type="secondary">该系列赛尚未创建任何对局，将仅删除编排记录（回收站保留 7 天）。</Text>
                 )}
               </Space>
             );
           })()
         ) : null}
+      </Modal>
+
+      {/* 系列赛回收站：grace 墓碑清单，整届恢复 / 彻底删除 */}
+      <Modal
+        title="♻ 系列赛回收站"
+        open={recycleBinOpen}
+        footer={null}
+        onCancel={() => setRecycleBinOpen(false)}
+      >
+        {recycleBin.length ? (
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            {recycleBin.map((record) => {
+              const busy = recycleBusyId === record.id;
+              const matchCount = record.deletedMatchIds?.length ?? 0;
+              return (
+                <div
+                  key={record.id}
+                  style={{
+                    border: '1px solid #f0f0f0',
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div>
+                      <Text strong>{record.name || record.id}</Text>
+                      <Tag style={{ marginInlineStart: 8 }}>{record.playerIds.length} 人</Tag>
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {matchCount} 场对局 · 删除于 {(record.deletedAt ?? '').slice(0, 16).replace('T', ' ')} · {recycleDaysLeft(record)}
+                    </Text>
+                  </div>
+                  <Space size={4}>
+                    <Popconfirm
+                      title="彻底删除"
+                      description="对局将真正删除且不可恢复，确定？"
+                      okText="彻底删除"
+                      okButtonProps={{ danger: true }}
+                      cancelText="取消"
+                      onConfirm={() => void handleRecyclePurge(record)}
+                    >
+                      <Button size="small" danger disabled={busy}>彻底删除</Button>
+                    </Popconfirm>
+                    <Button
+                      size="small"
+                      type="primary"
+                      loading={busy}
+                      onClick={() => void handleRecycleRestore(record)}
+                    >
+                      整届恢复
+                    </Button>
+                  </Space>
+                </div>
+              );
+            })}
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              恢复 = 编排、波次、进度、名下对局一体还原。跨机环境：对端副本已随删除清理，恢复后请用「定向同步」重新发给对端。
+            </Text>
+          </Space>
+        ) : (
+          <Empty description="回收站是空的" />
+        )}
       </Modal>
 
       {/* 已本机移除：仅本机视图隐藏的记录（编排机无感知），这里可单条恢复 */}

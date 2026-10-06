@@ -252,7 +252,7 @@ export function TournamentStageBestOfModal({
                   <li key={`${row.stageIndex}-${row.waveIndex}`}>{describeRow(row)}</li>
                 ))}
               {review.discardWaveLabels.length ? (
-                <li>后续波作废重建：{review.discardWaveLabels.join('、')}（软删，可在「撤回最近删除」恢复）</li>
+                <li>后续波作废重建：{review.discardWaveLabels.join('、')}（作废不可恢复，波次按新结果重建）</li>
               ) : null}
               {review.ruleRows.length ? (
                 <li>

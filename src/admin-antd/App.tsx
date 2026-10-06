@@ -513,6 +513,8 @@ function Dashboard() {
   const [tournaments, setTournaments] = useState<TournamentRecord[]>([]);
   // 本机已「本机移除」的系列赛（localOnly，仅本机视图隐藏）：恢复弹窗与比赛管理/推流选场过滤用
   const [locallyRemoved, setLocallyRemoved] = useState<TournamentRecord[]>([]);
+  // 系列赛回收站（删除后 7 天内可整届恢复的 grace 墓碑）：恢复弹窗与比赛管理/推流选场过滤用
+  const [recycleBin, setRecycleBin] = useState<TournamentRecord[]>([]);
   // 保持 page14ConfiguredRef 与最新配置同步（供读不到 state 的 socket 回调用）
   useEffect(() => {
     page14ConfiguredRef.current = Boolean(page14?.tournamentId);
@@ -702,9 +704,18 @@ function Dashboard() {
     () => new Set(locallyRemoved.map((tournament) => tournament.id)),
     [locallyRemoved],
   );
+  // 回收站系列赛（grace 墓碑）：对局仍在 matches.json，管理面视图层一并隐藏（与本机移除同款）
+  const recycleBinIdSet = useMemo(
+    () => new Set(recycleBin.map((tournament) => tournament.id)),
+    [recycleBin],
+  );
   const adminVisibleMatches = useMemo(
-    () => filterLocallyRemovedMatches(matchStore.matches, locallyRemovedIdSet),
-    [matchStore.matches, locallyRemovedIdSet],
+    () => filterLocallyRemovedMatches(matchStore.matches, locallyRemovedIdSet)
+      .filter((match) => {
+        const tournamentId = match.tournamentRef?.tournamentId;
+        return !tournamentId || !recycleBinIdSet.has(tournamentId);
+      }),
+    [matchStore.matches, locallyRemovedIdSet, recycleBinIdSet],
   );
   const historyTournamentFilters = useMemo(
     () => buildHistoryTournamentFilters(matchStore.matches, tournaments),
@@ -893,6 +904,7 @@ function Dashboard() {
     profiles?: ProfileStoreState;
     tournaments?: TournamentRecord[];
     locallyRemoved?: TournamentRecord[];
+    recycleBin?: TournamentRecord[];
     countdown?: CountdownPayload;
     mvp?: MvpState;
   }) {
@@ -956,6 +968,9 @@ function Dashboard() {
       }
       if (payload.locallyRemoved) {
         setLocallyRemoved(payload.locallyRemoved);
+      }
+      if (payload.recycleBin) {
+        setRecycleBin(payload.recycleBin);
       }
       if (payload.mvp) {
         setMvp(payload.mvp);
@@ -1191,6 +1206,9 @@ function Dashboard() {
       }
       if (Array.isArray(payload?.locallyRemoved)) {
         applyServerState({ locallyRemoved: payload.locallyRemoved });
+      }
+      if (Array.isArray(payload?.recycleBin)) {
+        applyServerState({ recycleBin: payload.recycleBin });
       }
       // 阶段推进/回退、阶段改名都会影响榜单标题与行
       if (page14ConfiguredRef.current) {
@@ -2358,20 +2376,56 @@ function Dashboard() {
     }
   }
 
-  async function undoDeletedHistoryMatches() {
+  // === 比赛回收站（普通删除 7 天内逐条恢复） ===
+  interface RecycleBinRow {
+    matchId: string;
+    leftPlayer: string;
+    rightPlayer: string;
+    bestOf: number;
+    status: 'pending' | 'in_progress' | 'completed';
+    deletedAt: string;
+  }
+  const [recycleBinOpen, setRecycleBinOpen] = useState(false);
+  const [recycleBinRows, setRecycleBinRows] = useState<RecycleBinRow[]>([]);
+  const [recycleSelectedKeys, setRecycleSelectedKeys] = useState<string[]>([]);
+  const [recycleLoading, setRecycleLoading] = useState(false);
+  const [recycleRestoring, setRecycleRestoring] = useState(false);
+
+  async function openMatchRecycleBin(): Promise<void> {
+    setRecycleBinOpen(true);
+    setRecycleLoading(true);
     try {
-      const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>('/api/matches/undo-delete', {
+      const data = await requestJson<{ entries: RecycleBinRow[] }>('/api/matches/recycle-bin');
+      setRecycleBinRows(data.entries);
+      setRecycleSelectedKeys([]);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRecycleLoading(false);
+    }
+  }
+
+  async function restoreRecycleMatches(): Promise<void> {
+    if (!recycleSelectedKeys.length) {
+      return;
+    }
+    setRecycleRestoring(true);
+    try {
+      const data = await requestJson<{ success: boolean; store?: MatchStoreState; pagePush?: { page6?: Page6State; page7?: Page7State; page8?: Page8State } }>('/api/matches/restore-deleted', {
         method: 'POST',
+        json: { matchIds: recycleSelectedKeys },
       });
       applyServerState({
         store: data.store,
-        scoreboard: data.scoreboard,
-        panels: data.panels,
+        ...(data.pagePush ?? {}),
       });
-      setHistoryNotice({ tone: 'success', text: '已恢复最近一次删除的赛事记录' });
-      message.success('最近删除的赛事已恢复');
+      message.success(`已恢复 ${recycleSelectedKeys.length} 场赛事`);
+      // 刷新回收站清单（被恢复的条目已移出）
+      await openMatchRecycleBin();
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRecycleRestoring(false);
     }
   }
 
@@ -5059,6 +5113,59 @@ function Dashboard() {
                 ) : null}
               </Row>
 
+              {/* 比赛回收站：普通删除 7 天内逐条恢复（purged 批次——回退上一波等不可恢复删除——不在列） */}
+              <Modal
+                title="♻ 比赛回收站"
+                open={recycleBinOpen}
+                width={560}
+                okText={`恢复选中（${recycleSelectedKeys.length}）`}
+                okButtonProps={{ disabled: !recycleSelectedKeys.length, loading: recycleRestoring }}
+                onOk={() => void restoreRecycleMatches()}
+                onCancel={() => setRecycleBinOpen(false)}
+              >
+                <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+                  {recycleLoading ? (
+                    <Text type="secondary">加载中…</Text>
+                  ) : recycleBinRows.length ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {recycleBinRows.map((row) => (
+                        <div
+                          key={row.matchId}
+                          style={{
+                            border: '1px solid #f0f0f0',
+                            borderRadius: 8,
+                            padding: '6px 10px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <Text strong>{row.leftPlayer} vs {row.rightPlayer}</Text>
+                            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                              {row.matchId} · BO{row.bestOf} · 删除于 {row.deletedAt.slice(0, 16).replace('T', ' ')}
+                            </Text>
+                          </div>
+                          <Checkbox
+                            checked={recycleSelectedKeys.includes(row.matchId)}
+                            onChange={(event) => {
+                              setRecycleSelectedKeys((prev) => (
+                                event.target.checked
+                                  ? [...prev, row.matchId]
+                                  : prev.filter((id) => id !== row.matchId)
+                              ));
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Text type="secondary">回收站是空的（普通删除的比赛保留 7 天，过期自动清理）</Text>
+                  )}
+                </div>
+              </Modal>
+
               <Card
                 title="比赛管理"
                 extra={(
@@ -5070,8 +5177,8 @@ function Dashboard() {
                     <Button danger disabled={!selectedHistoryKeys.length} onClick={() => void deleteHistoryMatches(selectedHistoryKeys.map(String))}>
                       删除选中赛事
                     </Button>
-                    <Button onClick={() => void undoDeletedHistoryMatches()} disabled={!matchStore.undo.canUndoDelete}>
-                      撤回最近删除
+                    <Button onClick={() => void openMatchRecycleBin()} disabled={matchStore.undo.deleteUndoCount === 0}>
+                      ♻ 回收站 ({matchStore.undo.deleteUndoCount})
                     </Button>
                   </Space>
                 )}
@@ -7058,6 +7165,7 @@ function Dashboard() {
               sprites={sprites}
               machineCode={machineCodeInput}
               locallyRemoved={locallyRemoved}
+              recycleBin={recycleBin}
               onJumpToRoster={() => setView('roster')}
               onMatchesStore={(store) => applyServerState({ store })}
             />

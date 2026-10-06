@@ -524,6 +524,8 @@ export interface SnapshotPayload {
   tournaments: TournamentRecord[];
   /** 本机已「本机移除」（localOnly 墓碑）的系列赛：只在本机读取口径出现，绝不外传 */
   locallyRemoved: TournamentRecord[];
+  /** 本机回收站（删除后 7 天内可整届恢复的 grace 墓碑）：只在本机读取口径出现，绝不外传 */
+  recycleBin: TournamentRecord[];
 }
 
 /**
@@ -1156,6 +1158,12 @@ export interface TournamentRecord {
   deletedMatchIds?: string[];
   /** 墓碑携带：删除时是否"连同对局删除"（决定 deletedMatchIds 是否要在接收端一并移除） */
   deletedMatches?: boolean;
+  /**
+   * 回收站保留截止时间（仅编排机本机语义，随墓碑原样传播但对端不使用）：
+   * 删除系列赛进入回收站 7 天，期间可「整届恢复」（编排 + 进度 + 对局一体还原，对局不解绑不删除）；
+   * 到期自动终结 = 对局真正删除（不可恢复）+ 系列赛留为跨机墓碑。缺省（旧墓碑）= 已终结。
+   */
+  graceUntil?: string | null;
   /**
    * 本机移除标记（仅本机存在，**绝不随同步包外传**）：分控端对「非本机编排」的系列赛做视图层隐藏，
    * 立即隐藏且同步不复活；「恢复」时清除。对局引用与内容保留不动（不 detach、不删对局、不改 updatedAt）。

@@ -501,7 +501,29 @@ describe('DELETE /api/tournaments/:id（删除系列赛）', () => {
     expect(status).toBe(200);
     expect(data.matchesDeleted).toBe(true);
     expect(data.matchIds).toHaveLength(relatedCount);
-    expect((await getJson('/api/matches')).data.matches).toHaveLength(matchesBefore - relatedCount);
+    // 回收站模式：对局保留在 matches.json（随系列赛隐藏，不删除），恢复/到期终结才真正删除
+    expect((await getJson('/api/matches')).data.matches).toHaveLength(matchesBefore);
+
+    // 整届恢复：编排与对局一体还原
+    const restore = await postJson(`/api/tournaments/${created.id}/restore`);
+    expect(restore.status).toBe(200);
+    expect((await getJson('/api/tournaments')).data.tournaments.some(
+      (tournament: { id: string }) => tournament.id === created.id,
+    )).toBe(true);
+  });
+
+  it('彻底删除（purge）：对局真正删除不可恢复', async () => {
+    const playerIds = seedPlayers(4);
+    const created = (await postJson('/api/tournaments', { name: '绝删杯', playerIds, seed: 1 })).data.tournament;
+    await postJson(`/api/tournaments/${created.id}/start`);
+    deleteJson(`/api/tournaments/${created.id}`, { deleteMatches: true });
+    expect((await getJson('/api/matches')).data.matches.length).toBeGreaterThan(0);
+
+    const { status } = await postJson(`/api/tournaments/${created.id}/purge`);
+    expect(status).toBe(200);
+    expect((await getJson('/api/matches')).data.matches.filter(
+      (match: { tournamentRef?: { tournamentId: string } }) => match.tournamentRef?.tournamentId === created.id,
+    )).toHaveLength(0);
   });
 
   it('系列赛不存在：400', async () => {

@@ -9,7 +9,10 @@ import {
   buildRollbackWavePreview,
   createTournament,
   deleteTournament,
+  finalizeExpiredGraceTombstones,
+  finalizeTombstone,
   getLocallyRemovedTournaments,
+  getRecycleBinTournaments,
   getTournamentRecordsIncludingTombstones,
   getTournamentStore,
   getTournamentTombstones,
@@ -21,6 +24,7 @@ import {
   previewOpeningWave,
   redrawTournament,
   removeLocalTournament,
+  restoreTournament,
   resolveStageStandings,
   restoreLocalTournament,
   rollbackWave,
@@ -1082,7 +1086,7 @@ describe('updateTournamentStages（编辑赛制 / 重开本阶段）', () => {
     ))).toBe(true);
   });
 
-  it('重开时后续未打波自动作废（软删可恢复）', () => {
+  it('重开时后续未打波自动作废（不可恢复，与回退同口径）', () => {
     const tournament = createSeries(8);
     startTournament(paths, tournament.id);
     let record = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
@@ -1101,10 +1105,8 @@ describe('updateTournamentStages（编辑赛制 / 重开本阶段）', () => {
     const after = getMatchStore(paths).matches;
     expect(w2Ids.every((id) => !after.some((match) => match.id === id))).toBe(true);
 
-    // 软删进「撤回最近删除」：可恢复
-    undoDeletedMatches(paths);
-    const restored = getMatchStore(paths).matches;
-    expect(w2Ids.every((id) => restored.some((match) => match.id === id))).toBe(true);
+    // 作废不可恢复（波次按新结果重建，恢复孤儿对局无意义）：删除栈无批次
+    expect(() => undoDeletedMatches(paths)).toThrow(/没有可撤回的删除记录/);
   });
 
   it('后续波已有赛果：拒绝并提示先处理后续波次', () => {
@@ -1529,22 +1531,80 @@ describe('deleteTournament（删除系列赛）', () => {
     expect(store.matches.map((match) => match.tags)).toEqual(tagsSnapshot);
   });
 
-  it('deleteMatches=true：对局一并删除；撤回恢复后为无关联普通对局', () => {
+  it('deleteMatches=true：进回收站——对局保留原处，整届恢复后编排与对局一体还原', () => {
     const tournament = createSeries(4);
-    startTournament(paths, tournament.id);
+    const started = startTournament(paths, tournament.id);
+    // 打一场产生进度（阶段推进 / entries 变化都算）
+    playMatchToEnd(started.waves[0].nodes[0].matchId ?? '', 'left');
+    const before = getTournamentStore(paths).find((item) => item.id === tournament.id)!;
+    const digestBefore = JSON.stringify({ waves: before.waves, entries: before.entries, currentStageIndex: before.currentStageIndex });
     const relatedIds = getMatchStore(paths).matches
       .filter((match) => match.tournamentRef?.tournamentId === tournament.id)
       .map((match) => match.id);
 
     const result = deleteTournament(paths, tournament.id, { deleteMatches: true });
     expect(result.matchesDeleted).toBe(true);
-    expect(result.matchIds).toHaveLength(relatedIds.length);
-    expect(getMatchStore(paths).matches).toEqual([]);
+    // 系列赛隐藏；对局保留在 matches.json（tournamentRef 完整、未删除）
+    expect(getTournamentStore(paths)).toEqual([]);
+    expect(getMatchStore(paths).matches.filter((match) => relatedIds.includes(match.id))).toHaveLength(relatedIds.length);
+    // 撤回最近删除不适用（对局未删，删除栈无批次）
+    expect(() => undoDeletedMatches(paths)).toThrow(/没有可撤回的删除记录/);
 
-    undoDeletedMatches(paths);
-    const restored = getMatchStore(paths).matches;
-    expect(restored).toHaveLength(relatedIds.length);
-    expect(restored.every((match) => match.tournamentRef === undefined)).toBe(true);
+    // 整届恢复：编排（波次 / 进度 / entries）与对局一体还原
+    const restored = restoreTournament(paths, tournament.id);
+    expect(restored.deletedAt).toBeFalsy();
+    expect(getTournamentStore(paths).map((item) => item.id)).toEqual([tournament.id]);
+    const after = getTournamentStore(paths)[0];
+    expect(JSON.stringify({ waves: after.waves, entries: after.entries, currentStageIndex: after.currentStageIndex })).toBe(digestBefore);
+    expect(getMatchStore(paths).matches.find((match) => match.id === relatedIds[0])?.tournamentRef?.tournamentId).toBe(tournament.id);
+    expect(getRecycleBinTournaments(paths)).toHaveLength(0);
+  });
+
+  it('彻底删除（purge）：对局真正删除且不可恢复，墓碑留为跨机标记', () => {
+    const tournament = createSeries(4);
+    startTournament(paths, tournament.id);
+    deleteTournament(paths, tournament.id, { deleteMatches: true });
+    expect(getMatchStore(paths).matches.length).toBeGreaterThan(0);
+
+    finalizeTombstone(paths, tournament.id);
+    expect(getMatchStore(paths).matches.filter(
+      (match) => match.tournamentRef?.tournamentId === tournament.id,
+    )).toHaveLength(0);
+    // purged：删除栈无可恢复批次
+    expect(() => undoDeletedMatches(paths)).toThrow(/没有可撤回的删除记录/);
+    // 墓碑留存（名单 + deletedAt）供跨机传播，graceUntil 已清
+    const tombstone = getTournamentRecordsIncludingTombstones(paths).find((item) => item.id === tournament.id)!;
+    expect(tombstone.deletedAt).toBeTruthy();
+    expect(tombstone.graceUntil).toBeFalsy();
+    expect(getRecycleBinTournaments(paths)).toHaveLength(0);
+  });
+
+  it('到期自动终结：graceUntil 过期后清理，对局删除、墓碑留存', () => {
+    const tournament = createSeries(4);
+    startTournament(paths, tournament.id);
+    deleteTournament(paths, tournament.id, { deleteMatches: true });
+    expect(getMatchStore(paths).matches.length).toBeGreaterThan(0);
+
+    // 注入 8 天后的时钟：保留期已过
+    const graceUntilMs = Date.parse(
+      getTournamentRecordsIncludingTombstones(paths).find((item) => item.id === tournament.id)!.graceUntil!,
+    );
+    finalizeExpiredGraceTombstones(paths, graceUntilMs + 1000);
+    expect(getMatchStore(paths).matches.some(
+      (match) => match.tournamentRef?.tournamentId === tournament.id,
+    )).toBe(false);
+    expect(getRecycleBinTournaments(paths)).toHaveLength(0);
+    expect(getTournamentRecordsIncludingTombstones(paths).find(
+      (item) => item.id === tournament.id,
+    )?.deletedAt).toBeTruthy();
+  });
+
+  it('回收站列表：只含本机删除、未到期的 grace 墓碑；恢复后移出', () => {
+    const first = createSeries(4);
+    deleteTournament(paths, first.id);
+    expect(getRecycleBinTournaments(paths).map((item) => item.id)).toEqual([first.id]);
+    restoreTournament(paths, first.id);
+    expect(getRecycleBinTournaments(paths)).toHaveLength(0);
   });
 
   it('系列赛不存在：抛错且不动比赛库', () => {

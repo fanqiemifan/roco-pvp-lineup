@@ -33,6 +33,7 @@ import type { ProfileImportDecision } from './profile-service.js';
 import { diffProfileRecords, getProfileStore, mergeProfileRecords } from './profile-service.js';
 import {
   getLocallyRemovedTournaments,
+  getRecycleBinTournaments,
   getTournamentRecordsIncludingTombstones,
   getTournamentStore,
   getTournamentTombstones,
@@ -803,8 +804,14 @@ export async function applySyncImport(
   // 引用墓碑系列赛的比赛一律解绑（旧包能把 tournamentRef 带回来，靠这里再解一次）；
   // 本次新收到的墓碑若"连同对局删除"，按名单在本机一并移除
   // （复制的既成事实，不进撤销栈；只在新墓碑到达时执行一次，之后由名单过滤拦截）。
+  // 例外：本机回收站里的 grace 墓碑（编排机删除、7 天内可整届恢复）——对局保留 tournamentRef 是
+  // 恢复语义的一部分，绝不能被这里解绑；从别机传播来的墓碑（非本机编排）照常清理。
+  const recycleBinIds = new Set(getRecycleBinTournaments(paths).map((record) => record.id));
   let tombstoneDetached = 0;
   tombstones.forEach((record) => {
+    if (recycleBinIds.has(record.id)) {
+      return;
+    }
     tombstoneDetached += detachMatchesFromTournament(paths, record.id).matchIds.length;
   });
   const freshlyDeletedMatchIds = tombstones
