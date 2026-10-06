@@ -116,9 +116,11 @@ import {
   deleteMatches,
   forfeitMatch,
   getMatchStore,
+  getRecycleBinEntries,
   inspectLineupImportTargets,
   recordMatchWinner,
   redoMatchAction,
+  restoreDeletedMatches,
   saveDraftPanelStateForActiveMatch,
   saveDraftPanelSlotStateForActiveMatch,
   saveGameLineupForMatch,
@@ -1535,6 +1537,27 @@ export async function createLocalServer(
       broadcast(SOCKET_EVENTS.scoreboardUpdate, { scoreboard }, ROLES_FOR_SCOREBOARD);
       panels.forEach((panel) => broadcast(SOCKET_EVENTS.panelUpdate, { panel }, ROLES_FOR_PANEL));
       response.json({ success: true, store: matches, scoreboard, panels, pagePush });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 比赛回收站：普通删除、7 天保留期内的比赛（不含 purged 批次——回退上一波等不可恢复删除）
+  app.get('/api/matches/recycle-bin', (_request, response) => {
+    try {
+      response.json({ entries: getRecycleBinEntries(paths) });
+    } catch (error) {
+      response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // 逐条恢复回收站里的比赛（勾选恢复）：原样放回比赛列表原位置（含阵容与撤销历史）
+  app.post('/api/matches/restore-deleted', (request, response) => {
+    try {
+      const body = (request.body ?? {}) as { matchIds?: unknown };
+      const matches = restoreDeletedMatches(paths, body.matchIds ?? []);
+      const pagePush = emitMatchesUpdate(getMatchStore(paths));
+      response.json({ success: true, store: matches, pagePush });
     } catch (error) {
       response.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
     }

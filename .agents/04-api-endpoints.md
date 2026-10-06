@@ -41,7 +41,9 @@
 | 撤销操作 | POST | /api/matches/:matchId/undo | 撤销操作；系列赛对局会先跑 onMatchUndo 反向钩子（清节点胜者、必要时级联丢弃「自动锁定且未开打」的后续波），钩子失败则整个撤回 400、比赛不动（避免「比赛撤了、系列赛仍显示晋级」） | electron/socket-server.ts |
 | 恢复操作 | POST | /api/matches/:matchId/redo | 恢复操作 | electron/socket-server.ts |
 | 批量删除比赛 | POST | /api/matches/batch-delete | 批量删除比赛（body: matchIds）；响应额外回带 pagePush（推流选场清理结果，仅含发生变化的页面） | electron/socket-server.ts |
-| 撤销删除 | POST | /api/matches/undo-delete | 撤销删除 | electron/socket-server.ts |
+| 比赛回收站清单 | GET | /api/matches/recycle-bin | 普通删除、7 天保留期内的比赛（跨批次平铺、按删除时间倒序、不含 purged 批次——回退上一波等不可恢复删除） | electron/socket-server.ts |
+| 逐条恢复回收站 | POST | /api/matches/restore-deleted | body: matchIds；跨批次按 id 原样放回比赛列表原位置（含阵容 / 撤销历史）；广播 matches:update | electron/socket-server.ts |
+| 撤销删除 | POST | /api/matches/undo-delete | 整批恢复最近一批（旧入口，UI 已改走回收站逐条恢复） | electron/socket-server.ts |
 
 ## 数据同步接口
 

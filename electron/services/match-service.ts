@@ -26,9 +26,12 @@ const PLAYER_NAME_MAX_LENGTH = 32;
 const TEAM_NAME_MAX_LENGTH = 40;
 const MAX_GAME_SLOTS = 6;
 const FLOW_HISTORY_LIMIT = 50;
-const DELETE_HISTORY_LIMIT = 3;
+// 回收站批次安全上限（防异常膨胀的兜底）；真实保留机制 = deletedAt 起 7 天过期自动清理
+const DELETE_HISTORY_LIMIT = 300;
 // 撤销/重做快照保留期：7 天，过期在读取与写入时自动清理，避免 matches.json 无限膨胀
 const FLOW_HISTORY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// 回收站保留期：删除（普通删除）后 7 天内可逐条恢复，过期自动清理并释放 id 占位
+const RECYCLE_BIN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // 已落盘数据结构版本：命中当前版本时跳过「全量序列化比对」迁移检测
 const MATCH_STORE_VERSION = 1;
 // 长跑不重启时，缓存命中路径上的过期清理节流间隔
@@ -61,6 +64,8 @@ interface DeletedMatchEntry {
 interface DeletedMatchBatch {
   entries: DeletedMatchEntry[];
   previousActiveMatchId: string | null;
+  /** 删除时间（回收站 7 天保留期的计时起点；旧数据缺省 = 永不过期） */
+  deletedAt?: string;
   /** 不可恢复批次（回退上一波等管理级删除）：id 仍占位防复用，但「撤回最近删除」跳过 */
   purged?: boolean;
 }
@@ -696,6 +701,7 @@ function normalizeDeletedHistory(
       return {
         entries,
         previousActiveMatchId: typeof raw.previousActiveMatchId === 'string' ? raw.previousActiveMatchId : null,
+        deletedAt: typeof raw.deletedAt === 'string' ? raw.deletedAt : undefined,
         purged: raw.purged === true,
       } satisfies DeletedMatchBatch;
     })
@@ -830,7 +836,10 @@ function toPublicStore(store: MatchStoreFile, mtime: number | null): MatchStoreS
       canUndo: Boolean(activeHistory && activeHistory.undoStack.length > 0),
       canRedo: Boolean(activeHistory && activeHistory.redoStack.length > 0),
       canUndoDelete: store.deletedHistory.some((batch) => !batch.purged),
-      deleteUndoCount: store.deletedHistory.filter((batch) => !batch.purged).length,
+      // 回收站条目数（跨批次平铺）：比赛管理「♻ 回收站」按钮计数用
+      deleteUndoCount: store.deletedHistory
+        .filter((batch) => !batch.purged)
+        .reduce((sum, batch) => sum + batch.entries.length, 0),
       byMatch: summarizeFlowHistory(store),
     },
     mtime,
@@ -879,6 +888,117 @@ function pruneExpiredFlowHistory(store: MatchStoreFile, nowMs: number): boolean 
   return changed;
 }
 
+/**
+ * 回收站过期清理：删除超过 7 天的批次（recoverable 与 purged 一视同仁——
+ * purged 批次的 id 占位也随 7 天窗口释放）。返回是否发生了清理。
+ */
+function pruneExpiredRecycleBin(store: MatchStoreFile, nowMs: number): boolean {
+  const cutoffMs = nowMs - RECYCLE_BIN_TTL_MS;
+  const filtered = store.deletedHistory.filter((batch) => {
+    // 旧数据批次缺 deletedAt = 永不过期（保持可恢复）
+    const deletedMs = batch.deletedAt ? Date.parse(batch.deletedAt) : Number.NaN;
+    return !Number.isFinite(deletedMs) || deletedMs >= cutoffMs;
+  });
+  if (filtered.length === store.deletedHistory.length) {
+    return false;
+  }
+  store.deletedHistory = filtered;
+  return true;
+}
+
+/** 供 readStoreFile / writeStoreFile 调用的统一过期清理入口 */
+function pruneExpiredStoreData(store: MatchStoreFile, nowMs: number): boolean {
+  const flowPruned = pruneExpiredFlowHistory(store, nowMs);
+  const recyclePruned = pruneExpiredRecycleBin(store, nowMs);
+  return flowPruned || recyclePruned;
+}
+
+/** 对外读模型：回收站条目（跨批次平铺，按删除时间倒序——最新删除的排最前） */
+export interface RecycleBinEntryView {
+  matchId: string;
+  leftPlayer: string;
+  rightPlayer: string;
+  bestOf: number;
+  status: MatchRecord['status'];
+  deletedAt: string;
+}
+
+/** 回收站清单（不含 purged 批次）：比赛管理「♻ 回收站」弹窗数据源 */
+export function getRecycleBinEntries(paths: AppPaths): RecycleBinEntryView[] {
+  const { store } = readStoreFile(paths);
+  return store.deletedHistory
+    .filter((batch) => !batch.purged)
+    .flatMap((batch) => batch.entries.map((entry) => ({
+      matchId: entry.match.id,
+      leftPlayer: entry.match.leftPlayer,
+      rightPlayer: entry.match.rightPlayer,
+      bestOf: entry.match.bestOf,
+      status: entry.match.status,
+      deletedAt: batch.deletedAt ?? entry.match.createdAt,
+    })))
+    .sort((left, right) => right.deletedAt.localeCompare(left.deletedAt));
+}
+
+/**
+ * 逐条恢复回收站里的比赛（跨批次）：按 id 从各批次摘出对应条目，原样放回比赛列表原位置
+ * （含阵容 / flowHistory）。批次条目被摘空则整批移除；purged 批次不可恢复。
+ */
+export function restoreDeletedMatches(paths: AppPaths, matchIds: unknown): MatchStoreState {
+  if (!Array.isArray(matchIds)) {
+    throw new Error('matchIds must be a list');
+  }
+  const idSet = new Set(
+    matchIds.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean),
+  );
+  if (!idSet.size) {
+    throw new Error('请选择至少一条要恢复的比赛');
+  }
+
+  const { store } = readStoreFile(paths);
+  const restored: DeletedMatchEntry[] = [];
+  const nextBatches: DeletedMatchBatch[] = [];
+  store.deletedHistory.forEach((batch) => {
+    if (batch.purged) {
+      nextBatches.push(batch);
+      return;
+    }
+    const taken = batch.entries.filter((entry) => idSet.has(entry.match.id));
+    const kept = batch.entries.filter((entry) => !idSet.has(entry.match.id));
+    restored.push(...taken);
+    if (kept.length) {
+      nextBatches.push({ ...batch, entries: kept });
+    }
+  });
+  if (!restored.length) {
+    throw new Error('回收站中没有所选比赛（可能已过期清理或不可恢复）');
+  }
+  store.deletedHistory = nextBatches;
+
+  const nextMatches = [...store.matches];
+  restored
+    .sort((left, right) => left.index - right.index)
+    .forEach((entry) => {
+      nextMatches.splice(Math.min(entry.index, nextMatches.length), 0, cloneValue(entry.match));
+      store.flowHistory[entry.match.id] = cloneValue(entry.flowHistory);
+    });
+  store.matches = nextMatches;
+  if (!store.activeMatchId && store.matches.length) {
+    store.activeMatchId = store.matches[0].id;
+  }
+
+  const publicStore = writeStoreFile(paths, store);
+  syncAfterStoreChange(paths, publicStore);
+  return getMatchStore(paths);
+}
+
+/** 回收站过期清理（持久化；readStore/writeStore 与节流检查会自动调用，这里供测试与手动触发注入时钟） */
+export function pruneRecycleBin(paths: AppPaths, nowMs: number = Date.now()): void {
+  const { store } = readStoreFile(paths);
+  if (pruneExpiredRecycleBin(store, nowMs)) {
+    writeStoreFile(paths, store);
+  }
+}
+
 // 原子写：同目录临时文件 + rename，避免写一半崩溃导致 matches.json 截断损坏
 function persistStoreFile(paths: AppPaths, store: MatchStoreFile): number {
   ensureRuntimeDirs(paths);
@@ -910,7 +1030,7 @@ function readStoreFile(paths: AppPaths): { store: MatchStoreFile; mtime: number 
     const nowMs = Date.now();
     if (nowMs - cached.lastPruneAt >= STORE_CACHE_PRUNE_CHECK_INTERVAL_MS) {
       cached.lastPruneAt = nowMs;
-      if (pruneExpiredFlowHistory(cached.store, nowMs)) {
+      if (pruneExpiredStoreData(cached.store, nowMs)) {
         const nextMtime = persistStoreFile(paths, cached.store);
         cached.fileMtime = nextMtime;
         cached.mtime = nextMtime;
@@ -955,7 +1075,7 @@ function readStoreFile(paths: AppPaths): { store: MatchStoreFile; mtime: number 
     });
 
     let needsWriteBack = version < MATCH_STORE_VERSION;
-    if (pruneExpiredFlowHistory(store, Date.now())) {
+    if (pruneExpiredStoreData(store, Date.now())) {
       needsWriteBack = true;
     }
 
@@ -980,7 +1100,7 @@ function readStoreFile(paths: AppPaths): { store: MatchStoreFile; mtime: number 
 
 function writeStoreFile(paths: AppPaths, store: MatchStoreFile): MatchStoreState {
   const normalizedStore = normalizeStoreIdentifiers(store);
-  pruneExpiredFlowHistory(normalizedStore, Date.now());
+  pruneExpiredStoreData(normalizedStore, Date.now());
   const mtime = persistStoreFile(paths, normalizedStore);
   // 直接以内存态构建返回值，不再写后重读
   rememberStore(paths, { fileMtime: mtime, store: normalizedStore, mtime, lastPruneAt: Date.now() });
@@ -1388,10 +1508,12 @@ export function deleteMatches(
     throw new Error('比赛不存在');
   }
 
+  const now = new Date().toISOString();
   if (recoverable) {
     store.deletedHistory.push({
       entries,
       previousActiveMatchId: store.activeMatchId,
+      deletedAt: now,
     });
   } else {
     // 不可恢复批次：purged 标记让「撤回最近删除」跳过，但批次本身留在栈里——
@@ -1399,6 +1521,7 @@ export function deleteMatches(
     store.deletedHistory.push({
       entries,
       previousActiveMatchId: store.activeMatchId,
+      deletedAt: now,
       purged: true,
     });
   }

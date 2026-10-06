@@ -20,7 +20,10 @@
 | 批量添加标签 | updateMatchesTags | (paths: AppPaths, matchIds: unknown, payload: unknown) => MatchStoreState | 为多场比赛追加标签（合并保留原有） |
 | 选择活动比赛 | setActiveMatch | (paths: AppPaths, matchId: string) => MatchStoreState | 设置活动比赛 |
 | 删除比赛 | deleteMatch | (paths: AppPaths, matchId: string) => MatchStoreState | 删除单个比赛 |
-| 批量删除比赛 | deleteMatches | (paths: AppPaths, matchIds: unknown, options?: { recoverable?: boolean }) => MatchStoreState | 批量删除比赛，matchIds 为字符串数组；默认软删（整批快照进 deletedHistory，「撤回最近删除」可整批恢复）；recoverable: false 时批次标 purged——id 仍占位防复用（collectNextMatchIndexes 扫描含 purged 批次），但「撤回最近删除」跳过不可恢复（回退上一波专用） |
+| 批量删除比赛 | deleteMatches | (paths: AppPaths, matchIds: unknown, options?: { recoverable?: boolean }) => MatchStoreState | 批量删除比赛，matchIds 为字符串数组；默认软删（整批快照带 deletedAt 进 deletedHistory，「♻ 回收站」7 天内逐条恢复）；recoverable: false 时批次标 purged——id 仍占位防复用（collectNextMatchIndexes 扫描含 purged 批次，占位随 7 天窗口释放），「撤回最近删除 / 回收站」跳过不可恢复（回退上一波专用） |
+| 回收站清单 | getRecycleBinEntries | (paths: AppPaths) => RecycleBinEntryView[] | 普通删除、7 天保留期内的比赛（跨批次平铺、按删除时间倒序、不含 purged 批次）：比赛管理「♻ 回收站」弹窗数据源 |
+| 逐条恢复 | restoreDeletedMatches | (paths: AppPaths, matchIds: unknown) => MatchStoreState | 跨批次按 id 摘出条目原样放回比赛列表原位置（含阵容 / flowHistory），批次摘空自动移除；purged 批次不可恢复 |
+| 回收站过期清理 | pruneRecycleBin | (paths: AppPaths, nowMs?: number) => void | 删除超过 7 天的批次自动清理（recoverable 与 purged 一视同仁，id 占位随窗口释放）；readStore/writeStore 与节流检查自动调用，导出供测试注入时钟 |
 | 撤销删除 | undoDeletedMatches | (paths: AppPaths) => MatchStoreState | 撤销最近一次批量删除 |
 | 开始当前小局 | startCurrentGame | (paths: AppPaths, matchId: string) => MatchStoreState | 开始当前小局 |
 | 记录比赛胜负 | recordMatchWinner | (paths: AppPaths, matchId: string, winner: 'left' | 'right') => MatchStoreState | 记录比赛胜负 |
