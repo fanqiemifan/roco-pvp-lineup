@@ -148,8 +148,11 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
     setTitleDraft('title' in state ? state.title : '');
     setNoticeDraft('notice' in state ? state.notice : '');
     const nextStart = 'startTime' in state ? state.startTime : '';
-    // 比赛预告（page8）尚未配置开始时间时，默认填当前时间向上取整到半点（19:00 / 19:30）
-    setStartTimeDraft(kind === 'page8' && !nextStart ? roundedNowHHmm() : nextStart);
+    // 比赛预告（page8）默认开始时间：
+    // - 没有在推的预告（选场为空）→ 服务端 startTime 只是上次推送的残留（prune 只清 matchIds 不清 startTime），
+    //   默认填当前时间向上取整到半点（19:00 / 19:30），避免带着昨天的旧时间推送新预告；
+    // - 已有在推的预告 → 沿用服务端 startTime，编辑时不能把已固化的场序时间悄悄推移。
+    setStartTimeDraft(kind === 'page8' && state.matchIds.length === 0 ? roundedNowHHmm() : nextStart);
     setMatchTimesDraft('matchTimes' in state ? { ...state.matchTimes } : {});
     setSearch('');
   }, [open, state, maxCount, kind]);
