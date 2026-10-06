@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Checkbox, Empty, Input, Modal, Popconfirm, Space, Table, Tag, TimePicker, Typography } from 'antd';
+import { App, Button, Card, Checkbox, Empty, Input, Modal, Popconfirm, Space, Table, Tag, TimePicker, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
 
 import type { MatchRecord, Page6State, Page7State, Page8State, TournamentRecord } from '../../../shared/types';
-import { computeScheduleTimes, normalizeHHmm } from '../../../shared/match-schedule';
+import { CHINESE_ORDINALS, computeScheduleTimes, normalizeHHmm } from '../../../shared/match-schedule';
 import { countPushRows } from '../lib/history';
 import { buildPushCandidateGroups, type PushCandidateGroup } from '../lib/tournament';
 
@@ -128,6 +128,7 @@ function roundedNowHHmm(): string {
  * 勾选（勾选顺序即卡片场序）、上移/下移调整、page6/8 可编辑标题与场序时间。
  */
 export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, tournaments, state, pushing, onPush }: MatchPushCardProps) {
+  const { modal } = App.useApp();
   const [open, setOpen] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>([]);
   const [titleDraft, setTitleDraft] = useState('');
@@ -318,7 +319,8 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
     );
   }
 
-  async function handleConfirm() {
+  /** 组装推送请求体：page6/8 固化场序时间（按确认这一刻的场序与开始时间，手动值优先） */
+  function buildPushPayload(): MatchPushPayload {
     const payload: MatchPushPayload = { matchIds: draftIds, title: titleDraft.trim() };
     if (withSchedule) {
       // 推送时固化场序时间：按确认这一刻的场序与开始时间把每场解析成独立值（手动值优先）。
@@ -333,13 +335,61 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
     if (withNotice) {
       payload.notice = noticeDraft.trim();
     }
+    return payload;
+  }
 
+  async function pushPayload(payload: MatchPushPayload) {
     try {
       await onPush(payload);
       setOpen(false);
     } catch {
       // 错误提示由调用方负责，弹窗保持打开便于调整
     }
+  }
+
+  async function handleConfirm() {
+    const payload = buildPushPayload();
+    // 比赛预告（page8）推送前二次确认：亮出第一场开始时间与整条场序时间——
+    // 推送即固化为每场固定时间，防止带着残留/手滑的错误时间上线
+    if (kind !== 'page8') {
+      await pushPayload(payload);
+      return;
+    }
+    const start = normalizeHHmm(startTimeDraft);
+    modal.confirm({
+      title: '确认推送比赛预告？',
+      width: 480,
+      content: (
+        <div style={{ marginTop: 8 }}>
+          <Text>
+            第一场开始时间：
+            <Text strong style={{ fontSize: 16 }}>{start || '未设置'}</Text>
+          </Text>
+          {!start ? (
+            <div style={{ marginTop: 4 }}>
+              <Text type="warning">未设置开始时间，预告卡片将不显示场序时间</Text>
+            </div>
+          ) : null}
+          {selectedMatches.length ? (
+            <div style={{ marginTop: 8, display: 'grid', gap: 2 }}>
+              {selectedMatches.map((match, index) => (
+                <Text key={match.id} type="secondary" style={{ fontSize: 12 }}>
+                  {`第${CHINESE_ORDINALS[index] ?? index + 1}场 ${versusText(match)} · ${autoTimes[match.id] || '--:--'}`}
+                </Text>
+              ))}
+            </div>
+          ) : null}
+          <div style={{ marginTop: 8 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              推送后各场时间固化为固定值，改时间需重新推送。
+            </Text>
+          </div>
+        </div>
+      ),
+      okText: '确认推送',
+      cancelText: '再看看',
+      onOk: () => pushPayload(payload),
+    });
   }
 
   const candidateColumns: ColumnsType<PushCandidateRow> = [
