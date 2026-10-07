@@ -34,7 +34,7 @@ const rocoFloat = {
   reportShape(rect: { x: number; y: number; width: number; height: number }) {
     ipcRenderer.send('float:shape', rect);
   },
-  openMenu(payload: { side: string; slot: number; rect?: { x: number; y: number; width: number; height: number } }) {
+  openMenu(payload: { side: string; slot: number; viewSide?: string; rect?: { x: number; y: number; width: number; height: number } }) {
     ipcRenderer.send('float:menu', payload);
   },
   closeMenu() {

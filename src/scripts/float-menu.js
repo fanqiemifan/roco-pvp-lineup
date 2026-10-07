@@ -6,6 +6,9 @@
     const params = new URLSearchParams(window.location.search);
     const side = params.get('side') === 'right' ? 'right' : 'left';
     const slotIndex = Math.min(5, Math.max(0, Number.parseInt(params.get('slot') || '0', 10) || 0));
+    // 阵容镜像反转时悬浮窗传入的视图侧仅用于文案展示，接口与数据读写仍按实际 side
+    const rawViewSide = params.get('viewSide');
+    const viewSide = rawViewSide === 'left' || rawViewSide === 'right' ? rawViewSide : side;
 
     const menuView = document.getElementById('menuView');
     const menuTitle = document.getElementById('menuTitle');
@@ -145,7 +148,7 @@
 
     function getCurrentSpriteLabel() {
         const currentSprite = slotData && slotData.sprite ? slotData.sprite : null;
-        const slotLabel = `${side === 'left' ? '左侧' : '右侧'} 第 ${slotIndex + 1} 位`;
+        const slotLabel = `${viewSide === 'left' ? '左侧' : '右侧'} 第 ${slotIndex + 1} 位`;
         return currentSprite
             ? `正在编辑：${getSpriteDisplayName(currentSprite)}${getSpriteForm(currentSprite) ? `（${getSpriteForm(currentSprite)}）` : ''} · ${slotLabel}`
             : `正在编辑：空槽位 · ${slotLabel}`;

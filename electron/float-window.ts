@@ -186,6 +186,7 @@ function openFloatMenuWindow(
   payload: {
     side: string;
     slot: number;
+    viewSide?: string;
     rect?: { x: number; y: number; width: number; height: number };
   },
   parentBoundsOverride?: { x: number; y: number; width: number; height: number } | null,
@@ -266,7 +267,7 @@ function openFloatMenuWindow(
     }
   });
   void floatMenuWindow
-    .loadURL(`http://127.0.0.1:${getServerPort()}/float-menu.html?side=${encodeURIComponent(payload.side)}&slot=${slot}`)
+    .loadURL(`http://127.0.0.1:${getServerPort()}/float-menu.html?side=${encodeURIComponent(payload.side)}&slot=${slot}&viewSide=${encodeURIComponent(payload.viewSide ?? payload.side)}`)
     .catch((error) => {
       console.error('Failed to open float menu window:', error);
       closeFloatMenuWindow();

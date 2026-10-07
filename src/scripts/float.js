@@ -19,6 +19,28 @@
         busy: false,
     };
 
+    // 阵容镜像反转（跟随页面1-3 顶栏同一开关 stage.mirrorSides，仅展示层左右互换，不改数据）：
+    // 开启后视图左侧渲染实际右侧的阵容；点击阵亡 / 右键更换按视图侧反查实际侧再调接口
+    let mirrorSides = false;
+
+    // 视图侧 → 实际侧：镜像时取对面
+    function mapSide(viewSide) {
+        if (!mirrorSides) {
+            return viewSide;
+        }
+        return viewSide === 'left' ? 'right' : 'left';
+    }
+
+    function setMirrorSides(value) {
+        const next = value === true;
+        if (next === mirrorSides) {
+            return;
+        }
+        mirrorSides = next;
+        renderPanel('left');
+        renderPanel('right');
+    }
+
     const stage = document.getElementById('floatStage');
     const lineupDiv = document.querySelector('.lineup-all-div');
     const closeBtn = document.getElementById('floatCloseBtn');
@@ -109,15 +131,16 @@
 
     let menuPopupWindow = null;
 
-    function openSpriteMenu(side, slotIndex, rect) {
+    function openSpriteMenu(viewSide, slotIndex, rect) {
+        const side = mapSide(viewSide);
         if (window.rocoFloat && typeof window.rocoFloat.openMenu === 'function') {
-            window.rocoFloat.openMenu({ side, slot: slotIndex, rect });
+            window.rocoFloat.openMenu({ side, slot: slotIndex, rect, viewSide });
             return;
         }
         if (menuPopupWindow && !menuPopupWindow.closed) {
             menuPopupWindow.close();
         }
-        const url = `/float-menu.html?side=${encodeURIComponent(side)}&slot=${encodeURIComponent(String(slotIndex))}`;
+        const url = `/float-menu.html?side=${encodeURIComponent(side)}&slot=${encodeURIComponent(String(slotIndex))}&viewSide=${encodeURIComponent(viewSide)}`;
         const left = Math.max(0, Math.round(window.screenX + rect.x + rect.width / 2 - 120));
         const top = Math.max(0, Math.round(window.screenY + rect.y - 246));
         menuPopupWindow = window.open(url, '_blank', `width=240,height=240,popup=yes,left=${left},top=${top}`);
@@ -146,9 +169,10 @@
         }
     }
 
-    function renderPanel(side) {
-        const panel = state[side];
-        const section = lineupSections[side];
+    // side 参数为视图侧（DOM 槽位固定挂在左右两栏），实际数据侧经 mapSide 反查
+    function renderPanel(viewSide) {
+        const panel = state[mapSide(viewSide)];
+        const section = lineupSections[viewSide];
         const selected = panel && Array.isArray(panel.selected) ? panel.selected : [];
 
         for (let index = 0; index < MAX_SLOTS; index += 1) {
@@ -163,7 +187,8 @@
         panels.forEach((panel) => {
             if (panel && (panel.position === 'left' || panel.position === 'right')) {
                 state[panel.position] = panel;
-                renderPanel(panel.position);
+                // 镜像开启时该实际侧的数据渲染在对面视图栏
+                renderPanel(mapSide(panel.position));
             }
         });
     }
@@ -193,10 +218,11 @@
         };
     }
 
-    async function toggleDead(side, slotIndex) {
+    async function toggleDead(viewSide, slotIndex) {
         if (state.busy) {
             return;
         }
+        const side = mapSide(viewSide);
         const panel = state[side];
         const slotData = panel && Array.isArray(panel.selected) ? panel.selected[slotIndex] : null;
         if (!slotData || !slotData.sprite) {
@@ -227,6 +253,8 @@
         });
 
         socket.on('snapshot', (payload) => {
+            // 先应用镜像开关再渲染阵容，避免首连闪一次未镜像画面
+            setMirrorSides(payload && payload.stage && payload.stage.mirrorSides === true);
             if (payload && Array.isArray(payload.panels)) {
                 applyPanels(payload.panels);
             }
@@ -236,6 +264,12 @@
             if (payload && payload.panel) {
                 applyPanels([payload.panel]);
             }
+        });
+
+        // 镜像反转实时切换（与页面1-3 顶栏开关同一数据源，同 lineup-display.js 的解析口径）
+        socket.on('stage:update', (payload) => {
+            const stage = payload && payload.stage ? payload.stage : payload;
+            setMirrorSides(stage && stage.mirrorSides === true);
         });
     }
 
