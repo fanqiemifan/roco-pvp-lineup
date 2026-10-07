@@ -53,6 +53,21 @@ function normalizePage5TournamentId(value: unknown): string {
   return id && TOURNAMENT_ID_REGEX.test(id) ? id : '';
 }
 
+function normalizePage15Player(value: unknown): string {
+  return String(value ?? '').trim().slice(0, 40);
+}
+
+/** 推流页面15：系列赛过滤 id（空 = 全部；仅接受 T 前缀白名单形态，非法值直接丢弃） */
+function normalizePage15TournamentId(value: unknown): string {
+  const id = String(value ?? '').trim();
+  return id && TOURNAMENT_ID_REGEX.test(id) ? id : '';
+}
+
+/** 推流页面15：排序字段白名单（非法值一律回「使用次数」） */
+function normalizePage15SortBy(value: unknown): 'picks' | 'games' | 'winRate' {
+  return value === 'games' || value === 'winRate' ? value : 'picks';
+}
+
 function normalizePage3SpriteSource(value: unknown): Page3SpriteSource {
   return typeof value === 'string' && SUPPORTED_PAGE3_SPRITE_SOURCES.has(value)
     ? value as Page3SpriteSource
@@ -120,6 +135,9 @@ function defaultStageState(): StageConfig {
     page11RankVisible: DEFAULT_PAGE11_RANK_VISIBLE,
     page5Player: '',
     page5TournamentId: '',
+    page15Player: '',
+    page15TournamentId: '',
+    page15SortBy: 'picks',
     page7SwitchSeconds: DEFAULT_PAGE7_SWITCH_SECONDS,
     page10Duration: DEFAULT_PAGE10_DURATION,
     page10DurationUnit: DEFAULT_PAGE10_DURATION_UNIT as NextGameDurationUnit,
@@ -148,6 +166,9 @@ export function getStageState(paths: AppPaths): StageConfig {
       page11RankVisible: normalizePage11RankVisible(metadata.page11RankVisible),
       page5Player: normalizePage5Player(metadata.page5Player),
       page5TournamentId: normalizePage5TournamentId(metadata.page5TournamentId),
+      page15Player: normalizePage15Player(metadata.page15Player),
+      page15TournamentId: normalizePage15TournamentId(metadata.page15TournamentId),
+      page15SortBy: normalizePage15SortBy(metadata.page15SortBy),
       page7SwitchSeconds: normalizePage7SwitchSeconds(metadata.page7SwitchSeconds),
       page10Duration: normalizePage10Duration(metadata.page10Duration, page10DurationUnit),
       page10DurationUnit,
@@ -183,6 +204,12 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
     page11RankVisible: normalizePage11RankVisible(raw.page11RankVisible ?? current.page11RankVisible),
     page5Player: normalizePage5Player(raw.page5Player),
     page5TournamentId: normalizePage5TournamentId(raw.page5TournamentId),
+    // page15 三个字段带 current 兜底：切换画面等局部保存只传 page/transition，不得清空过滤与排序
+    page15Player: normalizePage15Player(raw.page15Player === undefined ? current.page15Player : raw.page15Player),
+    page15TournamentId: normalizePage15TournamentId(
+      raw.page15TournamentId === undefined ? current.page15TournamentId : raw.page15TournamentId,
+    ),
+    page15SortBy: normalizePage15SortBy(raw.page15SortBy === undefined ? current.page15SortBy : raw.page15SortBy),
     page7SwitchSeconds: normalizePage7SwitchSeconds(
       raw.page7SwitchSeconds === undefined ? current.page7SwitchSeconds : raw.page7SwitchSeconds,
     ),

@@ -8,6 +8,8 @@ export type StatsRankingRow = {
   name: string;
   displayName: string;
   spritePath: string;
+  /** 精灵头像 URL（resources/sprites-icon）；空串时展示端回退立绘 spritePath */
+  iconPath: string;
   attributeIcon1: string;
   attributeIcon2: string;
   picks: number;
@@ -38,14 +40,15 @@ function spriteField(sprite: unknown, key: string): string {
 }
 
 /**
- * 按选手 + 系列赛 / 标签计算精灵使用率/胜率排行（Top 10，按使用率降序），统计范围为全部历史对局。
+ * 按选手 + 系列赛 / 标签计算精灵使用率/胜率排行（默认 Top 10，按使用率降序），统计范围为全部历史对局。
  * - 系列赛过滤按 tournamentRef.tournamentId 精确匹配（同 id 才算同一场系列赛，不按名字），并回传系列赛名供页面5标题展示；
+ * - limit：返回条数上限（默认 10，夹取 1..999；推流页面15 传大值拿全量后前端按所选字段自行排序）；
  * - 使用率 = 登场只次 ÷ 总登场只次（同名精灵同局重复携带按只次计）
  * - 胜率 = 该精灵所在一侧获胜场次 ÷ 登场场次（同局左右双方携带同名精灵只计 1 场；镜像局双方同时携带按 0.5 胜计）
  */
 export function getSpriteRanking(
   paths: AppPaths,
-  options: { player: string | null; tag: string | null; tournamentId: string | null },
+  options: { player: string | null; tag: string | null; tournamentId: string | null; limit?: number },
 ): {
   player: string | null;
   tag: string | null;
@@ -146,6 +149,7 @@ export function getSpriteRanking(
       name: sprite ? spriteDisplayName(sprite) : key,
       displayName: sprite ? spriteField(sprite, 'displayName') : '',
       spritePath: sprite ? sprite.path : '',
+      iconPath: sprite ? spriteField(sprite, 'iconUrl') : '',
       attributeIcon1: sprite ? spriteField(sprite, 'attributeIcon1') : '',
       attributeIcon2: sprite ? spriteField(sprite, 'attributeIcon2') : '',
       picks: entry.picks,
@@ -158,5 +162,9 @@ export function getSpriteRanking(
 
   rows.sort((a, b) => b.usagePercent - a.usagePercent || b.picks - a.picks);
 
-  return { player, tag, tournamentId, tournamentName, totalPicks, rows: rows.slice(0, 10) };
+  // limit 默认 10（页面5 口径不变）；非法值归一默认，上限 999 防误传超大值
+  const rawLimit = Number(options.limit);
+  const limit = Number.isFinite(rawLimit) ? Math.min(999, Math.max(1, Math.round(rawLimit))) : 10;
+
+  return { player, tag, tournamentId, tournamentName, totalPicks, rows: rows.slice(0, limit) };
 }

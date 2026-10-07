@@ -201,9 +201,9 @@
 
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
-| 精灵排行 | GET | /api/stats/ranking | 精灵使用率/上场率/胜率排行（支持 tournamentId（系列赛精确过滤）/ tag / player 参数，统计全部历史对局；响应回传 tournamentId + tournamentName） | electron/socket-server.ts |
+| 精灵排行 | GET | /api/stats/ranking | 精灵使用率/上场率/胜率排行（支持 tournamentId（系列赛精确过滤）/ tag / player / limit 参数，limit 默认 10、夹取 1..999（推流页面15 传大值拿全量后前端自行排序）；行内含 iconPath（头像源，展示端回退 spritePath）；统计全部历史对局；响应回传 tournamentId + tournamentName） | electron/socket-server.ts |
 
-> 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/page10`、`/api/page11`、`/api/page14`、`/api/mvp`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`、`/api/countdown`；同名 POST/DELETE 写操作仍受保护。页面路由同理：`/roco-pvp-page14.html` 与其它推流页一起列在 `isPublicPage` 白名单里。
+> 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/page10`、`/api/page11`、`/api/page14`、`/api/mvp`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`、`/api/countdown`；同名 POST/DELETE 写操作仍受保护。页面路由同理：`/roco-pvp-page14.html`、`/roco-pvp-page15.html` 与其它推流页一起列在 `isPublicPage` 白名单里。
 
 ## 信息录入（选手/战队档案）接口
 

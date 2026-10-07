@@ -27,6 +27,7 @@
         'page12': { label: '选手介绍-右侧选手', path: '/roco-pvp-page11.html?mode=right' },
         'page13': { label: '选手介绍-对战页', path: '/roco-pvp-page11.html?mode=versus' },
         'page14': { label: '推流页面14（晋级积分榜）', path: '/roco-pvp-page14.html' },
+        'page15': { label: '推流页面15（数据统计）', path: '/roco-pvp-page15.html' },
         'blank': { label: '黑场', path: null }
     };
 

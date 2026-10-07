@@ -114,6 +114,7 @@ roco-pvp-lineup/
 | page3-display.js | 推流页面3（头像比分阵容）脚本 |
 | page4-display.js | 推流页面4（MVP 结算画面）脚本（按 pet_id 索引 webm/头像，增量渲染最多 6 个精灵项与标签、MVP 角标） |
 | page5-display.js | 登场/胜率排行页（page5）脚本 |
+| page15-display.js | 数据统计展示页（page15）脚本（GET /api/stats/ranking 拿全量后前端按 stage.page15SortBy 排序取前 20，双列各 10 行） |
 | page6-display.js | 比赛结果页（page6）脚本（薄封装：调用共享 match-prediction.js，defaultTitle「比赛结果」） |
 | page7-display.js | 战绩详情页（page7）脚本（多场比赛逐行滚动展示） |
 | page8-display.js | 比赛预告页（page8）脚本（薄封装：调用共享 match-prediction.js，标题留空隐藏） |
@@ -139,6 +140,7 @@ roco-pvp-lineup/
 | roco-pvp-page3.html | 推流页面3（头像比分阵容） |
 | roco-pvp-page4.html | 推流页面4（MVP 结算画面，公开免鉴权，由后台「结算画面」切屏控制） |
 | roco-pvp-page5.html | 登场/胜率排行页 |
+| roco-pvp-page15.html | 数据统计展示页（无标题；使用次数/登场/胜率排行，直播推流可选画面，后台「数据统计」控制） |
 | roco-pvp-page6.html | 比赛结果展示页 |
 | roco-pvp-page7.html | 战绩详情展示页（直播推流可选画面） |
 | roco-pvp-page8.html | 比赛预告展示页（公开免鉴权，不进直播推流可选画面） |

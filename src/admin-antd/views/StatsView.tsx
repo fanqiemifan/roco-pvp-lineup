@@ -93,6 +93,11 @@ type StatsViewProps = {
   onPage5TitleChange: (value: string) => void;
   onPage5TitleBlur: () => void;
   onPage5DisplayChange: (patch: { page5TournamentId?: string; page5Player?: string }) => void;
+  // 推流页面15（数据统计）显示设置；同样控制推流画面内容，与上方统计筛选相互独立
+  page15TournamentId: string;
+  page15Player: string;
+  page15SortBy: 'picks' | 'games' | 'winRate';
+  onPage15DisplayChange: (patch: { page15TournamentId?: string; page15Player?: string; page15SortBy?: 'picks' | 'games' | 'winRate' }) => void;
 };
 
 export function StatsView({
@@ -116,6 +121,10 @@ export function StatsView({
   onPage5TitleChange,
   onPage5TitleBlur,
   onPage5DisplayChange,
+  page15TournamentId,
+  page15Player,
+  page15SortBy,
+  onPage15DisplayChange,
 }: StatsViewProps) {
   const { message } = App.useApp();
   const [chartMode, setChartMode] = React.useState<StatsChartMode>('rank');
@@ -420,6 +429,58 @@ export function StatsView({
                   ...playerOptions.map((playerName) => ({ value: playerName, label: playerName })),
                 ]}
                 onChange={(value) => onPage5DisplayChange({ page5Player: value ?? '' })}
+              />
+            </SettingField>
+          </Col>
+        </Row>
+      </Card>
+
+      <Card title="推流页面15 显示设置">
+        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          以下控制「推流页面15（数据统计）」的画面内容（统计范围与排序），与上方统计筛选相互独立；修改即时保存生效。
+        </Text>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} md={8}>
+            <SettingField label="系列赛：">
+              <Select
+                style={{ width: '100%' }}
+                value={page15TournamentId || undefined}
+                disabled={stageSaving}
+                options={[
+                  { value: '', label: '全部' },
+                  ...tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
+                ]}
+                onChange={(value) => onPage15DisplayChange({ page15TournamentId: value ?? '' })}
+              />
+            </SettingField>
+          </Col>
+          <Col xs={24} md={8}>
+            <SettingField label="选手：">
+              <Select
+                showSearch
+                optionFilterProp="label"
+                style={{ width: '100%' }}
+                value={page15Player || undefined}
+                disabled={stageSaving}
+                options={[
+                  { value: '', label: '全部' },
+                  ...playerOptions.map((playerName) => ({ value: playerName, label: playerName })),
+                ]}
+                onChange={(value) => onPage15DisplayChange({ page15Player: value ?? '' })}
+              />
+            </SettingField>
+          </Col>
+          <Col xs={24} md={8}>
+            <SettingField label="排序方式：">
+              <Segmented
+                value={page15SortBy}
+                disabled={stageSaving}
+                options={[
+                  { value: 'picks', label: '使用次数' },
+                  { value: 'games', label: '登场场次' },
+                  { value: 'winRate', label: '胜率' },
+                ]}
+                onChange={(value) => onPage15DisplayChange({ page15SortBy: value as 'picks' | 'games' | 'winRate' })}
               />
             </SettingField>
           </Col>

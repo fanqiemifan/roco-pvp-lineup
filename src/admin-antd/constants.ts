@@ -91,6 +91,11 @@ export const PREVIEW_PAGES: Record<PreviewSlotKey, PreviewConfig> = {
     fileName: 'roco-pvp-page14.html',
     path: '/roco-pvp-page14.html',
   },
+  page15: {
+    title: '推流页面15（数据统计）',
+    fileName: 'roco-pvp-page15.html',
+    path: '/roco-pvp-page15.html',
+  },
 };
 
 export const STAGE_OPTIONS: Array<{ value: StagePageKey; label: string; description: string; previewPath: string }> = [
@@ -120,9 +125,15 @@ export const STAGE_OPTIONS: Array<{ value: StagePageKey; label: string; descript
   },
   {
     value: 'page5',
-    label: '精灵出场胜率',
+    label: '前10精灵出场胜率',
     description: '使用率 / 胜率排行统计页',
     previewPath: '/roco-pvp-page5.html',
+  },
+  {
+    value: 'page15',
+    label: '数据统计展示',
+    description: '数据统计（使用次数/登场场次/胜率排行，展示 20 条，后台「数据统计」控制）',
+    previewPath: '/roco-pvp-page15.html',
   },
   {
     value: 'page6',

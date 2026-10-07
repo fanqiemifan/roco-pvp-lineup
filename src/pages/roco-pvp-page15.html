@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>洛克王国PVP - 推流页面15（数据统计）</title>
+    <link rel="stylesheet" href="/styles/roco-pvp-page15.css">
+    <link rel="stylesheet" href="/styles/stage-enter.css">
+    <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
+</head>
+<body>
+    <main class="page15-screen" aria-label="洛克王国PVP数据统计排行">
+        <div class="page15-content fx-enter">
+            <section class="page15-column page15-column-left" aria-label="第1-10名">
+                <div class="page15-table-header">
+                    <span class="page15-header-item page15-header-count">使用次数</span>
+                    <span class="page15-header-item page15-header-games">登场次数</span>
+                    <span class="page15-header-item page15-header-winrate">胜率</span>
+                </div>
+                <div class="page15-rows" id="page15RowsLeft"></div>
+            </section>
+
+            <section class="page15-column page15-column-right" aria-label="第11-20名">
+                <div class="page15-table-header">
+                    <span class="page15-header-item page15-header-count">使用次数</span>
+                    <span class="page15-header-item page15-header-games">登场</span>
+                    <span class="page15-header-item page15-header-winrate">胜率</span>
+                </div>
+                <div class="page15-rows" id="page15RowsRight"></div>
+            </section>
+        </div>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/page15-display.js"></script>
+    <script src="/scripts/stage-enter.js"></script>
+</body>
+</html>

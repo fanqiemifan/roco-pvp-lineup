@@ -14,7 +14,7 @@
 | SUPPORTED_IMAGE_EXTENSIONS | {.png,.jpg,.jpeg,.webp} | 支持的头像图片扩展名 | shared/constants.ts |
 | SUPPORTED_BEST_OF | {1,3,5,7} | 支持的赛制 | shared/constants.ts |
 | DEFAULT_STAGE_PAGE | page3 | 默认推流页面 | shared/constants.ts |
-| SUPPORTED_STAGE_PAGES | {page1-overlay,page2,page3,page4,page5,page6,page7,page8,page9,page10,page11,page12,page13,page14,blank} | 支持的推流页面（page4 = MVP 结算画面；page11/12/13 = 选手介绍三画面，共用同一页面文件；page14 = 晋级积分榜） | shared/constants.ts |
+| SUPPORTED_STAGE_PAGES | {page1-overlay,page2,page3,page4,page5,page6,page7,page8,page9,page10,page11,page12,page13,page14,page15,blank} | 支持的推流页面（page4 = MVP 结算画面；page11/12/13 = 选手介绍三画面，共用同一页面文件；page14 = 晋级积分榜；page15 = 数据统计展示） | shared/constants.ts |
 | DEFAULT_STAGE_TRANSITION | blinds | 默认切换过渡 | shared/constants.ts |
 | SUPPORTED_STAGE_TRANSITIONS | {none,blinds,wolf} | 支持的过渡效果 | shared/constants.ts |
 | DEFAULT_PAGE3_SPRITE_SOURCE | sprite | 页面3精灵图片来源默认值（sprite / thumbnail） | shared/constants.ts |

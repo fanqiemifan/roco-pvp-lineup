@@ -85,3 +85,31 @@ describe('getSpriteRanking（系列赛维度）', () => {
     expect(scoped.tournamentName).toBe('');
   });
 });
+
+describe('getSpriteRanking（limit 与 iconPath）', () => {
+  it('limit 截断返回条数；缺省按 10；非法值归一为 10', () => {
+    const series = startSameNameSeries('夏季杯S1', 0);
+    playFirstGame(series.matchId, ['pet-a', 'pet-b', 'pet-c', 'pet-d'], ['pet-e']);
+
+    expect(getSpriteRanking(paths, { player: null, tag: null, tournamentId: null }).rows).toHaveLength(5);
+    expect(
+      getSpriteRanking(paths, { player: null, tag: null, tournamentId: null, limit: 2 }).rows,
+    ).toHaveLength(2);
+    expect(
+      getSpriteRanking(paths, { player: null, tag: null, tournamentId: null, limit: Number.NaN }).rows,
+    ).toHaveLength(5);
+  });
+
+  it('iconPath 取精灵索引的 iconUrl（索引缺失时为空串，key 回退 pet_id）', () => {
+    const series = startSameNameSeries('夏季杯S1', 0);
+    playFirstGame(series.matchId, ['pet-a'], ['pet-b']);
+
+    const ranking = getSpriteRanking(paths, { player: null, tag: null, tournamentId: null });
+    for (const row of ranking.rows) {
+      // 测试环境无精灵索引，iconPath 与 spritePath 均为空串，key 回退 pet_id
+      expect(row.iconPath).toBe('');
+      expect(row.spritePath).toBe('');
+      expect(row.key).toBe(row.name);
+    }
+  });
+});

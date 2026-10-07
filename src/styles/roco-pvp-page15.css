@@ -1,0 +1,215 @@
+/* 推流页面15：数据统计排行（使用次数/登场场次）· 复用 page5 布局，无标题 */
+/* YouSheBiaoTiHei 不再打包字体文件，改用系统安装字体，未安装时回退 MiSans */
+@font-face {
+    font-family: "YouSheBiaoTiHei";
+    src: local("YouSheBiaoTiHei");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Regular";
+    src: url("/assets/fonts/MiSans-Regular.otf") format("opentype");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Heavy";
+    src: url("/assets/fonts/MiSans-Heavy.otf") format("opentype");
+    font-display: swap;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent !important;
+}
+
+.page15-screen {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    /* 背景复用 page5 背景图 */
+    background: url("/assets/ui/back-for-page5.png") no-repeat center / 100% 100%;
+}
+
+.page15-content {
+    position: absolute;
+    inset: 0;
+}
+
+/* 双列：左 x118 右 x1015（沿用 page5 的列间距关系），y52 起，宽 812 */
+.page15-column {
+    position: absolute;
+    top: 52px;
+    width: 812px;
+}
+
+.page15-column-left {
+    left: 118px;
+}
+
+.page15-column-right {
+    left: 1015px;
+}
+
+/* 表头：812×64，嵌套字号 32 */
+.page15-table-header {
+    position: relative;
+    width: 812px;
+    height: 64px;
+    background: #002fff;
+}
+
+/* 右列（11-20 名）表头红色 */
+.page15-column-right .page15-table-header {
+    background: #ff0000;
+}
+
+.page15-header-item {
+    position: absolute;
+    top: 0;
+    width: 138px;
+    height: 64px;
+    line-height: 64px;
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 32px;
+    color: #ccd5ff;
+    text-align: center;
+}
+
+.page15-header-count {
+    left: 345px;
+    width: 140px;
+}
+
+.page15-header-games {
+    left: 510px;
+    width: 120px;
+}
+
+.page15-header-winrate {
+    left: 635px;
+    width: 140px;
+}
+
+/* 行：每列最多10条，812×90，首行 y116（= 表头 52 + 64） */
+.page15-rows {
+    width: 812px;
+}
+
+.page15-row {
+    position: relative;
+    width: 812px;
+    height: 90px;
+    background:
+        linear-gradient(270deg, rgba(0, 47, 255, 0.2), rgba(0, 47, 255, 0.5)),
+        linear-gradient(90deg, rgb(126 126 126 / 0.35) 0%, rgb(228 228 228 / 0.35) 100%) 0 100% / 100% 1px no-repeat;
+}
+
+/* 右列（11-20 名）行：渐变保持，蓝色换成红色 FF0000 */
+.page15-column-right .page15-row {
+    background:
+        linear-gradient(270deg, rgba(255, 0, 0, 0.2), rgba(255, 0, 0, 0.5)),
+        linear-gradient(90deg, rgb(126 126 126 / 0.35) 0%, rgb(228 228 228 / 0.35) 100%) 0 100% / 100% 1px no-repeat;
+}
+
+/* 名次：距行左侧 16px */
+.page15-rank {
+    position: absolute;
+    left: 16px;
+    top: 0;
+    width: 56px;
+    height: 90px;
+    line-height: 90px;
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 40px;
+    color: #ffffff;
+    text-align: center;
+}
+
+/* 精灵头像：page1 lineup 的头像形式（圆形深色底 + 居中头像图） */
+.page15-avatar {
+    position: absolute;
+    left: 72px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 88px;
+    height: 88px;
+}
+
+.page15-avatar::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 72px;
+    height: 72px;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: #424442;
+    border: 3px solid #5d5d5d;
+}
+
+.page15-avatar img {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 96px;
+    height: 96px;
+    transform: translate(-50%, -50%);
+    object-fit: contain;
+    pointer-events: none;
+}
+
+/* 精灵名字：x164 字号 40 左对齐 垂直居中 */
+.page15-name {
+    position: absolute;
+    left: 168px;
+    top: 0;
+    width: 200px;
+    height: 90px;
+    line-height: 90px;
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 40px;
+    color: #ffffff;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* 使用次数 / 登场 / 胜率：数值字号 40 */
+.page15-data {
+    position: absolute;
+    top: 0;
+    height: 90px;
+    line-height: 90px;
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 40px;
+    color: #ffffff;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.page15-data-count {
+    left: 345px;
+    width: 140px;
+}
+
+.page15-data-games {
+    left: 510px;
+    width: 120px;
+}
+
+.page15-data-winrate {
+    left: 635px;
+    width: 140px;
+}
