@@ -7,9 +7,11 @@
     const rightRowsEl = document.getElementById('page15RowsRight');
 
     let currentTournamentId = '';
-    let currentPlayer = '';
-    // 排序字段由后台「数据统计」视图下发（stage.page15SortBy）：picks = 使用次数 / games = 登场场次 / winRate = 胜率
+    let currentStageIndex = '';
+    // 排序字段与方向由后台「数据统计」视图下发（stage.page15SortBy / stage.page15SortOrder）：
+    // picks = 使用次数 / games = 登场场次 / winRate = 胜率；desc 降序（默认）/ asc 升序
     let currentSortBy = 'picks';
+    let currentSortOrder = 'desc';
 
     function normalizeDisplayName(value) {
         return String(value || '').trim().replace(/[-_－—]\d+$/, '');
@@ -102,8 +104,8 @@
     }
 
     function sortRows(rows) {
-        // 主排序按后台所选字段降序，同值按使用次数（登场只次）降序；
-        // 按胜率排序时未登场（winRate 为 null）的精灵排最后
+        // 主排序按后台所选字段与方向（desc 降序 / asc 升序），同值按使用次数（登场只次）降序；
+        // 按胜率排序时未登场（winRate 为 null）的精灵无论方向都排最后
         return rows.slice().sort((a, b) => {
             const av = a[currentSortBy];
             const bv = b[currentSortBy];
@@ -114,7 +116,9 @@
                     return aNoGame ? 1 : -1;
                 }
             }
-            const primary = (Number(bv) || 0) - (Number(av) || 0);
+            const primary = currentSortOrder === 'asc'
+                ? (Number(av) || 0) - (Number(bv) || 0)
+                : (Number(bv) || 0) - (Number(av) || 0);
             return primary !== 0 ? primary : (b.picks || 0) - (a.picks || 0);
         });
     }
@@ -124,7 +128,7 @@
 
     function renderRanking(data) {
         const rows = data && Array.isArray(data.rows) ? data.rows : [];
-        const signature = JSON.stringify([currentSortBy, rows]);
+        const signature = JSON.stringify([currentSortBy, currentSortOrder, rows]);
         if (renderSignature !== null && renderSignature === signature) {
             return;
         }
@@ -145,15 +149,19 @@
         currentSortBy = value === 'games' || value === 'winRate' ? value : 'picks';
     }
 
-    async function fetchRanking(tournamentId, player) {
+    function setSortOrder(value) {
+        currentSortOrder = value === 'asc' ? 'asc' : 'desc';
+    }
+
+    async function fetchRanking(tournamentId, stageIndex) {
         currentTournamentId = String(tournamentId || '').trim();
-        currentPlayer = String(player || '').trim();
+        currentStageIndex = stageIndex === undefined || stageIndex === null ? '' : String(stageIndex);
         const query = new URLSearchParams();
         if (currentTournamentId) {
             query.set('tournamentId', currentTournamentId);
         }
-        if (currentPlayer) {
-            query.set('player', currentPlayer);
+        if (currentStageIndex !== '') {
+            query.set('stageIndex', currentStageIndex);
         }
         // 拿全量排行后前端按所选字段排序取前 20（服务端按使用率截断会漏掉登场场次靠前的精灵）
         query.set('limit', '999');
@@ -173,7 +181,8 @@
         try {
             const stage = await fetch('/api/stage', { credentials: 'same-origin' }).then((r) => r.json());
             setSortBy(stage && stage.page15SortBy);
-            await fetchRanking(stage && stage.page15TournamentId, stage && stage.page15Player);
+            setSortOrder(stage && stage.page15SortOrder);
+            await fetchRanking(stage && stage.page15TournamentId, stage && stage.page15Stage);
         } catch (error) {
             console.error('page15 初始加载失败:', error);
         }
@@ -185,7 +194,7 @@
             window.clearTimeout(refreshTimer);
         }
         refreshTimer = window.setTimeout(() => {
-            void fetchRanking(currentTournamentId, currentPlayer);
+            void fetchRanking(currentTournamentId, currentStageIndex);
         }, 250);
     }
 
@@ -198,7 +207,7 @@
         socket.on('snapshot', (payload) => {
             const stage = payload && payload.stage ? payload.stage : null;
             if (stage) {
-                void fetchRanking(stage.page15TournamentId, stage.page15Player);
+                void fetchRanking(stage.page15TournamentId, stage.page15Stage);
             }
         });
 
@@ -206,11 +215,12 @@
             const stage = payload && payload.stage ? payload.stage : null;
             if (stage) {
                 setSortBy(stage.page15SortBy);
-                void fetchRanking(stage.page15TournamentId, stage.page15Player);
+                setSortOrder(stage.page15SortOrder);
+                void fetchRanking(stage.page15TournamentId, stage.page15Stage);
             }
         });
 
-        // matches:update 载荷为 { store }，比赛数据变化时按当前系列赛/选手口径刷新排行
+        // matches:update 载荷为 { store }，比赛数据变化时按当前系列赛/阶段口径刷新排行
         socket.on('matches:update', () => {
             scheduleRefresh();
         });

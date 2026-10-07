@@ -2804,7 +2804,7 @@ function Dashboard() {
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5Player?: string; page5TournamentId?: string; page15Player?: string; page15TournamentId?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page7SwitchSeconds?: number; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5TournamentId?: string; page5Stage?: string; page15TournamentId?: string; page15Stage?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page15SortOrder?: 'asc' | 'desc'; page7SwitchSeconds?: number; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
@@ -2816,21 +2816,22 @@ function Dashboard() {
     const page3RedLightMode = options?.page3RedLightMode ?? stage?.page3RedLightMode ?? 'off';
     const page3RedLightInstant = options?.page3RedLightInstant ?? stage?.page3RedLightInstant ?? false;
     const page11RankVisible = options?.page11RankVisible ?? stage?.page11RankVisible ?? true;
-    const page5Player = options?.page5Player ?? stage?.page5Player ?? '';
     const page5TournamentId = options?.page5TournamentId ?? stage?.page5TournamentId ?? '';
-    const page15Player = options?.page15Player ?? stage?.page15Player ?? '';
+    const page5Stage = options?.page5Stage ?? stage?.page5Stage ?? '';
     const page15TournamentId = options?.page15TournamentId ?? stage?.page15TournamentId ?? '';
+    const page15Stage = options?.page15Stage ?? stage?.page15Stage ?? '';
     const page15SortBy = options?.page15SortBy ?? stage?.page15SortBy ?? 'picks';
+    const page15SortOrder = options?.page15SortOrder ?? stage?.page15SortOrder ?? 'desc';
     const page7SwitchSeconds = options?.page7SwitchSeconds ?? stage?.page7SwitchSeconds ?? DEFAULT_PAGE7_SWITCH_SECONDS;
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page15Player, page15TournamentId, page15SortBy, page7SwitchSeconds, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page7SwitchSeconds, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5Player, page5TournamentId, page15Player, page15TournamentId, page15SortBy, page7SwitchSeconds, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page7SwitchSeconds, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -6669,14 +6670,15 @@ function Dashboard() {
               onSearchChange={setStatsSearch}
               page5TitleDraft={page5TitleDraft}
               page5TournamentId={stage?.page5TournamentId ?? ''}
-              page5Player={stage?.page5Player ?? ''}
+              page5Stage={stage?.page5Stage ?? ''}
               stageSaving={stageSaving}
               onPage5TitleChange={setPage5TitleDraft}
               onPage5TitleBlur={() => { void savePage5TitleNow(); }}
               onPage5DisplayChange={(patch) => { void saveStage(stage?.page ?? 'page3', { silent: true, ...patch }); }}
               page15TournamentId={stage?.page15TournamentId ?? ''}
-              page15Player={stage?.page15Player ?? ''}
+              page15Stage={stage?.page15Stage ?? ''}
               page15SortBy={stage?.page15SortBy ?? 'picks'}
+              page15SortOrder={stage?.page15SortOrder ?? 'desc'}
               onPage15DisplayChange={(patch) => { void saveStage(stage?.page ?? 'page3', { silent: true, ...patch }); }}
             />
           ) : null}

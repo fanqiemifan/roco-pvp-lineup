@@ -11,6 +11,8 @@
     let currentEventTitle = '';
     let currentTournamentId = '';
     let currentTournamentName = '';
+    // 阶段过滤（stage.page5Stage）：'' = 全部阶段；matches:update 刷新时沿用当前口径
+    let currentStageIndex = '';
 
     // 换系列赛立即清掉旧名字（新名字随排行榜响应带回），避免标题短暂显示上一场的名字
     function setTournamentId(tournamentId) {
@@ -176,14 +178,15 @@
         });
     }
 
-    async function fetchRanking(tournamentId, player) {
+    async function fetchRanking(tournamentId, stageIndex) {
         setTournamentId(tournamentId);
+        currentStageIndex = stageIndex === undefined || stageIndex === null ? '' : String(stageIndex);
         const query = new URLSearchParams();
         if (tournamentId) {
             query.set('tournamentId', tournamentId);
         }
-        if (player) {
-            query.set('player', player);
+        if (stageIndex !== undefined && stageIndex !== null && String(stageIndex).trim() !== '') {
+            query.set('stageIndex', String(stageIndex));
         }
         try {
             const response = await fetch(`/api/stats/ranking?${query.toString()}`, { credentials: 'same-origin' });
@@ -206,7 +209,7 @@
                 fetch('/api/stage', { credentials: 'same-origin' }).then((r) => r.json()),
                 fetch('/api/scoreboard', { credentials: 'same-origin' }).then((r) => r.json()),
             ]);
-            await fetchRanking(stage && stage.page5TournamentId, stage && stage.page5Player);
+            await fetchRanking(stage && stage.page5TournamentId, stage && stage.page5Stage);
             applyTitle(scoreboard && scoreboard.page5Title);
         } catch (error) {
             console.error('page5 初始加载失败:', error);
@@ -214,12 +217,12 @@
     }
 
     let refreshTimer = null;
-    function scheduleRefresh(tournamentId, player) {
+    function scheduleRefresh() {
         if (refreshTimer) {
             window.clearTimeout(refreshTimer);
         }
         refreshTimer = window.setTimeout(() => {
-            void fetchRanking(tournamentId, player);
+            void fetchRanking(currentTournamentId, currentStageIndex);
         }, 250);
     }
 
@@ -233,7 +236,7 @@
             const stage = payload && payload.stage ? payload.stage : null;
             const scoreboard = payload && payload.scoreboard ? payload.scoreboard : null;
             if (stage) {
-                void fetchRanking(stage.page5TournamentId, stage.page5Player);
+                void fetchRanking(stage.page5TournamentId, stage.page5Stage);
             }
             if (scoreboard) {
                 applyTitle(scoreboard.page5Title);
@@ -246,7 +249,7 @@
             const stage = payload && payload.stage ? payload.stage : null;
             if (stage) {
                 refreshTitle();
-                scheduleRefresh(stage.page5TournamentId, stage.page5Player);
+                void fetchRanking(stage.page5TournamentId, stage.page5Stage);
             }
         });
 
@@ -257,10 +260,10 @@
             }
         });
 
-        // matches:update 载荷为 { store }，比赛数据变化时用当前系列赛口径刷新排行
+        // matches:update 载荷为 { store }，比赛数据变化时用当前系列赛/阶段口径刷新排行
         socket.on('matches:update', () => {
             refreshTitle();
-            scheduleRefresh(currentTournamentId, undefined);
+            scheduleRefresh();
         });
     }
 

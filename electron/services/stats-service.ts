@@ -48,11 +48,12 @@ function spriteField(sprite: unknown, key: string): string {
  */
 export function getSpriteRanking(
   paths: AppPaths,
-  options: { player: string | null; tag: string | null; tournamentId: string | null; limit?: number },
+  options: { player: string | null; tag: string | null; tournamentId: string | null; stageIndex?: number | null; limit?: number },
 ): {
   player: string | null;
   tag: string | null;
   tournamentId: string | null;
+  stageIndex: number | null;
   tournamentName: string;
   totalPicks: number;
   rows: StatsRankingRow[];
@@ -64,6 +65,8 @@ export function getSpriteRanking(
   const tournamentId = typeof options.tournamentId === 'string' && options.tournamentId.trim()
     ? options.tournamentId.trim()
     : null;
+  // 阶段过滤：仅命中带 tournamentRef 且 stageIndex 相同的对局（无 ref 的普通对局在过滤时一律排除）
+  const stageIndex = Number.isFinite(options.stageIndex) ? Math.trunc(Number(options.stageIndex)) : null;
   const tournamentName = tournamentId
     ? getTournamentStore(paths).find((record) => record.id === tournamentId)?.name ?? ''
     : '';
@@ -79,6 +82,9 @@ export function getSpriteRanking(
       return false;
     }
     if (tournamentId && match.tournamentRef?.tournamentId !== tournamentId) {
+      return false;
+    }
+    if (stageIndex !== null && match.tournamentRef?.stageIndex !== stageIndex) {
       return false;
     }
     return true;
@@ -166,5 +172,5 @@ export function getSpriteRanking(
   const rawLimit = Number(options.limit);
   const limit = Number.isFinite(rawLimit) ? Math.min(999, Math.max(1, Math.round(rawLimit))) : 10;
 
-  return { player, tag, tournamentId, tournamentName, totalPicks, rows: rows.slice(0, limit) };
+  return { player, tag, tournamentId, stageIndex, tournamentName, totalPicks, rows: rows.slice(0, limit) };
 }

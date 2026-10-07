@@ -85,19 +85,20 @@ type StatsViewProps = {
   onTagChange: (value: string | null) => void;
   onTournamentChange: (value: string | null) => void;
   onSearchChange: (value: string) => void;
-  // 推流页面5 显示设置（由「直播推流」视图移入；控制推流画面内容，与上方统计筛选相互独立）
+  // 推流页面5 显示设置（由「直播推流」视图移入；控制推流画面内容，与统计口径相互独立）
   page5TitleDraft: string;
   page5TournamentId: string;
-  page5Player: string;
+  page5Stage: string;
   stageSaving: boolean;
   onPage5TitleChange: (value: string) => void;
   onPage5TitleBlur: () => void;
-  onPage5DisplayChange: (patch: { page5TournamentId?: string; page5Player?: string }) => void;
-  // 推流页面15（数据统计）显示设置；同样控制推流画面内容，与上方统计筛选相互独立
+  onPage5DisplayChange: (patch: { page5TournamentId?: string; page5Stage?: string }) => void;
+  // 推流页面15（数据统计）显示设置；同样控制推流画面内容，与统计口径相互独立
   page15TournamentId: string;
-  page15Player: string;
+  page15Stage: string;
   page15SortBy: 'picks' | 'games' | 'winRate';
-  onPage15DisplayChange: (patch: { page15TournamentId?: string; page15Player?: string; page15SortBy?: 'picks' | 'games' | 'winRate' }) => void;
+  page15SortOrder: 'asc' | 'desc';
+  onPage15DisplayChange: (patch: { page15TournamentId?: string; page15Stage?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page15SortOrder?: 'asc' | 'desc' }) => void;
 };
 
 export function StatsView({
@@ -116,14 +117,15 @@ export function StatsView({
   onSearchChange,
   page5TitleDraft,
   page5TournamentId,
-  page5Player,
+  page5Stage,
   stageSaving,
   onPage5TitleChange,
   onPage5TitleBlur,
   onPage5DisplayChange,
   page15TournamentId,
-  page15Player,
+  page15Stage,
   page15SortBy,
+  page15SortOrder,
   onPage15DisplayChange,
 }: StatsViewProps) {
   const { message } = App.useApp();
@@ -146,6 +148,17 @@ export function StatsView({
   ]).filter(Boolean)));
   const tagOptions = Array.from(new Set(matches.flatMap((match) => match.tags ?? [])));
   const tournamentOptions = buildHistoryTournamentFilters(matches, tournaments);
+  // 推流页面5/15 的阶段过滤选项：来自所选系列赛的阶段配置（阶段依托具体系列赛，未选系列赛时仅「全部」）
+  const buildStageFilterOptions = (selectedTournamentId: string) => {
+    const selected = tournaments.find((item) => item.id === selectedTournamentId);
+    if (!selected) {
+      return [{ value: '', label: '全部' }];
+    }
+    return [
+      { value: '', label: '全部' },
+      ...selected.stages.map((stage, index) => ({ value: String(index), label: stage.name })),
+    ];
+  };
   const selectedTournamentName = tournamentOptions.find((item) => item.id === tournamentId)?.name ?? '';
   const trendColors = ['#d38b2d', '#4f8cff', '#c24635', '#2d7a58', '#8a5fd0'];
   const topTrendRows = stats.rows.slice(0, 5);
@@ -346,6 +359,114 @@ export function StatsView({
 
   return (
     <Space direction="vertical" size={18} className="page-stack">
+      {/* 推流页面5/15 显示设置：一行两列置顶（控制推流画面）；统计口径卡在其下——它控制的是下方视图 */}
+      <Row gutter={[18, 18]}>
+        <Col xs={24} lg={12}>
+          <Card title="推流页面5 显示设置">
+            <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+              以下设置控制「推流页面5」的画面内容（标题、统计范围），与下方统计口径相互独立；修改即时保存生效。
+            </Text>
+            <Row gutter={[16, 16]}>
+              <Col xs={24}>
+                <SettingField label="页面5标题：">
+                  <Input
+                    maxLength={40}
+                    placeholder="例如：洛克比赛（自动拼上系列赛名与精灵出场胜率）"
+                    value={page5TitleDraft}
+                    onChange={(event) => onPage5TitleChange(event.target.value)}
+                    onBlur={onPage5TitleBlur}
+                  />
+                </SettingField>
+              </Col>
+              <Col xs={24} md={12}>
+                <SettingField label="系列赛：">
+                  <Select
+                    style={{ width: '100%' }}
+                    value={page5TournamentId || undefined}
+                    disabled={stageSaving}
+                    options={[
+                      { value: '', label: '全部' },
+                      ...tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
+                    ]}
+                    onChange={(value) => onPage5DisplayChange({ page5TournamentId: value ?? '', page5Stage: '' })}
+                  />
+                </SettingField>
+              </Col>
+              <Col xs={24} md={12}>
+                <SettingField label="阶段：">
+                  <Select
+                    style={{ width: '100%' }}
+                    value={page5Stage || undefined}
+                    disabled={stageSaving || !page5TournamentId}
+                    options={buildStageFilterOptions(page5TournamentId)}
+                    onChange={(value) => onPage5DisplayChange({ page5Stage: value ?? '' })}
+                  />
+                </SettingField>
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+        <Col xs={24} lg={12}>
+          <Card title="推流页面15 显示设置">
+            <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+              以下设置控制「推流页面15（数据统计）」的画面内容（统计范围与排序），与下方统计口径相互独立；修改即时保存生效。
+            </Text>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={12}>
+                <SettingField label="系列赛：">
+                  <Select
+                    style={{ width: '100%' }}
+                    value={page15TournamentId || undefined}
+                    disabled={stageSaving}
+                    options={[
+                      { value: '', label: '全部' },
+                      ...tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
+                    ]}
+                    onChange={(value) => onPage15DisplayChange({ page15TournamentId: value ?? '', page15Stage: '' })}
+                  />
+                </SettingField>
+              </Col>
+              <Col xs={24} md={12}>
+                <SettingField label="阶段：">
+                  <Select
+                    style={{ width: '100%' }}
+                    value={page15Stage || undefined}
+                    disabled={stageSaving || !page15TournamentId}
+                    options={buildStageFilterOptions(page15TournamentId)}
+                    onChange={(value) => onPage15DisplayChange({ page15Stage: value ?? '' })}
+                  />
+                </SettingField>
+              </Col>
+              <Col xs={24}>
+                <SettingField label="排序方式：">
+                  <Space size={8} wrap>
+                    <Segmented
+                      value={page15SortBy}
+                      disabled={stageSaving}
+                      options={[
+                        { value: 'picks', label: '使用次数' },
+                        { value: 'games', label: '登场场次' },
+                        { value: 'winRate', label: '胜率' },
+                      ]}
+                      onChange={(value) => onPage15DisplayChange({ page15SortBy: value as 'picks' | 'games' | 'winRate' })}
+                    />
+                    <Segmented
+                      value={page15SortOrder}
+                      disabled={stageSaving}
+                      options={[
+                        { value: 'desc', label: '降序' },
+                        { value: 'asc', label: '升序' },
+                      ]}
+                      onChange={(value) => onPage15DisplayChange({ page15SortOrder: value as 'asc' | 'desc' })}
+                    />
+                  </Space>
+                </SettingField>
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+      </Row>
+
       <Card title="统计口径">
         <Space wrap size={12}>
           <Segmented
@@ -384,107 +505,6 @@ export function StatsView({
             optionFilterProp="label"
           />
         </Space>
-      </Card>
-
-      <Card title="推流页面5 显示设置">
-        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          以下三项控制「推流页面5」的画面内容（标题、统计范围），与上方统计筛选相互独立；修改即时保存生效。
-        </Text>
-        <Row gutter={[16, 16]}>
-          <Col xs={24} md={8}>
-            <SettingField label="页面5标题：">
-              <Input
-                maxLength={40}
-                placeholder="例如：洛克比赛（自动拼上系列赛名与精灵出场胜率）"
-                value={page5TitleDraft}
-                onChange={(event) => onPage5TitleChange(event.target.value)}
-                onBlur={onPage5TitleBlur}
-              />
-            </SettingField>
-          </Col>
-          <Col xs={24} md={8}>
-            <SettingField label="系列赛：">
-              <Select
-                style={{ width: '100%' }}
-                value={page5TournamentId || undefined}
-                disabled={stageSaving}
-                options={[
-                  { value: '', label: '全部' },
-                  ...tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
-                ]}
-                onChange={(value) => onPage5DisplayChange({ page5TournamentId: value ?? '' })}
-              />
-            </SettingField>
-          </Col>
-          <Col xs={24} md={8}>
-            <SettingField label="选手：">
-              <Select
-                showSearch
-                optionFilterProp="label"
-                style={{ width: '100%' }}
-                value={page5Player || undefined}
-                disabled={stageSaving}
-                options={[
-                  { value: '', label: '全部' },
-                  ...playerOptions.map((playerName) => ({ value: playerName, label: playerName })),
-                ]}
-                onChange={(value) => onPage5DisplayChange({ page5Player: value ?? '' })}
-              />
-            </SettingField>
-          </Col>
-        </Row>
-      </Card>
-
-      <Card title="推流页面15 显示设置">
-        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          以下控制「推流页面15（数据统计）」的画面内容（统计范围与排序），与上方统计筛选相互独立；修改即时保存生效。
-        </Text>
-        <Row gutter={[16, 16]}>
-          <Col xs={24} md={8}>
-            <SettingField label="系列赛：">
-              <Select
-                style={{ width: '100%' }}
-                value={page15TournamentId || undefined}
-                disabled={stageSaving}
-                options={[
-                  { value: '', label: '全部' },
-                  ...tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
-                ]}
-                onChange={(value) => onPage15DisplayChange({ page15TournamentId: value ?? '' })}
-              />
-            </SettingField>
-          </Col>
-          <Col xs={24} md={8}>
-            <SettingField label="选手：">
-              <Select
-                showSearch
-                optionFilterProp="label"
-                style={{ width: '100%' }}
-                value={page15Player || undefined}
-                disabled={stageSaving}
-                options={[
-                  { value: '', label: '全部' },
-                  ...playerOptions.map((playerName) => ({ value: playerName, label: playerName })),
-                ]}
-                onChange={(value) => onPage15DisplayChange({ page15Player: value ?? '' })}
-              />
-            </SettingField>
-          </Col>
-          <Col xs={24} md={8}>
-            <SettingField label="排序方式：">
-              <Segmented
-                value={page15SortBy}
-                disabled={stageSaving}
-                options={[
-                  { value: 'picks', label: '使用次数' },
-                  { value: 'games', label: '登场场次' },
-                  { value: 'winRate', label: '胜率' },
-                ]}
-                onChange={(value) => onPage15DisplayChange({ page15SortBy: value as 'picks' | 'games' | 'winRate' })}
-              />
-            </SettingField>
-          </Col>
-        </Row>
       </Card>
 
       <Row gutter={[18, 18]}>

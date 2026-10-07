@@ -84,6 +84,25 @@ describe('getSpriteRanking（系列赛维度）', () => {
     expect(scoped.totalPicks).toBe(0);
     expect(scoped.tournamentName).toBe('');
   });
+
+  it('stageIndex 阶段过滤：只统计对应阶段的对局，未指定时不过滤', () => {
+    const first = startSameNameSeries('夏季杯S1', 0);
+    playFirstGame(first.matchId, ['pet-a'], ['pet-b']);
+
+    const all = getSpriteRanking(paths, { player: null, tag: null, tournamentId: first.id });
+    expect(all.rows.length).toBeGreaterThan(0);
+    expect(all.stageIndex).toBeNull();
+
+    // 测试系列赛只有 1 个阶段（stageIndex 0），阶段过滤命中后与全量一致并回传过滤值
+    const stage0 = getSpriteRanking(paths, { player: null, tag: null, tournamentId: first.id, stageIndex: 0 });
+    expect(stage0.stageIndex).toBe(0);
+    expect(stage0.rows.map((row) => row.key)).toEqual(all.rows.map((row) => row.key));
+
+    // 该系列赛没有第 2 个阶段的对局
+    expect(
+      getSpriteRanking(paths, { player: null, tag: null, tournamentId: first.id, stageIndex: 1 }).rows,
+    ).toEqual([]);
+  });
 });
 
 describe('getSpriteRanking（limit 与 iconPath）', () => {

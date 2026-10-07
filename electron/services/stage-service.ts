@@ -43,22 +43,17 @@ function normalizeMirrorSides(value: unknown): boolean {
   return value === true;
 }
 
-function normalizePage5Player(value: unknown): string {
-  return String(value ?? '').trim().slice(0, 40);
+/** 阶段过滤（页面5/15 共用）：空 = 全部阶段；非空仅接受 stages 下标的十进制字符串（'01' 归一为 '1'），其余丢弃 */
+function normalizePageStage(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/.test(raw)) {
+    return '';
+  }
+  return String(Number(raw));
 }
 
-/** 推流页面5：系列赛过滤 id（空 = 全部；仅接受 T 前缀白名单形态，非法值直接丢弃） */
-function normalizePage5TournamentId(value: unknown): string {
-  const id = String(value ?? '').trim();
-  return id && TOURNAMENT_ID_REGEX.test(id) ? id : '';
-}
-
-function normalizePage15Player(value: unknown): string {
-  return String(value ?? '').trim().slice(0, 40);
-}
-
-/** 推流页面15：系列赛过滤 id（空 = 全部；仅接受 T 前缀白名单形态，非法值直接丢弃） */
-function normalizePage15TournamentId(value: unknown): string {
+/** 系列赛过滤 id（页面5/15 共用，空 = 全部；仅接受 T 前缀白名单形态，非法值直接丢弃） */
+function normalizePageTournamentId(value: unknown): string {
   const id = String(value ?? '').trim();
   return id && TOURNAMENT_ID_REGEX.test(id) ? id : '';
 }
@@ -66,6 +61,11 @@ function normalizePage15TournamentId(value: unknown): string {
 /** 推流页面15：排序字段白名单（非法值一律回「使用次数」） */
 function normalizePage15SortBy(value: unknown): 'picks' | 'games' | 'winRate' {
   return value === 'games' || value === 'winRate' ? value : 'picks';
+}
+
+/** 推流页面15：排序方向白名单（非法值回「降序」，与既有行为一致） */
+function normalizePage15SortOrder(value: unknown): 'asc' | 'desc' {
+  return value === 'asc' ? 'asc' : 'desc';
 }
 
 function normalizePage3SpriteSource(value: unknown): Page3SpriteSource {
@@ -133,11 +133,12 @@ function defaultStageState(): StageConfig {
     page3RedLightMode: DEFAULT_PAGE3_RED_LIGHT_MODE,
     page3RedLightInstant: DEFAULT_PAGE3_RED_LIGHT_INSTANT,
     page11RankVisible: DEFAULT_PAGE11_RANK_VISIBLE,
-    page5Player: '',
+    page5Stage: '',
     page5TournamentId: '',
-    page15Player: '',
+    page15Stage: '',
     page15TournamentId: '',
     page15SortBy: 'picks',
+    page15SortOrder: 'desc',
     page7SwitchSeconds: DEFAULT_PAGE7_SWITCH_SECONDS,
     page10Duration: DEFAULT_PAGE10_DURATION,
     page10DurationUnit: DEFAULT_PAGE10_DURATION_UNIT as NextGameDurationUnit,
@@ -164,11 +165,12 @@ export function getStageState(paths: AppPaths): StageConfig {
       page3RedLightMode: normalizePage3RedLightMode(metadata.page3RedLightMode),
       page3RedLightInstant: normalizePage3RedLightInstant(metadata.page3RedLightInstant),
       page11RankVisible: normalizePage11RankVisible(metadata.page11RankVisible),
-      page5Player: normalizePage5Player(metadata.page5Player),
-      page5TournamentId: normalizePage5TournamentId(metadata.page5TournamentId),
-      page15Player: normalizePage15Player(metadata.page15Player),
-      page15TournamentId: normalizePage15TournamentId(metadata.page15TournamentId),
+      page5Stage: normalizePageStage(metadata.page5Stage),
+      page5TournamentId: normalizePageTournamentId(metadata.page5TournamentId),
+      page15Stage: normalizePageStage(metadata.page15Stage),
+      page15TournamentId: normalizePageTournamentId(metadata.page15TournamentId),
       page15SortBy: normalizePage15SortBy(metadata.page15SortBy),
+      page15SortOrder: normalizePage15SortOrder(metadata.page15SortOrder),
       page7SwitchSeconds: normalizePage7SwitchSeconds(metadata.page7SwitchSeconds),
       page10Duration: normalizePage10Duration(metadata.page10Duration, page10DurationUnit),
       page10DurationUnit,
@@ -202,14 +204,19 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
     page3RedLightMode: normalizePage3RedLightMode(raw.page3RedLightMode ?? current.page3RedLightMode),
     page3RedLightInstant: normalizePage3RedLightInstant(raw.page3RedLightInstant ?? current.page3RedLightInstant),
     page11RankVisible: normalizePage11RankVisible(raw.page11RankVisible ?? current.page11RankVisible),
-    page5Player: normalizePage5Player(raw.page5Player),
-    page5TournamentId: normalizePage5TournamentId(raw.page5TournamentId),
+    page5Stage: normalizePageStage(raw.page5Stage === undefined ? current.page5Stage : raw.page5Stage),
+    page5TournamentId: normalizePageTournamentId(
+      raw.page5TournamentId === undefined ? current.page5TournamentId : raw.page5TournamentId,
+    ),
     // page15 三个字段带 current 兜底：切换画面等局部保存只传 page/transition，不得清空过滤与排序
-    page15Player: normalizePage15Player(raw.page15Player === undefined ? current.page15Player : raw.page15Player),
-    page15TournamentId: normalizePage15TournamentId(
+    page15Stage: normalizePageStage(raw.page15Stage === undefined ? current.page15Stage : raw.page15Stage),
+    page15TournamentId: normalizePageTournamentId(
       raw.page15TournamentId === undefined ? current.page15TournamentId : raw.page15TournamentId,
     ),
     page15SortBy: normalizePage15SortBy(raw.page15SortBy === undefined ? current.page15SortBy : raw.page15SortBy),
+    page15SortOrder: normalizePage15SortOrder(
+      raw.page15SortOrder === undefined ? current.page15SortOrder : raw.page15SortOrder,
+    ),
     page7SwitchSeconds: normalizePage7SwitchSeconds(
       raw.page7SwitchSeconds === undefined ? current.page7SwitchSeconds : raw.page7SwitchSeconds,
     ),

@@ -76,43 +76,52 @@ describe('stage-service：战绩详情切屏间隔（page7SwitchSeconds）', () 
 });
 
 describe('stage-service：数据统计页设置（page15 过滤与排序）', () => {
-  it('空目录默认全部选手/全部系列赛/按使用次数排序', () => {
+  it('空目录默认全部系列赛/全部阶段/按使用次数降序排序', () => {
     const state = getStageState(createIsolatedPaths());
-    expect(state.page15Player).toBe('');
     expect(state.page15TournamentId).toBe('');
+    expect(state.page15Stage).toBe('');
     expect(state.page15SortBy).toBe('picks');
+    expect(state.page15SortOrder).toBe('desc');
   });
 
   it('保存后落盘持久化，且保存其他字段不会重置', () => {
     const paths = createIsolatedPaths();
     const saved = saveStageState(paths, {
-      page15Player: '选手A',
       page15TournamentId: 'T20260928_A01',
+      page15Stage: '1',
       page15SortBy: 'winRate',
+      page15SortOrder: 'asc',
       page: 'page15',
     });
-    expect(saved.page15Player).toBe('选手A');
     expect(saved.page15TournamentId).toBe('T20260928_A01');
+    expect(saved.page15Stage).toBe('1');
     expect(saved.page15SortBy).toBe('winRate');
+    expect(saved.page15SortOrder).toBe('asc');
     expect(saved.page).toBe('page15');
 
     saveStageState(paths, { page3RankVisible: true });
     const reloaded = getStageState(paths);
-    expect(reloaded.page15Player).toBe('选手A');
     expect(reloaded.page15TournamentId).toBe('T20260928_A01');
+    expect(reloaded.page15Stage).toBe('1');
     expect(reloaded.page15SortBy).toBe('winRate');
+    expect(reloaded.page15SortOrder).toBe('asc');
   });
 
-  it('脏数据归一：非法系列赛 id 置空、非法排序回 picks、选手截断 40 字符', () => {
+  it('脏数据归一：非法系列赛 id 置空、非法排序回 picks、非法阶段置空、前导零归一、非法排序方向回降序', () => {
     const paths = createIsolatedPaths();
     saveStageState(paths, {
-      page15Player: 'x'.repeat(50),
+      page15Stage: '02',
       page15TournamentId: '../evil',
       page15SortBy: 'hack',
+      page15SortOrder: 'hack',
     });
     const state = getStageState(paths);
-    expect(state.page15Player).toHaveLength(40);
+    expect(state.page15Stage).toBe('2');
     expect(state.page15TournamentId).toBe('');
     expect(state.page15SortBy).toBe('picks');
+    expect(state.page15SortOrder).toBe('desc');
+
+    saveStageState(paths, { page5Stage: 'abc' });
+    expect(getStageState(paths).page5Stage).toBe('');
   });
 });

@@ -2140,10 +2140,12 @@ export async function createLocalServer(
     const tag = typeof request.query.tag === 'string' ? request.query.tag : '';
     const tournamentId = typeof request.query.tournamentId === 'string' ? request.query.tournamentId : '';
     const limit = typeof request.query.limit === 'string' ? Number(request.query.limit) : undefined;
+    const stageIndex = typeof request.query.stageIndex === 'string' ? Number(request.query.stageIndex) : undefined;
     response.json(getSpriteRanking(paths, {
       player: player || null,
       tag: tag || null,
       tournamentId: tournamentId || null,
+      stageIndex: stageIndex !== undefined && Number.isFinite(stageIndex) ? stageIndex : null,
       limit: Number.isFinite(limit) ? limit : undefined,
     }));
   });
