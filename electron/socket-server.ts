@@ -12,7 +12,7 @@ import { SYNC_BUNDLE_MAX_BYTES } from '../shared/constants.js';
 import { computeScheduleTimes } from '../shared/match-schedule.js';
 import type { AvatarCollectionState, CloudSyncKeyGuardResult, CountdownState, LineupImportPreviewRow, MatchRecord, MatchStoreState, Page6State, Page7State, Page8State, SnapshotPayload, StagePageKey, SyncConflictMode } from '../shared/types.js';
 import { buildQuickFillPreview, listSprites, spriteMatchesKeyword } from './services/sprite-service.js';
-import { getSpriteRanking } from './services/stats-service.js';
+import { buildPage15Replay, getSpriteRanking, type Page15ReplaySpeed } from './services/stats-service.js';
 import {
   ensureRuntimeDirs,
   saveAvatar,
@@ -2148,6 +2148,29 @@ export async function createLocalServer(
       stageIndex: stageIndex !== undefined && Number.isFinite(stageIndex) ? stageIndex : null,
       limit: Number.isFinite(limit) ? limit : undefined,
     }));
+  });
+
+  // 推流页面15 数据回放：后台「数据统计」选择系列赛与阶段范围后一键推送，
+  // 展示页收到 page15:replay 后从空榜开始逐场累加播出演化过程（播完自动恢复实时口径）
+  app.post('/api/stats/replay', (request, response) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const tournamentId = typeof body.tournamentId === 'string' ? body.tournamentId : '';
+    try {
+      const payload = buildPage15Replay(paths, {
+        tournamentId,
+        fromStage: Number(body.fromStage),
+        toStage: Number(body.toStage),
+        speed: typeof body.speed === 'string' ? (body.speed as Page15ReplaySpeed) : undefined,
+      });
+      if (!payload.steps.length) {
+        response.status(400).json({ error: '所选阶段范围内没有已完赛的比赛数据，无法回放' });
+        return;
+      }
+      broadcast(SOCKET_EVENTS.page15Replay, payload, ['page15']);
+      response.json({ ok: true, tournamentName: payload.tournamentName, steps: payload.steps.length });
+    } catch (error) {
+      response.status(400).json({ error: error instanceof Error ? error.message : '回放数据生成失败' });
+    }
   });
 
   app.post('/api/panels/:position', (request, response) => {

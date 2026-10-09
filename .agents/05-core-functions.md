@@ -285,6 +285,7 @@
 | 自然语言描述 | 函数名 | 签名 | 说明 |
 |-------------|-------|------|------|
 | 获取精灵排行 | getSpriteRanking | (paths: AppPaths, { player, tag, tournamentId }) => ... | 计算精灵使用率/上场率/胜率排行；系列赛按 tournamentRef.tournamentId 精确匹配（同名不合并）并回传 tournamentName 供页5标题展示 |
+| 构建数据统计回放 | buildPage15Replay | (paths: AppPaths, { tournamentId, fromStage, toStage, speed? }) => Page15ReplayPayload | 把某系列赛 [fromStage, toStage] 的对局按场序（阶段→波次→createdAt→id）生成逐步增量 steps（每场一条，只统计已完赛小局，口径与 getSpriteRanking 完全一致、镜像局 wins 记 0.5，保证回放终态 = 实时排行终态）；无完赛小局的场跳过；非法输入（未知系列赛 / 范围倒挂 / 越界）直接抛错（路由层转 400），speed 非法值归一 normal |
 
 ## 桌面悬浮窗 (float-window.ts)
 

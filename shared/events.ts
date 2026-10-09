@@ -16,4 +16,5 @@ export const SOCKET_EVENTS = {
   countdownUpdate: 'countdown:update',
   mvpUpdate: 'mvp:update',
   tournamentUpdate: 'tournament:update',
+  page15Replay: 'page15:replay',
 } as const;

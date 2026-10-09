@@ -50,6 +50,8 @@
 | MvpState | MVP 结算（page4）状态（slots 最多 6 个精灵项顺序即页面从左到右, returnPage 关闭结算后切回的推流画面, winner 已载入的胜方快照或 null, mtime） | shared/types.ts |
 | MvpWinnerSnapshot | MVP 结算（page4）胜方快照（matchId 胜方所属比赛 id 用于解析头像, side left/right, playerName 保存时的胜方选手名字）——后台「载入当前对局胜方」写入 mvp.json，切换对局不改变 | shared/types.ts |
 | MvpWinnerInfo | MVP 结算（page4）胜方选手信息条（side left/right/null, playerName, avatarExists/avatarPath/avatarMtime——由已保存的胜方快照下发） | shared/types.ts |
+| Page15ReplayStep | 数据统计回放（page15）单步增量：matchId/stageIndex/stageName/leftPlayer/rightPlayer/score（该场完赛小局比分文本）+ deltas（逐精灵 { key, picks, games, wins } 增量，口径同 /api/stats/ranking） | shared/types.ts |
+| Page15ReplayPayload | 数据统计回放完整载荷：tournamentId/tournamentName/fromStage/toStage/speed（slow|normal|fast，类型 Page15ReplaySpeed 定义在 stats-service.ts）+ sprites（key → name/displayName/iconPath/spritePath 元数据）+ steps | shared/types.ts |
 
 
 ## 比赛记录

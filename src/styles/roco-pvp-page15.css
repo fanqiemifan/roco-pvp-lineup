@@ -213,3 +213,124 @@ body {
     left: 635px;
     width: 140px;
 }
+
+/* ================= 数据回放（page15:replay）：逐场累加演化 ================= */
+
+/* 变化行闪光：数值有变的行背景短暂提亮 */
+.page15-row.is-flash {
+    animation: page15Flash 900ms ease-out;
+}
+
+@keyframes page15Flash {
+    0% { filter: brightness(2.1); }
+    100% { filter: brightness(1); }
+}
+
+/* 新进榜滑入 */
+.page15-row.is-entering {
+    animation: page15SlideIn 560ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+@keyframes page15SlideIn {
+    from { opacity: 0; transform: translateY(26px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 数值差值角标（▲ 升 / ▼ 降）：挂在 .page15-data 内右上角，约 4.5 秒后淡出移除 */
+.page15-delta {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 20px;
+    line-height: 1.15;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: rgba(10, 12, 20, 0.72);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    animation: page15DeltaIn 320ms cubic-bezier(.2, .8, .2, 1) both;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 5;
+}
+
+.page15-delta.is-up {
+    color: #4ade80;
+}
+
+.page15-delta.is-down {
+    color: #f87171;
+}
+
+.page15-delta.is-fading {
+    transition: opacity 900ms ease;
+    opacity: 0;
+}
+
+@keyframes page15DeltaIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 舞台左上角回放进度角标（回放期间显示，播完保留至恢复实时） */
+.page15-replay-badge {
+    position: absolute;
+    left: 24px;
+    top: 20px;
+    height: 40px;
+    line-height: 40px;
+    padding: 0 18px;
+    border-radius: 6px;
+    background: rgba(16, 19, 28, 0.65);
+    font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 22px;
+    color: #c9d2f5;
+    z-index: 20;
+}
+
+.page15-replay-badge em {
+    font-style: normal;
+    color: #ffd591;
+}
+
+/* 阶段切换大字幕：跨入新阶段第一场时播 1.8 秒淡入淡出 */
+.page15-replay-banner {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(8, 10, 18, 0.55);
+    z-index: 30;
+    pointer-events: none;
+}
+
+.page15-replay-banner.is-showing {
+    animation: page15BannerShow 1800ms ease both;
+}
+
+@keyframes page15BannerShow {
+    0% { opacity: 0; }
+    16% { opacity: 1; }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+.page15-replay-banner-text {
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 88px;
+    color: #ffffff;
+    letter-spacing: 6px;
+    text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8);
+    text-align: center;
+}
+
+.page15-replay-banner-sub {
+    font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 30px;
+    color: #ffd591;
+    margin-top: 14px;
+    letter-spacing: 2px;
+    text-align: center;
+}

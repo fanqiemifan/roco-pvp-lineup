@@ -198,6 +198,304 @@
         }, 250);
     }
 
+    // ================= 数据回放（后台「数据统计」推送 page15:replay）=================
+    // 从空榜开始按场序逐场累加（口径与实时排行一致），播完自动恢复实时口径；
+    // 回放期间忽略 snapshot / stage:update / matches:update 的实时刷新，避免中途被打断。
+    const REPLAY_INTERVALS = { slow: 2400, normal: 1300, fast: 650 };
+    const REPLAY_TOP_N = 20;
+    let replayActive = false;
+    let replayTimer = null;
+    let replayState = null; // { sprites, steps, cursor, lastStageName, acc, rendered, interval, tournamentName }
+
+    const replayBadge = document.getElementById('page15ReplayBadge');
+    const replayBadgeText = document.getElementById('page15ReplayBadgeText');
+    const replayBanner = document.getElementById('page15ReplayBanner');
+    const replayBannerTitle = document.getElementById('page15ReplayBannerTitle');
+    const replayBannerSub = document.getElementById('page15ReplayBannerSub');
+
+    function buildReplayRow(row) {
+        const el = document.createElement('div');
+        el.className = 'page15-row';
+        el.dataset.petId = row.key;
+
+        const rank = document.createElement('div');
+        rank.className = 'page15-rank';
+
+        const name = document.createElement('div');
+        name.className = 'page15-name';
+        name.textContent = getSpriteName(row);
+
+        const count = document.createElement('div');
+        count.className = 'page15-data page15-data-count';
+
+        const games = document.createElement('div');
+        games.className = 'page15-data page15-data-games';
+
+        const winRate = document.createElement('div');
+        winRate.className = 'page15-data page15-data-winrate';
+
+        el.appendChild(rank);
+        el.appendChild(buildAvatar(row));
+        el.appendChild(name);
+        el.appendChild(count);
+        el.appendChild(games);
+        el.appendChild(winRate);
+        return el;
+    }
+
+    function tweenReplayValue(cell, from, to, fmt) {
+        if (from === to) {
+            cell.textContent = fmt(to);
+            return;
+        }
+        const start = performance.now();
+        const duration = 480;
+        const frame = (now) => {
+            const t = Math.min(1, (now - start) / duration);
+            const eased = 1 - Math.pow(1 - t, 3);
+            cell.textContent = fmt(from + (to - from) * eased);
+            if (t < 1) {
+                window.requestAnimationFrame(frame);
+            }
+        };
+        window.requestAnimationFrame(frame);
+    }
+
+    /** 数值差值角标：diffText 为空则只清旧角标（▲ 升绿 / ▼ 降红，约 4.5 秒淡出移除） */
+    function showReplayDelta(cell, diffText, cls) {
+        const host = cell.parentElement;
+        const oldTag = host.querySelector('.page15-delta');
+        if (oldTag) {
+            oldTag.remove();
+        }
+        if (!diffText) {
+            return;
+        }
+        const tag = document.createElement('span');
+        tag.className = `page15-delta ${cls}`;
+        tag.textContent = diffText;
+        host.appendChild(tag);
+        window.setTimeout(() => tag.classList.add('is-fading'), 3600);
+        window.setTimeout(() => tag.remove(), 4600);
+    }
+
+    /** 对比上一次画面值，逐格滚动 + 角标 + 行闪光（回放只增不减，▲ 为主，防御性保留 ▼） */
+    function updateReplayRow(el, row) {
+        const prev = replayState.rendered.get(row.key) || { picks: 0, games: 0, wins: 0 };
+        const prevRate = prev.games > 0 ? prev.wins / prev.games : null;
+        const nextRate = row.games > 0 ? row.wins / row.games : null;
+        let changed = false;
+
+        const pickDiff = row.picks - prev.picks;
+        if (pickDiff !== 0) {
+            changed = true;
+            tweenReplayValue(el.querySelector('.page15-data-count'), prev.picks, row.picks, (v) => String(Math.round(v)));
+            showReplayDelta(el.querySelector('.page15-data-count'), `▲+${Math.abs(pickDiff)}`, 'is-up');
+        }
+
+        const gameDiff = row.games - prev.games;
+        if (gameDiff !== 0) {
+            changed = true;
+            tweenReplayValue(el.querySelector('.page15-data-games'), prev.games, row.games, (v) => String(Math.round(v)));
+            showReplayDelta(el.querySelector('.page15-data-games'), `▲+${Math.abs(gameDiff)}`, 'is-up');
+        }
+
+        if (prevRate !== nextRate && nextRate !== null) {
+            changed = true;
+            const from = prevRate ?? 0;
+            const pp = Math.round((nextRate - from) * 1000) / 10;
+            tweenReplayValue(el.querySelector('.page15-data-winrate'), from, nextRate, formatWinRate);
+            showReplayDelta(
+                el.querySelector('.page15-data-winrate'),
+                `${pp >= 0 ? '▲+' : '▼'}${Math.abs(pp).toFixed(1)}%`,
+                pp >= 0 ? 'is-up' : 'is-down',
+            );
+        }
+
+        if (changed) {
+            el.classList.remove('is-flash');
+            void el.offsetWidth;
+            el.classList.add('is-flash');
+        }
+    }
+
+    /** keyed 增量渲染：复用已有行节点，FLIP 平移 + 数值动效（跨列移动含横向分量） */
+    function renderReplay() {
+        const state = replayState;
+        const rows = [];
+        for (const [key, entry] of state.acc) {
+            const meta = state.sprites[key] || {};
+            rows.push({
+                key,
+                name: meta.name || key,
+                displayName: meta.displayName || '',
+                iconPath: meta.iconPath || '',
+                spritePath: meta.spritePath || '',
+                picks: entry.picks,
+                games: entry.games,
+                wins: entry.wins,
+                winRate: entry.games > 0 ? entry.wins / entry.games : null,
+            });
+        }
+        // 回放固定口径：使用次数降序、同值按登场场次（展示「热门精灵逐步固化头部」的叙事）
+        rows.sort((a, b) => (b.picks - a.picks) || (b.games - a.games));
+        const top = rows.slice(0, REPLAY_TOP_N);
+
+        const firstPos = new Map();
+        const existing = new Map();
+        document.querySelectorAll('.page15-rows .page15-row').forEach((el) => {
+            const rect = el.getBoundingClientRect();
+            firstPos.set(el.dataset.petId, { x: rect.left, y: rect.top });
+            existing.set(el.dataset.petId, el);
+        });
+
+        top.forEach((row, index) => {
+            let el = existing.get(row.key);
+            const isNew = !el;
+            if (el) {
+                existing.delete(row.key);
+            } else {
+                el = buildReplayRow(row);
+            }
+            (index < 10 ? leftRowsEl : rightRowsEl).appendChild(el);
+            el.querySelector('.page15-rank').textContent = String(index + 1);
+            if (isNew) {
+                el.querySelector('.page15-data-count').textContent = String(row.picks);
+                el.querySelector('.page15-data-games').textContent = String(row.games);
+                el.querySelector('.page15-data-winrate').textContent = formatWinRate(row.winRate);
+                el.classList.add('is-entering');
+                el.addEventListener('animationend', () => el.classList.remove('is-entering'), { once: true });
+            } else {
+                updateReplayRow(el, row);
+            }
+            state.rendered.set(row.key, { picks: row.picks, games: row.games, wins: row.wins });
+        });
+        existing.forEach((el) => el.remove());
+
+        document.querySelectorAll('.page15-rows .page15-row').forEach((el) => {
+            const first = firstPos.get(el.dataset.petId);
+            if (!first) {
+                return;
+            }
+            const rect = el.getBoundingClientRect();
+            const dx = first.x - rect.left;
+            const dy = first.y - rect.top;
+            if (!dx && !dy) {
+                return;
+            }
+            el.style.transition = 'none';
+            el.style.transform = `translate(${dx}px, ${dy}px)`;
+            window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+                el.style.transition = 'transform 520ms cubic-bezier(.22, .9, .26, 1)';
+                el.style.transform = 'translate(0, 0)';
+                el.addEventListener('transitionend', () => {
+                    el.style.transition = '';
+                    el.style.transform = '';
+                }, { once: true });
+            }));
+        });
+    }
+
+    function showReplayBanner(step) {
+        const state = replayState;
+        replayBannerTitle.textContent = step.stageName;
+        replayBannerSub.textContent = `第 ${state.cursor} / ${state.steps.length} 场`;
+        replayBanner.hidden = false;
+        replayBanner.classList.remove('is-showing');
+        void replayBanner.offsetWidth;
+        replayBanner.classList.add('is-showing');
+        window.setTimeout(() => {
+            replayBanner.hidden = true;
+            replayBanner.classList.remove('is-showing');
+        }, 1850);
+    }
+
+    function playNextReplayStep() {
+        const state = replayState;
+        if (!state) {
+            return;
+        }
+        if (state.cursor >= state.steps.length) {
+            finishReplay();
+            return;
+        }
+        const step = state.steps[state.cursor];
+        state.cursor += 1;
+
+        if (step.stageName !== state.lastStageName) {
+            state.lastStageName = step.stageName;
+            showReplayBanner(step);
+        }
+
+        // 累加本场增量到回放累计值
+        for (const delta of step.deltas) {
+            const entry = state.acc.get(delta.key) || { picks: 0, games: 0, wins: 0 };
+            entry.picks += delta.picks;
+            entry.games += delta.games;
+            entry.wins += delta.wins;
+            state.acc.set(delta.key, entry);
+        }
+        renderReplay();
+        replayBadgeText.textContent = `第 ${state.cursor}/${state.steps.length} 场 · ${step.stageName}`;
+
+        if (state.cursor >= state.steps.length) {
+            finishReplay();
+        } else {
+            replayTimer = window.setTimeout(playNextReplayStep, state.interval);
+        }
+    }
+
+    /** 播完：角标提示后恢复实时口径（主动拉一次真实排行，renderSignature 已置空强制重绘） */
+    function finishReplay() {
+        const state = replayState;
+        if (!state) {
+            return;
+        }
+        replayBadgeText.textContent = `回放结束 · ${state.tournamentName}`;
+        replayTimer = window.setTimeout(() => {
+            replayActive = false;
+            replayState = null;
+            if (replayTimer) {
+                window.clearTimeout(replayTimer);
+                replayTimer = null;
+            }
+            replayBadge.hidden = true;
+            renderSignature = null;
+            void fetchRanking(currentTournamentId, currentStageIndex);
+        }, state.interval);
+    }
+
+    function startReplay(payload) {
+        const steps = payload && Array.isArray(payload.steps) ? payload.steps : [];
+        if (!steps.length) {
+            return;
+        }
+        // 打断进行中的回放，重新开始
+        if (replayTimer) {
+            window.clearTimeout(replayTimer);
+            replayTimer = null;
+        }
+        replayBanner.hidden = true;
+        replayBanner.classList.remove('is-showing');
+        replayActive = true;
+        replayState = {
+            sprites: payload.sprites && typeof payload.sprites === 'object' ? payload.sprites : {},
+            steps,
+            cursor: 0,
+            lastStageName: null,
+            acc: new Map(),
+            rendered: new Map(),
+            interval: REPLAY_INTERVALS[payload.speed] ?? REPLAY_INTERVALS.normal,
+            tournamentName: String(payload.tournamentName || ''),
+        };
+        leftRowsEl.innerHTML = '';
+        rightRowsEl.innerHTML = '';
+        renderSignature = null;
+        replayBadge.hidden = false;
+        replayBadgeText.textContent = `0/${steps.length} 场 · ${replayState.tournamentName}`;
+        replayTimer = window.setTimeout(playNextReplayStep, 500);
+    }
+
     function connectSocket() {
         if (typeof io !== 'function') {
             return;
@@ -206,7 +504,7 @@
 
         socket.on('snapshot', (payload) => {
             const stage = payload && payload.stage ? payload.stage : null;
-            if (stage) {
+            if (stage && !replayActive) {
                 void fetchRanking(stage.page15TournamentId, stage.page15Stage);
             }
         });
@@ -216,13 +514,22 @@
             if (stage) {
                 setSortBy(stage.page15SortBy);
                 setSortOrder(stage.page15SortOrder);
-                void fetchRanking(stage.page15TournamentId, stage.page15Stage);
+                if (!replayActive) {
+                    void fetchRanking(stage.page15TournamentId, stage.page15Stage);
+                }
             }
         });
 
         // matches:update 载荷为 { store }，比赛数据变化时按当前系列赛/阶段口径刷新排行
         socket.on('matches:update', () => {
-            scheduleRefresh();
+            if (!replayActive) {
+                scheduleRefresh();
+            }
+        });
+
+        // 数据回放：后台推送后进入回放模式，播完自动恢复实时口径
+        socket.on('page15:replay', (payload) => {
+            startReplay(payload);
         });
     }
 

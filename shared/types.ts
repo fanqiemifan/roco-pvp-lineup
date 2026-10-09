@@ -514,6 +514,32 @@ export interface MvpWinnerInfo {
   avatarMtime: number | null;
 }
 
+/** 推流页面15 数据回放：单步 = 一场比赛对该榜单的增量贡献（按场序播放） */
+export interface Page15ReplayStep {
+  matchId: string;
+  stageIndex: number;
+  stageName: string;
+  leftPlayer: string;
+  rightPlayer: string;
+  /** 该场已完赛小局的比分文本，如 "2:1" */
+  score: string;
+  /** 逐精灵增量：口径同 /api/stats/ranking（只统计已登记胜负的小局；镜像局 wins 记 0.5） */
+  deltas: Array<{ key: string; picks: number; games: number; wins: number }>;
+}
+
+/** 推流页面15 数据回放载荷：后台「数据统计」推送，socket 事件 page15:replay 下发 */
+export interface Page15ReplayPayload {
+  tournamentId: string;
+  tournamentName: string;
+  fromStage: number;
+  toStage: number;
+  speed: 'slow' | 'normal' | 'fast';
+  /** 出场精灵元数据映射（key → 展示信息），展示端据此建行 */
+  sprites: Record<string, { name: string; displayName: string; iconPath: string; spritePath: string }>;
+  /** 按场序（阶段升序 → 波次升序 → 创建时间）排列的逐场增量 */
+  steps: Page15ReplayStep[];
+}
+
 export interface SnapshotPayload {
   panels: [PanelState, PanelState];
   scoreboard: ScoreboardState;

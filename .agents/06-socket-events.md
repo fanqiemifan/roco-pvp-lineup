@@ -19,6 +19,7 @@
 | 倒计时更新通知 | countdown:update | Server → Client | 倒计时状态变更（保存/show/hide/start/pause/reset/归零），负载带 serverNow 供校准 | CountdownPayload（state + serverNow） |
 | MVP 结算更新通知 | mvp:update | Server → Client | MVP 结算（page4）精灵项/标签/MVP 标记/胜方快照变更（保存/显示时广播）；推流页收到后重拉 GET /api/mvp（state + winner），后台「结算画面」直接用 payload 的 state/winner 同步草稿与已载入胜方头像 | { state: MvpState, winner: MvpWinnerInfo } |
 | 系列赛更新通知 | tournament:update | Server → Client | 系列赛编排变更（创建/抽签/开赛/锁定配对/回退/弃权/本机移除/恢复后广播）；投 admin 房间 + page14（晋级积分榜要按阶段重算榜单） | { tournaments: TournamentRecord[], locallyRemoved: TournamentRecord[] }——locallyRemoved 只在本机口径（恢复列表与对局过滤），绝不进出站同步包 |
+| 数据统计回放推送 | page15:replay | Server → Client | 后台「数据统计」一键推送后广播（POST /api/stats/replay），只投 admin + page15；展示页从空榜起按 steps 逐场累加播出演化过程，回放期间忽略 snapshot/stage:update/matches:update 的实时刷新，播完自动恢复实时口径 | Page15ReplayPayload（steps 为逐场增量，deltas 口径与 /api/stats/ranking 一致） |
 
 > 双机数据同步（/api/sync/*）**不新增事件**：导入成功后复用 matches:update（比赛）与 profiles:update（档案）广播，包内系列赛有新增/更新或写回推进时另广播 tournament:update，各客户端按既有订阅自动刷新。
 

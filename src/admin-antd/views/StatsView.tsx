@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Col,
+  Divider,
   Empty,
   Image,
   Input,
@@ -99,6 +100,8 @@ type StatsViewProps = {
   page15SortBy: 'picks' | 'games' | 'winRate';
   page15SortOrder: 'asc' | 'desc';
   onPage15DisplayChange: (patch: { page15TournamentId?: string; page15Stage?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page15SortOrder?: 'asc' | 'desc' }) => void;
+  /** 数据回放：把系列赛「从 xx 阶段到 xx 阶段」的场次变动推给推流页面15 逐场累加播放（错误提示由 App 层弹） */
+  onPage15Replay: (payload: { tournamentId: string; fromStage: number; toStage: number; speed: 'slow' | 'normal' | 'fast' }) => Promise<void> | void;
 };
 
 export function StatsView({
@@ -127,9 +130,16 @@ export function StatsView({
   page15SortBy,
   page15SortOrder,
   onPage15DisplayChange,
+  onPage15Replay,
 }: StatsViewProps) {
   const { message } = App.useApp();
   const [chartMode, setChartMode] = React.useState<StatsChartMode>('rank');
+  // 数据回放控件状态（系列赛 / 起止阶段为十进制字符串下标、播放速度、推送中）
+  const [replayTournamentId, setReplayTournamentId] = React.useState('');
+  const [replayFrom, setReplayFrom] = React.useState('0');
+  const [replayTo, setReplayTo] = React.useState('0');
+  const [replaySpeed, setReplaySpeed] = React.useState<'slow' | 'normal' | 'fast'>('normal');
+  const [replayPushing, setReplayPushing] = React.useState(false);
   const stats = buildUsageStats(matches, spriteMap, tournaments, {
     player,
     tag,
@@ -159,6 +169,11 @@ export function StatsView({
       ...selected.stages.map((stage, index) => ({ value: String(index), label: stage.name })),
     ];
   };
+  // 回放用阶段选项：不含「全部」，直接映射所选回放系列赛的 stages 下标
+  const replayStageOptions = replayTournamentId
+    ? (tournaments.find((item) => item.id === replayTournamentId)?.stages ?? [])
+      .map((stage, index) => ({ value: String(index), label: stage.name }))
+    : [];
   const selectedTournamentName = tournamentOptions.find((item) => item.id === tournamentId)?.name ?? '';
   const trendColors = ['#d38b2d', '#4f8cff', '#c24635', '#2d7a58', '#8a5fd0'];
   const topTrendRows = stats.rows.slice(0, 5);
@@ -461,6 +476,98 @@ export function StatsView({
                     />
                   </Space>
                 </SettingField>
+              </Col>
+            </Row>
+            <Divider style={{ margin: '16px 0 12px' }} />
+            <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+              数据回放：把所选系列赛「从 xx 阶段到 xx 阶段」的完赛场次按时间线逐场推送到推流页面15，榜单随之累加演化；回放结束后画面自动恢复实时排行。
+            </Text>
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={12}>
+                <SettingField label="回放系列赛：">
+                  <Select
+                    style={{ width: '100%' }}
+                    placeholder="选择要回放的系列赛"
+                    value={replayTournamentId || undefined}
+                    options={tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` }))}
+                    onChange={(value) => {
+                      const next = value ?? '';
+                      setReplayTournamentId(next);
+                      // 切系列赛重置阶段范围：默认「从第 1 阶段到最后阶段」
+                      const target = tournaments.find((item) => item.id === next);
+                      setReplayFrom('0');
+                      setReplayTo(target ? String(target.stages.length - 1) : '0');
+                    }}
+                  />
+                </SettingField>
+              </Col>
+              <Col xs={12} md={6}>
+                <SettingField label="从阶段：">
+                  <Select
+                    style={{ width: '100%' }}
+                    value={replayFrom}
+                    disabled={!replayTournamentId}
+                    options={replayStageOptions}
+                    onChange={(value) => {
+                      setReplayFrom(value);
+                      // 起止联动：起点超过终点时把终点同步为起点，防止范围倒挂
+                      if (Number(value) > Number(replayTo)) {
+                        setReplayTo(value);
+                      }
+                    }}
+                  />
+                </SettingField>
+              </Col>
+              <Col xs={12} md={6}>
+                <SettingField label="到阶段：">
+                  <Select
+                    style={{ width: '100%' }}
+                    value={replayTo}
+                    disabled={!replayTournamentId}
+                    options={replayStageOptions}
+                    onChange={(value) => {
+                      setReplayTo(value);
+                      if (Number(value) < Number(replayFrom)) {
+                        setReplayFrom(value);
+                      }
+                    }}
+                  />
+                </SettingField>
+              </Col>
+              <Col xs={24}>
+                <Space wrap size={12} align="end">
+                  <SettingField label="播放速度：">
+                    <Segmented
+                      value={replaySpeed}
+                      options={[
+                        { value: 'slow', label: '慢' },
+                        { value: 'normal', label: '标准' },
+                        { value: 'fast', label: '快' },
+                      ]}
+                      onChange={(value) => setReplaySpeed(value as 'slow' | 'normal' | 'fast')}
+                    />
+                  </SettingField>
+                  <Button
+                    type="primary"
+                    loading={replayPushing}
+                    disabled={!replayTournamentId}
+                    onClick={async () => {
+                      setReplayPushing(true);
+                      try {
+                        await onPage15Replay({
+                          tournamentId: replayTournamentId,
+                          fromStage: Number(replayFrom),
+                          toStage: Number(replayTo),
+                          speed: replaySpeed,
+                        });
+                      } finally {
+                        setReplayPushing(false);
+                      }
+                    }}
+                  >
+                    推送到页面15 回放
+                  </Button>
+                </Space>
               </Col>
             </Row>
           </Card>

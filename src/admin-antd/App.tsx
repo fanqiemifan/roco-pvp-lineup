@@ -2633,6 +2633,19 @@ function Dashboard() {
     }
   }
 
+  // 数据回放：把系列赛「从 xx 阶段到 xx 阶段」的逐场增量推给推流页面15 播放（错误提示在后台弹，回放画面由 socket 事件驱动）
+  async function handlePage15Replay(payload: { tournamentId: string; fromStage: number; toStage: number; speed: 'slow' | 'normal' | 'fast' }) {
+    try {
+      const data = await requestJson<{ ok: boolean; tournamentName: string; steps: number }>('/api/stats/replay', {
+        method: 'POST',
+        json: payload,
+      });
+      message.success(`已推送数据回放（${data.tournamentName}，共 ${data.steps} 场）到推流页面15`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   // 即时保存：推流页面2字段（赛事标题失焦触发、阵容展示选择即存）
   async function savePage2FieldNow(patch: { eventTitle?: string; page2LineupDisplayMode?: 'default' | 'avatar-only' }) {
     if (!scoreboard) {
@@ -6680,6 +6693,7 @@ function Dashboard() {
               page15SortBy={stage?.page15SortBy ?? 'picks'}
               page15SortOrder={stage?.page15SortOrder ?? 'desc'}
               onPage15DisplayChange={(patch) => { void saveStage(stage?.page ?? 'page3', { silent: true, ...patch }); }}
+              onPage15Replay={handlePage15Replay}
             />
           ) : null}
 

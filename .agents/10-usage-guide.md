@@ -27,7 +27,7 @@
 | 选手/战队信息录入 | savePlayerProfile / saveTeamProfile | electron/services/profile-service.ts |
 | 创建比赛复用录入信息 | reusePlayerProfile | src/admin-antd/App.tsx |
 | page3 战队标识渲染 | renderTeams / buildTeamNameImage | src/scripts/page3-display.js |
-| 精灵排行统计 | getSpriteRanking | electron/services/stats-service.ts |
+| 精灵排行统计 | getSpriteRanking / buildPage15Replay | electron/services/stats-service.ts |
 | 搜索精灵 | listSprites | electron/services/sprite-service.ts |
 | 上传头像 | saveAvatar | electron/services/image-service.ts |
 | 发送 Socket 事件 | socket.emit | electron/socket-server.ts |
