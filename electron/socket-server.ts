@@ -2161,6 +2161,8 @@ export async function createLocalServer(
         fromStage: Number(body.fromStage),
         toStage: Number(body.toStage),
         speed: typeof body.speed === 'string' ? (body.speed as Page15ReplaySpeed) : undefined,
+        // 播放方式取自「推流页面15 显示设置」：false = 不播放直接展示最终数据（默认），true = 逐场播放
+        play: getStageState(paths).page15ReplayPlay,
       });
       if (!payload.steps.length) {
         response.status(400).json({ error: '所选阶段范围内没有已完赛的比赛数据，无法回放' });

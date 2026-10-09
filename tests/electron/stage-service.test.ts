@@ -82,6 +82,7 @@ describe('stage-service：数据统计页设置（page15 过滤与排序）', ()
     expect(state.page15Stage).toBe('');
     expect(state.page15SortBy).toBe('picks');
     expect(state.page15SortOrder).toBe('desc');
+    expect(state.page15ReplayPlay).toBe(false);
   });
 
   it('保存后落盘持久化，且保存其他字段不会重置', () => {
@@ -123,5 +124,17 @@ describe('stage-service：数据统计页设置（page15 过滤与排序）', ()
 
     saveStageState(paths, { page5Stage: 'abc' });
     expect(getStageState(paths).page5Stage).toBe('');
+  });
+
+  it('回放播放方式：默认不播放（false），开启逐场播放后持久化，非布尔值归一为 false', () => {
+    const paths = createIsolatedPaths();
+    expect(saveStageState(paths, { page: 'page15' }).page15ReplayPlay).toBe(false);
+    expect(saveStageState(paths, { page15ReplayPlay: true, page: 'page15' }).page15ReplayPlay).toBe(true);
+    // 保存其他字段不重置
+    saveStageState(paths, { page3RankVisible: true });
+    expect(getStageState(paths).page15ReplayPlay).toBe(true);
+    // 非布尔值一律归一为「不播放」
+    saveStageState(paths, { page15ReplayPlay: 'yes' });
+    expect(getStageState(paths).page15ReplayPlay).toBe(false);
   });
 });

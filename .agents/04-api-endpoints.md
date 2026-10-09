@@ -202,7 +202,7 @@
 | 自然语言描述 | 方法 | 路径 | 说明 | 文件 |
 |-------------|------|------|------|------|
 | 精灵排行 | GET | /api/stats/ranking | 精灵使用率/上场率/胜率排行（支持 tournamentId（系列赛精确过滤）/ tag / player / stageIndex（阶段过滤：非空时只统计 tournamentRef.stageIndex 相同的对局，无 ref 的普通对局排除）/ limit 参数，limit 默认 10、夹取 1..999（推流页面15 传大值拿全量后前端自行排序）；行内含 iconPath（头像源，展示端回退 spritePath）；统计全部历史对局；响应回传 tournamentId + stageIndex + tournamentName） | electron/socket-server.ts |
-| 推送数据统计回放 | POST | /api/stats/replay | 构建系列赛 [fromStage, toStage] 逐场增量序列并广播 `page15:replay`（只投 admin + page15）；body { tournamentId, fromStage, toStage, speed }，steps 为空（所选范围内无完赛对局）或参数非法均 400 带中文错误；成功返回 { ok, tournamentName, steps } | electron/socket-server.ts |
+| 推送数据统计回放 | POST | /api/stats/replay | 构建系列赛 [fromStage, toStage] 逐场增量序列并广播 `page15:replay`（只投 admin + page15）；body { tournamentId, fromStage, toStage, speed }，播放方式 play 由 stage.page15ReplayPlay 决定（默认不播放=直接展示最终数据）；steps 为空（所选范围内无完赛对局）或参数非法均 400 带中文错误；成功返回 { ok, tournamentName, steps } | electron/socket-server.ts |
 
 > 推流页面仅用于展示，以下 GET 接口公开免鉴权：`/api/stage`、`/api/scoreboard`、`/api/stats/ranking`、`/api/page6`、`/api/page7`、`/api/page8`、`/api/page9`、`/api/page10`、`/api/page11`、`/api/page14`、`/api/mvp`、`/api/panels`、`/api/matches`、`/api/sprites`、`/api/nextgame`、`/api/profiles`、`/api/avatars`、`/api/countdown`；同名 POST/DELETE 写操作仍受保护。页面路由同理：`/roco-pvp-page14.html`、`/roco-pvp-page15.html` 与其它推流页一起列在 `isPublicPage` 白名单里。
 

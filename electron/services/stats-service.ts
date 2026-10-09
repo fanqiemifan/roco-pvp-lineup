@@ -186,7 +186,7 @@ export type Page15ReplaySpeed = 'slow' | 'normal' | 'fast';
  */
 export function buildPage15Replay(
   paths: AppPaths,
-  options: { tournamentId: string; fromStage: number; toStage: number; speed?: Page15ReplaySpeed },
+  options: { tournamentId: string; fromStage: number; toStage: number; speed?: Page15ReplaySpeed; play?: boolean },
 ): Page15ReplayPayload {
   const tournamentId = typeof options.tournamentId === 'string' ? options.tournamentId.trim() : '';
   const tournament = getTournamentStore(paths).find((record) => record.id === tournamentId);
@@ -322,6 +322,7 @@ export function buildPage15Replay(
     fromStage,
     toStage,
     speed,
+    play: options.play === true,
     sprites,
     steps,
   };

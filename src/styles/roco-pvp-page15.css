@@ -273,64 +273,25 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* 舞台左上角回放进度角标（回放期间显示，播完保留至恢复实时） */
+/* 回放进度条：屏幕底部居中小字条（第 X / N 场 · 阶段名 / 最终数据），缩小字体且不遮挡榜单数据（榜单行最低到 y1016） */
 .page15-replay-badge {
     position: absolute;
-    left: 24px;
-    top: 20px;
-    height: 40px;
-    line-height: 40px;
-    padding: 0 18px;
+    left: 50%;
+    bottom: 10px;
+    transform: translateX(-50%);
+    height: 32px;
+    line-height: 32px;
+    padding: 0 14px;
     border-radius: 6px;
     background: rgba(16, 19, 28, 0.65);
     font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
-    font-size: 22px;
+    font-size: 18px;
     color: #c9d2f5;
+    white-space: nowrap;
     z-index: 20;
 }
 
 .page15-replay-badge em {
     font-style: normal;
     color: #ffd591;
-}
-
-/* 阶段切换大字幕：跨入新阶段第一场时播 1.8 秒淡入淡出 */
-.page15-replay-banner {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(8, 10, 18, 0.55);
-    z-index: 30;
-    pointer-events: none;
-}
-
-.page15-replay-banner.is-showing {
-    animation: page15BannerShow 1800ms ease both;
-}
-
-@keyframes page15BannerShow {
-    0% { opacity: 0; }
-    16% { opacity: 1; }
-    80% { opacity: 1; }
-    100% { opacity: 0; }
-}
-
-.page15-replay-banner-text {
-    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
-    font-size: 88px;
-    color: #ffffff;
-    letter-spacing: 6px;
-    text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8);
-    text-align: center;
-}
-
-.page15-replay-banner-sub {
-    font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
-    font-size: 30px;
-    color: #ffd591;
-    margin-top: 14px;
-    letter-spacing: 2px;
-    text-align: center;
 }

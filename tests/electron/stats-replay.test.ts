@@ -13,7 +13,7 @@ import {
 } from '../../electron/services/match-service';
 import { createAppPaths, type AppPaths } from '../../electron/services/path-service';
 import { savePlayerProfile } from '../../electron/services/profile-service';
-import { buildPage15Replay } from '../../electron/services/stats-service';
+import { buildPage15Replay, type Page15ReplaySpeed } from '../../electron/services/stats-service';
 import { createTournament, startTournament } from '../../electron/services/tournament-service';
 
 let paths: AppPaths;
@@ -142,7 +142,7 @@ describe('buildPage15Replay（推流页面15 数据回放）', () => {
 
     expect(buildPage15Replay(paths, { tournamentId: series.id, fromStage: 0, toStage: 1, speed: 'slow' }).speed).toBe('slow');
     expect(buildPage15Replay(paths, { tournamentId: series.id, fromStage: 0, toStage: 1, speed: 'fast' }).speed).toBe('fast');
-    expect(buildPage15Replay(paths, { tournamentId: series.id, fromStage: 0, toStage: 1, speed: 'weird' }).speed).toBe('normal');
+    expect(buildPage15Replay(paths, { tournamentId: series.id, fromStage: 0, toStage: 1, speed: 'weird' as Page15ReplaySpeed }).speed).toBe('normal');
   });
 
   it('非法输入直接抛错：未知系列赛、范围倒挂、越界、负数', () => {
