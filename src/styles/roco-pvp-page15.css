@@ -74,6 +74,11 @@ body {
     background: #ff0000;
 }
 
+/* 右列表头文字随红底换成浅粉，与左列蓝底浅蓝文字对称 */
+.page15-column-right .page15-header-item {
+    color: #ffccd4;
+}
+
 .page15-header-item {
     position: absolute;
     top: 0;
