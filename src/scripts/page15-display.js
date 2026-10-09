@@ -243,19 +243,83 @@
         return el;
     }
 
-    function tweenReplayValue(cell, from, to, fmt) {
+    // 数值滚轮（odometer）：每一位数字是一条竖向滚带，滚带按「10 + 位置值」铺设、glyph 取 index mod 10，
+    // 位置值连续变化时 glyph 组合始终正确（跨 10 归位在两条等宽滚带的镜像段完成，无肉眼跳变）
+    const ROLL_DIGIT_HEIGHT = 90; // 与行高一致：滚带每一位占一格
+
+    /** 造一位滚轮：滚带覆盖 [lo, hi] 的位置区间，返回 { digit, strip, lo } 供逐帧定位 */
+    function buildRollWheel(fromPos, toPos) {
+        const lo = Math.floor(Math.min(fromPos, toPos));
+        const hi = Math.ceil(Math.max(fromPos, toPos)) + 1;
+        const digit = document.createElement('span');
+        digit.className = 'page15-roll-digit';
+        const strip = document.createElement('span');
+        strip.className = 'page15-roll-strip';
+        for (let i = lo; i <= hi; i += 1) {
+            const glyph = document.createElement('span');
+            glyph.textContent = String(((i % 10) + 10) % 10);
+            strip.appendChild(glyph);
+        }
+        digit.appendChild(strip);
+        return { digit, strip, lo };
+    }
+
+    function setWheelPosition(wheel, pos) {
+        wheel.strip.style.transform = `translateY(${-(pos - wheel.lo) * ROLL_DIGIT_HEIGHT}px)`;
+    }
+
+    /**
+     * 数值滚动（odometer 形式）：个位连续滚（过轮带小数偏移），高位随进位步进；
+     * from/to 必须是展示空间的整数（winrate 由调用方先 ×100 取整），滚完回落纯文本。
+     * 位数取两端较大值——跨位滚动时中途出现前导 0 属 odometer 正常形态。
+     */
+    function tweenReplayValue(cell, from, to, fmt, suffix = '') {
         if (from === to) {
-            cell.textContent = fmt(to);
+            cell.textContent = fmt(to) + suffix;
             return;
         }
+        // 生成代号：被新一次滚动接替时旧 rAF 循环自灭，防止快速连播时两个循环打架
+        const gen = (cell._page15RollGen = (cell._page15RollGen || 0) + 1);
+        const digitCount = Math.max(fmt(from).length, fmt(to).length);
+        const roller = document.createElement('span');
+        roller.className = 'page15-roll';
+        const wheels = [];
+        for (let place = digitCount - 1; place >= 0; place -= 1) {
+            const startPos = place === 0 ? 10 + from : 10 + Math.floor(from / 10 ** place);
+            const endPos = place === 0 ? 10 + to : 10 + Math.floor(to / 10 ** place);
+            const wheel = buildRollWheel(startPos, endPos);
+            roller.appendChild(wheel.digit);
+            wheels.push(wheel);
+            setWheelPosition(wheel, startPos);
+        }
+        if (suffix) {
+            const suf = document.createElement('span');
+            suf.className = 'page15-roll-suffix';
+            suf.textContent = suffix;
+            roller.appendChild(suf);
+        }
+        cell.textContent = '';
+        cell.appendChild(roller);
+
         const start = performance.now();
         const duration = 480;
         const frame = (now) => {
+            if (cell._page15RollGen !== gen) {
+                return;
+            }
             const t = Math.min(1, (now - start) / duration);
             const eased = 1 - Math.pow(1 - t, 3);
-            cell.textContent = fmt(from + (to - from) * eased);
+            const v = from + (to - from) * eased;
+            for (let i = 0; i < wheels.length; i += 1) {
+                const place = digitCount - 1 - i;
+                const pos = place === 0 ? 10 + v : 10 + Math.floor(v / 10 ** place);
+                setWheelPosition(wheels[i], pos);
+            }
             if (t < 1) {
                 window.requestAnimationFrame(frame);
+            } else {
+                // 滚完回落纯文本（剔除跨位滚动时的高位前导 0）
+                cell.textContent = fmt(to) + suffix;
             }
         };
         window.requestAnimationFrame(frame);
@@ -304,7 +368,14 @@
             changed = true;
             const from = prevRate ?? 0;
             const pp = Math.round((nextRate - from) * 1000) / 10;
-            tweenReplayValue(el.querySelector('.page15-data-winrate'), from, nextRate, formatWinRate);
+            // 滚轮工作在展示空间（0-100 整数），与 formatWinRate 的四舍五入口径一致
+            tweenReplayValue(
+                el.querySelector('.page15-data-winrate'),
+                Math.round(from * 100),
+                Math.round(nextRate * 100),
+                (v) => String(Math.round(v)),
+                '%',
+            );
             showReplayDelta(
                 el.querySelector('.page15-data-winrate'),
                 `${pp >= 0 ? '▲+' : '▼'}${Math.abs(pp).toFixed(1)}%`,

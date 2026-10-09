@@ -278,6 +278,38 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* 数值滚轮（odometer）：逐位竖向滚带，回放数值阶段机械滚动（个位连续滚、高位随进位步进） */
+.page15-roll {
+    display: inline-flex;
+    justify-content: center;
+    vertical-align: top;
+}
+
+.page15-roll-digit {
+    width: 1ch;
+    height: 90px;
+    overflow: hidden;
+}
+
+.page15-roll-strip {
+    display: flex;
+    flex-direction: column;
+    will-change: transform;
+}
+
+.page15-roll-strip > span {
+    display: block;
+    height: 90px;
+    line-height: 90px;
+    text-align: center;
+}
+
+.page15-roll-suffix {
+    display: inline-block;
+    height: 90px;
+    line-height: 90px;
+}
+
 /* 回放进度条：屏幕底部居中小字条（第 X / N 场 · 阶段名 / 最终数据），缩小字体且不遮挡榜单数据（榜单行最低到 y1016） */
 .page15-replay-badge {
     position: absolute;
