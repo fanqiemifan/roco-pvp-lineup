@@ -279,9 +279,9 @@
         window.setTimeout(() => tag.remove(), 4600);
     }
 
-    /** 对比上一次画面值，逐格滚动 + 角标 + 行闪光（回放只增不减，▲ 为主，防御性保留 ▼） */
-    function updateReplayRow(el, row) {
-        const prev = replayState.rendered.get(row.key) || { picks: 0, games: 0, wins: 0 };
+    /** 对比上一次画面值，逐格滚动 + 角标 + 行闪光（回放只增不减，▲ 为主，防御性保留 ▼）；
+     *  prev 由调用方在渲染时捕获——数值更新排在位移之后延迟执行，届时 rendered 已是新值，不能现查 */
+    function updateReplayRow(el, row, prev) {
         const prevRate = prev.games > 0 ? prev.wins / prev.games : null;
         const nextRate = row.games > 0 ? row.wins / row.games : null;
         let changed = false;
@@ -341,7 +341,15 @@
         return rows;
     }
 
-    /** keyed 增量渲染：复用已有行节点，FLIP 平移 + 数值动效（跨列移动含横向分量） */
+    // 两段式动效节奏：先 FLIP 位移（520ms）让观众看清格局变化，位移基本落位（420ms 处）后
+    // 再统一滚动数值 + 角标 + 闪光解释变化；520+480=900ms 刚好塞进标准速度 1300ms/场的节奏
+    const REPLAY_FLIP_MS = 520;
+    const REPLAY_VALUE_DELAY_MS = 420;
+    // 渲染令牌：每轮渲染递增，延迟的数值回调过号即作废（快速连播/打断时旧回调不追着新画面跑）
+    let replayRenderToken = 0;
+    let replayValueTimer = null;
+
+    /** keyed 增量渲染：复用已有行节点，先 FLIP 平移换位，数值动效延迟到位移基本落位后统一执行 */
     function renderReplay() {
         const state = replayState;
         const top = collectReplayRows(state).slice(0, REPLAY_TOP_N);
@@ -354,6 +362,7 @@
             existing.set(el.dataset.petId, el);
         });
 
+        const deferredUpdates = [];
         top.forEach((row, index) => {
             let el = existing.get(row.key);
             const isNew = !el;
@@ -363,6 +372,7 @@
                 el = buildReplayRow(row);
             }
             (index < 10 ? leftRowsEl : rightRowsEl).appendChild(el);
+            // 名次随位移第一阶段立即更新（新座次 + 新名次先立住，数值随后滚动跟上）
             el.querySelector('.page15-rank').textContent = String(index + 1);
             if (isNew) {
                 el.querySelector('.page15-data-count').textContent = String(row.picks);
@@ -371,7 +381,9 @@
                 el.classList.add('is-entering');
                 el.addEventListener('animationend', () => el.classList.remove('is-entering'), { once: true });
             } else {
-                updateReplayRow(el, row);
+                // 捕获旧画面值（rendered 随即写入新值，延迟回调要用旧值算差值）
+                const prev = state.rendered.get(row.key) || { picks: 0, games: 0, wins: 0 };
+                deferredUpdates.push({ el, row, prev });
             }
             state.rendered.set(row.key, { picks: row.picks, games: row.games, wins: row.wins });
         });
@@ -391,7 +403,7 @@
             el.style.transition = 'none';
             el.style.transform = `translate(${dx}px, ${dy}px)`;
             window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-                el.style.transition = 'transform 520ms cubic-bezier(.22, .9, .26, 1)';
+                el.style.transition = `transform ${REPLAY_FLIP_MS}ms cubic-bezier(.22, .9, .26, 1)`;
                 el.style.transform = 'translate(0, 0)';
                 el.addEventListener('transitionend', () => {
                     el.style.transition = '';
@@ -399,6 +411,23 @@
                 }, { once: true });
             }));
         });
+
+        // 阶段二：位移基本落位后统一滚动数值 + 角标 + 闪光（过号/已脱离文档则跳过）
+        const token = ++replayRenderToken;
+        if (replayValueTimer) {
+            window.clearTimeout(replayValueTimer);
+        }
+        replayValueTimer = window.setTimeout(() => {
+            replayValueTimer = null;
+            if (token !== replayRenderToken) {
+                return;
+            }
+            deferredUpdates.forEach(({ el, row, prev }) => {
+                if (el.isConnected) {
+                    updateReplayRow(el, row, prev);
+                }
+            });
+        }, REPLAY_VALUE_DELAY_MS);
     }
 
     function playNextReplayStep() {
@@ -441,18 +470,26 @@
             replayActive = false;
             replayState = null;
             replayTimer = null;
+            // 作废还没执行的延迟数值回调，避免恢复实时后追着旧画面跑
+            replayRenderToken += 1;
+            if (replayValueTimer) {
+                window.clearTimeout(replayValueTimer);
+                replayValueTimer = null;
+            }
             replayBadge.hidden = true;
             renderSignature = null;
             void fetchRanking(currentTournamentId, currentStageIndex);
         }, delay);
     }
 
-    /** 播完：角标提示后恢复实时口径 */
+    /** 播完：角标提示后恢复实时口径；延迟至少盖过末场两段式动效（420ms 延迟 + 480ms 滚动），
+     *  「快」速（650ms/场）下末场数值还没滚完就被实时重绘截断，所以取 max */
     function finishReplay() {
         if (!replayState) {
             return;
         }
-        scheduleRealtimeRestore(`回放结束 · ${replayState.tournamentName}`, replayState.interval);
+        const hold = Math.max(replayState.interval, REPLAY_VALUE_DELAY_MS + 520);
+        scheduleRealtimeRestore(`回放结束 · ${replayState.tournamentName}`, hold);
     }
 
     /** 不播放模式：所有场次增量一次累加，清空后静态渲染最终数据（无闪光/滑入/FLIP/数值滚动动效） */
@@ -490,6 +527,11 @@
             window.clearTimeout(replayTimer);
             replayTimer = null;
         }
+        if (replayValueTimer) {
+            window.clearTimeout(replayValueTimer);
+            replayValueTimer = null;
+        }
+        replayRenderToken += 1;
         replayActive = true;
         replayState = {
             sprites: payload.sprites && typeof payload.sprites === 'object' ? payload.sprites : {},
