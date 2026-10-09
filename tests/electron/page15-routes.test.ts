@@ -3,9 +3,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AddressInfo } from 'node:net';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { io as ioClient, type Socket } from 'socket.io-client';
 
+import { saveRuntimeConfig } from '../../electron/services/config-service';
+import {
+  getMatchStore,
+  recordMatchWinner,
+  saveGameLineupForMatch,
+  startCurrentGame,
+} from '../../electron/services/match-service';
 import { createAppPaths } from '../../electron/services/path-service';
+import { savePlayerProfile } from '../../electron/services/profile-service';
+import { saveStageState } from '../../electron/services/stage-service';
+import { createTournament, startTournament } from '../../electron/services/tournament-service';
 import { createLocalServer, type LocalServer } from '../../electron/socket-server';
 
 /**
@@ -52,5 +63,119 @@ describe('推流页面15（数据统计）静态资源伺服', () => {
     const style = await fetch(`${staticBase}/styles/roco-pvp-page15.css`);
     expect(style.status).toBe(200);
     expect(await style.text()).toContain('.page15-avatar');
+  });
+});
+
+describe('POST /api/stats/replay：数据回放推送', () => {
+  let replayServer: LocalServer;
+  let replayBase: string;
+  let replaySeriesId: string;
+  let replayPaths: ReturnType<typeof createAppPaths>;
+
+  function connectPage15(): Promise<Socket> {
+    const client = ioClient(replayBase, { transports: ['websocket'], query: { role: 'page15' } });
+    return new Promise((resolve, reject) => {
+      client.once('connect', () => resolve(client));
+      client.once('connect_error', reject);
+    });
+  }
+
+  beforeAll(async () => {
+    const root = mkdtempSync(join(tmpdir(), 'roco-page15-replay-'));
+    replayPaths = createAppPaths(root, root);
+    mkdirSync(replayPaths.dataDir, { recursive: true });
+    saveRuntimeConfig(replayPaths, { machineCode: 'A' });
+    // 建 4 人系列赛并打完一小局，制造回放数据
+    const playerIds = ['p0', 'p1', 'p2', 'p3'];
+    for (const id of playerIds) {
+      savePlayerProfile(replayPaths, { id, name: `选手${id}` });
+    }
+    const record = createTournament(replayPaths, { name: '回放杯', playerIds, seed: 42 });
+    startTournament(replayPaths, record.id);
+    const match = getMatchStore(replayPaths).matches.find(
+      (item) => item.tournamentRef?.tournamentId === record.id,
+    );
+    if (!match) {
+      throw new Error('系列赛未自动建场');
+    }
+    saveGameLineupForMatch(replayPaths, match.id, 1, {
+      left: [{ sprite: 'pet-a' }],
+      right: [{ sprite: 'pet-b' }],
+    });
+    startCurrentGame(replayPaths, match.id);
+    recordMatchWinner(replayPaths, match.id, 'left');
+    replaySeriesId = record.id;
+
+    replayServer = await createLocalServer(replayPaths, 0, '127.0.0.1');
+    replayBase = `http://127.0.0.1:${(replayServer.server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await replayServer.close();
+  });
+
+  it('推送成功 → 200 且向 page15 角色广播 page15:replay 载荷', async () => {
+    const client = await connectPage15();
+    const events: any[] = [];
+    client.on('page15:replay', (payload) => events.push(payload));
+    try {
+      const response = await fetch(`${replayBase}/api/stats/replay`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tournamentId: replaySeriesId, fromStage: 0, toStage: 1, speed: 'fast' }),
+      });
+      expect(response.ok).toBe(true);
+      const data = await response.json();
+      expect(data).toMatchObject({ ok: true, tournamentName: '回放杯', steps: 1 });
+
+      await vi.waitFor(() => expect(events).toHaveLength(1), { timeout: 2000 });
+      expect(events[0]).toMatchObject({ tournamentName: '回放杯', speed: 'fast', fromStage: 0, toStage: 1 });
+      // 默认「不播放」：展示端收到后直接渲染最终数据，不播逐场动画
+      expect(events[0].play).toBe(false);
+      expect(events[0].steps).toHaveLength(1);
+      expect(events[0].steps[0].deltas.length).toBeGreaterThan(0);
+    } finally {
+      client.close();
+    }
+  });
+
+  it('显示设置开启逐场播放（page15ReplayPlay）→ 载荷 play=true', async () => {
+    saveStageState(replayPaths, { page15ReplayPlay: true, page: 'page15' });
+    const client = await connectPage15();
+    const events: any[] = [];
+    client.on('page15:replay', (payload) => events.push(payload));
+    try {
+      const response = await fetch(`${replayBase}/api/stats/replay`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tournamentId: replaySeriesId, fromStage: 0, toStage: 1 }),
+      });
+      expect(response.ok).toBe(true);
+      await vi.waitFor(() => expect(events).toHaveLength(1), { timeout: 2000 });
+      expect(events[0].play).toBe(true);
+    } finally {
+      client.close();
+      saveStageState(replayPaths, { page15ReplayPlay: false, page: 'page15' });
+    }
+  });
+
+  it('未知系列赛 → 400 带错误信息且不广播', async () => {
+    const client = await connectPage15();
+    const events: any[] = [];
+    client.on('page15:replay', (payload) => events.push(payload));
+    try {
+      const response = await fetch(`${replayBase}/api/stats/replay`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tournamentId: 'T19990101_A99', fromStage: 0, toStage: 1 }),
+      });
+      expect(response.status).toBe(400);
+      const data = (await response.json()) as { error: string };
+      expect(typeof data.error).toBe('string');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(events).toEqual([]);
+    } finally {
+      client.close();
+    }
   });
 });

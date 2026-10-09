@@ -68,6 +68,11 @@ function normalizePage15SortOrder(value: unknown): 'asc' | 'desc' {
   return value === 'asc' ? 'asc' : 'desc';
 }
 
+/** 推流页面15：数据回放播放方式（true = 逐场播放；其余一律回默认「不播放，直接展示最终数据」） */
+function normalizePage15ReplayPlay(value: unknown): boolean {
+  return value === true;
+}
+
 function normalizePage3SpriteSource(value: unknown): Page3SpriteSource {
   return typeof value === 'string' && SUPPORTED_PAGE3_SPRITE_SOURCES.has(value)
     ? value as Page3SpriteSource
@@ -139,6 +144,7 @@ function defaultStageState(): StageConfig {
     page15TournamentId: '',
     page15SortBy: 'picks',
     page15SortOrder: 'desc',
+    page15ReplayPlay: false,
     page7SwitchSeconds: DEFAULT_PAGE7_SWITCH_SECONDS,
     page10Duration: DEFAULT_PAGE10_DURATION,
     page10DurationUnit: DEFAULT_PAGE10_DURATION_UNIT as NextGameDurationUnit,
@@ -171,6 +177,7 @@ export function getStageState(paths: AppPaths): StageConfig {
       page15TournamentId: normalizePageTournamentId(metadata.page15TournamentId),
       page15SortBy: normalizePage15SortBy(metadata.page15SortBy),
       page15SortOrder: normalizePage15SortOrder(metadata.page15SortOrder),
+      page15ReplayPlay: normalizePage15ReplayPlay(metadata.page15ReplayPlay),
       page7SwitchSeconds: normalizePage7SwitchSeconds(metadata.page7SwitchSeconds),
       page10Duration: normalizePage10Duration(metadata.page10Duration, page10DurationUnit),
       page10DurationUnit,
@@ -216,6 +223,9 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
     page15SortBy: normalizePage15SortBy(raw.page15SortBy === undefined ? current.page15SortBy : raw.page15SortBy),
     page15SortOrder: normalizePage15SortOrder(
       raw.page15SortOrder === undefined ? current.page15SortOrder : raw.page15SortOrder,
+    ),
+    page15ReplayPlay: normalizePage15ReplayPlay(
+      raw.page15ReplayPlay === undefined ? current.page15ReplayPlay : raw.page15ReplayPlay,
     ),
     page7SwitchSeconds: normalizePage7SwitchSeconds(
       raw.page7SwitchSeconds === undefined ? current.page7SwitchSeconds : raw.page7SwitchSeconds,

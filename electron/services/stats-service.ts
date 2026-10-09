@@ -2,6 +2,7 @@ import { getMatchStore } from './match-service.js';
 import { spriteLookup } from './sprite-service.js';
 import { getTournamentStore } from './tournament-service.js';
 import type { AppPaths } from './path-service.js';
+import type { Page15ReplayPayload, Page15ReplayStep } from '../../shared/types.js';
 
 export type StatsRankingRow = {
   key: string;
@@ -173,4 +174,156 @@ export function getSpriteRanking(
   const limit = Number.isFinite(rawLimit) ? Math.min(999, Math.max(1, Math.round(rawLimit))) : 10;
 
   return { player, tag, tournamentId, stageIndex, tournamentName, totalPicks, rows: rows.slice(0, limit) };
+}
+
+export type Page15ReplaySpeed = 'slow' | 'normal' | 'fast';
+
+/**
+ * 构建「推流页面15 数据回放」载荷：把某系列赛 [fromStage, toStage] 阶段范围内的对局按场序
+ * 排列，逐步下发该场对榜单的增量贡献，展示端从空榜开始逐场累加播出演化过程。
+ * 统计口径与 getSpriteRanking 完全一致（只统计已登记胜负的小局；镜像局 wins 记 0.5），
+ * 保证回放终态 = 实时排行终态。非法输入直接抛错（路由层转 400）。
+ */
+export function buildPage15Replay(
+  paths: AppPaths,
+  options: { tournamentId: string; fromStage: number; toStage: number; speed?: Page15ReplaySpeed; play?: boolean },
+): Page15ReplayPayload {
+  const tournamentId = typeof options.tournamentId === 'string' ? options.tournamentId.trim() : '';
+  const tournament = getTournamentStore(paths).find((record) => record.id === tournamentId);
+  if (!tournament) {
+    throw new Error('系列赛不存在，请重新选择');
+  }
+  const stageCount = tournament.stages.length;
+  const fromStage = Number.isFinite(options.fromStage) ? Math.trunc(Number(options.fromStage)) : Number.NaN;
+  const toStage = Number.isFinite(options.toStage) ? Math.trunc(Number(options.toStage)) : Number.NaN;
+  if (!Number.isInteger(fromStage) || !Number.isInteger(toStage)
+    || fromStage < 0 || toStage >= stageCount || fromStage > toStage) {
+    throw new Error('阶段范围无效：需满足 0 ≤ 起始阶段 ≤ 结束阶段，且在系列赛阶段范围内');
+  }
+  const speed: Page15ReplaySpeed = options.speed === 'slow' || options.speed === 'fast' ? options.speed : 'normal';
+
+  const lookup = spriteLookup(paths);
+  const stageName = (index: number): string => tournament.stages[index]?.name ?? `阶段${index + 1}`;
+
+  const matches = getMatchStore(paths).matches
+    .filter((match) => match.tournamentRef?.tournamentId === tournamentId
+      && match.tournamentRef.stageIndex !== undefined
+      && match.tournamentRef.stageIndex >= fromStage
+      && match.tournamentRef.stageIndex <= toStage)
+    // 场序：阶段升序 → 波次升序 → 创建时间 → id（同波内保持创建顺序）
+    .sort((a, b) => (a.tournamentRef!.stageIndex! - b.tournamentRef!.stageIndex!)
+      || ((a.tournamentRef!.waveIndex ?? 0) - (b.tournamentRef!.waveIndex ?? 0))
+      || a.createdAt.localeCompare(b.createdAt)
+      || a.id.localeCompare(b.id));
+
+  // 累计容器同时充当「出场精灵集合」：回放结束后各 key 的终态 = 实时排行终态
+  const acc = new Map<string, { picks: number; games: number; wins: number }>();
+  const stepSprites = new Set<string>();
+  const steps: Page15ReplayStep[] = [];
+
+  for (const match of matches) {
+    const stepDelta = new Map<string, { picks: number; games: number; wins: number }>();
+    let leftGameWins = 0;
+    let rightGameWins = 0;
+    for (const game of match.games) {
+      if (game.status !== 'completed' || (game.winner !== 'left' && game.winner !== 'right')) {
+        continue;
+      }
+      if (game.winner === 'left') {
+        leftGameWins += 1;
+      } else {
+        rightGameWins += 1;
+      }
+      const sides: Array<{ lineup: string[]; side: 'left' | 'right' }> = [
+        { lineup: game.leftLineup, side: 'left' },
+        { lineup: game.rightLineup, side: 'right' },
+      ];
+      if (!sides.some(({ lineup }) => lineup.length > 0)) {
+        continue;
+      }
+      const appearances = new Map<string, { onLeft: boolean; onRight: boolean }>();
+      for (const { lineup, side } of sides) {
+        for (const petId of lineup) {
+          const sprite = lookup.get(petId) ?? null;
+          const key = sprite ? sprite.id : petId;
+          let entry = stepDelta.get(key);
+          if (!entry) {
+            entry = { picks: 0, games: 0, wins: 0 };
+            stepDelta.set(key, entry);
+          }
+          entry.picks += 1;
+          let appearance = appearances.get(key);
+          if (!appearance) {
+            appearance = { onLeft: false, onRight: false };
+            appearances.set(key, appearance);
+          }
+          if (side === 'left') {
+            appearance.onLeft = true;
+          } else {
+            appearance.onRight = true;
+          }
+        }
+      }
+      for (const [key, appearance] of appearances) {
+        const entry = stepDelta.get(key);
+        if (!entry) {
+          continue;
+        }
+        entry.games += 1;
+        if (appearance.onLeft && appearance.onRight) {
+          entry.wins += 0.5;
+        } else if (
+          (appearance.onLeft && game.winner === 'left') ||
+          (appearance.onRight && game.winner === 'right')
+        ) {
+          entry.wins += 1;
+        }
+      }
+    }
+    if (!stepDelta.size) {
+      // 该场没有任何已完赛小局（未开始/进行中且无完赛局），不产生回放步
+      continue;
+    }
+    const deltas: Page15ReplayStep['deltas'] = [];
+    for (const [key, entry] of stepDelta) {
+      const accEntry = acc.get(key) ?? { picks: 0, games: 0, wins: 0 };
+      accEntry.picks += entry.picks;
+      accEntry.games += entry.games;
+      accEntry.wins += entry.wins;
+      acc.set(key, accEntry);
+      stepSprites.add(key);
+      deltas.push({ key, picks: entry.picks, games: entry.games, wins: entry.wins });
+    }
+    steps.push({
+      matchId: match.id,
+      stageIndex: match.tournamentRef!.stageIndex!,
+      stageName: stageName(match.tournamentRef!.stageIndex!),
+      leftPlayer: match.leftPlayer,
+      rightPlayer: match.rightPlayer,
+      score: `${leftGameWins}:${rightGameWins}`,
+      deltas,
+    });
+  }
+
+  const sprites: Page15ReplayPayload['sprites'] = {};
+  for (const key of stepSprites) {
+    const sprite = lookup.get(key) ?? null;
+    sprites[key] = {
+      name: sprite ? spriteDisplayName(sprite) : key,
+      displayName: sprite ? spriteField(sprite, 'displayName') : '',
+      iconPath: sprite ? spriteField(sprite, 'iconUrl') : '',
+      spritePath: sprite ? sprite.path : '',
+    };
+  }
+
+  return {
+    tournamentId,
+    tournamentName: tournament.name,
+    fromStage,
+    toStage,
+    speed,
+    play: options.play === true,
+    sprites,
+    steps,
+  };
 }

@@ -210,6 +210,8 @@ export interface StageConfig {
   page15SortBy: 'picks' | 'games' | 'winRate';
   /** 推流页面15（数据统计）：排序方向（desc 降序 = 默认，asc 升序；未登场精灵无论方向都排最后） */
   page15SortOrder: 'asc' | 'desc';
+  /** 推流页面15（数据统计）：数据回放播放方式（false = 不播放直接展示最终数据 = 默认，true = 逐场播放） */
+  page15ReplayPlay: boolean;
   /** 战绩详情（page7）：整屏切换间隔（秒）——一屏 4 行停留该时长后整屏交叉过渡到下一屏 */
   page7SwitchSeconds: number;
   /** 胜者结算画面（page10）：登记本局胜负后自动切入的停留时长 */
@@ -512,6 +514,34 @@ export interface MvpWinnerInfo {
   avatarExists: boolean;
   avatarPath: string;
   avatarMtime: number | null;
+}
+
+/** 推流页面15 数据回放：单步 = 一场比赛对该榜单的增量贡献（按场序播放） */
+export interface Page15ReplayStep {
+  matchId: string;
+  stageIndex: number;
+  stageName: string;
+  leftPlayer: string;
+  rightPlayer: string;
+  /** 该场已完赛小局的比分文本，如 "2:1" */
+  score: string;
+  /** 逐精灵增量：口径同 /api/stats/ranking（只统计已登记胜负的小局；镜像局 wins 记 0.5） */
+  deltas: Array<{ key: string; picks: number; games: number; wins: number }>;
+}
+
+/** 推流页面15 数据回放载荷：后台「数据统计」推送，socket 事件 page15:replay 下发 */
+export interface Page15ReplayPayload {
+  tournamentId: string;
+  tournamentName: string;
+  fromStage: number;
+  toStage: number;
+  speed: 'slow' | 'normal' | 'fast';
+  /** 播放方式：false = 不播放，推送后直接展示最终数据（默认）；true = 逐场累加播放。取自 stage.page15ReplayPlay */
+  play: boolean;
+  /** 出场精灵元数据映射（key → 展示信息），展示端据此建行 */
+  sprites: Record<string, { name: string; displayName: string; iconPath: string; spritePath: string }>;
+  /** 按场序（阶段升序 → 波次升序 → 创建时间）排列的逐场增量 */
+  steps: Page15ReplayStep[];
 }
 
 export interface SnapshotPayload {
