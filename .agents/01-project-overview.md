@@ -110,7 +110,7 @@ roco-pvp-lineup/
 | 文件路径 | 说明 |
 |---------|------|
 | overlay.js | 推流页面1（Overlay 比分栏）脚本 |
-| lineup-display.js | 推流页面2（全局阵容展示）脚本 |
+| roco-pvp-page2.js | 推流页面2（全局阵容展示）脚本 |
 | page3-display.js | 推流页面3（头像比分阵容）脚本 |
 | page4-display.js | 推流页面4（MVP 结算画面）脚本（按 pet_id 索引 webm/头像，增量渲染最多 6 个精灵项与标签、MVP 角标） |
 | page5-display.js | 登场/胜率排行页（page5）脚本 |

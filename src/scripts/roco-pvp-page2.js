@@ -8,6 +8,9 @@
     const ROUND_BOX_WIDTH = 32;
     const ROUND_BOX_GAP = 4;
     const DEFAULT_LINEUP_DISPLAY_MODE = 'avatar-only';
+    // 选手名字自适应字号：默认 32px，放不下时逐步降号，下限 28px（仍放不下交给 CSS 省略号）
+    const NAME_FONT_SIZE_MAX = 32;
+    const NAME_FONT_SIZE_MIN = 28;
     const PESTDIV2_SLOT_SIZES = {
         default: 78,
         'avatar-only': 98
@@ -598,6 +601,19 @@
         }
     }
 
+    /** 名字自适应字号：从上限逐 px 试探到下限，取第一个放得下的字号（元素 overflow:hidden + 省略号兜底） */
+    function fitPlayerName(el) {
+        if (!el) {
+            return;
+        }
+        let size = NAME_FONT_SIZE_MAX;
+        el.style.fontSize = `${size}px`;
+        while (size > NAME_FONT_SIZE_MIN && el.scrollWidth > el.clientWidth) {
+            size -= 1;
+            el.style.fontSize = `${size}px`;
+        }
+    }
+
     function renderScoreboard(scoreboard) {
         const data = scoreboard || {};
         latestScoreboard = scoreboard || null;
@@ -632,6 +648,8 @@
 
         document.getElementById('leftPlayerName').textContent = view.leftName || '';
         document.getElementById('rightPlayerName').textContent = view.rightName || '';
+        fitPlayerName(document.getElementById('leftPlayerName'));
+        fitPlayerName(document.getElementById('rightPlayerName'));
         document.getElementById('matchScore').textContent = buildScoreValue(view);
         const eventTitleEl = document.getElementById('eventTitle');
         const eventTitleEnabled = data.eventTitleEnabled !== false;
@@ -735,7 +753,16 @@
         });
     }
 
+    /** 字体异步加载完成后重新适配两侧名字号（MiSans 为异步 @font-face，首帧可能按降级字体度量） */
+    function refitPlayerNames() {
+        fitPlayerName(document.getElementById('leftPlayerName'));
+        fitPlayerName(document.getElementById('rightPlayerName'));
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(() => refitPlayerNames());
+        }
         try {
             await loadSpiritIndex();
             await loadInitialState();

@@ -34,7 +34,7 @@
 | admin（默认） | App.tsx 后台、未知角色 | 全量 | 全部 |
 | page3 | page3-display.js | 全量 | panel / scoreboard / avatar / matches / stage / profiles / nextgame |
 | page1 | overlay.js | panels | panel |
-| page2 | lineup-display.js | panels, scoreboard | panel, scoreboard |
+| page2 | roco-pvp-page2.js | panels, scoreboard | panel, scoreboard |
 | page4 | page4-display.js | mvp | mvp, avatar |
 | page5 | page5-display.js | stage, scoreboard | stage, scoreboard, matches |
 | page6/7/8 | page6-display.js / page7-display.js / page8-display.js（6/8 为薄封装，画面共用 match-prediction.js） | pageN | pageN, matches（+avatar：6/7/8） |
@@ -61,7 +61,7 @@ state-service.ts / image-service.ts
     ↓ (文件写入)
 Runtime Cache (JSON/PNG)
     ↓ (Socket.emit)
-Display Pages (overlay.js / lineup-display.js)
+Display Pages (overlay.js / roco-pvp-page2.js)
     ↓ (DOM 更新)
 推流画面
 ```

@@ -1189,9 +1189,9 @@ function PairingConsole({
   }
 
   // 跨桶配对 = 休眠选项：常规双败流程用不到（W2 自动按 1-0 / 0-1 桶配对，即胜者组/败者组）。
-  // 仅当手动配对或导入非常规对阵表确实需要跨战绩对阵时，裁判显式勾选才放开；
-  // 锁定前二次确认，建场后比赛标注「跨桶」（page6 标签只显示阶段名）
-  const [allowCrossBucket, setAllowCrossBucket] = useState(false);
+  // 勾选框 UI 暂时隐藏（常规赛程用不上），恒为 false；要恢复入口改回 useState(false) 并还原配对台底部的 Checkbox。
+  // 逻辑分支保留：锁定前二次确认、建场后比赛标注「跨桶」（page6 标签只显示阶段名）
+  const allowCrossBucket = false;
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -1564,15 +1564,7 @@ function PairingConsole({
       ) : null}
 
       <Space style={{ marginTop: 12 }} wrap>
-        <Tooltip title="休眠选项：标准双败流程按战绩桶自动配对（胜者组打胜者组、败者组打败者组），常规赛程无需勾选。仅当需要人为安排跨战绩对阵（如外部给了非常规对阵表）时才使用——锁定后比赛会标注「跨桶」，轮次标签只显示阶段名">
-          <Checkbox
-            checked={allowCrossBucket}
-            disabled={drawing}
-            onChange={(event) => setAllowCrossBucket(event.target.checked)}
-          >
-            允许跨桶配对（休眠选项 · 战绩不对等，锁定需二次确认）
-          </Checkbox>
-        </Tooltip>
+        {/* 跨桶配对勾选框暂时隐藏（休眠选项，常规流程用不上）；恢复时连同上方 allowCrossBucket 常量一起改回 */}
         <span style={{ flex: 1 }} />
         <Button
           type="primary"

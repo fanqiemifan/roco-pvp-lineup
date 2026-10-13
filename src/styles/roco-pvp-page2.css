@@ -60,9 +60,9 @@ html, body {
 
 .context-panel {
     position: absolute;
-    left: 837px;
+    left: 896px;
     top: 0;
-    width: 240px;
+    width: 128px;
     height: 154px;
     background: rgba(0, 0, 0, 0.5);
     color: #fff;
@@ -235,8 +235,8 @@ body[data-page2-lineup-display-mode="avatar-only"] .spirit-slot::before {
     position: absolute;
     left: 0;
     top: 0;
-    width: var(--pestdiv2-size, 78px);
-    height: var(--pestdiv2-size, 78px);
+    width: var(--pestdiv2-size, 118px);
+    height: var(--pestdiv2-size, 118px);
 }
 
 .pestdiv2-circle {
@@ -244,11 +244,11 @@ body[data-page2-lineup-display-mode="avatar-only"] .spirit-slot::before {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: calc(var(--pestdiv2-size, 78px) * 70 / 98);
-    height: calc(var(--pestdiv2-size, 78px) * 70 / 98);
+    width: calc(var(--pestdiv2-size, 118px) * 70 / 98);
+    height: calc(var(--pestdiv2-size, 118px) * 70 / 98);
     border-radius: 50%;
     background: #424442;
-    box-shadow: inset 0 0 0 calc(var(--pestdiv2-size, 78px) * 3 / 98) #5d5d5d;
+    box-shadow: inset 0 0 0 calc(var(--pestdiv2-size, 118px) * 3 / 98) #5d5d5d;
     transform: translate(-50%, -50%);
 }
 
@@ -388,7 +388,7 @@ body[data-page2-lineup-display-mode="avatar-only"] .pestdiv2 {
 
 .player-summary-left .player-summary-name {
     left: 0;
-    max-width: 158px;
+    max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
 }

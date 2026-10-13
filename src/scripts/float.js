@@ -266,7 +266,7 @@
             }
         });
 
-        // 镜像反转实时切换（与页面1-3 顶栏开关同一数据源，同 lineup-display.js 的解析口径）
+        // 镜像反转实时切换（与页面1-3 顶栏开关同一数据源，同 roco-pvp-page2.js 的解析口径）
         socket.on('stage:update', (payload) => {
             const stage = payload && payload.stage ? payload.stage : payload;
             setMirrorSides(stage && stage.mirrorSides === true);
