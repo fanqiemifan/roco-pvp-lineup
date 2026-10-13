@@ -235,8 +235,8 @@ body[data-page2-lineup-display-mode="avatar-only"] .spirit-slot::before {
     position: absolute;
     left: 0;
     top: 0;
-    width: var(--pestdiv2-size, 118px);
-    height: var(--pestdiv2-size, 118px);
+    width: var(--pestdiv2-size, 78px);
+    height: var(--pestdiv2-size, 78px);
 }
 
 .pestdiv2-circle {
@@ -244,11 +244,11 @@ body[data-page2-lineup-display-mode="avatar-only"] .spirit-slot::before {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: calc(var(--pestdiv2-size, 118px) * 70 / 98);
-    height: calc(var(--pestdiv2-size, 118px) * 70 / 98);
+    width: calc(var(--pestdiv2-size, 78px) * 70 / 98);
+    height: calc(var(--pestdiv2-size, 78px) * 70 / 98);
     border-radius: 50%;
     background: #424442;
-    box-shadow: inset 0 0 0 calc(var(--pestdiv2-size, 118px) * 3 / 98) #5d5d5d;
+    box-shadow: inset 0 0 0 calc(var(--pestdiv2-size, 78px) * 3 / 98) #5d5d5d;
     transform: translate(-50%, -50%);
 }
 
