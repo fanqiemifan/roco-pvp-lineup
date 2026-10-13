@@ -13,7 +13,7 @@
     const NAME_FONT_SIZE_MIN = 28;
     const PESTDIV2_SLOT_SIZES = {
         default: 78,
-        'avatar-only': 98
+        'avatar-only': 108
     };
     // 精灵头像目录（sprites-icon，与 sprites-img 立绘同命名：{pet_id}_{name}.png）
     const SPRITE_ICON_RESOURCE_BASE = '/resources/sprites-icon';
@@ -114,7 +114,8 @@
     }
 
     function normalizeLineupDisplayMode(value) {
-        return value === 'avatar-only' ? 'avatar-only' : DEFAULT_LINEUP_DISPLAY_MODE;
+        // 与服务端口径一致：'default'（血量展示）是合法值，不能落进 avatar-only 兜底
+        return value === 'default' ? 'default' : DEFAULT_LINEUP_DISPLAY_MODE;
     }
 
     function getRoundBoxCount(bestOf) {

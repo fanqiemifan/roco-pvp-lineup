@@ -7533,7 +7533,7 @@ function Dashboard() {
                       value={scoreboard?.page2LineupDisplayMode ?? 'default'}
                       disabled={!scoreboard}
                       options={[
-                        { value: 'default', label: '默认血量展示' },
+                        { value: 'default', label: '血量展示' },
                         { value: 'avatar-only', label: '仅头像展示' },
                       ]}
                       onChange={(value) => { void savePage2FieldNow({ page2LineupDisplayMode: value as 'default' | 'avatar-only' }); }}
