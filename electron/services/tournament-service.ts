@@ -915,6 +915,7 @@ function validatePairs(
   wave: TournamentWave,
   pairs: DraftPair[],
   allowCrossBucket: boolean,
+  nameOf: (id: string) => string = (id) => id,
 ): PairingValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -971,12 +972,12 @@ function validatePairs(
 
   seen.forEach((count, id) => {
     if (count > 1) {
-      errors.push(`选手重复出现在 ${count} 场对决中：${id}`);
+      errors.push(`选手重复出现在 ${count} 场对决中：${nameOf(id)}`);
     }
   });
   expected.forEach((_bucket, id) => {
     if (!seen.has(id)) {
-      errors.push(`选手漏配：${id}`);
+      errors.push(`选手漏配：${nameOf(id)}`);
     }
   });
 
@@ -1007,13 +1008,20 @@ function lockDraftPairs(
   pairs: DraftPair[],
   allowCrossBucket: boolean,
 ): void {
-  const validation = validatePairs(record, wave, pairs, allowCrossBucket);
+  // 校验信息里显示选手名字（漏配/重复时不再裸奔 id）；档案缺失回退 id
+  const profileStore = getProfileStore(paths);
+  const profileNames = new Map(profileStore.players.map((player) => [player.id, player.name]));
+  const validation = validatePairs(record, wave, pairs, allowCrossBucket, (id) => {
+    // 名字解析带别名回退（系列赛编排的 playerIds 可能来自另一台机器）
+    const localId = profileStore.playerAliases?.[id] ?? id;
+    return profileNames.get(localId) ?? profileNames.get(id) ?? id;
+  });
   if (!validation.valid) {
     throw new Error(validation.errors.join('；'));
   }
 
   const stage = record.stages[wave.stageIndex];
-  const profileById = new Map(getProfileStore(paths).players.map((player) => [player.id, player]));
+  const profileById = new Map(profileStore.players.map((player) => [player.id, player]));
   const nodes: TournamentNode[] = [];
 
   pairs.forEach((draftPair, index) => {

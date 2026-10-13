@@ -1400,7 +1400,7 @@ function PairingConsole({
 
   /** 锁定：先校验，跨桶给二次确认 */
   async function handleLock(): Promise<void> {
-    const validation = validateDraftPairs(record, wave, pairs, allowCrossBucket);
+    const validation = validateDraftPairs(record, wave, pairs, allowCrossBucket, (id) => resolvePlayerName(names, id));
     if (!validation.valid) {
       message.error(validation.errors[0]);
       return;
@@ -1445,8 +1445,8 @@ function PairingConsole({
     [specs, visiblePairs],
   );
   const liveValidation = useMemo(
-    () => validateDraftPairs(record, wave, pairs, allowCrossBucket),
-    [record, wave, pairs, allowCrossBucket],
+    () => validateDraftPairs(record, wave, pairs, allowCrossBucket, (id) => resolvePlayerName(names, id)),
+    [record, wave, pairs, allowCrossBucket, names],
   );
 
   // 选择框选项：允许跨桶时列出本波全部选手（带桶后缀），否则仅本桶

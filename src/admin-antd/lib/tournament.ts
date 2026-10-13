@@ -599,12 +599,14 @@ export function findPriorMeeting(
  * 配对草稿客户端校验（与服务端口径一致，锁定前即时反馈）：
  * 漏配/重复/自己对自己/不在本波 → 错误；跨桶未显式允许 → 错误；
  * 已交手（本阶段或此前阶段）→ 仅提醒。
+ * resolveName：选手 id → 展示名（缺省原样返回 id），让错误信息显示选手名字。
  */
 export function validateDraftPairs(
   record: TournamentRecord,
   wave: TournamentWave,
   pairs: NonNullable<TournamentWave['pairingDraft']>,
   allowCrossBucket: boolean,
+  resolveName: (id: string) => string = (id) => id,
 ): PairingValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -664,12 +666,12 @@ export function validateDraftPairs(
 
   seen.forEach((count, id) => {
     if (count > 1) {
-      errors.push(`选手重复出现在 ${count} 场对决中：${id}`);
+      errors.push(`选手重复出现在 ${count} 场对决中：${resolveName(id)}`);
     }
   });
   expectedBucket.forEach((_bucket, id) => {
     if (!seen.has(id)) {
-      errors.push(`选手漏配：${id}`);
+      errors.push(`选手漏配：${resolveName(id)}`);
     }
   });
 
