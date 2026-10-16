@@ -102,7 +102,8 @@ body {
     top: 948px;
 }
 
-/* 卡位横向坐标：左侧从左缘数，右侧复用同一组数值改为距右缘距离；z-index 按卡位顺序 1-6 */
+/* 卡位横向坐标：左侧从左缘数，右侧复用同一组数值改为距右缘距离；
+   z-index 与左侧镜像：右侧序号6（最靠屏幕中缝）为 1，序号1（最靠右缘）为 6 */
 .page16-slot[data-side="left"][data-slot="0"] { left: 220px; z-index: 1; }
 .page16-slot[data-side="left"][data-slot="1"] { left: 332px; z-index: 2; }
 .page16-slot[data-side="left"][data-slot="2"] { left: 442px; z-index: 3; }
@@ -110,12 +111,12 @@ body {
 .page16-slot[data-side="left"][data-slot="4"] { left: 662px; z-index: 5; }
 .page16-slot[data-side="left"][data-slot="5"] { left: 772px; z-index: 6; }
 
-.page16-slot[data-side="right"][data-slot="0"] { right: 220px; z-index: 1; }
-.page16-slot[data-side="right"][data-slot="1"] { right: 332px; z-index: 2; }
-.page16-slot[data-side="right"][data-slot="2"] { right: 442px; z-index: 3; }
-.page16-slot[data-side="right"][data-slot="3"] { right: 552px; z-index: 4; }
-.page16-slot[data-side="right"][data-slot="4"] { right: 662px; z-index: 5; }
-.page16-slot[data-side="right"][data-slot="5"] { right: 772px; z-index: 6; }
+.page16-slot[data-side="right"][data-slot="0"] { right: 220px; z-index: 6; }
+.page16-slot[data-side="right"][data-slot="1"] { right: 332px; z-index: 5; }
+.page16-slot[data-side="right"][data-slot="2"] { right: 442px; z-index: 4; }
+.page16-slot[data-side="right"][data-slot="3"] { right: 552px; z-index: 3; }
+.page16-slot[data-side="right"][data-slot="4"] { right: 662px; z-index: 2; }
+.page16-slot[data-side="right"][data-slot="5"] { right: 772px; z-index: 1; }
 
 /* 卡片投影：卡面是异形（左上斜切 + 蒙版），用 drop-shadow 跟随轮廓，box-shadow 会出方框影子 */
 .page16-slot .petscard {
