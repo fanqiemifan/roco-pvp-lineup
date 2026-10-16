@@ -73,6 +73,14 @@ export const DEFAULT_PAGE3_TEAM_VISIBLE = false;
 export const DEFAULT_PAGE3_RED_LIGHT_MODE = 'off' as const;
 export const SUPPORTED_PAGE3_RED_LIGHT_MODES = new Set(['off', 'auto']);
 export const DEFAULT_PAGE3_RED_LIGHT_INSTANT = false;
+/**
+ * 推流页面16（阵容同步）：
+ * - page16SpriteSource: 精灵主体图片来源（sprite 原图 / thumbnail 头像），语义与页面3一致（复用 Page3SpriteSource 类型）
+ * - page16RankVisible: 是否显示选手头像卡上的排名数字
+ */
+export const DEFAULT_PAGE16_SPRITE_SOURCE = 'sprite' as const;
+export const SUPPORTED_PAGE16_SPRITE_SOURCES = new Set(['sprite', 'thumbnail']);
+export const DEFAULT_PAGE16_RANK_VISIBLE = true;
 /** 选手介绍（page11-13）：默认显示选手排位排名 div（无排名时自动隐藏） */
 export const DEFAULT_PAGE11_RANK_VISIBLE = true;
 export const RANK_TEXT_MAX_LENGTH = 10;

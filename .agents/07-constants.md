@@ -20,6 +20,9 @@
 | DEFAULT_PAGE3_SPRITE_SOURCE | sprite | 页面3精灵图片来源默认值（sprite / thumbnail） | shared/constants.ts |
 | SUPPORTED_PAGE3_SPRITE_SOURCES | {sprite,thumbnail} | 页面3精灵图片来源枚举 | shared/constants.ts |
 | DEFAULT_PAGE3_RANK_VISIBLE | false | 页面3排位排名图标默认隐藏 | shared/constants.ts |
+| DEFAULT_PAGE16_SPRITE_SOURCE | sprite | 页面16精灵图片来源默认值（sprite / thumbnail，语义与页面3一致） | shared/constants.ts |
+| SUPPORTED_PAGE16_SPRITE_SOURCES | {sprite,thumbnail} | 页面16精灵图片来源枚举 | shared/constants.ts |
+| DEFAULT_PAGE16_RANK_VISIBLE | true | 页面16选手头像卡排名数字默认显示 | shared/constants.ts |
 | DEFAULT_PAGE3_TEAM_VISIBLE | false | 页面3战队标识 div 默认隐藏 | shared/constants.ts |
 | DEFAULT_PAGE3_RED_LIGHT_MODE / DEFAULT_PAGE3_RED_LIGHT_INSTANT | off / false | 页面3红光特效持久策略默认值（SUPPORTED_PAGE3_RED_LIGHT_MODES = off/auto）与「立即显示」一次性触发默认值 | shared/constants.ts |
 | DEFAULT_PAGE11_RANK_VISIBLE | true | 选手介绍（page11-13）排位排名 div 默认显示 | shared/constants.ts |

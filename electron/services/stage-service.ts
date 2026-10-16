@@ -14,6 +14,9 @@ import {
   DEFAULT_PAGE3_RED_LIGHT_MODE,
   DEFAULT_PAGE3_SPRITE_SOURCE,
   DEFAULT_PAGE3_TEAM_VISIBLE,
+  DEFAULT_PAGE16_RANK_VISIBLE,
+  DEFAULT_PAGE16_SPRITE_SOURCE,
+  SUPPORTED_PAGE16_SPRITE_SOURCES,
   SUPPORTED_PAGE3_RED_LIGHT_MODES,
   SUPPORTED_PAGE3_SPRITE_SOURCES,
   SUPPORTED_STAGE_PAGES,
@@ -77,6 +80,16 @@ function normalizePage3SpriteSource(value: unknown): Page3SpriteSource {
   return typeof value === 'string' && SUPPORTED_PAGE3_SPRITE_SOURCES.has(value)
     ? value as Page3SpriteSource
     : DEFAULT_PAGE3_SPRITE_SOURCE;
+}
+
+function normalizePage16SpriteSource(value: unknown): Page3SpriteSource {
+  return typeof value === 'string' && SUPPORTED_PAGE16_SPRITE_SOURCES.has(value)
+    ? value as Page3SpriteSource
+    : DEFAULT_PAGE16_SPRITE_SOURCE;
+}
+
+function normalizePage16RankVisible(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : DEFAULT_PAGE16_RANK_VISIBLE;
 }
 
 function normalizePage3RankVisible(value: unknown): boolean {
@@ -145,6 +158,8 @@ function defaultStageState(): StageConfig {
     page15SortBy: 'picks',
     page15SortOrder: 'desc',
     page15ReplayPlay: false,
+    page16SpriteSource: DEFAULT_PAGE16_SPRITE_SOURCE,
+    page16RankVisible: DEFAULT_PAGE16_RANK_VISIBLE,
     page7SwitchSeconds: DEFAULT_PAGE7_SWITCH_SECONDS,
     page10Duration: DEFAULT_PAGE10_DURATION,
     page10DurationUnit: DEFAULT_PAGE10_DURATION_UNIT as NextGameDurationUnit,
@@ -178,6 +193,8 @@ export function getStageState(paths: AppPaths): StageConfig {
       page15SortBy: normalizePage15SortBy(metadata.page15SortBy),
       page15SortOrder: normalizePage15SortOrder(metadata.page15SortOrder),
       page15ReplayPlay: normalizePage15ReplayPlay(metadata.page15ReplayPlay),
+      page16SpriteSource: normalizePage16SpriteSource(metadata.page16SpriteSource),
+      page16RankVisible: normalizePage16RankVisible(metadata.page16RankVisible),
       page7SwitchSeconds: normalizePage7SwitchSeconds(metadata.page7SwitchSeconds),
       page10Duration: normalizePage10Duration(metadata.page10Duration, page10DurationUnit),
       page10DurationUnit,
@@ -226,6 +243,13 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
     ),
     page15ReplayPlay: normalizePage15ReplayPlay(
       raw.page15ReplayPlay === undefined ? current.page15ReplayPlay : raw.page15ReplayPlay,
+    ),
+    // page16 两个字段带 current 兜底：切换画面等局部保存只传 page/transition，不得清空页面设置
+    page16SpriteSource: normalizePage16SpriteSource(
+      raw.page16SpriteSource === undefined ? current.page16SpriteSource : raw.page16SpriteSource,
+    ),
+    page16RankVisible: normalizePage16RankVisible(
+      raw.page16RankVisible === undefined ? current.page16RankVisible : raw.page16RankVisible,
     ),
     page7SwitchSeconds: normalizePage7SwitchSeconds(
       raw.page7SwitchSeconds === undefined ? current.page7SwitchSeconds : raw.page7SwitchSeconds,

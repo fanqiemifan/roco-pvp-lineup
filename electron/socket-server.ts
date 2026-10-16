@@ -233,8 +233,8 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
   page14: ['page14'],
   // page15 只读 stage（系列赛/选手过滤与排序字段），排行数据经 HTTP 拉取
   page15: ['stage'],
-  // page16 只读阵容面板 + 记分牌 + 头像，不订阅比赛与编排数据
-  page16: ['panels', 'scoreboard', 'avatars'],
+  // page16 只读阵容面板 + 记分牌 + 头像 + stage（精灵来源/排名显隐），不订阅比赛与编排数据
+  page16: ['panels', 'scoreboard', 'avatars', 'stage'],
   page10: [],
   page11: [],
   // float 需要 stage 仅取 mirrorSides（阵容悬浮窗跟随页面1-3 的镜像反转开关）
@@ -246,7 +246,7 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
 // 事件 → 需要该事件的角色（admin 房间始终收到全部）
 // page1/page2 订阅 stage:update 仅为「阵容镜像反转」实时切换（两页其余渲染不依赖 stage 配置）；
 // float 订阅它同理（阵容悬浮窗跟随镜像反转）；page7 订阅它是为「战绩详情整屏切换间隔」（画面设置里改，改完立即按新节奏走）
-const ROLES_FOR_STAGE = ['page1', 'page2', 'page3', 'page5', 'page7', 'page11', 'page15', 'carrier', 'float'];
+const ROLES_FOR_STAGE = ['page1', 'page2', 'page3', 'page5', 'page7', 'page11', 'page15', 'page16', 'carrier', 'float'];
 const ROLES_FOR_AVATAR = ['page3', 'page4', 'page6', 'page7', 'page8', 'page10', 'page11', 'page16'];
 const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11', 'page14', 'page15'];
 const ROLES_FOR_SCOREBOARD = ['page2', 'page3', 'page5', 'page16'];

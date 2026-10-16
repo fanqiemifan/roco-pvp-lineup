@@ -22,6 +22,10 @@
         3: { size: 16, left: 12 }
     };
 
+    // 画面设置：精灵图来源（sprite 原图 / thumbnail 头像，语义与 page3 一致）与排名数字显隐
+    let page16SpriteSource = 'sprite';
+    let page16RankVisible = true;
+
     if (window.Petscard) {
         window.Petscard.assetBase = PETSCARD_ASSET_BASE;
     }
@@ -30,6 +34,7 @@
         left: new Array(MAX_SLOTS).fill(null),
         right: new Array(MAX_SLOTS).fill(null)
     };
+    const panelDataCache = { left: null, right: null };
     let scoreboardSignature = null;
     const avatarSignatures = { left: null, right: null };
     let scoreboardDataCache = null;
@@ -89,8 +94,10 @@
         if (!el) {
             return;
         }
-        el.hidden = !text;
-        if (!text) {
+        // 画面设置关闭排名时隐藏整个数字；开启但选手无排名时同样不显示
+        const show = page16RankVisible && Boolean(text);
+        el.hidden = !show;
+        if (!show) {
             return;
         }
         const style = RANK_STYLE_BY_LENGTH[Math.min(text.length, 3)];
@@ -111,7 +118,8 @@
         const rightRankText = formatRankText(data.rightRank);
 
         const nextSignature = JSON.stringify({
-            leftScore, rightScore, bestOf, leftName, rightName, leftRankText, rightRankText
+            leftScore, rightScore, bestOf, leftName, rightName, leftRankText, rightRankText,
+            rankVisible: page16RankVisible
         });
         if (scoreboardSignature === nextSignature) {
             return;
@@ -153,7 +161,8 @@
         renderAvatar('right', data.right);
     }
 
-    // 精灵身份签名：精灵变化才重建卡片，阵亡/复活只切 className 交由过渡完成
+    // 精灵身份签名：精灵变化才重建卡片，阵亡/复活只切 className 交由过渡完成；
+    // 签名含图片来源与 iconUrl——切换「原图/头像」设置时所有卡片重建
     function getSlotSpriteKey(sprite) {
         if (!sprite) {
             return null;
@@ -161,8 +170,24 @@
         return JSON.stringify({
             id: sprite.id || sprite.path || '',
             path: sprite.path || '',
-            name: String(sprite.displayName || sprite.name || '').trim()
+            iconUrl: sprite.iconUrl || '',
+            name: String(sprite.displayName || sprite.name || '').trim(),
+            source: page16SpriteSource
         });
+    }
+
+    // 头像来源优先 iconUrl（加载失败回退原图）；原图来源直接用立绘
+    function getSlotImageCandidates(sprite) {
+        const candidates = [];
+        const portrait = sprite && sprite.path ? String(sprite.path) : '';
+        const iconUrl = sprite && sprite.iconUrl ? String(sprite.iconUrl).trim() : '';
+        if (page16SpriteSource === 'thumbnail' && iconUrl) {
+            candidates.push(iconUrl);
+        }
+        if (portrait) {
+            candidates.push(portrait);
+        }
+        return candidates;
     }
 
     function renderSlot(slotEl, slotData) {
@@ -176,14 +201,29 @@
             slotSpriteKeys[side][index] = spriteKey;
             slotEl.innerHTML = '';
             if (sprite && window.Petscard) {
+                const imageCandidates = getSlotImageCandidates(sprite);
                 window.Petscard.render(slotEl, {
                     name: String(sprite.displayName || sprite.name || '').trim(),
                     num: String(index + 1),
-                    image: sprite.path || '',
+                    image: imageCandidates[0] || '',
+                    useIcon: page16SpriteSource === 'thumbnail',
                     side: side === 'right' ? '右' : '左',
                     dead,
                     attributes: getSlotAttributeNames(sprite)
                 });
+                // 头像加载失败逐级回退到候选图（头像 → 原图）
+                const petImage = slotEl.querySelector('.petscard-pet');
+                if (petImage && imageCandidates.length > 1) {
+                    let imageIndex = 0;
+                    petImage.onerror = () => {
+                        imageIndex += 1;
+                        if (imageIndex < imageCandidates.length) {
+                            petImage.src = imageCandidates[imageIndex];
+                        } else {
+                            petImage.onerror = null;
+                        }
+                    };
+                }
             }
         } else {
             const card = slotEl.querySelector('.petscard');
@@ -202,31 +242,60 @@
         });
     }
 
+    // 精灵图来源切换：签名里带 source，清空后按缓存面板重渲染
+    function setPage16SpriteSource(source) {
+        const next = source === 'thumbnail' ? 'thumbnail' : 'sprite';
+        if (page16SpriteSource === next) {
+            return;
+        }
+        page16SpriteSource = next;
+        slotSpriteKeys.left.fill(null);
+        slotSpriteKeys.right.fill(null);
+        renderPanel('left', panelDataCache.left);
+        renderPanel('right', panelDataCache.right);
+    }
+
+    function setPage16RankVisible(visible) {
+        const next = visible === true;
+        if (page16RankVisible === next) {
+            return;
+        }
+        page16RankVisible = next;
+        renderScoreboard(scoreboardDataCache);
+    }
+
     function applySnapshot(payload) {
         const panels = payload && Array.isArray(payload.panels) ? payload.panels : [];
-        renderPanel('left', panels.find((panel) => panel && panel.position === 'left') || null);
-        renderPanel('right', panels.find((panel) => panel && panel.position === 'right') || null);
+        panelDataCache.left = panels.find((panel) => panel && panel.position === 'left') || null;
+        panelDataCache.right = panels.find((panel) => panel && panel.position === 'right') || null;
+        setPage16SpriteSource(payload && payload.stage ? payload.stage.page16SpriteSource : 'sprite');
+        setPage16RankVisible(payload && payload.stage ? payload.stage.page16RankVisible === true : true);
+        renderPanel('left', panelDataCache.left);
+        renderPanel('right', panelDataCache.right);
         renderScoreboard(payload ? payload.scoreboard : null);
         renderAvatars(payload ? payload.avatars : null);
     }
 
     async function loadInitialState() {
-        const [panelsResponse, scoreboardResponse, avatarsResponse] = await Promise.all([
+        const [panelsResponse, scoreboardResponse, avatarsResponse, stageResponse] = await Promise.all([
             fetch('api/panels'),
             fetch('api/scoreboard'),
-            fetch('api/avatars')
+            fetch('api/avatars'),
+            fetch('api/stage')
         ]);
 
-        const [panelsData, scoreboardData, avatarsData] = await Promise.all([
+        const [panelsData, scoreboardData, avatarsData, stageData] = await Promise.all([
             panelsResponse.json(),
             scoreboardResponse.json(),
-            avatarsResponse.json()
+            avatarsResponse.json(),
+            stageResponse.json()
         ]);
 
         applySnapshot({
             panels: panelsData.panels || [],
             scoreboard: scoreboardData,
-            avatars: avatarsData
+            avatars: avatarsData,
+            stage: stageData
         });
     }
 
@@ -257,6 +326,12 @@
 
         socket.on('avatar:update', (payload) => {
             renderAvatars(payload ? payload.avatars : null);
+        });
+
+        socket.on('stage:update', (payload) => {
+            const stage = payload && payload.stage ? payload.stage : payload;
+            setPage16SpriteSource(stage && stage.page16SpriteSource);
+            setPage16RankVisible(stage && stage.page16RankVisible === true);
         });
 
         socket.on('connect_error', (error) => {

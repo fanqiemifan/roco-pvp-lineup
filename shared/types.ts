@@ -213,6 +213,10 @@ export interface StageConfig {
   page15SortOrder: 'asc' | 'desc';
   /** 推流页面15（数据统计）：数据回放播放方式（false = 不播放直接展示最终数据 = 默认，true = 逐场播放） */
   page15ReplayPlay: boolean;
+  /** 推流页面16（阵容同步）：精灵主体图片来源（原图 / 头像，语义与页面3一致） */
+  page16SpriteSource: Page3SpriteSource;
+  /** 推流页面16（阵容同步）：是否显示选手头像卡上的排名数字 */
+  page16RankVisible: boolean;
   /** 战绩详情（page7）：整屏切换间隔（秒）——一屏 4 行停留该时长后整屏交叉过渡到下一屏 */
   page7SwitchSeconds: number;
   /** 胜者结算画面（page10）：登记本局胜负后自动切入的停留时长 */
