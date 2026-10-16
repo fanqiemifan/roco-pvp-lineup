@@ -170,17 +170,17 @@ body {
     object-fit: cover;
 }
 
-/* 选手名字条 88×22 始终圆角：字号由脚本自适应（最大 14px，最小 11px，仍放不下保留裁切） */
+/* 选手名字条 88×25 始终圆角：字号由脚本自适应（最大 14px，最小 11px，仍放不下保留裁切） */
 .page16-player-name {
     position: absolute;
-    top: 110px;
+    top: 132px;
     left: 25px;
     width: 88px;
-    height: 22px;
-    border-radius: 11px;
+    height: 25px;
+    border-radius: 12.5px;
     background: rgba(0, 0, 0, 0.5);
     z-index: 3;
-    line-height: 22px;
+    line-height: 25px;
     text-align: center;
     color: #fff;
     font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
