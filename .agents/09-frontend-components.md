@@ -122,6 +122,8 @@
 
 > 渲染约束：所有页面的数据刷新都必须增量更新——只改发生变化的节点/区域，禁止整页 innerHTML 重写或全量重渲染，避免画面闪烁。
 
+- **petsicon 精灵头像卡组件**（`scripts/petsicon.js` + `styles/petsicon.css`，独立零依赖，`Petsicon.render(槽位, 参数)` 增量更新 / `Petsicon.create(参数)` 新建）：圆形底托 + 精灵头像（iconUrl 优先、失败回退立绘 path）+ 阵亡置灰与斜杠渐变。收敛自原 page1 的 petsdiv3 家族（旧类名已全部移除），消费方 = page1 比分栏（overlay.js，静态槽位）+ float 悬浮窗 + page4（MVP 头像）+ page7 + page10 + page11。参数：`pet`（精灵身份 `{id,name,displayName,path,iconUrl}`，null = 空槽）、`name`（覆盖 alt）、`dead`（阵亡态）、`fallbackSrc`（float 的 back.png 兜底）。**行为契约**：精灵身份签名不变时只切 `is-active/is-empty/is-dead` class、绝不重建 `<img>`（阵亡 240ms 渐变不能被打断）；加载失败的头像路径记入组件会话黑名单不再重试；根类 `petsicon` + `is-sprite-icon`（当前显示的是头像图），槽位上页面自有类（如 page4 的 `mvp-item-avatar`）render 时原样保留；组件只认槽位**直接子级**的 `<img>`（page4 的 MVP 徽章 img 在子容器里不会被误认）。缩放：基准 98px，页面用 `--petsicon-scale` 覆盖且**必须写在 `.petsicon` 自身**（page10≈0.735、page11/page7≈0.816、lineup 条≈0.612）；page7 用 CSS `content:none` 关掉空槽底托以保持「索引缺失不显底托」的历史行为。tests/pages 的 page7 夹具会把组件源码一并载入 node:vm 沙箱（FakeElement 支持 dataset/classList.toggle/removeAttribute）
+
 - index.html + stage-carrier.js — 推流载体，按 stage 配置用 iframe 加载对应页面；page11/12/13 共用 `/roco-pvp-page11.html?mode=left/right/versus`（INTRO_FAMILY 映射）
 - roco-pvp-page1.html + overlay.js — Overlay 比分栏
 - roco-pvp-page2.html + roco-pvp-page2.js — 全局阵容展示（选手名字自适应字号 28~32px，fitPlayerName 逐 px 试探，仍放不下走 CSS 省略号）

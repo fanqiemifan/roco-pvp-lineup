@@ -114,53 +114,18 @@
         return spriteLookup.byId.get(raw) || spriteLookup.byName.get(name) || spriteLookup.byBaseName.get(base) || null;
     }
 
-    /* ---------- 单个精灵卡（参考 page1 petsdiv3：精灵头像优先 + 圆形底托，比例 80x80） ---------- */
+    /* ---------- 单个精灵卡（petsicon 组件：精灵头像优先 + 圆形底托，比例 80x80） ---------- */
 
 
     function buildPetCard(petId) {
-        const card = document.createElement('div');
-        card.className = 'page7-pet';
-
-        const image = document.createElement('img');
-        image.alt = '';
-        card.appendChild(image);
-
         const record = resolveSprite(petId);
         if (!record) {
             console.warn('[page7] 精灵索引中未找到:', petId);
-            return card;
         }
-
-        card.classList.add('is-active');
-
-        // 头像优先，失败后回退精灵立绘
-        const sources = [];
-        if (record.iconUrl) {
-            sources.push(record.iconUrl);
-        }
-        if (record.path) {
-            sources.push(record.path);
-        }
-
-        if (!sources.length) {
-            return card;
-        }
-
-        let currentIndex = 0;
-        const assignNext = () => {
-            image.src = sources[currentIndex];
-        };
-        image.onerror = () => {
-            currentIndex += 1;
-            if (currentIndex >= sources.length) {
-                image.onerror = null;
-                return;
-            }
-            assignNext();
-        };
-        assignNext();
-
-        return card;
+        // 索引缺失时保持历史行为：无底托空卡（page7.css 关掉了组件空槽的圆形底托）
+        return window.Petsicon.create({
+            pet: record || null,
+        });
     }
 
     /* ---------- 排位排名（复用 page3 rank div） ---------- */

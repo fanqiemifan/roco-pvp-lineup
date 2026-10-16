@@ -176,31 +176,8 @@
             <video class="mvp-item-webm" autoplay loop muted playsinline aria-hidden="true"></video>
             <div class="mvp-item-tag" hidden><span class="mvp-item-tag-text"></span></div>
             <div class="mvp-item-mvp" hidden><img src="${MVP_IMAGE}" alt="MVP"></div>
-            <div class="mvp-item-avatar petsdiv3 is-empty"><img alt=""></div>
+            <div class="mvp-item-avatar petsicon is-empty"><img alt=""></div>
         `;
-    }
-
-    /** 头像优先、失败回退立绘；图片来源未变化时不重设 src，避免图片重新加载闪烁 */
-    function applyImageSources(imgEl, sources) {
-        const key = sources.join('|');
-        if (imgEl.dataset.sourceKey === key) {
-            return;
-        }
-        imgEl.dataset.sourceKey = key;
-
-        let index = 0;
-        const assign = () => {
-            imgEl.src = sources[index];
-        };
-        imgEl.onerror = () => {
-            index += 1;
-            if (index >= sources.length) {
-                imgEl.onerror = null;
-                return;
-            }
-            assign();
-        };
-        assign();
     }
 
     function renderItem(itemEl, index, entry) {
@@ -264,19 +241,10 @@
 
         itemEl.querySelector('.mvp-item-mvp').hidden = !isMvp;
 
-        // 精灵头像复用 petsdiv3 样式
-        const avatarEl = itemEl.querySelector('.mvp-item-avatar');
-        const avatarImg = avatarEl.querySelector('img');
-        const sources = [iconUrl, spritePath].filter(Boolean);
-        if (!sources.length) {
-            avatarEl.className = 'mvp-item-avatar petsdiv3 is-empty';
-            delete avatarImg.dataset.sourceKey;
-            avatarImg.removeAttribute('src');
-            return;
-        }
-        avatarEl.className = 'mvp-item-avatar petsdiv3 is-active';
-        avatarImg.alt = record ? String(record.displayName || '') : '';
-        applyImageSources(avatarImg, sources);
+        // 精灵头像卡（petsicon 组件：头像优先、失败回退立绘，签名不变不重建 img）
+        window.Petsicon.render(itemEl.querySelector('.mvp-item-avatar'), {
+            pet: record,
+        });
     }
 
     function applyState(state) {

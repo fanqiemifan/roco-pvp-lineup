@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>洛克王国PVP - 推流页面10（胜者结算画面）</title>
-    <!-- 复用推流页面1 的 petsdiv3 样式（阵容精灵卡） -->
-    <link rel="stylesheet" href="/styles/roco-pvp-lineup.css">
+    <!-- 获胜方阵容精灵卡 = petsicon 组件（petsicon.css） -->
+    <link rel="stylesheet" href="/styles/petsicon.css">
     <link rel="stylesheet" href="/styles/roco-pvp-page10.css">
     <link rel="stylesheet" href="/styles/stage-enter.css">
     <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
@@ -30,13 +30,14 @@
             </div>
         </section>
 
-        <!-- 获胜方阵容：复用推流页面1 的 petsdiv3 -->
+        <!-- 获胜方阵容：petsicon 精灵卡 -->
         <section class="winner-lineup-div fx-enter" aria-label="获胜方阵容" style="--fx-delay:150ms">
             <div class="winner-lineup-pets" id="page10Pets"></div>
         </section>
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/petsicon.js"></script>
     <script src="/scripts/page10-display.js"></script>
     <script src="/scripts/stage-enter.js"></script>
 </body>

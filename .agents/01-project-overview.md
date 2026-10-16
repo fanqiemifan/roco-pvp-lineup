@@ -116,6 +116,7 @@ roco-pvp-lineup/
 | page5-display.js | 登场/胜率排行页（page5）脚本 |
 | page16-display.js | 阵容同步展示页（page16）脚本（panels/scoreboard/avatars 三接口，复用 petscard 组件渲染双方阵容与选手头像卡，见 .agents/09） |
 | petscard.js | 精灵卡片组件（独立零依赖，`Petscard.render(容器, 参数)`；属性背景纹理在 resources/roco-bg/，属性图标复用 resources/attribute/，组件 assetBase 固定 /resources） |
+| petsicon.js | 精灵头像卡组件（独立零依赖，`Petsicon.render(槽位, 参数)` / `Petsicon.create(参数)`；圆形底托 + 头像优先失败回退立绘 + 阵亡渐变，page1/float/page4/7/10/11 共用，见 .agents/09） |
 | page15-display.js | 数据统计展示页（page15）脚本（GET /api/stats/ranking 拿全量后前端按 stage.page15SortBy + stage.page15SortOrder 排序取前 20，双列各 10 行；另含数据回放引擎——收 page15:replay 后默认不播放、直接静态渲染最终数据，stage.page15ReplayPlay 开启逐场播放时才播演化动画，见 .agents/09） |
 | page6-display.js | 比赛结果页（page6）脚本（薄封装：调用共享 match-prediction.js，defaultTitle「比赛结果」） |
 | page7-display.js | 战绩详情页（page7）脚本（多场比赛逐行滚动展示） |

@@ -115,52 +115,17 @@
         return spriteLookup.byId.get(raw) || spriteLookup.byName.get(name) || spriteLookup.byBaseName.get(base) || null;
     }
 
-    /* ---------- petsdiv3 渲染（复用推流页面1 的结构与候选图逻辑） ---------- */
+    /* ---------- 精灵头像卡（petsicon 组件：头像优先，失败后回退精灵立绘） ---------- */
 
     function buildPetSlot(slotData) {
-        const slotEl = document.createElement('div');
         const petId = slotData && slotData.pet_id ? String(slotData.pet_id).trim() : '';
-        if (!petId) {
-            slotEl.className = 'petsdiv3 is-empty';
-            return slotEl;
-        }
-
-        const record = resolveSprite(petId);
-        const isDead = Boolean(slotData.healthEnabled && Number(slotData.healthPercent) <= 0);
-        slotEl.className = `petsdiv3 is-active${isDead ? ' is-dead' : ''}`;
-
-        const imgEl = document.createElement('img');
-        imgEl.alt = record ? record.displayName : petId;
-        slotEl.appendChild(imgEl);
-
-        // 头像优先，失败后回退精灵立绘
-        const sources = [];
-        if (record && record.iconUrl) {
-            sources.push(record.iconUrl);
-        }
-        if (record && record.path) {
-            sources.push(record.path);
-        }
-
-        if (!sources.length) {
-            return slotEl;
-        }
-
-        let currentIndex = 0;
-        const assignNext = () => {
-            imgEl.src = sources[currentIndex];
-        };
-        imgEl.onerror = () => {
-            currentIndex += 1;
-            if (currentIndex >= sources.length) {
-                imgEl.onerror = null;
-                return;
-            }
-            assignNext();
-        };
-        assignNext();
-
-        return slotEl;
+        const record = petId ? resolveSprite(petId) : null;
+        return window.Petsicon.create({
+            // 索引缺失时保持历史行为：仍按有精灵渲染（is-active、alt 显示 petId），只是没有图
+            pet: record || (petId ? { id: petId } : null),
+            name: record ? record.displayName : petId,
+            dead: Boolean(slotData && slotData.healthEnabled && Number(slotData.healthPercent) <= 0),
+        });
     }
 
     /* ---------- 面板槽位转阵容槽位（pet_id） ---------- */

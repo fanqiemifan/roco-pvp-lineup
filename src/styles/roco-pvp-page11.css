@@ -189,7 +189,7 @@ body {
     color: #5D5A54;
 }
 
-/* 阵容：复用 petsdiv3，距顶部 124px 居中 */
+/* 阵容：petsicon 精灵卡，距顶部 124px 居中 */
 .page11-pets {
     position: absolute;
     left: 0;
@@ -201,10 +201,10 @@ body {
     gap: 12px;
 }
 
-/* 比例缩至 80（80/98 ≈ 0.8163）：必须写在 .petsdiv3 自身上覆盖默认值 1，
-   写在父容器会被 .petsdiv3 自身的声明覆盖而无效 */
-.page11-pets .petsdiv3 {
-    --petsdiv3-scale: 0.8163;
+/* 比例缩至 80（80/98 ≈ 0.8163）：必须写在 .petsicon 自身上覆盖默认值 1，
+   写在父容器会被 .petsicon 自身的声明覆盖而无效 */
+.page11-pets .petsicon {
+    --petsicon-scale: 0.8163;
 }
 
 /* 宣言内容：y128，64px 居中 000000；超长时 JS 逐步缩小字号（最小 36px） */

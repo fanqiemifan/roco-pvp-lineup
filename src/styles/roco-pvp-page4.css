@@ -18,6 +18,26 @@
     font-display: swap;
 }
 
+/* 页面基线（原随 lineup.css 引入，摘除依赖后落到本页）：透明背景 + 居中画布 */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    min-height: 100vh;
+    overflow: hidden;
+    background: transparent !important;
+    font-family: "Microsoft YaHei", sans-serif;
+}
+
+body {
+    display: grid;
+    place-items: center;
+}
+
 .mvp-screen {
     position: relative;
     width: 1920px;
@@ -205,7 +225,7 @@
     }
 }
 
-/* ---------- 精灵头像 div：复用 petsdiv3（98x98），居中对齐距顶部 622px，z-index 2 ---------- */
+/* ---------- 精灵头像 div：petsicon 组件（98x98），居中对齐距顶部 622px，z-index 2 ---------- */
 .mvp-item-avatar {
     position: absolute;
     left: 50%;
@@ -216,9 +236,9 @@
 
 /* 圆形底托改金色系（仅本页）：填充 E6B856→7A573B、描边 9A6C38→F9F086；
    渐变描边 = 上层 padding-box 渐变填充 + 下层 border-box 渐变透出边框环 */
-.mvp-item .petsdiv3.is-active::before,
-.mvp-item .petsdiv3.is-empty::before {
-    border: calc(3px * var(--petsdiv3-scale)) solid transparent;
+.mvp-item .petsicon.is-active::before,
+.mvp-item .petsicon.is-empty::before {
+    border: calc(3px * var(--petsicon-scale)) solid transparent;
     background-color: transparent;
     background-image:
         linear-gradient(360deg, #E6B856 0%, #7A573B 100%),

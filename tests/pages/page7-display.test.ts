@@ -31,6 +31,25 @@ class FakeClassList {
     return this.names.has(name);
   }
 
+  /** petsicon 组件按 length + item(i) 遍历现有类名 */
+  get length(): number {
+    return this.names.size;
+  }
+
+  item(index: number): string | null {
+    return Array.from(this.names)[index] ?? null;
+  }
+
+  toggle(name: string, force?: boolean): boolean {
+    const next = force === undefined ? !this.names.has(name) : force;
+    if (next) {
+      this.names.add(name);
+    } else {
+      this.names.delete(name);
+    }
+    return next;
+  }
+
   toString(): string {
     return Array.from(this.names).join(' ');
   }
@@ -49,6 +68,8 @@ class FakeElement {
   children: FakeElement[] = [];
   parent: FakeElement | null = null;
   classList: FakeClassList;
+  /** petsicon 组件用 dataset 存身份/图片来源签名 */
+  dataset: Record<string, string> = {};
   textContent = '';
   hidden = false;
   style = createStyle();
@@ -95,6 +116,9 @@ class FakeElement {
       this.parent = null;
     }
   }
+
+  /** petsicon 组件清空图片时的占位实现（假 DOM 不真正持有属性） */
+  removeAttribute(_name: string): void {}
 }
 
 interface Harness {
@@ -168,10 +192,12 @@ function createHarness(): Harness {
     clearTimeout: fakeClearTimeout,
   };
 
+  const context = vm.createContext(sandbox);
+  // petsicon.js（精灵头像卡组件）先入沙箱：page7-display.js 的 buildPetCard 调 window.Petsicon
+  const petsiconSource = readFileSync(join(process.cwd(), 'src/scripts/petsicon.js'), 'utf-8');
+  vm.runInContext(petsiconSource, context);
   const source = readFileSync(join(process.cwd(), 'src/scripts/page7-display.js'), 'utf-8');
-  vm.runInContext(source, vm.createContext(sandbox));
-
-  return {
+  vm.runInContext(source, context);  return {
     elements,
     pendingDelays: () => Array.from(timers.values()).map((timer) => timer.ms),
     runNextTimer: () => {
