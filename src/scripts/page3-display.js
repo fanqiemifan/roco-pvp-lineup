@@ -59,7 +59,6 @@
     let storeDataCache = null;
     let profilesDataCache = null;
     const panelDataCache = { left: null, right: null };
-    const spriteNameImageCache = new Map();
     const teamNameImageCache = new Map();
     let lineupAnimationTimer = null;
     let lineupAnimationMode = null;
@@ -121,124 +120,9 @@
         return text[0].toUpperCase();
     }
 
-    function getSpriteAttributeIcons(sprite) {
-        const icons = [];
-
-        if (sprite && sprite.attributeIcon1) {
-            icons.push(sprite.attributeIcon1);
-        }
-        if (sprite && sprite.attributeIcon2) {
-            icons.push(sprite.attributeIcon2);
-        }
-
-        return icons;
-    }
-
-    function getSpriteCardNameLeft(nameLength) {
-        switch (nameLength) {
-            case 2:
-                return 44;
-            case 3:
-                return 40;
-            case 4:
-                return 37;
-            case 5:
-                return 34;
-            default:
-                return nameLength <= 2 ? 44 : 37;
-        }
-    }
-
-    function buildSpriteNameImage(name, cardSize) {
-        const fontSize = cardSize * 8 / 96;
-        const lineHeight = cardSize * 14 / 96;
-        const scale = 4;
-        const cacheKey = `${name}|${cardSize}|${fontSize}`;
-        const cached = spriteNameImageCache.get(cacheKey);
-        if (cached) {
-            return cached;
-        }
-
-        const measureCanvas = document.createElement('canvas');
-        const measureContext = measureCanvas.getContext('2d');
-        if (!measureContext) {
-            return null;
-        }
-        measureContext.font = `900 ${fontSize}px "MiSans-Heavy", "MiSans-Medium", "Microsoft YaHei", sans-serif`;
-        const textWidth = Math.ceil(measureContext.measureText(name).width) + 2;
-        const canvas = document.createElement('canvas');
-        canvas.width = textWidth * scale;
-        canvas.height = Math.ceil(lineHeight * scale);
-        const context = canvas.getContext('2d');
-        if (!context) {
-            return null;
-        }
-        context.scale(scale, scale);
-        context.font = `900 ${fontSize}px "MiSans-Heavy", "MiSans-Medium", "Microsoft YaHei", sans-serif`;
-        context.fillStyle = '#fff';
-        context.textBaseline = 'middle';
-        context.fillText(name, 1, lineHeight / 2);
-
-        const result = {
-            src: canvas.toDataURL('image/png'),
-            width: textWidth,
-            height: lineHeight,
-        };
-        spriteNameImageCache.set(cacheKey, result);
-        return result;
-    }
-
-    function buildSlotCard(slotEl, sprite, spiritName, imageSrc) {
-        const attributeIcons = getSpriteAttributeIcons(sprite);
-        const attributeIcon1 = attributeIcons[0] || '';
-        const attributeIcon2 = attributeIcons[1] || '';
-        const cardSize = slotEl.clientWidth || 108;
-        const nameImage = buildSpriteNameImage(spiritName, cardSize);
-        const card = document.createElement('div');
-        card.className = `sprite-pet-card${attributeIcon2 ? ' sprite-pet-card-has-attr2' : ''}`;
-        card.style.setProperty('--pet-card-size', `${cardSize}px`);
-        card.style.setProperty('--pet-name-left', String(getSpriteCardNameLeft(spiritName.length)));
-
-        card.innerHTML = `
-            <div class="sprite-pet-card-bg"></div>
-            ${attributeIcon2 ? '<div class="sprite-pet-card-attr-circle"></div>' : ''}
-            <img class="sprite-pet-card-sprite" alt="">
-            ${attributeIcon1 ? '<img class="sprite-pet-card-attr sprite-pet-card-attr-1" alt="">' : ''}
-            ${attributeIcon2 ? '<img class="sprite-pet-card-attr sprite-pet-card-attr-2" alt="">' : ''}
-            <div class="sprite-pet-card-name-bg"></div>
-            <img class="sprite-pet-card-name sprite-pet-card-name-image" alt="">
-        `;
-
-        const spriteImage = card.querySelector('.sprite-pet-card-sprite');
-        spriteImage.src = imageSrc;
-        spriteImage.alt = spiritName;
-
-        if (attributeIcon1) {
-            const attr1 = card.querySelector('.sprite-pet-card-attr-1');
-            attr1.src = attributeIcon1;
-        }
-
-        if (attributeIcon2) {
-            const attr2 = card.querySelector('.sprite-pet-card-attr-2');
-            attr2.src = attributeIcon2;
-        }
-
-        const nameEl = card.querySelector('.sprite-pet-card-name');
-        if (nameImage) {
-            nameEl.src = nameImage.src;
-            nameEl.width = nameImage.width;
-            nameEl.height = nameImage.height;
-            nameEl.alt = spiritName;
-        }
-
-        slotEl.innerHTML = '';
-        slotEl.appendChild(card);
-    }
-
     function renderEmptySlot(slotEl) {
         slotEl.className = 'page3-spirit-slot';
         slotEl.innerHTML = '';
-        delete slotEl.dataset.spriteKey;
     }
 
     function renderSlot(slotEl, slotData, mtime) {
@@ -253,45 +137,37 @@
         const healthEnabled = !!(slotData && slotData.healthEnabled);
         const isDone = healthEnabled && healthPercent <= 0;
 
-        // 精灵身份签名（不含血量/阵亡）：精灵或立绘来源变化时才重建卡片并刷新图片，
-        // 阵亡/复活只切换 className（CSS 负责 240ms 渐变），避免重建 <img> 导致渐变被打断
-        const spriteKey = JSON.stringify({
-            id: sprite.id || sprite.path || spiritName,
-            name: spiritName,
-            path: sprite.path || '',
-            iconUrl: sprite.iconUrl || '',
-            source: page3SpriteSource === 'icon' ? 'icon' : 'sprite',
-        });
-
         slotEl.className = `page3-spirit-slot is-active${isDone ? ' is-done' : ''}`;
         if (lineupAnimationMode === 'enter') {
             slotEl.classList.add('is-lineup-entering');
         }
 
-        // 精灵没变：保留卡片 DOM，只留 className 变化交由过渡完成
-        if (slotEl.dataset.spriteKey === spriteKey) {
-            return;
-        }
-        slotEl.dataset.spriteKey = spriteKey;
-
         const cacheBuster = mtime ? Math.floor(mtime) : Date.now();
         const imageCandidates = getSpriteImageCandidates(sprite)
             .map((src) => `${src}${src.includes('?') ? '&' : '?'}t=${cacheBuster}`);
 
-        buildSlotCard(slotEl, sprite, spiritName, imageCandidates[0] || '');
+        // 精灵立绘卡片组件（canvas 名字图）：组件签名只含精灵身份（不含 ?t= 与血量），
+        // 精灵没变时保留卡片 DOM——阵亡/复活只走上面的 className 切换，240ms 渐变不会被打断
+        window.SpritePetCard.render(slotEl, {
+            name: spiritName,
+            nameMode: 'canvas',
+            sprite: sprite,
+            images: imageCandidates,
+            sourceKey: JSON.stringify({
+                id: sprite.id || sprite.path || spiritName,
+                name: spiritName,
+                path: sprite.path || '',
+                iconUrl: sprite.iconUrl || '',
+                source: page3SpriteSource === 'icon' ? 'icon' : 'sprite',
+            }),
+        });
+
+        // 头像来源模式 + 右侧站位：立绘水平镜像（组件重建卡片后类会丢，这里每次补齐）
         const spriteImage = slotEl.querySelector('.sprite-pet-card-sprite');
-        if (page3SpriteSource === 'icon' && slotEl.dataset.side === 'right') {
-            spriteImage.classList.add('is-page3-icon-flipped');
-        }
-        let imageIndex = 0;
-        spriteImage.onerror = () => {
-            imageIndex += 1;
-            if (imageIndex < imageCandidates.length) {
-                spriteImage.src = imageCandidates[imageIndex];
-            } else {
-                spriteImage.onerror = null;
-            }
-        };
+        spriteImage.classList.toggle(
+            'is-page3-icon-flipped',
+            page3SpriteSource === 'icon' && slotEl.dataset.side === 'right',
+        );
     }
 
     function renderPanel(position, panelData) {
@@ -474,7 +350,7 @@
         if (exitLayer) {
             exitLayer.innerHTML = '';
         }
-        spriteNameImageCache.clear();
+        window.SpritePetCard.clearNameImageCache();
         panelStates.left.signatures.fill(getSlotSignature(null));
         panelStates.right.signatures.fill(getSlotSignature(null));
     }

@@ -52,73 +52,18 @@
         return normalizeDisplayName(row && (row.displayName || row.name) || '');
     }
 
-    function getCardNameLeft(nameLength) {
-        switch (nameLength) {
-            case 2:
-                return 44;
-            case 3:
-                return 40;
-            case 4:
-                return 37;
-            case 5:
-                return 34;
-            default:
-                return nameLength <= 2 ? 44 : 37;
-        }
-    }
-
-    // 复用 roco-pvp-page3 的 petsdiv（sprite-pet-card）128×128
+    // 精灵立绘卡片组件（sprite-pet-card.js）128×128，纯文本名字（page3 用 canvas 名字图）
     function buildPetCard(row) {
-        const name = getSpriteName(row);
-        const attr1 = row && row.attributeIcon1 ? String(row.attributeIcon1) : '';
-        const attr2 = row && row.attributeIcon2 ? String(row.attributeIcon2) : '';
         const spriteSrc = row && row.spritePath ? String(row.spritePath) : FALLBACK_IMG;
-
-        const card = document.createElement('div');
-        card.className = 'sprite-pet-card';
-        card.style.setProperty('--pet-card-size', '128px');
-        card.style.setProperty('--pet-name-left', String(getCardNameLeft(name.length)));
-
-        card.innerHTML = `
-            <div class="sprite-pet-card-bg"></div>
-            ${attr2 ? '<div class="sprite-pet-card-attr-circle"></div>' : ''}
-            <img class="sprite-pet-card-sprite" alt="">
-            ${attr1 ? '<img class="sprite-pet-card-attr sprite-pet-card-attr-1" alt="">' : ''}
-            ${attr2 ? '<img class="sprite-pet-card-attr sprite-pet-card-attr-2" alt="">' : ''}
-            <div class="sprite-pet-card-name-bg"></div>
-            <span class="sprite-pet-card-name"></span>
-        `;
-
-        const spriteImage = card.querySelector('.sprite-pet-card-sprite');
-        spriteImage.src = spriteSrc;
-        spriteImage.alt = name;
-        spriteImage.onerror = () => {
-            spriteImage.onerror = null;
-            spriteImage.src = FALLBACK_IMG;
-        };
-
-        if (attr1) {
-            const icon = card.querySelector('.sprite-pet-card-attr-1');
-            icon.src = attr1;
-            icon.onerror = () => {
-                icon.onerror = null;
-                icon.remove();
-            };
-        }
-
-        if (attr2) {
-            const icon = card.querySelector('.sprite-pet-card-attr-2');
-            icon.src = attr2;
-            icon.onerror = () => {
-                icon.onerror = null;
-                icon.remove();
-            };
-        }
-
-        const nameEl = card.querySelector('.sprite-pet-card-name');
-        nameEl.textContent = name;
-
-        return card;
+        return window.SpritePetCard.create({
+            name: getSpriteName(row),
+            nameMode: 'text',
+            size: 128,
+            sprite: row || null,
+            images: [spriteSrc],
+            fallbackSrc: FALLBACK_IMG,
+            sourceKey: spriteSrc,
+        });
     }
 
     // 胜率仅显示 2 位整数百分比，如 47%
