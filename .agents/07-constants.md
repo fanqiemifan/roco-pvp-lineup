@@ -17,9 +17,10 @@
 | SUPPORTED_STAGE_PAGES | {page1-overlay,page2,page3,page4,page5,page6,page7,page8,page9,page10,page11,page12,page13,page14,page15,blank} | 支持的推流页面（page4 = MVP 结算画面；page11/12/13 = 选手介绍三画面，共用同一页面文件；page14 = 晋级积分榜；page15 = 数据统计展示） | shared/constants.ts |
 | DEFAULT_STAGE_TRANSITION | blinds | 默认切换过渡 | shared/constants.ts |
 | SUPPORTED_STAGE_TRANSITIONS | {none,blinds,wolf} | 支持的过渡效果 | shared/constants.ts |
-| DEFAULT_PAGE3_SPRITE_SOURCE | sprite | 页面3精灵图片来源默认值（sprite / thumbnail） | shared/constants.ts |
-| SUPPORTED_PAGE3_SPRITE_SOURCES | {sprite,thumbnail} | 页面3精灵图片来源枚举 | shared/constants.ts |
+| DEFAULT_SPRITE_SOURCE | sprite | 精灵图片来源默认值（sprite / icon，page3 与 page16 共用） | shared/constants.ts |
+| SUPPORTED_SPRITE_SOURCES | {sprite,icon} | 精灵图片来源枚举（icon = 精灵头像，取 sprite.iconUrl） | shared/constants.ts |
 | DEFAULT_PAGE3_RANK_VISIBLE | false | 页面3排位排名图标默认隐藏 | shared/constants.ts |
+| DEFAULT_PAGE16_RANK_VISIBLE | true | 页面16选手头像卡排名数字默认显示 | shared/constants.ts |
 | DEFAULT_PAGE3_TEAM_VISIBLE | false | 页面3战队标识 div 默认隐藏 | shared/constants.ts |
 | DEFAULT_PAGE3_RED_LIGHT_MODE / DEFAULT_PAGE3_RED_LIGHT_INSTANT | off / false | 页面3红光特效持久策略默认值（SUPPORTED_PAGE3_RED_LIGHT_MODES = off/auto）与「立即显示」一次性触发默认值 | shared/constants.ts |
 | DEFAULT_PAGE11_RANK_VISIBLE | true | 选手介绍（page11-13）排位排名 div 默认显示 | shared/constants.ts |

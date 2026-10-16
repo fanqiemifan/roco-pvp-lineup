@@ -89,7 +89,7 @@ import type {
   PlayerProfile,
   ProfileStoreState,
   ScoreboardState,
-  Page3SpriteSource,
+  SpriteSource,
   Page3RedLightMode,
   SlotState,
   SpriteRecord,
@@ -2817,7 +2817,7 @@ function Dashboard() {
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: Page3SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5TournamentId?: string; page5Stage?: string; page15TournamentId?: string; page15Stage?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page15SortOrder?: 'asc' | 'desc'; page15ReplayPlay?: boolean; page7SwitchSeconds?: number; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5TournamentId?: string; page5Stage?: string; page15TournamentId?: string; page15Stage?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page15SortOrder?: 'asc' | 'desc'; page15ReplayPlay?: boolean; page16SpriteSource?: SpriteSource; page16RankVisible?: boolean; page7SwitchSeconds?: number; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
@@ -2836,16 +2836,18 @@ function Dashboard() {
     const page15SortBy = options?.page15SortBy ?? stage?.page15SortBy ?? 'picks';
     const page15SortOrder = options?.page15SortOrder ?? stage?.page15SortOrder ?? 'desc';
     const page15ReplayPlay = options?.page15ReplayPlay ?? stage?.page15ReplayPlay ?? false;
+    const page16SpriteSource = options?.page16SpriteSource ?? stage?.page16SpriteSource ?? 'sprite';
+    const page16RankVisible = options?.page16RankVisible ?? stage?.page16RankVisible ?? true;
     const page7SwitchSeconds = options?.page7SwitchSeconds ?? stage?.page7SwitchSeconds ?? DEFAULT_PAGE7_SWITCH_SECONDS;
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page7SwitchSeconds, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page7SwitchSeconds, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page7SwitchSeconds, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page7SwitchSeconds, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -7138,6 +7140,7 @@ function Dashboard() {
                       { value: 'page10', label: '推流页面10' },
                       { value: 'page14', label: '推流页面14（晋级积分榜）' },
                       { value: 'page15', label: '推流页面15' },
+                      { value: 'page16', label: '推流页面16' },
                     ]}
                     onChange={(value) => setPreviewSlot(value as PreviewSlotKey)}
                   />
@@ -7554,9 +7557,9 @@ function Dashboard() {
                       disabled={stageSaving}
                       options={[
                         { value: 'sprite', label: '精灵原图' },
-                        { value: 'thumbnail', label: '精灵头像' },
+                        { value: 'icon', label: '精灵头像' },
                       ]}
-                      onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3SpriteSource: value as Page3SpriteSource }); }}
+                      onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3SpriteSource: value as SpriteSource }); }}
                     />
                   </SettingField>
                   <SettingField
@@ -7605,6 +7608,37 @@ function Dashboard() {
                         onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3TeamVisible: checked }); }}
                       />
                       {stage?.page3TeamVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
+                    </Space>
+                  </SettingField>
+                </Space>
+              ),
+            },
+            {
+              key: 'page16',
+              label: '推流页面16设置',
+              children: (
+                <Space direction="vertical" size={12} className="control-stack">
+                  <SettingField label="精灵图片：">
+                    <Segmented
+                      block
+                      value={stage?.page16SpriteSource ?? 'sprite'}
+                      disabled={stageSaving}
+                      options={[
+                        { value: 'sprite', label: '精灵原图' },
+                        { value: 'icon', label: '精灵头像' },
+                      ]}
+                      onChange={(value) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16SpriteSource: value as SpriteSource }); }}
+                    />
+                  </SettingField>
+                  <SettingField label="排名数字：" hint="控制阵容同步画面底部选手头像卡上的排位排名数字；开启时选手有排名才显示。">
+                    <Space wrap>
+                      <Switch
+                        checked={stage?.page16RankVisible ?? true}
+                        disabled={stageSaving}
+                        loading={stageSaving}
+                        onChange={(checked) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16RankVisible: checked }); }}
+                      />
+                      {stage?.page16RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
                     </Space>
                   </SettingField>
                 </Space>

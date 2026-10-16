@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>洛克王国PVP - 推流页面16（阵容同步）</title>
+    <link rel="stylesheet" href="/styles/petscard.css">
+    <link rel="stylesheet" href="/styles/roco-pvp-page16.css">
+    <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
+</head>
+<body>
+    <main class="page16-screen" aria-label="洛克王国PVP阵容同步">
+        <!-- 比分栏 -->
+        <section class="page16-scoreboard" aria-label="比分栏">
+            <div class="page16-score" id="page16Score">0 : 0</div>
+            <div class="page16-bestof" id="page16BestOf">BO7</div>
+        </section>
+
+        <!-- 左侧选手头像卡 -->
+        <div class="page16-player page16-player-left" aria-label="左侧选手">
+            <div class="page16-player-rank" id="page16LeftRank" hidden></div>
+            <div class="page16-player-avatar">
+                <img id="page16LeftAvatarImage" alt="左侧选手头像">
+            </div>
+            <div class="page16-player-name" id="page16LeftName"></div>
+        </div>
+
+        <!-- 右侧选手头像卡 -->
+        <div class="page16-player page16-player-right" aria-label="右侧选手">
+            <div class="page16-player-rank" id="page16RightRank" hidden></div>
+            <div class="page16-player-avatar">
+                <img id="page16RightAvatarImage" alt="右侧选手头像">
+            </div>
+            <div class="page16-player-name" id="page16RightName"></div>
+        </div>
+
+        <!-- 双方阵容：petscard 卡位，横向坐标与层级见 roco-pvp-page16.css -->
+        <div class="page16-slot" data-side="left" data-slot="0"></div>
+        <div class="page16-slot" data-side="left" data-slot="1"></div>
+        <div class="page16-slot" data-side="left" data-slot="2"></div>
+        <div class="page16-slot" data-side="left" data-slot="3"></div>
+        <div class="page16-slot" data-side="left" data-slot="4"></div>
+        <div class="page16-slot" data-side="left" data-slot="5"></div>
+        <div class="page16-slot" data-side="right" data-slot="0"></div>
+        <div class="page16-slot" data-side="right" data-slot="1"></div>
+        <div class="page16-slot" data-side="right" data-slot="2"></div>
+        <div class="page16-slot" data-side="right" data-slot="3"></div>
+        <div class="page16-slot" data-side="right" data-slot="4"></div>
+        <div class="page16-slot" data-side="right" data-slot="5"></div>
+
+        <!-- 装饰条 -->
+        <div class="page16-deco page16-deco-left" aria-hidden="true"></div>
+        <div class="page16-deco page16-deco-right" aria-hidden="true"></div>
+
+        <!-- 底部阴影叠层：盖在选手头像卡与精灵卡片之上 -->
+        <div class="page16-shadow" aria-hidden="true"></div>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/petscard.js"></script>
+    <script src="/scripts/page16-display.js"></script>
+</body>
+</html>

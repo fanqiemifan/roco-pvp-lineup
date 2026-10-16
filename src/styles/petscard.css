@@ -1,0 +1,41 @@
+/* ============================================================
+ * petscard 精灵卡片组件 · 独立版
+ * 画布 122×150（无投影，嵌入页面按需自行叠加 box-shadow/drop-shadow）
+ * 层级：卡面 z0 ← 序号 z2 ← 蒙版 z1{ 背景 z0 / 精灵图 z1 / 名字条 z2 / 属性圈 z3 }
+ * 依赖：petscard.js 提供属性→背景/图标映射与 DOM 构造
+ * ============================================================ */
+
+.petscard{position:relative;width:122px;height:150px;font-family:"MiSans","PingFang SC","Microsoft YaHei",sans-serif;user-select:none;}
+
+/* 卡面 Rectangle-01（左上斜切造型，fill 走 --pc-frame-color，阵亡置灰） */
+.petscard-frame{position:absolute;left:0;top:0;width:122px;height:150px;z-index:0;fill:var(--pc-frame-color,#ECECEC);stroke:#C5CCE6;}
+.petscard.is-dead .petscard-frame{fill:rgba(101,101,101,.5);}
+
+/* 序号（优设标题黑缺失时回退系统字体） */
+.petscard-num{position:absolute;left:16px;top:20px;z-index:2;font-family:"YouSheBiaoTiHei","优设标题黑","MiSans",sans-serif;font-size:24px;line-height:1;color:#7E7E7E;}
+
+/* 蒙版 Rectangle-02：异形 clip-path，嵌套内容不超出蒙版区域 */
+.petscard-mask{position:absolute;left:8px;top:9px;width:106px;height:132px;z-index:1;
+  clip-path:path("M17.9139 41.7708C25.6328 37.5803 31.5529 30.7119 34.559 22.4594L37.7022 13.8306C40.0196 7.46872 45.2586 2.61198 51.7775 0.782355C53.666 0.252324 55.6194 -0.0108675 57.5808 0.000433775L101.77 0.255045C104.027 0.268047 105.826 2.14419 105.745 4.39943L101.587 119.453C101.334 126.445 95.5927 131.983 88.5956 131.983H3.99958C1.74947 131.983 -0.057906 130.128 0.000943109 127.879L1.53258 69.3363C1.59347 67.0092 1.9018 64.6951 2.45238 62.4332L2.65869 61.5857C4.71857 53.1234 10.2596 45.9261 17.9139 41.7708Z");}
+
+/* 属性背景：渐变（--pc-top/light/bot 由 JS 按属性1注入）+ 纹理 64×64 平铺 + 暗角 */
+.petscard-bg{position:absolute;inset:0;z-index:0;background:linear-gradient(180deg,var(--pc-top) 0%,var(--pc-light) 65%,var(--pc-bot) 100%);}
+.petscard.is-dead .petscard-bg{opacity:.5;}
+.petscard-bg-pattern{position:absolute;inset:-40px;background-image:var(--pc-pattern);background-repeat:repeat;background-size:64px 64px;opacity:.2;transform:rotate(-8deg);transform-origin:center center;}
+.petscard-bg-fade{position:absolute;inset:0;background:radial-gradient(rgba(0,0,0,.1) 0%,rgba(0,0,0,.1) 100%),linear-gradient(rgba(0,0,0,.1),transparent 40%,rgba(0,0,0,.1));}
+
+/* 精灵图/头像 108×108 Y26 水平居中；头像+右侧选手 水平镜像；阵亡 灰度+50% */
+.petscard-pet{position:absolute;z-index:1;top:26px;left:calc(50% - 54px);width:108px;height:108px;object-fit:contain;}
+.petscard-pet.is-flip{transform:scaleX(-1);}
+.petscard.is-dead .petscard-pet{opacity:.5;filter:grayscale(1);}
+
+/* 名字条 72×22 黑 50% 始终圆角；超 6 字 JS 降为 10px；阵亡文字 #9F9F9F */
+.petscard-name{position:absolute;z-index:2;bottom:4px;left:calc(50% - 36px);width:72px;height:22px;background:rgba(0,0,0,.5);border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;white-space:nowrap;overflow:hidden;}
+.petscard.is-dead .petscard-name{color:#9F9F9F;}
+
+/* 属性圈 18×18 圆底 #3E3E3E，属性图 22×22 溢出居中；y4 右距4，第二枚右距+20 */
+.petscard-attr{position:absolute;z-index:3;top:4px;width:18px;height:18px;border-radius:50%;background:#3E3E3E;}
+.petscard-attr.a1{right:4px;}
+.petscard-attr.a2{right:24px;}
+.petscard-attr img{position:absolute;left:calc(50% - 11px);top:calc(50% - 11px);width:22px;height:22px;object-fit:contain;}
+.petscard.is-dead .petscard-attr img{opacity:.5;}

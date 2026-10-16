@@ -26,6 +26,7 @@ export const SUPPORTED_BEST_OF = new Set([1, 3, 5, 7]);
  * - page10: 推流页面10（胜者结算画面）
  * - page14: 推流页面14（晋级积分榜）
  * - page15: 推流页面15（数据统计：使用次数/登场场次排行）
+ * - page16: 推流页面16（阵容同步：比分栏 + petscard 双方阵容 + 选手头像卡）
  * - page11: 选手介绍-左侧选手（同一页面文件 ?mode=left）
  * - page12: 选手介绍-右侧选手（同一页面文件 ?mode=right）
  * - page13: 选手介绍-对战页（同一页面文件 ?mode=versus）
@@ -48,6 +49,7 @@ export const SUPPORTED_STAGE_PAGES = new Set([
   'page13',
   'page14',
   'page15',
+  'page16',
   'blank',
 ]);
 
@@ -59,8 +61,8 @@ export const SUPPORTED_STAGE_PAGES = new Set([
  */
 export const DEFAULT_STAGE_TRANSITION = 'blinds';
 export const SUPPORTED_STAGE_TRANSITIONS = new Set(['none', 'blinds', 'wolf']);
-export const DEFAULT_PAGE3_SPRITE_SOURCE = 'sprite' as const;
-export const SUPPORTED_PAGE3_SPRITE_SOURCES = new Set(['sprite', 'thumbnail']);
+export const DEFAULT_SPRITE_SOURCE = 'sprite' as const;
+export const SUPPORTED_SPRITE_SOURCES = new Set(['sprite', 'icon']);
 export const DEFAULT_PAGE3_RANK_VISIBLE = false;
 export const DEFAULT_PAGE3_TEAM_VISIBLE = false;
 /**
@@ -71,6 +73,12 @@ export const DEFAULT_PAGE3_TEAM_VISIBLE = false;
 export const DEFAULT_PAGE3_RED_LIGHT_MODE = 'off' as const;
 export const SUPPORTED_PAGE3_RED_LIGHT_MODES = new Set(['off', 'auto']);
 export const DEFAULT_PAGE3_RED_LIGHT_INSTANT = false;
+/**
+ * 推流页面16（阵容同步）：
+ * - page16SpriteSource: 精灵主体图片来源（sprite 原图 / icon 头像），语义与页面3一致（复用 SpriteSource 类型与 DEFAULT_SPRITE_SOURCE 默认值）
+ * - page16RankVisible: 是否显示选手头像卡上的排名数字
+ */
+export const DEFAULT_PAGE16_RANK_VISIBLE = true;
 /** 选手介绍（page11-13）：默认显示选手排位排名 div（无排名时自动隐藏） */
 export const DEFAULT_PAGE11_RANK_VISIBLE = true;
 export const RANK_TEXT_MAX_LENGTH = 10;

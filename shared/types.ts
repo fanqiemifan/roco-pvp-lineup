@@ -174,10 +174,11 @@ export type StagePageKey =
   | 'page13'
   | 'page14'
   | 'page15'
+  | 'page16'
   | 'blank';
 
 export type StageTransitionType = 'none' | 'blinds' | 'wolf';
-export type Page3SpriteSource = 'sprite' | 'thumbnail';
+export type SpriteSource = 'sprite' | 'icon';
 /** 推流页面3红光特效策略：关闭 / 自动开启（按阵亡阈值触发） */
 export type Page3RedLightMode = 'off' | 'auto';
 
@@ -187,7 +188,7 @@ export interface StageConfig {
   /** 页面1-3：阵容镜像反转（仅展示层左右互换，不改数据与胜负登记；开启后画面左侧展示实际右侧选手） */
   mirrorSides: boolean;
   /** 推流页面3：精灵主体图片来源 */
-  page3SpriteSource: Page3SpriteSource;
+  page3SpriteSource: SpriteSource;
   /** 推流页面3：是否显示比分栏中央两侧的排位排名图标 */
   page3RankVisible: boolean;
   /** 推流页面3：是否显示比分栏两侧的战队 div（左右各一个：战队头像/logo + 底部名称色块） */
@@ -212,6 +213,10 @@ export interface StageConfig {
   page15SortOrder: 'asc' | 'desc';
   /** 推流页面15（数据统计）：数据回放播放方式（false = 不播放直接展示最终数据 = 默认，true = 逐场播放） */
   page15ReplayPlay: boolean;
+  /** 推流页面16（阵容同步）：精灵主体图片来源（原图 / 头像，语义与页面3一致） */
+  page16SpriteSource: SpriteSource;
+  /** 推流页面16（阵容同步）：是否显示选手头像卡上的排名数字 */
+  page16RankVisible: boolean;
   /** 战绩详情（page7）：整屏切换间隔（秒）——一屏 4 行停留该时长后整屏交叉过渡到下一屏 */
   page7SwitchSeconds: number;
   /** 胜者结算画面（page10）：登记本局胜负后自动切入的停留时长 */
