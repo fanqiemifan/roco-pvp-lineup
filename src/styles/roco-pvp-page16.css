@@ -215,7 +215,7 @@ body {
     top: 914px;
     width: 1920px;
     height: 166px;
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(102, 102, 102, 0) 100%);
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0.3) 0%, rgba(102, 102, 102, 0) 100%);
     z-index: 20;
     pointer-events: none;
 }
