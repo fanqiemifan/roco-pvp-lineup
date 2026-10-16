@@ -34,6 +34,8 @@
     // 名字图缓存：key = name|cardSize|fontSize（finishLineupAnimation 等时机可整体清空）
     const nameImageCache = new Map();
 
+    // 名字条左偏移查表：与后台 admin-antd/lib/format.ts 的 getSpriteCardNameLeft 互为副本
+    // （后台走 Vite 可 import TS、展示页无构建，无法共享一份，两处改动需手动同步）
     function getNameLeftByLength(nameLength) {
         switch (nameLength) {
             case 2:
