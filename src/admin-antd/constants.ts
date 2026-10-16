@@ -96,6 +96,11 @@ export const PREVIEW_PAGES: Record<PreviewSlotKey, PreviewConfig> = {
     fileName: 'roco-pvp-page15.html',
     path: '/roco-pvp-page15.html',
   },
+  page16: {
+    title: '推流页面16（阵容同步）',
+    fileName: 'roco-pvp-page16.html',
+    path: '/roco-pvp-page16.html',
+  },
 };
 
 export const STAGE_OPTIONS: Array<{ value: StagePageKey; label: string; description: string; previewPath: string }> = [
@@ -134,6 +139,12 @@ export const STAGE_OPTIONS: Array<{ value: StagePageKey; label: string; descript
     label: '数据统计展示',
     description: '数据统计（使用次数/登场场次/胜率排行，展示 20 条，后台「数据统计」控制）',
     previewPath: '/roco-pvp-page15.html',
+  },
+  {
+    value: 'page16',
+    label: '阵容同步展示',
+    description: '阵容同步（petscard 双方阵容 + 顶部比分栏 + 底部选手头像卡）',
+    previewPath: '/roco-pvp-page16.html',
   },
   {
     value: 'page6',

@@ -1,0 +1,221 @@
+/* 推流页面16：阵容同步（比分栏 + 双方 petscard 阵容 + 选手头像卡） */
+/* YouSheBiaoTiHei 不再打包字体文件，改用系统安装字体，未安装时回退 MiSans */
+@font-face {
+    font-family: "YouSheBiaoTiHei";
+    src: local("YouSheBiaoTiHei");
+    font-display: swap;
+}
+
+/* MiSans Bold 未随包分发：本机装有 MiSans 字族时优先使用，否则回落 Semibold */
+@font-face {
+    font-family: "MiSans-Bold";
+    src: local("MiSans Bold"), local("MiSans-Bold");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Medium";
+    src: url("/assets/fonts/MiSans-Medium.otf") format("opentype");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Regular";
+    src: url("/assets/fonts/MiSans-Regular.otf") format("opentype");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Semibold";
+    src: url("/assets/fonts/MiSans-Semibold.otf") format("opentype");
+    font-display: swap;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent !important;
+}
+
+.page16-screen {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
+}
+
+/* ===== 1. 比分栏 ===== */
+.page16-scoreboard {
+    position: absolute;
+    left: 683px;
+    top: 0;
+    width: 554px;
+    height: 126px;
+    background: url("/assets/ui/page16-back.svg") 0 0 / 100% 100% no-repeat;
+    z-index: 30;
+}
+
+.page16-score {
+    position: absolute;
+    top: 20px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-family: "MiSans-Bold", "MiSans-Semibold", "Microsoft YaHei", sans-serif;
+    font-size: 48px;
+    line-height: 1;
+    color: #fff;
+}
+
+.page16-bestof {
+    position: absolute;
+    top: 68px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-family: "MiSans-Medium", "Microsoft YaHei", sans-serif;
+    font-size: 16px;
+    line-height: 1;
+    color: #fff;
+}
+
+/* ===== 2. 双方阵容（petscard 卡位） ===== */
+.page16-slot {
+    position: absolute;
+    top: 920px;
+    width: 122px;
+    height: 150px;
+    /* 阵亡下沉 / 复活归位做平滑动过渡（920 ↔ 948） */
+    transition: top 0.24s ease;
+}
+
+.page16-slot.is-dead {
+    top: 948px;
+}
+
+/* 卡位横向坐标：左侧从左缘数，右侧复用同一组数值改为距右缘距离；z-index 按卡位顺序 1-6 */
+.page16-slot[data-side="left"][data-slot="0"] { left: 220px; z-index: 1; }
+.page16-slot[data-side="left"][data-slot="1"] { left: 332px; z-index: 2; }
+.page16-slot[data-side="left"][data-slot="2"] { left: 442px; z-index: 3; }
+.page16-slot[data-side="left"][data-slot="3"] { left: 552px; z-index: 4; }
+.page16-slot[data-side="left"][data-slot="4"] { left: 662px; z-index: 5; }
+.page16-slot[data-side="left"][data-slot="5"] { left: 772px; z-index: 6; }
+
+.page16-slot[data-side="right"][data-slot="0"] { right: 220px; z-index: 1; }
+.page16-slot[data-side="right"][data-slot="1"] { right: 332px; z-index: 2; }
+.page16-slot[data-side="right"][data-slot="2"] { right: 442px; z-index: 3; }
+.page16-slot[data-side="right"][data-slot="3"] { right: 552px; z-index: 4; }
+.page16-slot[data-side="right"][data-slot="4"] { right: 662px; z-index: 5; }
+.page16-slot[data-side="right"][data-slot="5"] { right: 772px; z-index: 6; }
+
+/* 卡片投影：卡面是异形（左上斜切 + 蒙版），用 drop-shadow 跟随轮廓，box-shadow 会出方框影子 */
+.page16-slot .petscard {
+    filter: drop-shadow(-4px 4px 20px rgba(0, 0, 0, 0.25));
+}
+
+/* ===== 3/4. 选手头像卡 ===== */
+.page16-player {
+    position: absolute;
+    top: 905px;
+    width: 138px;
+    height: 168px;
+    z-index: 10;
+}
+
+.page16-player-left {
+    left: 72px;
+    background: url("/assets/ui/page16-left-avatar-back.svg") 0 0 / 100% 100% no-repeat;
+}
+
+.page16-player-right {
+    right: 72px;
+    background: url("/assets/ui/page16-right-avatar-back.svg") 0 0 / 100% 100% no-repeat;
+}
+
+/* 排名数字：字号与左偏移按位数由脚本注入（1 位 32px/x16，2 位 24px/x12，3 位起 16px/x12） */
+.page16-player-rank {
+    position: absolute;
+    top: 24px;
+    z-index: 3;
+    font-family: "YouSheBiaoTiHei", "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 32px;
+    line-height: 1;
+    color: #fff;
+}
+
+/* 头像蒙版：page16-avatar-mark.svg 的 alpha 通道裁剪选手头像（x12 y10，119×148） */
+.page16-player-avatar {
+    position: absolute;
+    left: 12px;
+    top: 10px;
+    width: 119px;
+    height: 148px;
+    -webkit-mask: url("/assets/ui/page16-avatar-mark.svg") 0 0 / 100% 100% no-repeat;
+    mask: url("/assets/ui/page16-avatar-mark.svg") 0 0 / 100% 100% no-repeat;
+}
+
+.page16-player-avatar img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* 选手名字条 88×22 始终圆角：字号由脚本自适应（最大 14px，最小 11px，仍放不下保留裁切） */
+.page16-player-name {
+    position: absolute;
+    top: 110px;
+    left: 25px;
+    width: 88px;
+    height: 22px;
+    border-radius: 11px;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 3;
+    line-height: 22px;
+    text-align: center;
+    color: #fff;
+    font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* ===== 5. 装饰条 ===== */
+.page16-deco {
+    position: absolute;
+    top: 1065px;
+    width: 820px;
+    height: 15px;
+    border-radius: 16px 16px 0 0;
+}
+
+.page16-deco-left {
+    left: 72px;
+    background: #992F37;
+}
+
+.page16-deco-right {
+    left: 1026px;
+    background: #3287B1;
+}
+
+/* ===== 6. 底部阴影叠层：盖在选手头像卡（z10）与精灵卡片（z1-6）之上 ===== */
+.page16-shadow {
+    position: absolute;
+    left: 0;
+    top: 914px;
+    width: 1920px;
+    height: 166px;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(102, 102, 102, 0) 100%);
+    z-index: 20;
+    pointer-events: none;
+}

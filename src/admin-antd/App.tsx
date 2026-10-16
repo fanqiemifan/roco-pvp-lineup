@@ -7138,6 +7138,7 @@ function Dashboard() {
                       { value: 'page10', label: '推流页面10' },
                       { value: 'page14', label: '推流页面14（晋级积分榜）' },
                       { value: 'page15', label: '推流页面15' },
+                      { value: 'page16', label: '推流页面16' },
                     ]}
                     onChange={(value) => setPreviewSlot(value as PreviewSlotKey)}
                   />

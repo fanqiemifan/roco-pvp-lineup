@@ -174,6 +174,7 @@ export type StagePageKey =
   | 'page13'
   | 'page14'
   | 'page15'
+  | 'page16'
   | 'blank';
 
 export type StageTransitionType = 'none' | 'blinds' | 'wolf';
