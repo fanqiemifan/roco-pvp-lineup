@@ -260,7 +260,7 @@
             name: spiritName,
             path: sprite.path || '',
             iconUrl: sprite.iconUrl || '',
-            source: page3SpriteSource === 'thumbnail' ? 'thumbnail' : 'sprite',
+            source: page3SpriteSource === 'icon' ? 'icon' : 'sprite',
         });
 
         slotEl.className = `page3-spirit-slot is-active${isDone ? ' is-done' : ''}`;
@@ -280,7 +280,7 @@
 
         buildSlotCard(slotEl, sprite, spiritName, imageCandidates[0] || '');
         const spriteImage = slotEl.querySelector('.sprite-pet-card-sprite');
-        if (page3SpriteSource === 'thumbnail' && slotEl.dataset.side === 'right') {
+        if (page3SpriteSource === 'icon' && slotEl.dataset.side === 'right') {
             spriteImage.classList.add('is-page3-icon-flipped');
         }
         let imageIndex = 0;
@@ -445,7 +445,7 @@
     function getSpriteImageCandidates(sprite) {
         const fallback = sprite && sprite.path ? String(sprite.path) : '';
         const iconUrl = sprite && sprite.iconUrl ? String(sprite.iconUrl).trim() : '';
-        if (page3SpriteSource !== 'thumbnail' || !iconUrl) {
+        if (page3SpriteSource !== 'icon' || !iconUrl) {
             return fallback ? [fallback] : [];
         }
         return [iconUrl, ...(fallback ? [fallback] : [])];
@@ -888,7 +888,7 @@
     }
 
     function setPage3SpriteSource(source) {
-        const nextSource = source === 'thumbnail' ? 'thumbnail' : 'sprite';
+        const nextSource = source === 'icon' ? 'icon' : 'sprite';
         if (page3SpriteSource === nextSource) {
             return;
         }

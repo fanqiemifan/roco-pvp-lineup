@@ -22,7 +22,7 @@
         3: { size: 16, left: 12 }
     };
 
-    // 画面设置：精灵图来源（sprite 原图 / thumbnail 头像，语义与 page3 一致）与排名数字显隐
+    // 画面设置：精灵图来源（sprite 原图 / icon 头像，语义与 page3 一致）与排名数字显隐
     let page16SpriteSource = 'sprite';
     let page16RankVisible = true;
 
@@ -181,7 +181,7 @@
         const candidates = [];
         const portrait = sprite && sprite.path ? String(sprite.path) : '';
         const iconUrl = sprite && sprite.iconUrl ? String(sprite.iconUrl).trim() : '';
-        if (page16SpriteSource === 'thumbnail' && iconUrl) {
+        if (page16SpriteSource === 'icon' && iconUrl) {
             candidates.push(iconUrl);
         }
         if (portrait) {
@@ -206,7 +206,7 @@
                     name: String(sprite.displayName || sprite.name || '').trim(),
                     num: String(index + 1),
                     image: imageCandidates[0] || '',
-                    useIcon: page16SpriteSource === 'thumbnail',
+                    useIcon: page16SpriteSource === 'icon',
                     side: side === 'right' ? '右' : '左',
                     dead,
                     attributes: getSlotAttributeNames(sprite)
@@ -244,7 +244,7 @@
 
     // 精灵图来源切换：签名里带 source，清空后按缓存面板重渲染
     function setPage16SpriteSource(source) {
-        const next = source === 'thumbnail' ? 'thumbnail' : 'sprite';
+        const next = source === 'icon' ? 'icon' : 'sprite';
         if (page16SpriteSource === next) {
             return;
         }

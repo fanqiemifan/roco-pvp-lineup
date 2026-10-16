@@ -12,18 +12,16 @@ import {
   DEFAULT_PAGE3_RANK_VISIBLE,
   DEFAULT_PAGE3_RED_LIGHT_INSTANT,
   DEFAULT_PAGE3_RED_LIGHT_MODE,
-  DEFAULT_PAGE3_SPRITE_SOURCE,
   DEFAULT_PAGE3_TEAM_VISIBLE,
   DEFAULT_PAGE16_RANK_VISIBLE,
-  DEFAULT_PAGE16_SPRITE_SOURCE,
-  SUPPORTED_PAGE16_SPRITE_SOURCES,
+  DEFAULT_SPRITE_SOURCE,
   SUPPORTED_PAGE3_RED_LIGHT_MODES,
-  SUPPORTED_PAGE3_SPRITE_SOURCES,
+  SUPPORTED_SPRITE_SOURCES,
   SUPPORTED_STAGE_PAGES,
   SUPPORTED_STAGE_TRANSITIONS,
   TOURNAMENT_ID_REGEX,
 } from '../../shared/constants.js';
-import type { NextGameDurationUnit, Page3RedLightMode, Page3SpriteSource, StageConfig, StagePageKey, StageTransitionType } from '../../shared/types.js';
+import type { NextGameDurationUnit, Page3RedLightMode, SpriteSource, StageConfig, StagePageKey, StageTransitionType } from '../../shared/types.js';
 import { ensureRuntimeDirs } from './image-service.js';
 import type { AppPaths } from './path-service.js';
 
@@ -76,16 +74,10 @@ function normalizePage15ReplayPlay(value: unknown): boolean {
   return value === true;
 }
 
-function normalizePage3SpriteSource(value: unknown): Page3SpriteSource {
-  return typeof value === 'string' && SUPPORTED_PAGE3_SPRITE_SOURCES.has(value)
-    ? value as Page3SpriteSource
-    : DEFAULT_PAGE3_SPRITE_SOURCE;
-}
-
-function normalizePage16SpriteSource(value: unknown): Page3SpriteSource {
-  return typeof value === 'string' && SUPPORTED_PAGE16_SPRITE_SOURCES.has(value)
-    ? value as Page3SpriteSource
-    : DEFAULT_PAGE16_SPRITE_SOURCE;
+function normalizeSpriteSource(value: unknown): SpriteSource {
+  return typeof value === 'string' && SUPPORTED_SPRITE_SOURCES.has(value)
+    ? value as SpriteSource
+    : DEFAULT_SPRITE_SOURCE;
 }
 
 function normalizePage16RankVisible(value: unknown): boolean {
@@ -145,7 +137,7 @@ function defaultStageState(): StageConfig {
     page: DEFAULT_STAGE_PAGE as StagePageKey,
     transition: DEFAULT_STAGE_TRANSITION as StageTransitionType,
     mirrorSides: false,
-    page3SpriteSource: DEFAULT_PAGE3_SPRITE_SOURCE,
+    page3SpriteSource: DEFAULT_SPRITE_SOURCE,
     page3RankVisible: DEFAULT_PAGE3_RANK_VISIBLE,
     page3TeamVisible: DEFAULT_PAGE3_TEAM_VISIBLE,
     page3RedLightMode: DEFAULT_PAGE3_RED_LIGHT_MODE,
@@ -158,7 +150,7 @@ function defaultStageState(): StageConfig {
     page15SortBy: 'picks',
     page15SortOrder: 'desc',
     page15ReplayPlay: false,
-    page16SpriteSource: DEFAULT_PAGE16_SPRITE_SOURCE,
+    page16SpriteSource: DEFAULT_SPRITE_SOURCE,
     page16RankVisible: DEFAULT_PAGE16_RANK_VISIBLE,
     page7SwitchSeconds: DEFAULT_PAGE7_SWITCH_SECONDS,
     page10Duration: DEFAULT_PAGE10_DURATION,
@@ -180,7 +172,7 @@ export function getStageState(paths: AppPaths): StageConfig {
       page: normalizeStagePage(metadata.page),
       transition: normalizeStageTransition(metadata.transition),
       mirrorSides: normalizeMirrorSides(metadata.mirrorSides),
-      page3SpriteSource: normalizePage3SpriteSource(metadata.page3SpriteSource),
+      page3SpriteSource: normalizeSpriteSource(metadata.page3SpriteSource),
       page3RankVisible: normalizePage3RankVisible(metadata.page3RankVisible),
       page3TeamVisible: normalizePage3TeamVisible(metadata.page3TeamVisible),
       page3RedLightMode: normalizePage3RedLightMode(metadata.page3RedLightMode),
@@ -193,7 +185,7 @@ export function getStageState(paths: AppPaths): StageConfig {
       page15SortBy: normalizePage15SortBy(metadata.page15SortBy),
       page15SortOrder: normalizePage15SortOrder(metadata.page15SortOrder),
       page15ReplayPlay: normalizePage15ReplayPlay(metadata.page15ReplayPlay),
-      page16SpriteSource: normalizePage16SpriteSource(metadata.page16SpriteSource),
+      page16SpriteSource: normalizeSpriteSource(metadata.page16SpriteSource),
       page16RankVisible: normalizePage16RankVisible(metadata.page16RankVisible),
       page7SwitchSeconds: normalizePage7SwitchSeconds(metadata.page7SwitchSeconds),
       page10Duration: normalizePage10Duration(metadata.page10Duration, page10DurationUnit),
@@ -222,7 +214,7 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
     page: normalizeStagePage(raw.page),
     transition: normalizeStageTransition(raw.transition ?? current.transition),
     mirrorSides: normalizeMirrorSides(raw.mirrorSides ?? current.mirrorSides),
-    page3SpriteSource: normalizePage3SpriteSource(raw.page3SpriteSource ?? current.page3SpriteSource),
+    page3SpriteSource: normalizeSpriteSource(raw.page3SpriteSource ?? current.page3SpriteSource),
     page3RankVisible: normalizePage3RankVisible(raw.page3RankVisible ?? current.page3RankVisible),
     page3TeamVisible: normalizePage3TeamVisible(raw.page3TeamVisible ?? current.page3TeamVisible),
     page3RedLightMode: normalizePage3RedLightMode(raw.page3RedLightMode ?? current.page3RedLightMode),
@@ -245,7 +237,7 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
       raw.page15ReplayPlay === undefined ? current.page15ReplayPlay : raw.page15ReplayPlay,
     ),
     // page16 两个字段带 current 兜底：切换画面等局部保存只传 page/transition，不得清空页面设置
-    page16SpriteSource: normalizePage16SpriteSource(
+    page16SpriteSource: normalizeSpriteSource(
       raw.page16SpriteSource === undefined ? current.page16SpriteSource : raw.page16SpriteSource,
     ),
     page16RankVisible: normalizePage16RankVisible(
