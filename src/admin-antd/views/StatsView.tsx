@@ -1,10 +1,10 @@
 import React from 'react';
 import {
+  Alert,
   App,
   Button,
   Card,
   Col,
-  Divider,
   Empty,
   Image,
   Input,
@@ -483,147 +483,171 @@ export function StatsView({
           <Modal
             title="推流页面15 显示设置"
             open={page15SettingsOpen}
-            width={720}
+            width={760}
             onCancel={() => setPage15SettingsOpen(false)}
-            footer={(
-              <Space>
-                <Text type="secondary">控制「推流页面15（数据统计）」画面内容（统计范围与排序），与下方统计口径相互独立 · 修改即时保存生效</Text>
-                <Button type="primary" onClick={() => setPage15SettingsOpen(false)}>完成</Button>
-              </Space>
-            )}
+            footer={<Button onClick={() => setPage15SettingsOpen(false)}>关闭</Button>}
           >
-            <Space direction="vertical" size={12} className="match-push-modal-body">
-            <Row gutter={[16, 16]}>
-              <Col xs={24} md={12}>
-                <SettingField label="系列赛：">
-                  <Select
-                    style={{ width: '100%' }}
-                    value={page15TournamentId || undefined}
-                    disabled={stageSaving}
-                    options={[
-                      { value: '', label: '全部' },
-                      ...tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
-                    ]}
-                    onChange={(value) => onPage15DisplayChange({ page15TournamentId: value ?? '', page15Stage: '' })}
-                  />
-                </SettingField>
-              </Col>
-              <Col xs={24} md={12}>
-                <SettingField label="阶段：">
-                  <Select
-                    style={{ width: '100%' }}
-                    value={page15Stage || undefined}
-                    disabled={stageSaving || !page15TournamentId}
-                    options={buildStageFilterOptions(page15TournamentId)}
-                    onChange={(value) => onPage15DisplayChange({ page15Stage: value ?? '' })}
-                  />
-                </SettingField>
-              </Col>
-              <Col xs={24}>
-                <SettingField label="排序方式：">
-                  <Space size={8} wrap>
-                    <Segmented
-                      value={page15SortBy}
-                      disabled={stageSaving}
-                      options={[
-                        { value: 'picks', label: '使用次数' },
-                        { value: 'games', label: '登场场次' },
-                        { value: 'winRate', label: '胜率' },
-                      ]}
-                      onChange={(value) => onPage15DisplayChange({ page15SortBy: value as 'picks' | 'games' | 'winRate' })}
-                    />
-                    <Segmented
-                      value={page15SortOrder}
-                      disabled={stageSaving}
-                      options={[
-                        { value: 'desc', label: '降序' },
-                        { value: 'asc', label: '升序' },
-                      ]}
-                      onChange={(value) => onPage15DisplayChange({ page15SortOrder: value as 'asc' | 'desc' })}
-                    />
-                  </Space>
-                </SettingField>
-              </Col>
-            </Row>
-            <Divider style={{ margin: '16px 0 12px' }} />
-            <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-              数据回放：把所选系列赛「从 xx 阶段到 xx 阶段」的完赛场次推送到推流页面15。默认不播放、直接展示最终数据；选择「逐场播放」后榜单按场序累加演化。两种方式结束后画面都自动恢复实时排行。
-            </Text>
-            <Row gutter={[16, 16]}>
-              <Col xs={24} md={12}>
-                <SettingField label="回放系列赛：">
-                  <Select
-                    style={{ width: '100%' }}
-                    placeholder="选择要回放的系列赛"
-                    value={replayTournamentId || undefined}
-                    options={tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` }))}
-                    onChange={(value) => {
-                      const next = value ?? '';
-                      setReplayTournamentId(next);
-                      // 切系列赛重置阶段范围：默认「从第 1 阶段到最后阶段」
-                      const target = tournaments.find((item) => item.id === next);
-                      setReplayFrom('0');
-                      setReplayTo(target ? String(target.stages.length - 1) : '0');
-                    }}
-                  />
-                </SettingField>
-              </Col>
-              <Col xs={12} md={6}>
-                <SettingField label="从阶段：">
-                  <Select
-                    style={{ width: '100%' }}
-                    value={replayFrom}
-                    disabled={!replayTournamentId}
-                    options={replayStageOptions}
-                    onChange={(value) => {
-                      setReplayFrom(value);
-                      // 起止联动：起点超过终点时把终点同步为起点，防止范围倒挂
-                      if (Number(value) > Number(replayTo)) {
-                        setReplayTo(value);
-                      }
-                    }}
-                  />
-                </SettingField>
-              </Col>
-              <Col xs={12} md={6}>
-                <SettingField label="到阶段：">
-                  <Select
-                    style={{ width: '100%' }}
-                    value={replayTo}
-                    disabled={!replayTournamentId}
-                    options={replayStageOptions}
-                    onChange={(value) => {
-                      setReplayTo(value);
-                      if (Number(value) < Number(replayFrom)) {
-                        setReplayFrom(value);
-                      }
-                    }}
-                  />
-                </SettingField>
-              </Col>
-              <Col xs={24}>
-                <Space wrap size={12} align="end">
-                  <SettingField label="播放方式：">
-                    <Segmented
-                      value={page15ReplayPlay ? 'play' : 'direct'}
-                      options={[
-                        { value: 'direct', label: '不播放（直接展示最终数据）' },
-                        { value: 'play', label: '逐场播放' },
-                      ]}
-                      onChange={(value) => onPage15DisplayChange({ page15ReplayPlay: value === 'play' })}
-                    />
-                  </SettingField>
-                  <SettingField label="播放速度：">
-                    <Segmented
-                      value={replaySpeed}
-                      options={[
-                        { value: 'slow', label: '慢' },
-                        { value: 'normal', label: '标准' },
-                        { value: 'fast', label: '快' },
-                      ]}
-                      onChange={(value) => setReplaySpeed(value as 'slow' | 'normal' | 'fast')}
-                    />
-                  </SettingField>
+            <Space direction="vertical" size={14} className="match-push-modal-body">
+              {/* 顶部只留一句总说明：原来那行「与统计口径相互独立」塞在底栏，容易被读成脚注 */}
+              <Alert
+                type="info"
+                showIcon
+                title="以下设置只改推流画面「页面15」的显示内容，不影响下方数据视图的统计口径；修改即时保存。"
+              />
+              {/* 分区一：画面内容（常显的统计范围 + 排序方式） */}
+              <div className="stats-settings-section">
+                <div className="stats-settings-section-head">
+                  <span className="stats-settings-section-title">画面内容</span>
+                  <Tag>统计范围与排序</Tag>
+                </div>
+                <Row gutter={[16, 12]}>
+                  <Col xs={24} md={12}>
+                    <SettingField label="系列赛" hint="「全部」= 所有对局合计">
+                      <Select
+                        style={{ width: '100%' }}
+                        value={page15TournamentId || undefined}
+                        disabled={stageSaving}
+                        options={[
+                          { value: '', label: '全部' },
+                          ...tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` })),
+                        ]}
+                        onChange={(value) => onPage15DisplayChange({ page15TournamentId: value ?? '', page15Stage: '' })}
+                      />
+                    </SettingField>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <SettingField label="阶段" hint="未选系列赛时不可选">
+                      <Select
+                        style={{ width: '100%' }}
+                        value={page15Stage || undefined}
+                        disabled={stageSaving || !page15TournamentId}
+                        options={buildStageFilterOptions(page15TournamentId)}
+                        onChange={(value) => onPage15DisplayChange({ page15Stage: value ?? '' })}
+                      />
+                    </SettingField>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <SettingField label="排序依据" hint="排行榜按该数值排序">
+                      <Segmented
+                        block
+                        value={page15SortBy}
+                        disabled={stageSaving}
+                        options={[
+                          { value: 'picks', label: '使用次数' },
+                          { value: 'games', label: '登场场次' },
+                          { value: 'winRate', label: '胜率' },
+                        ]}
+                        onChange={(value) => onPage15DisplayChange({ page15SortBy: value as 'picks' | 'games' | 'winRate' })}
+                      />
+                    </SettingField>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <SettingField label="排序方向" hint="未登场的精灵始终排在最后">
+                      <Segmented
+                        block
+                        value={page15SortOrder}
+                        disabled={stageSaving}
+                        options={[
+                          { value: 'desc', label: '降序' },
+                          { value: 'asc', label: '升序' },
+                        ]}
+                        onChange={(value) => onPage15DisplayChange({ page15SortOrder: value as 'asc' | 'desc' })}
+                      />
+                    </SettingField>
+                  </Col>
+                </Row>
+              </div>
+              {/* 分区二：数据回放（一次性推送，与上面常显的设置分开，避免误点） */}
+              <div className="stats-settings-section">
+                <div className="stats-settings-section-head">
+                  <span className="stats-settings-section-title">数据回放</span>
+                  <Tag color="gold">一次性推送</Tag>
+                </div>
+                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 12 }}>
+                  把所选系列赛某阶段范围内的完赛场次送到画面15。默认直接展示最终数据；选「逐场播放」时榜单按场序累加演化，结束后自动恢复实时排行。
+                </Text>
+                <Row gutter={[16, 12]}>
+                  <Col xs={24} md={12}>
+                    <SettingField label="回放系列赛" hint="只回放该届的完赛场次">
+                      <Select
+                        style={{ width: '100%' }}
+                        placeholder="选择要回放的系列赛"
+                        value={replayTournamentId || undefined}
+                        options={tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` }))}
+                        onChange={(value) => {
+                          const next = value ?? '';
+                          setReplayTournamentId(next);
+                          // 切系列赛重置阶段范围：默认「从第 1 阶段到最后阶段」
+                          const target = tournaments.find((item) => item.id === next);
+                          setReplayFrom('0');
+                          setReplayTo(target ? String(target.stages.length - 1) : '0');
+                        }}
+                      />
+                    </SettingField>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <SettingField label="阶段范围" hint="含起止阶段">
+                      <div className="stats-settings-range">
+                        <Select
+                          value={replayFrom}
+                          disabled={!replayTournamentId}
+                          options={replayStageOptions}
+                          onChange={(value) => {
+                            setReplayFrom(value);
+                            // 起止联动：起点超过终点时把终点同步为起点，防止范围倒挂
+                            if (Number(value) > Number(replayTo)) {
+                              setReplayTo(value);
+                            }
+                          }}
+                        />
+                        <span className="stats-settings-range-arrow">→</span>
+                        <Select
+                          value={replayTo}
+                          disabled={!replayTournamentId}
+                          options={replayStageOptions}
+                          onChange={(value) => {
+                            setReplayTo(value);
+                            // 起止联动：终点早于起点时把起点同步为终点
+                            if (Number(value) < Number(replayFrom)) {
+                              setReplayFrom(value);
+                            }
+                          }}
+                        />
+                      </div>
+                    </SettingField>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <SettingField label="播放方式" hint="「直接展示」= 不播放，直接出最终数据">
+                      <Segmented
+                        block
+                        value={page15ReplayPlay ? 'play' : 'direct'}
+                        options={[
+                          { value: 'direct', label: '直接展示' },
+                          { value: 'play', label: '逐场播放' },
+                        ]}
+                        onChange={(value) => onPage15DisplayChange({ page15ReplayPlay: value === 'play' })}
+                      />
+                    </SettingField>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <SettingField label="播放速度" hint="仅逐场播放时生效">
+                      <Segmented
+                        block
+                        value={replaySpeed}
+                        options={[
+                          { value: 'slow', label: '慢' },
+                          { value: 'normal', label: '标准' },
+                          { value: 'fast', label: '快' },
+                        ]}
+                        onChange={(value) => setReplaySpeed(value as 'slow' | 'normal' | 'fast')}
+                      />
+                    </SettingField>
+                  </Col>
+                </Row>
+                <div className="stats-settings-actions">
+                  <Text type="secondary" className="stats-settings-actions-hint">
+                    推送期间画面会切到页面15，播完自动回到实时排行
+                  </Text>
                   <Button
                     type="primary"
                     loading={replayPushing}
@@ -644,9 +668,8 @@ export function StatsView({
                   >
                     推送到页面15 回放
                   </Button>
-                </Space>
-              </Col>
-            </Row>
+                </div>
+              </div>
             </Space>
           </Modal>
         </Col>

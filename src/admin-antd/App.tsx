@@ -7538,10 +7538,10 @@ function Dashboard() {
           items={[
             {
               key: 'page2',
-              label: '推流页面2',
+              label: '阵容展示2',
               children: (
                 <div className="control-stack">
-                  <SettingField variant="stack" label="赛事标题" hint="页面2 显示的比赛标题，最长 40 字。">
+                  <SettingField variant="stack" label="赛事标题" hint="阵容展示2 显示的比赛标题，最长 40 字。">
                     <Input
                       maxLength={40}
                       value={page2EventTitleDraft}
@@ -7566,7 +7566,7 @@ function Dashboard() {
             },
             {
               key: 'page3',
-              label: '推流页面3',
+              label: '阵容展示3',
               children: (
                 <div className="control-stack">
                   <SettingField variant="row" label="精灵图片" hint="显示精灵原图还是头像。">
@@ -7605,7 +7605,7 @@ function Dashboard() {
                     </Button>
                     {stage?.page3RedLightInstant ? <span className="setting-status red">显示中</span> : null}
                   </SettingField>
-                  <SettingField variant="row" label="排位图标" hint="比分栏两侧的排位排名徽标；页面17 的排名显示也由这里控制。">
+                  <SettingField variant="row" label="排位图标" hint="比分栏两侧的排位排名徽标；阵容展示5 的排名显示也由这里控制。">
                     <Switch
                       checked={stage?.page3RankVisible ?? false}
                       disabled={stageSaving}
@@ -7632,10 +7632,10 @@ function Dashboard() {
             },
             {
               key: 'page16',
-              label: '推流页面16/17',
+              label: '阵容展示4/5',
               children: (
                 <div className="control-stack">
-                  <SettingField variant="row" label="精灵图片" hint="页面16/17 共用：卡片里的精灵显示原图还是头像。">
+                  <SettingField variant="row" label="精灵图片" hint="阵容展示4/5 共用：卡片里的精灵显示原图还是头像。">
                     <Segmented
                       value={stage?.page16SpriteSource ?? 'sprite'}
                       disabled={stageSaving}
@@ -7646,7 +7646,7 @@ function Dashboard() {
                       onChange={(value) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16SpriteSource: value as SpriteSource }); }}
                     />
                   </SettingField>
-                  <SettingField variant="row" label="排名数字" hint="页面16 底部选手头像卡上的排名数字，选手有排名时才显示；页面17 的排名开关在「推流页面3」的排位图标里。">
+                  <SettingField variant="row" label="排名数字" hint="阵容展示4 底部选手头像卡上的排名数字，选手有排名时才显示；阵容展示5 的排名开关在「阵容展示3」的排位图标里。">
                     <Switch
                       checked={stage?.page16RankVisible ?? true}
                       disabled={stageSaving}
@@ -7686,7 +7686,7 @@ function Dashboard() {
             },
             {
               key: 'page11',
-              label: '推流页面11-13',
+              label: '选手介绍',
               children: (
                 <div className="control-stack">
                   <SettingField variant="row" label="排位排名" hint="选手介绍画面上的排名数字，选手有排名时才显示。">

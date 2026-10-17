@@ -1633,6 +1633,66 @@ a {
   min-width: 170px;
 }
 
+/* 「推流页面15 显示设置」弹窗：两个分区（画面内容 / 数据回放），字段两列对齐、回放操作独立成行 */
+.stats-settings-section {
+  width: 100%;
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(91, 67, 43, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.stats-settings-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.stats-settings-section-head::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: #c7632f;
+}
+
+.stats-settings-section-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 阶段范围：两个下拉 + 箭头合成一个字段（原来各占 1/4 列会挤到换行） */
+.stats-settings-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stats-settings-range .ant-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.stats-settings-range-arrow {
+  color: rgba(91, 67, 43, 0.45);
+}
+
+/* 回放操作行：说明在左、主按钮在右，与上方字段隔开 */
+.stats-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(91, 67, 43, 0.16);
+}
+
+.stats-settings-actions-hint {
+  font-size: 12px;
+}
+
 .stats-search {
   width: 180px;
 }
