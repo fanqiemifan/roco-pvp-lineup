@@ -8,7 +8,7 @@
  *   --roco-radius-lg  = token.borderRadiusLG  14px
  *
  * 规则：新写的 CSS 不允许再出现裸 #rrggbb / rgba()，一律引用这里的变量；
- * 左右方固定蓝 / 红（左侧 #3973ff、右侧 #d43f34），全后台同用一组，禁止再用 antd 默认 #1677ff / #f5222d。
+ * 左右方固定红 / 蓝（左侧 #d43f34、右侧 #3973ff），全后台同用一组，禁止再用 antd 默认 #1677ff / #f5222d。
  */
 :root {
   /* 品牌 */
@@ -22,11 +22,11 @@
   --roco-danger: #b23a2c;
   --roco-danger-strong: #c24635;
 
-  /* 左右方：后台固定蓝 / 红（2026-10 定案，不沿用推流页 3 的橙红） */
-  --roco-side-left: #3973ff;
-  --roco-side-right: #d43f34;
-  --roco-side-left-soft: rgba(57, 115, 255, 0.22);
-  --roco-side-right-soft: rgba(212, 63, 52, 0.25);
+  /* 左右方：后台固定红 / 蓝（左红右蓝，2026-10 定案，不沿用推流页 3 的橙红） */
+  --roco-side-left: #d43f34;
+  --roco-side-right: #3973ff;
+  --roco-side-left-soft: rgba(212, 63, 52, 0.25);
+  --roco-side-right-soft: rgba(57, 115, 255, 0.22);
 
   /* 文字与状态 */
   --roco-text-hint: rgba(0, 0, 0, 0.55);
