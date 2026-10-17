@@ -15,10 +15,16 @@
 (function (global) {
   'use strict';
 
+  // 支持的排序依据：stats 字段全集 + name（name 与未知值都回退按 sum 排）
+  var SUPPORTED_MODES = [
+    'sum', 'hp', 'physical_attack', 'physical_defense',
+    'magic_attack', 'magic_defense', 'speed', 'name'
+  ];
+
   /**
-   * 排序取值：sum → 种族值总和；hp → 体力；name → 回退按 sum 排（只显名字时序号仍有意义）
-   * @param {{stats?: {sum?: number|null, hp?: number|null}|null}|null} sprite
-   * @param {'sum'|'hp'|'name'} mode
+   * 排序取值：stats 字段（sum/hp/攻击/魔攻/物防/魔防/速度）；name → 回退按 sum 排（只显名字时序号仍有意义）
+   * @param {{stats?: Record<string, number|null>|null}|null} sprite
+   * @param {string} mode
    * @returns {number|null}
    */
   function getSortValue(sprite, mode) {
@@ -26,17 +32,16 @@
     if (!stats) {
       return null;
     }
-    if (mode === 'hp') {
-      return stats.hp == null ? null : stats.hp;
-    }
-    return stats.sum == null ? null : stats.sum;
+    const key = mode === 'name' || SUPPORTED_MODES.indexOf(mode) < 0 ? 'sum' : mode;
+    const value = stats[key];
+    return value == null ? null : value;
   }
 
   /**
    * 双方阵容统一排名（1-12，同值同名次）。
    * 同值卡片的先后展示顺序保持入参顺序（左先右后、槽位升序），由调用方保证入参稳定。
    * @param {Array<{side: 'left'|'right', slot: number, sprite: object|null}>} entries
-   * @param {'sum'|'hp'|'name'} mode
+   * @param {string} mode 排序依据（stats 字段名或 'name'）
    * @returns {Map<string, {rank: number, value: number|null}>} key = `${side}:${slot}`
    */
   function assignRanks(entries, mode) {

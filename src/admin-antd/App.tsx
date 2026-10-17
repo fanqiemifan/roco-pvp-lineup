@@ -54,6 +54,7 @@ import {
   DEFAULT_PAGE7_SWITCH_SECONDS,
   MVP_MAX_ITEMS,
   MVP_TAG_MAX_LENGTH,
+  PAGE16_CARD_LABEL_OPTIONS,
   PAGE7_SWITCH_MAX_SECONDS,
   PAGE7_SWITCH_MIN_SECONDS,
   SYNC_BUNDLE_MAX_BYTES,
@@ -7645,17 +7646,13 @@ function Dashboard() {
                   </SettingField>
                   <SettingField
                     label="卡片标签："
-                    hint="精灵卡片底部标签与序号（1-12）排序依据：种族值总和（默认，橙色）与体力显示对应数值图标并按该值从大到小编排双方序号；名字只显示精灵名，序号仍按种族值总和排序。数值相同的精灵并列同名次，无数据的排在最后。"
+                    hint="精灵卡片底部标签与序号（1-12）排序依据：选择种族值总和（默认，橙色）或任意一项种族值（生命/攻击/魔攻/物防/魔防/速度）时，标签显示对应图标与数值，并按该值从大到小编排双方序号；名字只显示精灵名，序号仍按种族值总和排序。数值相同的精灵并列同名次，无数据的排在最后。"
                   >
                     <Segmented
                       block
                       value={stage?.page16CardLabel ?? 'sum'}
                       disabled={stageSaving}
-                      options={[
-                        { value: 'sum', label: '种族值总和' },
-                        { value: 'hp', label: '体力' },
-                        { value: 'name', label: '名字' },
-                      ]}
+                      options={PAGE16_CARD_LABEL_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                       onChange={(value) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16CardLabel: value as Page16CardLabel }); }}
                     />
                   </SettingField>

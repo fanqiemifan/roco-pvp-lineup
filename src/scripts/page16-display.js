@@ -15,18 +15,25 @@
     const PLAYER_NAME_FONT_MAX = 14;
     const PLAYER_NAME_FONT_MIN = 11;
 
-    // 排名数字字号与左偏移（按位数；超过 3 位按 3 位档处理）
+    // 排名数字字号与左偏移（按位数；'1000+' 档固定 12px 小字）
     const RANK_STYLE_BY_LENGTH = {
         1: { size: 32, left: 16 },
         2: { size: 24, left: 12 },
-        3: { size: 16, left: 12 }
+        3: { size: 16, left: 12 },
+        5: { size: 12, left: 12 }
     };
 
     // 画面设置：精灵图来源（sprite 原图 / icon 头像，语义与 page3 一致）、排名数字显隐、
-    // 卡片标签与 1-12 序号排序依据（sum = 种族值总和（默认）/ hp = 体力 / name = 只显名字，排序仍按 sum）
+    // 卡片标签与 1-12 序号排序依据（stats 任意字段：sum = 种族值总和（默认，橙色）/
+    // hp/physical_attack/physical_defense/magic_attack/magic_defense/speed = 对应种族值项；
+    // name = 只显名字，排序仍按 sum。与 shared/constants PAGE16_CARD_LABEL_OPTIONS 保持一致）
     let page16SpriteSource = 'sprite';
     let page16RankVisible = true;
     let page16CardLabel = 'sum';
+    const SUPPORTED_CARD_LABELS = [
+        'sum', 'hp', 'physical_attack', 'physical_defense',
+        'magic_attack', 'magic_defense', 'speed', 'name'
+    ];
 
     if (window.Petscard) {
         window.Petscard.assetBase = PETSCARD_ASSET_BASE;
@@ -60,13 +67,13 @@
         return SUPPORTED_BEST_OF.includes(number) ? number : DEFAULT_BEST_OF;
     }
 
-    // 排名只保留数字（1 万以上按 1 万+ 显示，与 page3 同口径）
+    // 排名只保留数字（≥1000 按 '1000+' 显示、12px 小字档——page16 头像卡专属口径，与 page3 的 1 万+ 不同）
     function formatRankText(value) {
         const digits = String(value || '').replace(/\D/g, '');
         if (!digits) {
             return '';
         }
-        return Number(digits) > 10000 ? '10000+' : digits;
+        return Number(digits) >= 1000 ? '1000+' : digits;
     }
 
     function isSlotDead(slotData) {
@@ -116,7 +123,7 @@
         if (!show) {
             return;
         }
-        const style = RANK_STYLE_BY_LENGTH[Math.min(text.length, 3)];
+        const style = RANK_STYLE_BY_LENGTH[text.length] || RANK_STYLE_BY_LENGTH[3];
         el.textContent = text;
         el.style.fontSize = `${style.size}px`;
         el.style.left = `${style.left}px`;
@@ -206,15 +213,13 @@
         return candidates;
     }
 
-    // 卡片标签内容：sum/hp → stat 图标+数值（sum 橙色高亮）；name 或数值缺失 → null（回退显示名字）
+    // 卡片标签内容：stat 字段 → 该项图标+数值（sum 橙色高亮）；name 或数值缺失 → null（回退显示名字）
     function buildCardStat(sprite) {
         if (!sprite || page16CardLabel === 'name') {
             return null;
         }
         const stats = sprite.stats || null;
-        const value = page16CardLabel === 'hp'
-            ? (stats ? stats.hp : null)
-            : (stats ? stats.sum : null);
+        const value = stats ? stats[page16CardLabel] : null;
         if (value == null) {
             return null;
         }
@@ -351,7 +356,7 @@
     }
 
     function setPage16CardLabel(value) {
-        const next = value === 'hp' || value === 'name' ? value : 'sum';
+        const next = SUPPORTED_CARD_LABELS.indexOf(value) >= 0 ? value : 'sum';
         if (page16CardLabel === next) {
             return;
         }

@@ -8,7 +8,7 @@ import type { SpriteRecord } from '../../shared/types';
 
 /**
  * page16 卡片排名纯函数测试：双方阵容 12 张卡片统一编排 1-12 序号。
- * 重点覆盖：同值同名次（跳号）、无值并列末位、name 模式回退按 sum 排。
+ * 重点覆盖：同值同名次（跳号）、无值并列末位、任意种族值字段排序、name/未知模式回退按 sum 排。
  */
 
 interface Page16Rank {
@@ -24,7 +24,9 @@ function loadPage16Rank(): Page16Rank {
   return (sandbox.window as { Page16Rank: Page16Rank }).Page16Rank;
 }
 
-function makeSprite(stats: { sum?: number; hp?: number } | null): SpriteRecord {
+function makeSprite(
+  stats: { sum?: number; hp?: number; speed?: number; physical_attack?: number } | null,
+): SpriteRecord {
   return {
     id: '1001',
     filename: '1001_测试.png',
@@ -43,11 +45,11 @@ function makeSprite(stats: { sum?: number; hp?: number } | null): SpriteRecord {
     isFinalForm: true,
     stats: {
       hp: stats ? stats.hp ?? null : null,
-      physical_attack: null,
+      physical_attack: stats ? stats.physical_attack ?? null : null,
       physical_defense: null,
       magic_attack: null,
       magic_defense: null,
-      speed: null,
+      speed: stats ? stats.speed ?? null : null,
       sum: stats ? stats.sum ?? null : null,
     },
   };
@@ -117,6 +119,39 @@ describe('page16-rank：双方阵容 1-12 统一排名', () => {
       { side: 'left', slot: 1, sprite: makeSprite({ sum: 700 }) },
     ];
     const ranks = assignRanks(entries, 'name');
+    expect(ranks.get('left:0')?.rank).toBe(2);
+    expect(ranks.get('left:1')?.rank).toBe(1);
+  });
+
+  it('任意种族值字段（speed/physical_attack）都可作为排序依据，与 sum 互不影响', () => {
+    const entries = [
+      { side: 'left', slot: 0, sprite: makeSprite({ sum: 700, speed: 90, physical_attack: 120 }) },
+      { side: 'left', slot: 1, sprite: makeSprite({ sum: 500, speed: 110, physical_attack: 80 }) },
+    ];
+    const speedRanks = assignRanks(entries, 'speed');
+    expect(speedRanks.get('left:1')?.rank).toBe(1);
+    expect(speedRanks.get('left:0')?.rank).toBe(2);
+    expect(speedRanks.get('left:1')?.value).toBe(110);
+
+    const attackRanks = assignRanks(entries, 'physical_attack');
+    expect(attackRanks.get('left:0')?.rank).toBe(1);
+    expect(attackRanks.get('left:1')?.rank).toBe(2);
+
+    // 某字段缺值时并列末位，不影响其他字段排序
+    const attackRanksMissing = assignRanks([
+      { side: 'left', slot: 0, sprite: makeSprite({ physical_attack: 100 }) },
+      { side: 'left', slot: 1, sprite: makeSprite({ sum: 900 }) },
+    ], 'physical_attack');
+    expect(attackRanksMissing.get('left:0')?.rank).toBe(1);
+    expect(attackRanksMissing.get('left:1')?.rank).toBe(2);
+  });
+
+  it('未知模式回退按 sum 排', () => {
+    const entries = [
+      { side: 'left', slot: 0, sprite: makeSprite({ sum: 500 }) },
+      { side: 'left', slot: 1, sprite: makeSprite({ sum: 700 }) },
+    ];
+    const ranks = assignRanks(entries, 'hack');
     expect(ranks.get('left:0')?.rank).toBe(2);
     expect(ranks.get('left:1')?.rank).toBe(1);
   });

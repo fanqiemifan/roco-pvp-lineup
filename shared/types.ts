@@ -196,9 +196,18 @@ export type SpriteSource = 'sprite' | 'icon';
 export type Page3RedLightMode = 'off' | 'auto';
 /**
  * 推流页面16卡片标签与序号排序依据：
- * sum = 种族值总和（默认，橙色标签）/ hp = 体力（白色标签）/ name = 只显精灵名（排序仍按种族值总和）
+ * SpriteStats 的任意字段（sum = 种族值总和，默认，橙色标签；hp/physical_attack/physical_defense/
+ * magic_attack/magic_defense/speed = 对应种族值项，白色标签）或 name = 只显精灵名（排序仍按种族值总和）。
  */
-export type Page16CardLabel = 'sum' | 'hp' | 'name';
+export type Page16CardLabel =
+  | 'sum'
+  | 'hp'
+  | 'physical_attack'
+  | 'physical_defense'
+  | 'magic_attack'
+  | 'magic_defense'
+  | 'speed'
+  | 'name';
 
 export interface StageConfig {
   page: StagePageKey;

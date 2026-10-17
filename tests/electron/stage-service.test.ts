@@ -144,7 +144,7 @@ describe('stage-service：页面16卡片标签（page16CardLabel）', () => {
     expect(getStageState(createIsolatedPaths()).page16CardLabel).toBe('sum');
   });
 
-  it('保存 hp/name 后落盘持久化，且保存其他字段不会重置', () => {
+  it('保存 hp/name/任意种族值字段后落盘持久化，且保存其他字段不会重置', () => {
     const paths = createIsolatedPaths();
     expect(saveStageState(paths, { page16CardLabel: 'hp', page: 'page16' }).page16CardLabel).toBe('hp');
     expect(getStageState(paths).page16CardLabel).toBe('hp');
@@ -152,8 +152,14 @@ describe('stage-service：页面16卡片标签（page16CardLabel）', () => {
     saveStageState(paths, { page16CardLabel: 'name' });
     expect(getStageState(paths).page16CardLabel).toBe('name');
 
+    saveStageState(paths, { page16CardLabel: 'magic_attack' });
+    expect(getStageState(paths).page16CardLabel).toBe('magic_attack');
+
+    saveStageState(paths, { page16CardLabel: 'speed' });
+    expect(getStageState(paths).page16CardLabel).toBe('speed');
+
     saveStageState(paths, { page16RankVisible: false });
-    expect(getStageState(paths).page16CardLabel).toBe('name');
+    expect(getStageState(paths).page16CardLabel).toBe('speed');
   });
 
   it('非法值归一为 sum', () => {

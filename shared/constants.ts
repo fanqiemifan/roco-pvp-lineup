@@ -1,4 +1,4 @@
-import type { StageRule, ThirdPlaceBestOf } from './types.js';
+import type { Page16CardLabel, StageRule, ThirdPlaceBestOf } from './types.js';
 
 export const DEFAULT_PORT = 9988;
 export const APP_DATA_DIRNAME = 'LuokePVPWebui';
@@ -77,10 +77,26 @@ export const DEFAULT_PAGE3_RED_LIGHT_INSTANT = false;
  * 推流页面16（阵容同步）：
  * - page16SpriteSource: 精灵主体图片来源（sprite 原图 / icon 头像），语义与页面3一致（复用 SpriteSource 类型与 DEFAULT_SPRITE_SOURCE 默认值）
  * - page16RankVisible: 是否显示选手头像卡上的排名数字
- * - page16CardLabel: 卡片标签与 1-12 序号排序依据（sum 默认 / hp / name；name 只显名字、排序仍按 sum）
+ * - page16CardLabel: 卡片标签与 1-12 序号排序依据（任意种族值字段，默认 sum；name 只显名字、排序仍按 sum）
  */
 export const DEFAULT_PAGE16_RANK_VISIBLE = true;
-export const SUPPORTED_PAGE16_CARD_LABELS = new Set(['sum', 'hp', 'name']);
+/**
+ * page16 卡片标签选项（value = SpriteStats 字段，label = 后台中文文案，与游戏内属性名一致）：
+ * 白名单与后台选项共用这一份，别在 stage-service 或前端再各写一份。
+ */
+export const PAGE16_CARD_LABEL_OPTIONS: ReadonlyArray<{ value: Page16CardLabel; label: string }> = [
+  { value: 'sum', label: '种族值总和' },
+  { value: 'hp', label: '生命' },
+  { value: 'physical_attack', label: '攻击' },
+  { value: 'magic_attack', label: '魔攻' },
+  { value: 'physical_defense', label: '物防' },
+  { value: 'magic_defense', label: '魔防' },
+  { value: 'speed', label: '速度' },
+  { value: 'name', label: '名字' },
+];
+export const SUPPORTED_PAGE16_CARD_LABELS = new Set<string>(
+  PAGE16_CARD_LABEL_OPTIONS.map((option) => option.value),
+);
 export const DEFAULT_PAGE16_CARD_LABEL = 'sum' as const;
 /** 选手介绍（page11-13）：默认显示选手排位排名 div（无排名时自动隐藏） */
 export const DEFAULT_PAGE11_RANK_VISIBLE = true;
