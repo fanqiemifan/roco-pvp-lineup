@@ -374,9 +374,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
           {selectedMatches.length ? (
             <div style={{ marginTop: 8, display: 'grid', gap: 2 }}>
               {selectedMatches.map((match, index) => (
-                <Text key={match.id} type="secondary" style={{ fontSize: 12 }}>
-                  {`第${CHINESE_ORDINALS[index] ?? index + 1}场 ${versusText(match)} · ${autoTimes[match.id] || '--:--'}`}
-                </Text>
+                <Hint key={match.id}>{`第${CHINESE_ORDINALS[index] ?? index + 1}场 ${versusText(match)} · ${autoTimes[match.id] || '--:--'}`}</Hint>
               ))}
             </div>
           ) : null}

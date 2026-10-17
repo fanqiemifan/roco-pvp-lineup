@@ -137,16 +137,14 @@ export function RollbackWavePreviewModal({ open, record, onClose }: RollbackWave
                 <div key={row.matchId} className="rollback-preview-row">
                   <div className="rollback-preview-main">
                     <Text strong>{row.leftPlayer || '左方'} vs {row.rightPlayer || '右方'}</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      <span className="rollback-preview-id">{row.matchId}</span> · BO{row.bestOf} · {row.stateLabel}
-                    </Text>
+                    <Hint><span className="rollback-preview-id">{row.matchId}</span> · BO{row.bestOf} · {row.stateLabel}</Hint>
                   </div>
                   <Tag color={ACTION_TAG_COLOR[row.action]} style={{ marginInlineEnd: 0 }}>{row.actionLabel}</Tag>
                 </div>
               ))}
               {overflowSummary ? (
                 <div className="rollback-preview-row">
-                  <Text type="secondary" style={{ fontSize: 12.5 }}>{overflowSummary}</Text>
+                  <Hint>{overflowSummary}</Hint>
                 </div>
               ) : null}
             </div>
@@ -167,7 +165,7 @@ export function RollbackWavePreviewModal({ open, record, onClose }: RollbackWave
               <ul className="rollback-preview-impacts">
                 {preview.impacts.map((impact) => (
                   <li key={impact}>
-                    <Text type="secondary" style={{ fontSize: 12.5 }}>{impact}</Text>
+                    <Hint>{impact}</Hint>
                   </li>
                 ))}
               </ul>

@@ -7170,7 +7170,7 @@ function Dashboard() {
             <Space direction="vertical" size={18} className="page-stack">
               <Card
                 className="stage-control-card"
-                title="直播推流"
+                title="推流画面"
                 extra={
                   <Space wrap>
                     <Button href="/" target="_blank">打开推流页面</Button>
