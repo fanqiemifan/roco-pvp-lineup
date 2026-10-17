@@ -275,6 +275,88 @@ a {
   width: 100%;
 }
 
+/* ===== 画面设置（竖向导航）行式设置项 ===== */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.setting-col {
+  padding: 14px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.setting-row:last-child,
+.setting-col:last-child {
+  border-bottom: none;
+}
+
+.setting-row-info {
+  min-width: 0;
+}
+
+.setting-row-name {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.setting-row-hint {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+  margin-top: 3px;
+  line-height: 1.6;
+}
+
+.setting-row-ctrl {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-col-ctrl {
+  margin-top: 10px;
+}
+
+/* 开关行状态小圆点（替代冗余的「已开启/已关闭」Tag） */
+.setting-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
+.setting-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d9d9d9;
+  flex: none;
+}
+
+.setting-status.on {
+  color: #389e0d;
+}
+
+.setting-status.on::before {
+  background: #52c41a;
+}
+
+.setting-status.red {
+  color: #cf1322;
+}
+
+.setting-status.red::before {
+  background: #ff4d4f;
+}
+
 /* 卡体高度必须扣除卡头：height:100% 会让卡体溢出卡片一个卡头的高度，
    撑高页面滚动区，导致 sticky 侧栏在滚动末段被顶出（导航栏底部露空白+回滚跳动） */
 .panel-editor-card {

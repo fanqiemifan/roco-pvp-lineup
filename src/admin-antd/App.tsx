@@ -7529,16 +7529,19 @@ function Dashboard() {
         open={screenSettingsModalOpen}
         onCancel={() => setScreenSettingsModalOpen(false)}
         footer={null}
-        width={720}
+        width={900}
       >
+        {/* 左侧竖向导航：分组名保留「对哪个页面设置」的语义；固定内容高度避免切换跳动 */}
         <Tabs
+          tabPosition="left"
+          style={{ minHeight: 500 }}
           items={[
             {
               key: 'page2',
-              label: '推流页面2设置',
+              label: '推流页面2',
               children: (
-                <Space direction="vertical" size={12} className="control-stack">
-                  <SettingField label="页面2赛事标题：">
+                <div className="control-stack">
+                  <SettingField variant="stack" label="赛事标题" hint="页面2 显示的比赛标题，最长 40 字。">
                     <Input
                       maxLength={40}
                       value={page2EventTitleDraft}
@@ -7546,9 +7549,9 @@ function Dashboard() {
                       onBlur={() => { void savePage2FieldNow({ eventTitle: page2EventTitleDraft }); }}
                     />
                   </SettingField>
-                  <SettingField label="页面2阵容展示：">
+                  <SettingField variant="row" label="阵容展示方式" hint="精灵行显示血量，或只显示头像。">
                     <Select
-                      style={{ width: '100%' }}
+                      style={{ width: 220 }}
                       value={scoreboard?.page2LineupDisplayMode ?? 'default'}
                       disabled={!scoreboard}
                       options={[
@@ -7558,17 +7561,16 @@ function Dashboard() {
                       onChange={(value) => { void savePage2FieldNow({ page2LineupDisplayMode: value as 'default' | 'avatar-only' }); }}
                     />
                   </SettingField>
-                </Space>
+                </div>
               ),
             },
             {
               key: 'page3',
-              label: '推流页面3设置',
+              label: '推流页面3',
               children: (
-                <Space direction="vertical" size={12} className="control-stack">
-                  <SettingField label="精灵图片：">
+                <div className="control-stack">
+                  <SettingField variant="row" label="精灵图片" hint="显示精灵原图还是头像。">
                     <Segmented
-                      block
                       value={stage?.page3SpriteSource ?? 'sprite'}
                       disabled={stageSaving}
                       options={[
@@ -7579,64 +7581,62 @@ function Dashboard() {
                     />
                   </SettingField>
                   <SettingField
-                    label="红光特效："
-                    hint="自动开启：一方阵亡 3 只精灵时亮起，若阵亡的含卡瓦重 / 卡卡虫 / 丢丢则需 4 只；「立即显示」为手动触发一次，进入下一局自动取消。"
+                    variant="row"
+                    label="红光特效"
+                    hint="一方阵亡 3 只精灵时自动亮起（含卡瓦重 / 卡卡虫 / 丢丢则需 4 只）；「立即显示」为手动触发一次，进入下一局自动取消。"
                   >
-                    <Space wrap>
-                      <Segmented
-                        value={stage?.page3RedLightMode ?? 'off'}
-                        disabled={stageSaving}
-                        options={[
-                          { value: 'off', label: '关闭' },
-                          { value: 'auto', label: '自动开启' },
-                        ]}
-                        onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightMode: value as Page3RedLightMode }); }}
-                      />
-                      <Button
-                        type={stage?.page3RedLightInstant ? 'default' : 'primary'}
-                        danger={Boolean(stage?.page3RedLightInstant)}
-                        disabled={stageSaving}
-                        loading={stageSaving}
-                        onClick={() => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightInstant: !(stage?.page3RedLightInstant ?? false) }); }}
-                      >
-                        {stage?.page3RedLightInstant ? '取消显示' : '立即显示'}
-                      </Button>
-                      {stage?.page3RedLightInstant ? <Tag color="red">显示中</Tag> : null}
-                    </Space>
+                    <Segmented
+                      value={stage?.page3RedLightMode ?? 'off'}
+                      disabled={stageSaving}
+                      options={[
+                        { value: 'off', label: '关闭' },
+                        { value: 'auto', label: '自动开启' },
+                      ]}
+                      onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightMode: value as Page3RedLightMode }); }}
+                    />
+                    <Button
+                      type={stage?.page3RedLightInstant ? 'default' : 'primary'}
+                      danger={Boolean(stage?.page3RedLightInstant)}
+                      disabled={stageSaving}
+                      loading={stageSaving}
+                      onClick={() => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RedLightInstant: !(stage?.page3RedLightInstant ?? false) }); }}
+                    >
+                      {stage?.page3RedLightInstant ? '取消显示' : '立即显示'}
+                    </Button>
+                    {stage?.page3RedLightInstant ? <span className="setting-status red">显示中</span> : null}
                   </SettingField>
-                  <SettingField label="排位图标：">
-                    <Space wrap>
-                      <Switch
-                        checked={stage?.page3RankVisible ?? false}
-                        disabled={stageSaving}
-                        loading={stageSaving}
-                        onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RankVisible: checked }); }}
-                      />
-                      {stage?.page3RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                    </Space>
+                  <SettingField variant="row" label="排位图标" hint="比分栏两侧的排位排名徽标；页面17 的排名显示也由这里控制。">
+                    <Switch
+                      checked={stage?.page3RankVisible ?? false}
+                      disabled={stageSaving}
+                      loading={stageSaving}
+                      onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3RankVisible: checked }); }}
+                    />
+                    <span className={stage?.page3RankVisible ? 'setting-status on' : 'setting-status'}>
+                      {stage?.page3RankVisible ? '已开启' : '已关闭'}
+                    </span>
                   </SettingField>
-                  <SettingField label="战队标识：">
-                    <Space wrap>
-                      <Switch
-                        checked={stage?.page3TeamVisible ?? false}
-                        disabled={stageSaving}
-                        loading={stageSaving}
-                        onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3TeamVisible: checked }); }}
-                      />
-                      {stage?.page3TeamVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                    </Space>
+                  <SettingField variant="row" label="战队标识" hint="显示选手的战队标识。">
+                    <Switch
+                      checked={stage?.page3TeamVisible ?? false}
+                      disabled={stageSaving}
+                      loading={stageSaving}
+                      onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page3TeamVisible: checked }); }}
+                    />
+                    <span className={stage?.page3TeamVisible ? 'setting-status on' : 'setting-status'}>
+                      {stage?.page3TeamVisible ? '已开启' : '已关闭'}
+                    </span>
                   </SettingField>
-                </Space>
+                </div>
               ),
             },
             {
               key: 'page16',
-              label: '推流页面16/17设置',
+              label: '推流页面16/17',
               children: (
-                <Space direction="vertical" size={12} className="control-stack">
-                  <SettingField label="精灵图片：" hint="页面16/17 共用：卡片里的精灵显示原图还是头像。">
+                <div className="control-stack">
+                  <SettingField variant="row" label="精灵图片" hint="页面16/17 共用：卡片里的精灵显示原图还是头像。">
                     <Segmented
-                      block
                       value={stage?.page16SpriteSource ?? 'sprite'}
                       disabled={stageSaving}
                       options={[
@@ -7646,20 +7646,32 @@ function Dashboard() {
                       onChange={(value) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16SpriteSource: value as SpriteSource }); }}
                     />
                   </SettingField>
-                  <SettingField label="排名数字：" hint="页面16 底部选手头像卡上的排名数字，选手有排名时才显示；页面17 的排名显示需切换至「推流页面3设置」开启「排位图标」。">
-                    <Space wrap>
-                      <Switch
-                        checked={stage?.page16RankVisible ?? true}
-                        disabled={stageSaving}
-                        loading={stageSaving}
-                        onChange={(checked) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16RankVisible: checked }); }}
-                      />
-                      {stage?.page16RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                    </Space>
+                  <SettingField variant="row" label="排名数字" hint="页面16 底部选手头像卡上的排名数字，选手有排名时才显示；页面17 的排名开关在「推流页面3」的排位图标里。">
+                    <Switch
+                      checked={stage?.page16RankVisible ?? true}
+                      disabled={stageSaving}
+                      loading={stageSaving}
+                      onChange={(checked) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16RankVisible: checked }); }}
+                    />
+                    <span className={stage?.page16RankVisible ? 'setting-status on' : 'setting-status'}>
+                      {stage?.page16RankVisible ? '已开启' : '已关闭'}
+                    </span>
                   </SettingField>
                   <SettingField
-                    label="卡片标签："
-                    hint="页面16/17 共用：双方 12 张卡片按所选数值从大到小编序号，标签同步显示该数值的图标和数值；选「名字」时标签显示精灵名，序号仍按种族值总和排。数值相同的并列同名次。"
+                    variant="stack"
+                    label="卡片标签"
+                    hint={(
+                      <>
+                        <div>
+                          <Tag style={{ marginInlineEnd: 6 }}>编号</Tag>
+                          按所选数值从高到低给双方 12 张卡编号，数值相同的并列同名次；选「名字」时仍按种族值总和排。
+                        </div>
+                        <div style={{ marginTop: 4 }}>
+                          <Tag style={{ marginInlineEnd: 6 }}>标签</Tag>
+                          显示对应数值的图标和数值；选「名字」时改显精灵名。
+                        </div>
+                      </>
+                    )}
                   >
                     <Segmented
                       block
@@ -7669,90 +7681,88 @@ function Dashboard() {
                       onChange={(value) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16CardLabel: value as Page16CardLabel }); }}
                     />
                   </SettingField>
-                </Space>
+                </div>
               ),
             },
             {
               key: 'page11',
-              label: '选手介绍显示（11-13）',
+              label: '推流页面11-13',
               children: (
-                <SettingField label="排位排名：" hint="选手介绍画面上的排名数字，选手有排名时才显示。">
-                  <Space wrap>
+                <div className="control-stack">
+                  <SettingField variant="row" label="排位排名" hint="选手介绍画面上的排名数字，选手有排名时才显示。">
                     <Switch
                       checked={stage?.page11RankVisible ?? true}
                       disabled={stageSaving}
                       loading={stageSaving}
                       onChange={(checked) => { void saveStage(stage?.page ?? 'page3', { silent: true, page11RankVisible: checked }); }}
                     />
-                    {stage?.page11RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
-                  </Space>
-                </SettingField>
+                    <span className={stage?.page11RankVisible ? 'setting-status on' : 'setting-status'}>
+                      {stage?.page11RankVisible ? '已开启' : '已关闭'}
+                    </span>
+                  </SettingField>
+                </div>
               ),
             },
             {
               key: 'transition',
-              label: '画面切换行为',
+              label: '画面切换',
               children: (
-                <Space direction="vertical" size={12} className="control-stack">
-                  <SettingField label="切换过渡效果：" hint="切换直播推流画面时的过渡动效。">
+                <div className="control-stack">
+                  <SettingField variant="row" label="切换过渡效果" hint="切换直播推流画面时的过渡动效。">
                     <Segmented
-                      block
                       value={normalizeStageTransition(stage?.transition)}
                       disabled={stageSaving}
                       options={STAGE_TRANSITION_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                       onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, transition: value as StageTransitionType }); }}
                     />
                   </SettingField>
-                  <SettingField label="胜者结算停留时长（推流页面10）：" hint="登记本局胜负后自动切入，停留该时长后切回原画面">
-                    <Space wrap>
-                      <InputNumber
-                        min={1}
-                        max={stage?.page10DurationUnit === 'minutes' ? 60 : 3600}
-                        value={stage?.page10Duration ?? 10}
-                        disabled={stageSaving}
-                        onChange={(value) => {
-                          void saveStage(stage?.page ?? 'page3', {
-                            silent: true,
-                            page10Duration: value === null || value === undefined ? 1 : Number(value),
-                          });
-                        }}
-                      />
-                      <Segmented
-                        value={stage?.page10DurationUnit ?? 'seconds'}
-                        disabled={stageSaving}
-                        options={[
-                          { value: 'seconds', label: '秒' },
-                          { value: 'minutes', label: '分钟' },
-                        ]}
-                        onChange={(value) => {
-                          void saveStage(stage?.page ?? 'page3', { silent: true, page10DurationUnit: value as 'seconds' | 'minutes' });
-                        }}
-                      />
-                    </Space>
+                  <SettingField variant="row" label="胜者结算停留时长" hint="登记本局胜负后自动切入页面10，停留该时长后切回原画面。">
+                    <InputNumber
+                      min={1}
+                      max={stage?.page10DurationUnit === 'minutes' ? 60 : 3600}
+                      value={stage?.page10Duration ?? 10}
+                      disabled={stageSaving}
+                      onChange={(value) => {
+                        void saveStage(stage?.page ?? 'page3', {
+                          silent: true,
+                          page10Duration: value === null || value === undefined ? 1 : Number(value),
+                        });
+                      }}
+                    />
+                    <Segmented
+                      value={stage?.page10DurationUnit ?? 'seconds'}
+                      disabled={stageSaving}
+                      options={[
+                        { value: 'seconds', label: '秒' },
+                        { value: 'minutes', label: '分钟' },
+                      ]}
+                      onChange={(value) => {
+                        void saveStage(stage?.page ?? 'page3', { silent: true, page10DurationUnit: value as 'seconds' | 'minutes' });
+                      }}
+                    />
                   </SettingField>
                   <SettingField
-                    label="战绩详情切屏间隔（推流页面7）："
-                    hint="每屏停留该时长后自动翻到下一屏，修改立即生效"
+                    variant="row"
+                    label="战绩详情切屏间隔"
+                    hint="页面7 每屏停留该时长后自动翻到下一屏，修改立即生效。"
                   >
-                    <Space wrap>
-                      <InputNumber
-                        min={PAGE7_SWITCH_MIN_SECONDS}
-                        max={PAGE7_SWITCH_MAX_SECONDS}
-                        addonAfter="秒"
-                        value={stage?.page7SwitchSeconds ?? DEFAULT_PAGE7_SWITCH_SECONDS}
-                        disabled={stageSaving}
-                        onChange={(value) => {
-                          void saveStage(stage?.page ?? 'page3', {
-                            silent: true,
-                            page7SwitchSeconds: value === null || value === undefined
-                              ? DEFAULT_PAGE7_SWITCH_SECONDS
-                              : Number(value),
-                          });
-                        }}
-                      />
-                    </Space>
+                    <InputNumber
+                      min={PAGE7_SWITCH_MIN_SECONDS}
+                      max={PAGE7_SWITCH_MAX_SECONDS}
+                      addonAfter="秒"
+                      value={stage?.page7SwitchSeconds ?? DEFAULT_PAGE7_SWITCH_SECONDS}
+                      disabled={stageSaving}
+                      onChange={(value) => {
+                        void saveStage(stage?.page ?? 'page3', {
+                          silent: true,
+                          page7SwitchSeconds: value === null || value === undefined
+                            ? DEFAULT_PAGE7_SWITCH_SECONDS
+                            : Number(value),
+                        });
+                      }}
+                    />
                   </SettingField>
-                </Space>
+                </div>
               ),
             },
           ]}
