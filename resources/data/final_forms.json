@@ -2116,7 +2116,7 @@
   },
   {
     "id": 3737,
-    "name": "​​霹雳迪迪",
+    "name": "霹雳迪迪",
     "form": "",
     "leader_potential": false,
     "main_type": "光",
@@ -2293,5 +2293,50 @@
     "main_type": "机械",
     "sub_type": "草",
     "implemented": false
+  },
+  {
+    "id": 3871,
+    "name": "音速犬",
+    "form": "看守麦田的样子",
+    "leader_potential": false,
+    "main_type": "火",
+    "sub_type": null,
+    "implemented": true
+  },
+  {
+    "id": 3872,
+    "name": "公平鸽",
+    "form": "称量的样子",
+    "leader_potential": false,
+    "main_type": "普通",
+    "sub_type": null,
+    "implemented": true
+  },
+  {
+    "id": 3874,
+    "name": "流浪鼠",
+    "form": "搬运果实的样子",
+    "leader_potential": false,
+    "main_type": "地",
+    "sub_type": null,
+    "implemented": true
+  },
+  {
+    "id": 3876,
+    "name": "鳗尾兽",
+    "form": "果壳铃的样子",
+    "leader_potential": false,
+    "main_type": "地",
+    "sub_type": "草",
+    "implemented": true
+  },
+  {
+    "id": 3878,
+    "name": "稻草守护者",
+    "form": "暖和的样子",
+    "leader_potential": false,
+    "main_type": "萌",
+    "sub_type": "武",
+    "implemented": true
   }
 ]

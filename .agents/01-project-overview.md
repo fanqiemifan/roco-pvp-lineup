@@ -29,7 +29,7 @@ roco-pvp-lineup/
 │   └── assets/         # UI 资源（图标、字体）
 ├── tests/              # Vitest 测试（tests/electron/ 服务与 HTTP 层、tests/admin-antd/ 前端纯函数，镜像源码结构）
 ├── cloudflare/         # 云同步信箱 Worker（独立部署，不进 Electron 构建：worker.js + wrangler.toml）
-├── scripts/            # 构建/资源脚本（sync-spirits-assets.mjs 下载精灵图、deploy-cloud-sync.mjs 一键部署 Worker）
+├── scripts/            # 构建/资源脚本（sync-spirits-assets.mjs 下载精灵图、sync-pet-data.mjs 从上游 roco-wiki-data 同步宠物数据、deploy-cloud-sync.mjs 一键部署 Worker；.github/workflows/sync-pet-data.yml 每日自动同步）
 └── resources/          # 游戏资源
     ├── sprites-img/    # 精灵立绘（official_small_icon，/img/）
     ├── sprites-icon/   # 精灵头像（icon_url + 原 Thumbnail 迁移，/resources/sprites-icon/）
