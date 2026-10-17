@@ -118,7 +118,8 @@ class FakeElement {
 }
 
 interface Petscard2Global {
-  render: (target: FakeElement, options: Record<string, unknown>) => FakeElement;
+  // 与 petscard2.js 一致：target 可以是选择器字符串，也可以是已拿到的宿主元素
+  render: (target: string | FakeElement, options: Record<string, unknown>) => FakeElement;
   update: (card: FakeElement, options: Record<string, unknown>) => void;
 }
 
