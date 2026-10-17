@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, Empty, Modal, Space, Tag, Typography } from 'antd';
+import { App, Button, Modal, Space, Tag, Typography } from 'antd';
 import { formatStageBestOf, resolveThirdPlaceBestOf, THIRD_PLACE_LABEL } from '../../../shared/constants';
 import type { MatchRecord, TournamentNode, TournamentRecord } from '../../../shared/types';
 import { buildBracketGraph, getStageState } from '../lib/tournament';
@@ -8,6 +8,7 @@ import { forfeitApi } from '../lib/tournament-api';
 import { TournamentNodeCard } from './TournamentNodeCard';
 import type { TournamentCardMenuHandlers } from './TournamentNodeCard';
 import { Hint } from '../ui/Hint';
+import { EmptyState } from '../ui/EmptyState';
 
 const { Text } = Typography;
 
@@ -545,7 +546,7 @@ export function BracketBoard({
   }
 
   if (graph.columns.length === 0) {
-    return <Empty className="bracket-board-empty" description="尚未产生对阵（开赛后生成首波）" />;
+    return <EmptyState className="bracket-board-empty" title="尚未产生对阵（开赛后生成首波）" />;
   }
 
   return (

@@ -34,8 +34,11 @@ const tsFiles = files.filter((f) => /\.tsx?$/.test(f));
 const stripComments = (text) =>
   text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 // tokens.css 是契约本身（系统层），不算存量债务；只统计仍在手写取值的样式
-const tokenFile = path.join(adminDir, 'tokens.css');
-const debtCssFiles = cssFiles.filter((f) => f !== tokenFile);
+const systemCss = new Set([
+  path.join(adminDir, 'tokens.css'),
+  path.join(adminDir, 'ui', 'ui.css'),
+]);
+const debtCssFiles = cssFiles.filter((f) => !systemCss.has(f));
 const css = stripComments(debtCssFiles.map(read).join('\n'));
 const tsx = stripComments(tsFiles.map(read).join('\n'));
 const notVar = (value) => !value.startsWith('var(');
@@ -71,6 +74,14 @@ const rawWidths = new Set(
 );
 const modalWidths = widthKeys.size + rawWidths.size;
 
+// 自定义卡片容器：带 padding 的 border + 圆角 + 背景规则（chip / tile / 媒体框不算，它们本来就不该用 Surface）
+const surfaceRules = (css.match(/(?:^|\n)([^{}]+)\{([^{}]+)\}/g) ?? []).filter((block) => {
+  if (!/border-radius/.test(block) || !/background/.test(block) || !/(^|[;{\s])border[:\s]/.test(block)) return false;
+  if (!/padding/.test(block)) return false;
+  const selector = block.split('{')[0];
+  return !/(chip|pill|tag|dot|badge|thumb|avatar|nav|item|row|slot|code|checkbox|button|stage-group|selected|hint)/.test(selector);
+});
+
 const rows = [
   ['唯一色值', colors.length, 24],
   ['CSS 字号档位', fontSizes.length, 8],
@@ -82,6 +93,7 @@ const rows = [
   ['CSS 行数', cssLines, 2400],
   ['CSS 声明重复率', `${Math.round((1 - uniqueDecls.length / Math.max(decls.length, 1)) * 100)}%`, '≤ 40%'],
   ['无引用类名', deadClasses.length, 0],
+  ['自定义卡片容器', surfaceRules.length, 6],
   ['antd 内部类引用', antSelectors, 15],
   ['!important', important, 0],
   ['Modal 宽度档位', modalWidths, 4],

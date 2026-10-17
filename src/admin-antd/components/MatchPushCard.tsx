@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { App, Button, Card, Checkbox, Empty, Input, Modal, Popconfirm, Space, Table, Tag, TimePicker, Typography } from 'antd';
+import { App, Button, Card, Checkbox, Input, Modal, Popconfirm, Space, Table, Tag, TimePicker, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
 
@@ -9,6 +9,7 @@ import { countPushRows } from '../lib/history';
 import { buildPushCandidateGroups, type PushCandidateGroup } from '../lib/tournament';
 import { Hint } from '../ui/Hint';
 import { MODAL_WIDTH } from '../ui/modal';
+import { EmptyState } from '../ui/EmptyState';
 
 const { Text } = Typography;
 
@@ -660,7 +661,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
                   })}
                 </Space>
               ) : (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未选择比赛" />
+                <EmptyState title="尚未选择比赛" />
               )}
             </div>
           </Row2>

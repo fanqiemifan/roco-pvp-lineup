@@ -15,7 +15,6 @@ import {
   Divider,
   Drawer,
   Dropdown,
-  Empty,
   Form,
   Image,
   Input,
@@ -239,6 +238,8 @@ import type {
 import { Hint } from './ui/Hint';
 import { MatchStatusTag } from './ui/StatusTag';
 import { MODAL_WIDTH } from './ui/modal';
+import { Surface } from './ui/Surface';
+import { EmptyState } from './ui/EmptyState';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Paragraph, Text, Link } = Typography;
@@ -5205,7 +5206,7 @@ function Dashboard() {
                         <div className="match-list-current">
                           <div className="match-list-group-title">当前比赛</div>
                           {/* 独立 markup：List.Item 的 actions 是 ul，脱离 List 上下文会丢样式 */}
-                          <div className="match-list-current-card">
+                          <Surface tone="highlight" className="match-list-current-card">
                             <Badge status={dashboardActiveMatch.status === 'completed' ? 'success' : dashboardActiveMatch.status === 'in_progress' ? 'processing' : 'default'} />
                             <span className="match-list-current-players">
                               {dashboardActiveMatch.leftPlayer || '左侧'} vs {dashboardActiveMatch.rightPlayer || '右侧'}
@@ -5215,7 +5216,7 @@ function Dashboard() {
                               <MatchStatusTag status={dashboardActiveMatch.status} />
                               <Tag bordered={false} className="match-list-score-tag">{dashboardActiveMatch.leftScore} : {dashboardActiveMatch.rightScore}</Tag>
                             </Space>
-                          </div>
+                          </Surface>
                         </div>
                       ) : null}
                       <List
@@ -5258,7 +5259,7 @@ function Dashboard() {
                     {activeMatch ? (
                       buildCurrentMatchPanel(activeMatch, 'inline')
                     ) : (
-                      <Empty description="先创建或选择一场赛事" />
+                      <EmptyState title="先创建或选择一场赛事" />
                     )}
                   </Card>
                 </Col>
@@ -6127,7 +6128,7 @@ function Dashboard() {
                     )}
 
                     {/* 第二行：计数速览 + 说明小字（原来七八条 Alert 全部并进这一行） */}
-                    <div className="sync-preview-summary">
+                    <Surface tone="inset" className="sync-preview-summary">
                       <Space wrap size={6} align="center">
                         <Text type="secondary">比赛 {syncMatchRows.length} 场</Text>
                         <Tag color="gold">更新 {syncMatchActionCounts.update}</Tag>
@@ -6143,7 +6144,7 @@ function Dashboard() {
                         ) : null}
                       </Space>
                       <Text type="secondary" className="sync-preview-notes">{syncPreviewNotes.join(' · ')}</Text>
-                    </div>
+                    </Surface>
 
                     <div className="sync-preview-layout">
                       <div className="sync-preview-list">
@@ -6391,7 +6392,7 @@ function Dashboard() {
                             )}
                           </Space>
                         ) : (
-                          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="点击左侧条目查看左右差异" />
+                          <EmptyState title="点击左侧条目查看左右差异" />
                         )}
                       </div>
                     </div>
@@ -6928,7 +6929,7 @@ function Dashboard() {
                         <Card title={side === 'left' ? '左侧实时面板' : '右侧实时面板'}>
                           <div className="live-grid">
                             {panels[side].selected.map((slot, index) => (
-                              <div key={`live-${side}-${index}`} className="live-slot-card">
+                              <Surface tone="card" key={`live-${side}-${index}`} className="live-slot-card">
                                 <div className="live-slot-preview">
                                   <span className="live-slot-index">{index + 1}</span>
                                   {slot.sprite?.path ? (
@@ -6964,7 +6965,7 @@ function Dashboard() {
                                     />
                                   </div>
                                 </div>
-                              </div>
+                              </Surface>
                             ))}
                           </div>
                         </Card>
@@ -7089,10 +7090,7 @@ function Dashboard() {
                             </Paragraph>
                           </>
                         ) : (
-                          <Empty
-                            image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            description="当前对局还没有已分胜负的小局（或胜者阵容中没有最终形态精灵）"
-                          />
+                          <EmptyState title="当前对局还没有已分胜负的小局（或胜者阵容中没有最终形态精灵）" />
                         )}
                         {mvpWinnerOutdated ? (
                           <Paragraph type="warning" style={{ margin: '10px 0 0', fontSize: 12 }}>

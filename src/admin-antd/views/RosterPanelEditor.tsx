@@ -3,7 +3,6 @@ import {
   Alert,
   Button,
   Card,
-  Empty,
   Input,
   Space,
   Tag,
@@ -15,6 +14,7 @@ import { AttributeFilterChips } from '../components/AttributeFilterChips';
 import { FormFilterChips } from '../components/FormFilterChips';
 import { splitSpriteAttributes } from '../lib/sprite';
 import type { PanelEditorState, PanelSide, SpriteFilterState } from '../types';
+import { EmptyState } from '../ui/EmptyState';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -302,7 +302,7 @@ export function RosterPanelEditor({
                   ))}
                 </div>
               ) : (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配到精灵" />
+                <EmptyState title="没有匹配到精灵" />
               )}
             </div>
           </Card>

@@ -9,6 +9,7 @@ import {
   getLiveWatchBadge,
   type LiveWatchSnapshot,
 } from '../lib/live';
+import { Surface } from '../ui/Surface';
 
 const { Text, Title } = Typography;
 
@@ -134,7 +135,7 @@ export function LiveWatchCard(props: LiveWatchCardProps) {
         ) : null}
 
         {!enabled && props.rememberedPath ? (
-          <div className="live-watch-remembered">
+          <Surface tone="dashed" className="live-watch-remembered">
             <Text type="secondary" ellipsis={{ tooltip: props.rememberedPath }}>
               上次监听：{props.rememberedPath}
             </Text>
@@ -146,7 +147,7 @@ export function LiveWatchCard(props: LiveWatchCardProps) {
                 清除记录
               </Button>
             </Space>
-          </div>
+          </Surface>
         ) : null}
 
         {!props.supported ? (

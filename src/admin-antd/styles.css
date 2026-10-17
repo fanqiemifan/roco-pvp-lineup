@@ -1,5 +1,6 @@
 @import "../styles/sprite-pet-card.css";
 @import "./tokens.css";
+@import "./ui/ui.css";
 
 :root {
   color-scheme: light;
@@ -748,9 +749,6 @@ a {
   flex-wrap: wrap;
   margin-top: 4px;
   padding: 10px 12px;
-  background: var(--roco-brand-soft);
-  border: 1px solid var(--roco-brand-line);
-  border-radius: var(--roco-radius-md);
 }
 
 .match-list-current-players {
@@ -1077,9 +1075,6 @@ a {
   justify-content: space-between;
   gap: 10px;
   padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px dashed rgba(91, 67, 43, 0.25);
-  background: rgba(199, 99, 47, 0.04);
   min-width: 0;
 }
 
@@ -1105,9 +1100,6 @@ a {
   align-items: stretch;
   gap: 12px;
   padding: 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(91, 67, 43, 0.12);
-  background: rgba(255, 253, 249, 0.98);
 }
 
 .live-slot-preview {
@@ -1565,9 +1557,6 @@ a {
 .stats-settings-section {
   width: 100%;
   padding: 14px 16px 16px;
-  border: 1px solid rgba(91, 67, 43, 0.12);
-  border-radius: var(--roco-radius-md);
-  background: rgba(255, 253, 248, 0.72);
 }
 
 .stats-settings-section-head {
@@ -2471,9 +2460,6 @@ a {
   gap: 4px;
   width: 100%;
   padding: 7px 10px;
-  border: 1px solid #EBE2D7;
-  border-radius: 8px;
-  background: #FBF8F3;
 }
 
 .sync-preview-notes {

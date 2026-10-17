@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, App, Button, Card, Empty, Input, Modal, Space, Tag, Tooltip, Typography } from 'antd';
+import { Alert, App, Button, Card, Input, Modal, Space, Tag, Tooltip, Typography } from 'antd';
 import type { GameRecord, MatchRecord, MatchStoreState, QuickFillMatch, SlotState, SpriteRecord } from '../../../shared/types';
 import { EXCLUSIVE_FORM_FILTERS } from '../constants';
 import { requestQuickFillMatches, requestJson } from '../lib/request';
@@ -10,6 +10,7 @@ import { SpritePetCard } from '../components/SpritePetCard';
 import { AttributeFilterChips } from '../components/AttributeFilterChips';
 import { FormFilterChips } from '../components/FormFilterChips';
 import { MODAL_WIDTH } from '../ui/modal';
+import { EmptyState } from '../ui/EmptyState';
 
 const { Text } = Typography;
 
@@ -411,7 +412,7 @@ export function HistoryLineupEntryModal({
                   ))}
                 </div>
               ) : (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配到精灵" />
+                <EmptyState title="没有匹配到精灵" />
               )}
             </div>
           </Card>

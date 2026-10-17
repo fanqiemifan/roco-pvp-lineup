@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Button, Card, Empty, Image, Modal, Space, Tag, Tooltip, Typography } from 'antd';
+import { Button, Card, Image, Modal, Space, Tag, Tooltip, Typography } from 'antd';
 import type { MatchRecord, SpriteRecord } from '../../../shared/types';
 import {
   buildHistoryBattleEntries,
@@ -15,6 +15,7 @@ import {
 import { buildSpriteLookup } from '../lib/sprite';
 import { MatchStatusTag } from '../ui/StatusTag';
 import { MODAL_WIDTH } from '../ui/modal';
+import { EmptyState } from '../ui/EmptyState';
 
 const { Text } = Typography;
 
@@ -59,7 +60,7 @@ export function MatchLineupDetailPanel({
   const summary = match ? summarizeSeriesForBestOf(match, match.bestOf) : null;
 
   if (!match || !summary) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无阵容" />;
+    return <EmptyState title="暂无阵容" />;
   }
 
   return (
@@ -117,11 +118,7 @@ export function MatchLineupDetailPanel({
                 </Tooltip>
               </Space>
               {isEmpty ? (
-                <Empty
-                  className="lineup-detail-empty"
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="尚未录入阵容"
-                />
+                <EmptyState className="lineup-detail-empty" title="尚未录入阵容" />
               ) : (
                 <div className="history-battle-grid">
                   {entries.map((entry, index) => {

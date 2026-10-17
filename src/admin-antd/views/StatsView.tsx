@@ -5,7 +5,6 @@ import {
   Button,
   Card,
   Col,
-  Empty,
   Image,
   Input,
   Modal,
@@ -32,6 +31,8 @@ import {
 } from '../lib/stats';
 import type { SpriteUsageRow, StatsMetricKey } from '../lib/stats';
 import { MODAL_WIDTH } from '../ui/modal';
+import { Surface } from '../ui/Surface';
+import { EmptyState } from '../ui/EmptyState';
 
 const { Text } = Typography;
 
@@ -496,7 +497,7 @@ export function StatsView({
                 title="以下设置只改推流画面「页面15」的显示内容，不影响下方数据视图的统计口径；修改即时保存。"
               />
               {/* 分区一：画面内容（常显的统计范围 + 排序方式） */}
-              <div className="stats-settings-section">
+              <Surface tone="inset" className="stats-settings-section">
                 <div className="stats-settings-section-head">
                   <span className="stats-settings-section-title">画面内容</span>
                   <Tag>统计范围与排序</Tag>
@@ -557,9 +558,9 @@ export function StatsView({
                     </SettingField>
                   </Col>
                 </Row>
-              </div>
+              </Surface>
               {/* 分区二：数据回放（一次性推送，与上面常显的设置分开，避免误点） */}
-              <div className="stats-settings-section">
+              <Surface tone="inset" className="stats-settings-section">
                 <div className="stats-settings-section-head">
                   <span className="stats-settings-section-title">数据回放</span>
                   <Tag color="gold">一次性推送</Tag>
@@ -670,7 +671,7 @@ export function StatsView({
                     推送到页面15 回放
                   </Button>
                 </div>
-              </div>
+              </Surface>
             </Space>
           </Modal>
         </Col>
@@ -830,7 +831,7 @@ export function StatsView({
                   </div>
                 ) : (
                   <div className="stats-card-empty">
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />
+                    <EmptyState title="暂无数据" />
                   </div>
                 )}
               </div>
@@ -919,7 +920,7 @@ export function StatsView({
                   </Space>
                 ) : (
                   <div className="stats-card-empty">
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="需要至少两个阶段（或轮次）的登场数据" />
+                    <EmptyState title="需要至少两个阶段（或轮次）的登场数据" />
                   </div>
                 )}
               </div>

@@ -1,0 +1,59 @@
+/*
+ * UI 原语的样式（与 tokens.css 一起构成系统层，不参与「存量样式债务」统计）。
+ * 只放原语自身的面与排版，业务布局仍写在调用方的 className 里。
+ */
+
+/* ---------- Surface：四种卡片面 ---------- */
+.roco-surface {
+  border: 1px solid transparent;
+  min-width: 0;
+}
+
+.roco-surface--card {
+  background: var(--roco-surface);
+  border-color: var(--roco-line);
+  border-radius: var(--roco-radius-lg);
+  box-shadow: var(--roco-shadow-2);
+}
+
+.roco-surface--inset {
+  background: var(--roco-fill-subtle);
+  border-color: transparent;
+  border-radius: var(--roco-radius-md);
+}
+
+.roco-surface--dashed {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--roco-line-dashed);
+  border-radius: var(--roco-radius-md);
+}
+
+.roco-surface--highlight {
+  background: var(--roco-brand-soft);
+  border-color: var(--roco-brand-line);
+  border-radius: var(--roco-radius-md);
+}
+
+/* ---------- EmptyState：图标 / 标题 / 说明 / 动作 ---------- */
+.roco-empty .ant-empty-image {
+  height: 40px;
+  margin-bottom: 8px;
+}
+
+.roco-empty-body {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.roco-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--roco-text-strong);
+}
+
+.roco-empty-action {
+  margin-top: 6px;
+}

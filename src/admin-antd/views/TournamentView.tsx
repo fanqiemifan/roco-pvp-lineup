@@ -5,7 +5,6 @@ import {
   Card,
   Checkbox,
   Col,
-  Empty,
   Form,
   Input,
   List,
@@ -99,6 +98,7 @@ import { TournamentLineupExportModal } from './TournamentLineupExportModal';
 import { TournamentLineupImportModal } from './TournamentLineupImportModal';
 import { Hint } from '../ui/Hint';
 import { MODAL_WIDTH } from '../ui/modal';
+import { EmptyState } from '../ui/EmptyState';
 
 const { Text, Paragraph } = Typography;
 
@@ -475,7 +475,7 @@ export function TournamentView({
           rowKey="id"
           pagination={false}
           size="middle"
-          locale={{ emptyText: <Empty description="暂无系列赛，点「创建系列赛」开始" /> }}
+          locale={{ emptyText: <EmptyState title="暂无系列赛，点「创建系列赛」开始" /> }}
         />
       </Card>
 
@@ -613,7 +613,7 @@ export function TournamentView({
             </Hint>
           </Space>
         ) : (
-          <Empty description="回收站是空的" />
+          <EmptyState title="回收站是空的" />
         )}
       </Modal>
 
@@ -629,7 +629,7 @@ export function TournamentView({
           rowKey="id"
           dataSource={locallyRemoved}
           pagination={false}
-          locale={{ emptyText: <Empty description="暂无本机移除的系列赛" /> }}
+          locale={{ emptyText: <EmptyState title="暂无本机移除的系列赛" /> }}
           columns={[
             {
               title: '名称',

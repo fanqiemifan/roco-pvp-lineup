@@ -29,7 +29,12 @@
   --roco-side-right-soft: rgba(57, 115, 255, 0.22);
 
   /* 文字与状态 */
+  --roco-text-strong: #2f2418;
   --roco-text-hint: rgba(0, 0, 0, 0.55);
+  --roco-surface: #fffaf5;
+  --roco-line: rgba(91, 67, 43, 0.14);
+  --roco-fill-subtle: rgba(91, 67, 43, 0.05);
+  --roco-line-dashed: rgba(91, 67, 43, 0.28);
   --roco-live: #c24635;
 
   /* 形状：4 档，替代原先的 12 档 */
