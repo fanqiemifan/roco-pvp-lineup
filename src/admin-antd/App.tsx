@@ -4967,7 +4967,7 @@ function Dashboard() {
             >
               阵容悬浮窗
             </Button>
-            <Tooltip title="导播切视角用：仅交换推流页面1-3的画面左右展示，不影响数据、阵容与胜负登记">
+            <Tooltip title="导播切视角用：仅交换推流页面1-3与16的画面左右展示，不影响数据、阵容与胜负登记">
               <Button
                 type={stage?.mirrorSides ? 'primary' : 'default'}
                 disabled={stageSaving}

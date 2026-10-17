@@ -35,8 +35,35 @@
         'magic_attack', 'magic_defense', 'speed', 'name'
     ];
 
+    // 阵容镜像反转（与页面1-3 共用顶栏开关 stage.mirrorSides）：仅展示层左右互换，不改数据与胜负登记
+    let mirrorSides = false;
+
     if (window.Petscard) {
         window.Petscard.assetBase = PETSCARD_ASSET_BASE;
+    }
+
+    // 视图侧 → 实际数据侧：镜像开启时左右互换（渲染时映射，禁止 CSS 整页翻转）
+    function mapSide(side) {
+        if (!mirrorSides) {
+            return side;
+        }
+        return side === 'left' ? 'right' : 'left';
+    }
+
+    // 记分板视图数据：镜像时交换左右名字/比分/排名（渲染口径，数据不变）
+    function getViewScoreboard(data) {
+        if (!mirrorSides) {
+            return data;
+        }
+        return {
+            ...data,
+            leftName: data.rightName,
+            rightName: data.leftName,
+            leftScore: data.rightScore,
+            rightScore: data.leftScore,
+            leftRank: data.rightRank,
+            rightRank: data.leftRank
+        };
     }
 
     // 卡位横向坐标（6 个展示位）：左侧 left 从左缘向中缝递增；右侧为「距右缘距离」，
@@ -61,6 +88,7 @@
     let scoreboardSignature = null;
     const avatarSignatures = { left: null, right: null };
     let scoreboardDataCache = null;
+    let avatarDataCache = null;
 
     function normalizeBestOf(value) {
         const number = Number(value);
@@ -108,9 +136,9 @@
 
     // 字体异步加载完成后用缓存数据重新适配名字号（首帧可能按降级字体度量）
     function refitPlayerNames() {
-        const data = scoreboardDataCache || {};
-        fitPlayerName(document.getElementById('page16LeftName'), String(data.leftName || '').trim());
-        fitPlayerName(document.getElementById('page16RightName'), String(data.rightName || '').trim());
+        const view = getViewScoreboard(scoreboardDataCache || {});
+        fitPlayerName(document.getElementById('page16LeftName'), String(view.leftName || '').trim());
+        fitPlayerName(document.getElementById('page16RightName'), String(view.rightName || '').trim());
     }
 
     function renderRank(el, text) {
@@ -132,13 +160,15 @@
     function renderScoreboard(scoreboard) {
         const data = scoreboard || {};
         scoreboardDataCache = data;
-        const leftScore = String(data.leftScore || '').trim() || '0';
-        const rightScore = String(data.rightScore || '').trim() || '0';
+        // 镜像反转：仅交换渲染的左右数据（数据、胜负登记与统计口径不变）
+        const view = getViewScoreboard(data);
+        const leftScore = String(view.leftScore || '').trim() || '0';
+        const rightScore = String(view.rightScore || '').trim() || '0';
         const bestOf = normalizeBestOf(data.bestOf);
-        const leftName = String(data.leftName || '').trim();
-        const rightName = String(data.rightName || '').trim();
-        const leftRankText = formatRankText(data.leftRank);
-        const rightRankText = formatRankText(data.rightRank);
+        const leftName = String(view.leftName || '').trim();
+        const rightName = String(view.rightName || '').trim();
+        const leftRankText = formatRankText(view.leftRank);
+        const rightRankText = formatRankText(view.rightRank);
 
         const nextSignature = JSON.stringify({
             leftScore, rightScore, bestOf, leftName, rightName, leftRankText, rightRankText,
@@ -180,8 +210,10 @@
 
     function renderAvatars(avatars) {
         const data = avatars || {};
-        renderAvatar('left', data.left);
-        renderAvatar('right', data.right);
+        avatarDataCache = data;
+        // 镜像反转：仅交换渲染左右（头像缺失时视图侧各用各的占位图，无需额外处理）
+        renderAvatar('left', mirrorSides ? data.right : data.left);
+        renderAvatar('right', mirrorSides ? data.left : data.right);
     }
 
     // 精灵身份签名：精灵变化才重建卡片，阵亡/复活只切 className 交由过渡完成；
@@ -280,8 +312,9 @@
 
     /**
      * 双方阵容统一重排（排名跨两侧，单侧变化也会影响另一侧序号，必须整屏重算）：
-     * 1) 收集两侧上场精灵 → Page16Rank 编排 1-12 名次（同值同名次）；
-     * 2) 每侧按名次升序分配展示位（同名次按槽位号），排序切换时卡片 left 平移换位、z-index 随展示位更新；
+     * 1) 收集两侧上场精灵（按实际数据侧）→ Page16Rank 编排 1-12 名次（同值同名次）；
+     * 2) 渲染按视图侧取数（镜像反转时 mapSide 左右互换），每侧按名次升序分配展示位
+     *    （同名次按槽位号），排序切换时卡片 left 平移换位、z-index 随展示位更新；
      * 3) 卡片按「槽位 + 精灵身份签名」复用——签名没变只改序号/标签/阵亡态，精灵图不重载
      */
     function renderPanels() {
@@ -289,13 +322,13 @@
             return;
         }
         const entries = [];
-        ['left', 'right'].forEach((side) => {
-            const panel = panelDataCache[side];
+        ['left', 'right'].forEach((dataSide) => {
+            const panel = panelDataCache[dataSide];
             const selected = panel && Array.isArray(panel.selected) ? panel.selected : [];
             selected.slice(0, MAX_SLOTS).forEach((slotData, slot) => {
                 const sprite = slotData && slotData.sprite ? slotData.sprite : null;
                 if (sprite) {
-                    entries.push({ side, slot, sprite, slotData });
+                    entries.push({ side: dataSide, slot, sprite, slotData });
                 }
             });
         });
@@ -303,11 +336,11 @@
             ? window.Page16Rank.assignRanks(entries, page16CardLabel)
             : new Map();
 
-        ['left', 'right'].forEach((side) => {
+        ['left', 'right'].forEach((viewSide) => {
             const ordered = entries
-                .filter((entry) => entry.side === side)
+                .filter((entry) => mapSide(entry.side) === viewSide)
                 .map((entry) => {
-                    const rankInfo = rankMap.get(`${side}:${entry.slot}`);
+                    const rankInfo = rankMap.get(`${entry.side}:${entry.slot}`);
                     return { entry, rank: rankInfo ? rankInfo.rank : MAX_SLOTS * 2 };
                 })
                 .sort((left, right) => (left.rank - right.rank) || (left.entry.slot - right.entry.slot));
@@ -316,7 +349,7 @@
                 orderOfSlot.set(item.entry.slot, orderIndex);
             });
 
-            const records = cardRecords[side];
+            const records = cardRecords[viewSide];
             const activeSlots = new Set();
             ordered.forEach(({ entry, rank }) => {
                 const { slot, sprite, slotData } = entry;
@@ -328,10 +361,10 @@
                     record = null;
                 }
                 if (!record) {
-                    record = { el: createCard(sprite, side, isSlotDead(slotData)), spriteKey };
+                    record = { el: createCard(sprite, viewSide, isSlotDead(slotData)), spriteKey };
                     records[slot] = record;
                 }
-                positionCard(record.el, side, orderOfSlot.get(slot) || 0);
+                positionCard(record.el, viewSide, orderOfSlot.get(slot) || 0);
                 updateCardContent(record.el, sprite, rank, slotData);
             });
 
@@ -374,10 +407,23 @@
         renderScoreboard(scoreboardDataCache);
     }
 
+    // 镜像反转切换：按新映射立即重渲染（增量更新，不整页重载、不触发入场动画）
+    function setPage16MirrorSides(value) {
+        const next = value === true;
+        if (next === mirrorSides) {
+            return;
+        }
+        mirrorSides = next;
+        renderPanels();
+        renderScoreboard(scoreboardDataCache);
+        renderAvatars(avatarDataCache);
+    }
+
     function applySnapshot(payload) {
         const panels = payload && Array.isArray(payload.panels) ? payload.panels : [];
         panelDataCache.left = panels.find((panel) => panel && panel.position === 'left') || null;
         panelDataCache.right = panels.find((panel) => panel && panel.position === 'right') || null;
+        setPage16MirrorSides(payload && payload.stage ? payload.stage.mirrorSides === true : false);
         setPage16SpriteSource(payload && payload.stage ? payload.stage.page16SpriteSource : 'sprite');
         setPage16RankVisible(payload && payload.stage ? payload.stage.page16RankVisible === true : true);
         setPage16CardLabel(payload && payload.stage ? payload.stage.page16CardLabel : 'sum');
@@ -442,6 +488,7 @@
 
         socket.on('stage:update', (payload) => {
             const stage = payload && payload.stage ? payload.stage : payload;
+            setPage16MirrorSides(stage && stage.mirrorSides === true);
             setPage16SpriteSource(stage && stage.page16SpriteSource);
             setPage16RankVisible(stage && stage.page16RankVisible === true);
             setPage16CardLabel(stage && stage.page16CardLabel);
