@@ -182,6 +182,7 @@ import { renderProfileTemplateXlsx } from './lib/profile-template-xlsx';
 import type { ProfileXlsxImportResponse, ProfileXlsxPreviewResponse } from './types';
 import { buildSpriteLookup } from './lib/sprite';
 import { deriveMatchActionAvailability } from './lib/match-actions';
+import { buildMvpProgressItems } from './lib/mvp';
 import { CurrentMatchPanel } from './components/CurrentMatchPanel';
 import { MatchLineupDetailPanel } from './views/MatchLineupDetailModal';
 import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
@@ -738,6 +739,13 @@ function Dashboard() {
   const mvpWinnerOutdated = Boolean(mvpWinnerLineup.side) && (
     mvp?.winner?.matchId !== activeMatch?.id || mvp?.winner?.playerName !== mvpWinnerLineup.playerName
   );
+  // 结算画面操作引导条（载入胜方 → 选择精灵 → 标记 MVP → 显示结算）
+  const mvpProgress = buildMvpProgressItems({
+    hasWinner: Boolean(mvp?.winner),
+    assignedCount: mvpAssignedCount,
+    marked: mvpMarked,
+    visible: mvpVisible,
+  });
   const normalizedHistorySearch = historySearch.trim().toLowerCase();
   const filteredMatches = adminVisibleMatches.filter((match) => {
     if (historyTagFilter === UNCATEGORIZED_HISTORY_TAG) {
@@ -6818,11 +6826,10 @@ function Dashboard() {
                 )}
               >
                 <Space direction="vertical" size={16} className="page-stack">
-                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    点「载入当前对局胜方」把当前对局胜者的选手名字与阵容（仅最终形态精灵，最多 {MVP_MAX_ITEMS} 个）快照保存进结算画面；
-                    保存后推流画面即时更新，之后切换对局不会改变，需重新载入保存才会更新；
-                    为每个精灵项填写标签（最多四个字，可选）并标记 MVP，标记 MVP 后点击「显示 MVP 结算」把推流画面切到本页，关闭时切回开启前的画面。
-                  </Paragraph>
+                  {/* 操作引导条：与赛事面板「当前比赛」的状态条同款 */}
+                  <div className="current-match-statusbar">
+                    <Steps current={mvpProgress.current} items={mvpProgress.items} responsive />
+                  </div>
                   <Row gutter={[16, 16]} className="stage-config-cards">
                     <Col xs={24} xl={10}>
                       <Card size="small" className="subtle-card" title="显示控制">
@@ -6861,9 +6868,6 @@ function Dashboard() {
                               </Text>
                             </Space>
                           </Space>
-                          <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
-                            尚未标记精灵或未标记 MVP 时不能显示结算画面（标签可留空）。
-                          </Paragraph>
                         </Space>
                       </Card>
                     </Col>
@@ -6900,8 +6904,7 @@ function Dashboard() {
                               })}
                             </div>
                             <Paragraph type="secondary" style={{ margin: '10px 0 0', fontSize: 12 }}>
-                              仅最终形态精灵可进结算画面（已过滤 {mvpWinnerLineup.petIds.length - mvpWinnerPetIds.length} 个非最终形态）；
-                              点击精灵加入（再次点击移除），最多 {MVP_MAX_ITEMS} 个，顺序即页面上从左到右的展示顺序。
+                              点击精灵加入 / 再点移除（仅最终形态，最多 {MVP_MAX_ITEMS} 个），顺序即展示顺序。
                             </Paragraph>
                           </>
                         ) : (
@@ -7565,7 +7568,7 @@ function Dashboard() {
                   </SettingField>
                   <SettingField
                     label="红光特效："
-                    hint="自动开启：任一选手一侧精灵阵亡 3 只时显示，若阵亡的精灵中含卡瓦重、卡卡虫、丢丢则需 4 只；立即显示：一次性提前触发，进入下一局自动失效，不影响关闭/自动开启。"
+                    hint="自动开启：一方阵亡 3 只精灵时亮起，若阵亡的含卡瓦重 / 卡卡虫 / 丢丢则需 4 只；「立即显示」为手动触发一次，进入下一局自动取消。"
                   >
                     <Space wrap>
                       <Segmented
@@ -7619,7 +7622,7 @@ function Dashboard() {
               label: '推流页面16/17设置',
               children: (
                 <Space direction="vertical" size={12} className="control-stack">
-                  <SettingField label="精灵图片：" hint="页面16/17 共用：控制阵容卡片精灵主体图片来源（原图 / 头像）。">
+                  <SettingField label="精灵图片：" hint="页面16/17 共用：卡片里的精灵显示原图还是头像。">
                     <Segmented
                       block
                       value={stage?.page16SpriteSource ?? 'sprite'}
@@ -7631,7 +7634,7 @@ function Dashboard() {
                       onChange={(value) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16SpriteSource: value as SpriteSource }); }}
                     />
                   </SettingField>
-                  <SettingField label="排名数字：" hint="控制阵容同步画面底部选手头像卡上的排位排名数字；开启时选手有排名才显示。">
+                  <SettingField label="排名数字：" hint="页面16 底部选手头像卡上的排名数字，选手有排名时才显示。">
                     <Space wrap>
                       <Switch
                         checked={stage?.page16RankVisible ?? true}
@@ -7644,7 +7647,7 @@ function Dashboard() {
                   </SettingField>
                   <SettingField
                     label="卡片标签："
-                    hint="页面16/17 共用：精灵卡片底部标签与序号（1-12）排序依据：选择种族值总和（默认，橙色）或任意一项种族值（生命/攻击/魔攻/物防/魔防/速度）时，标签显示对应图标与数值，并按该值从大到小编排双方序号；名字只显示精灵名，序号仍按种族值总和排序（页面17 无名字条，标签回落显种族值总和）。数值相同的精灵并列同名次，无数据的排在最后。"
+                    hint="页面16/17 共用：双方 12 张卡片按所选数值从大到小编序号，标签同步显示该数值的图标和数值；选「名字」时标签显示精灵名，序号仍按种族值总和排。数值相同的并列同名次。"
                   >
                     <Segmented
                       block
@@ -7661,7 +7664,7 @@ function Dashboard() {
               key: 'page11',
               label: '选手介绍显示（11-13）',
               children: (
-                <SettingField label="排位排名：" hint="关闭后选手介绍三种画面均不显示排位排名；开启时选手有排名才显示。">
+                <SettingField label="排位排名：" hint="选手介绍画面上的排名数字，选手有排名时才显示。">
                   <Space wrap>
                     <Switch
                       checked={stage?.page11RankVisible ?? true}
@@ -7688,7 +7691,7 @@ function Dashboard() {
                       onChange={(value) => { void saveStage(stage?.page ?? 'page3', { silent: true, transition: value as StageTransitionType }); }}
                     />
                   </SettingField>
-                  <SettingField label="胜者结算停留时长（推流页面10）：" hint="赛事面板登记本局胜负时自动显示">
+                  <SettingField label="胜者结算停留时长（推流页面10）：" hint="登记本局胜负后自动切入，停留该时长后切回原画面">
                     <Space wrap>
                       <InputNumber
                         min={1}
@@ -7717,7 +7720,7 @@ function Dashboard() {
                   </SettingField>
                   <SettingField
                     label="战绩详情切屏间隔（推流页面7）："
-                    hint="一屏 4 行停留该时长后整屏交叉过渡到下一屏；改动对已打开的战绩详情页立即生效"
+                    hint="每屏停留该时长后自动翻到下一屏，修改立即生效"
                   >
                     <Space wrap>
                       <InputNumber

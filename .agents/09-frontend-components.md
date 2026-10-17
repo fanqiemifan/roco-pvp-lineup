@@ -43,7 +43,7 @@
   - 「推流页面5-统计口径」移入「数据统计」视图（见 stats 条目）；「团队积分榜设置（page9）」因批量录入 + 保存按钮保留在本页。
 - page11 - 选手介绍（画面切换 left/right/versus；「选手介绍数据」按侧配置来源 manual/match，手动填写字段留空回退「信息录入」按名字匹配值）
 - live - 实时控制（比赛开始、胜负记录、撤销/恢复）
-- mvp - 结算画面（MVP 结算 / 推流页面4；导航图标 结算页面.svg）
+- mvp - 结算画面（MVP 结算 / 推流页面4；导航图标 结算页面.svg）。**顶部操作引导条 = Steps 状态条**（样式复用赛事面板「当前比赛」的 `.current-match-statusbar`）：载入胜方 → 选择精灵 → 标记 MVP → 显示结算，current 由 buildMvpProgressItems（lib/mvp.ts，node 单测覆盖）按状态推导（显示中 = 全部完成态）；取代原三行文字说明，其余引导交给按钮命名与卡片内短提示
   - 载入胜方：`载入当前对局胜方` 把当前对局「最近一个已分胜负小局」胜者一侧（lib/match.ts `getRecentWinnerLineup`，优先槽位快照 pet_id、回退小局阵容）的**选手名字+阵容快照**一并保存进 mvp.json（winner: matchId/side/playerName）；**只收最终形态精灵**（`sprite.isFinalForm`），胜者阵容无可用精灵时仅载入名字；保存后切换对局不会改变推流画面，需重新载入保存才更新，当前对局胜方与已载入不一致时给出提示。
   - 显示控制：`显示 MVP 结算`（POST /api/mvp/show：记录当前画面到 returnPage 并切 stage 到 page4）/ `关闭`（POST /api/mvp/hide：切回 returnPage）；状态标签显示已标记精灵 n/6、标签是否完整、是否已标记 MVP；另展示**已载入胜方头像（56 圆形，`.mvp-winner-avatar`）+ 名字 + 侧/比赛 id**（头像按快照 matchId+side 解析、带 mtime 缓存参数，未上传回退 left/right-avatar.png 占位图，数据取 GET /api/mvp 的 winner，mvp:update 用 payload、avatar:update 时重拉）；未标记 MVP 时禁用「显示」（标签可留空，不要求全部填完）。
   - 精灵项（最多 6 行）：点选当前对局胜者阵容精灵填入第一个空槽（再次点击移除），每行可填标签（预设 MVP_TAG_PRESETS + 手动输入 ≤4 字，选择即时保存、手动输入失焦/回车保存）、标记 MVP（全页互斥，最多一个）、清空；空槽位不可编辑。
