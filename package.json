@@ -9,6 +9,7 @@
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "sync:sprites": "node scripts/sync-spirits-assets.mjs",
+    "sync:data": "node scripts/sync-pet-data.mjs",
     "cloud:deploy": "node scripts/deploy-cloud-sync.mjs",
     "prebuild": "npm run sync:sprites",
     "build:electron": "tsc -p tsconfig.json",

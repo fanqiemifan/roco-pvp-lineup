@@ -37,6 +37,7 @@
   - Node/Docker 模式：`<项目根目录>/LuokePVPWebui`（可用 `ROCO_DATA_DIR` 覆盖）。
 - 精灵索引与图片：
   - 源数据 `resources/data/pets.json`（勿手改字段名）；`resources/sprites-img/`（立绘，经 `/img/` 伺服）与 `resources/sprites-icon/`（头像，经 `/resources/sprites-icon/` 伺服，各展示页头像统一用它）。
+  - **`pets.json` / `final_forms.json`（最终形态 id 表，"只看最终形态"过滤用）由上游唯一数据源 `fanqiemifan/roco-wiki-data` 自动同步**：`.github/workflows/sync-pet-data.yml` 每日定时 + 手动触发（本地手动 `npm run sync:data`），多渠道（Pages→jsDelivr→raw）拉取并过 `SHA256SUMS` 哈希校验才落盘（jsDelivr @main 约 12h 缓存、各文件快照时点可能不一致，靠哈希交叉校验拦截），有变化连同新增精灵图一起提交。**本仓库不手改这两个文件**，数据修正回上游（roco-Component-Library 发布）；`attribute_mapping.json` 仍由本仓库维护。
   - 图片由 `scripts/sync-spirits-assets.mjs` 按 `{pet_id}_{name}.png` 命名下载；数据变化后先更新 pets.json 再跑脚本；图片已存在会跳过（幂等），源图缺失自动降级（small→official_icon→image_url / icon_url→official_icon）；`--prune` 清理 pets.json 已不引用的残留图（默认不删；白名单 `PRUNE_KEEP` 可保留 pets.json 之外的指定文件）。
   - 名字清洗剔除零宽字符（上游 wiki 名字曾混入，`\s` 与 NFC 均覆盖不到）；该 sanitize 在同步脚本与 `sprite-service.ts` 各有一份，**改一处必须同步另一处**，否则下载端与展示端文件名会算岔。
 - 精灵字段映射（`sprite-service.ts` 的 `normalizePetRecord`）：
