@@ -9,11 +9,16 @@ const spriteImageDir = path.join(projectRoot, 'resources', 'sprites-img');
 const spriteIconDir = path.join(projectRoot, 'resources', 'sprites-icon');
 
 const shouldDownload = !process.argv.includes('--skip-download');
+const shouldPrune = process.argv.includes('--prune');
 const DOWNLOAD_CONCURRENCY = 8;
+// --prune 白名单：pets.json 之外仍要保留的文件（手工维护）
+const PRUNE_KEEP = new Set(['10000_随机精灵.png']);
 
 function sanitizeFilenameSegment(value, fallback = '') {
   const normalized = String(value ?? '')
     .normalize('NFC')
+    // 零宽字符（上游 wiki 名字曾混入）既不在 \s 内，NFC 也不会消除，须显式剔除
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u180E]/g, '')
     .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-')
     .replace(/\s+/g, '')
     .replace(/\.+$/g, '')
@@ -97,6 +102,24 @@ async function runQueue(jobs, failures) {
   await Promise.all(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, jobs.length) }, worker));
 }
 
+async function pruneStaleFiles(dir, expectedNames, label) {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const pruned = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || expectedNames.has(entry.name) || PRUNE_KEEP.has(entry.name)) continue;
+    await fs.unlink(path.join(dir, entry.name));
+    pruned.push(entry.name);
+  }
+
+  if (pruned.length > 0) {
+    console.log(`pruned ${label}: ${pruned.length}`);
+    for (const name of pruned) {
+      console.log(`  - ${name}`);
+    }
+  }
+  return pruned.length;
+}
+
 async function main() {
   const sourceRaw = await fs.readFile(sourceIndexFile, 'utf8');
   const sourcePayload = JSON.parse(sourceRaw);
@@ -114,6 +137,8 @@ async function main() {
   const imageJobs = [];
   // icon_url → sprites-icon（精灵头像图标），失败降级 official_icon
   const iconJobs = [];
+  // 两个目录共用同一套文件名，--prune 据此判定残留文件
+  const expectedNames = new Set();
 
   for (const item of items) {
     const filename = buildFilename(item);
@@ -121,6 +146,7 @@ async function main() {
       failures.push(`skip record without pet_id/name: ${JSON.stringify(item).slice(0, 120)}`);
       continue;
     }
+    expectedNames.add(filename);
 
     imageJobs.push({
       urls: [item.official_small_icon, item.official_icon, item.image_url]
@@ -143,8 +169,14 @@ async function main() {
     await runQueue(iconJobs, failures);
   }
 
+  if (shouldPrune) {
+    await pruneStaleFiles(spriteImageDir, expectedNames, 'sprites-img');
+    await pruneStaleFiles(spriteIconDir, expectedNames, 'sprites-icon');
+  }
+
   console.log(`pets: ${items.length}`);
   console.log(`download: ${shouldDownload ? 'enabled' : 'skipped'}`);
+  console.log(`prune: ${shouldPrune ? 'enabled' : 'disabled'}`);
   console.log(`images: ${path.relative(projectRoot, spriteImageDir)} (${imageJobs.length})`);
   console.log(`icons: ${path.relative(projectRoot, spriteIconDir)} (${iconJobs.length})`);
 

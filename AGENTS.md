@@ -37,7 +37,8 @@
   - Node/Docker 模式：`<项目根目录>/LuokePVPWebui`（可用 `ROCO_DATA_DIR` 覆盖）。
 - 精灵索引与图片：
   - 源数据 `resources/data/pets.json`（勿手改字段名）；`resources/sprites-img/`（立绘，经 `/img/` 伺服）与 `resources/sprites-icon/`（头像，经 `/resources/sprites-icon/` 伺服，各展示页头像统一用它）。
-  - 图片由 `scripts/sync-spirits-assets.mjs` 按 `{pet_id}_{name}.png` 命名下载；数据变化后先更新 pets.json 再跑脚本；图片已存在会跳过（幂等），源图缺失自动降级（small→official_icon→image_url / icon_url→official_icon）。
+  - 图片由 `scripts/sync-spirits-assets.mjs` 按 `{pet_id}_{name}.png` 命名下载；数据变化后先更新 pets.json 再跑脚本；图片已存在会跳过（幂等），源图缺失自动降级（small→official_icon→image_url / icon_url→official_icon）；`--prune` 清理 pets.json 已不引用的残留图（默认不删；白名单 `PRUNE_KEEP` 可保留 pets.json 之外的指定文件）。
+  - 名字清洗剔除零宽字符（上游 wiki 名字曾混入，`\s` 与 NFC 均覆盖不到）；该 sanitize 在同步脚本与 `sprite-service.ts` 各有一份，**改一处必须同步另一处**，否则下载端与展示端文件名会算岔。
 - 精灵字段映射（`sprite-service.ts` 的 `normalizePetRecord`）：
   - 编号=handbook_no、名称=name、属性=elements（经 `attribute_mapping.json` 转属性码）、形态=stage（1=一阶 2=二阶 3=三阶 4=首领）。
   - 多形态记录 `name` 带形态后缀（如 卡瓦重（草地附近的样子）），`displayName` 保持纯名。

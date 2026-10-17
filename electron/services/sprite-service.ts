@@ -78,6 +78,8 @@ function normalizeSpriteAttributes(value: unknown): string[] {
 function sanitizeFilenameSegment(value: unknown): string {
   return String(value ?? '')
     .normalize('NFC')
+    // 零宽字符（上游 wiki 名字曾混入）既不在 \s 内，NFC 也不会消除，须显式剔除
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u180E]/gu, '')
     .replace(/[<>:"/\\|?*\u0000-\u001F]/gu, '-')
     .replace(/\s+/gu, '')
     .replace(/\.+$/gu, '')
