@@ -9,6 +9,8 @@ declare global {
       readTextFile(filePath: string): Promise<string>;
       writeTextFile(filePath: string, text: string): Promise<boolean>;
       statFile(filePath: string): Promise<{ mtimeMs: number; size: number }>;
+      /** Electron 32+ 用 webUtils.getPathForFile 取代已移除的 File.path */
+      getPathForFile(file: File): string;
       openExternal(target: string): Promise<boolean>;
     };
     rocoFloat?: {

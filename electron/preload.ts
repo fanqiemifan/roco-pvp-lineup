@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 const rocoDesktop = {
   copyText(text: string) {
@@ -18,6 +18,14 @@ const rocoDesktop = {
   },
   statFile(filePath: string) {
     return ipcRenderer.invoke('roco:stat-file', filePath);
+  },
+  // Electron 32+ 移除了 File.path（拖拽 / 文件框选择都拿不到路径），官方替代是 webUtils.getPathForFile
+  getPathForFile(file: File) {
+    try {
+      return typeof webUtils?.getPathForFile === 'function' ? webUtils.getPathForFile(file) : '';
+    } catch {
+      return '';
+    }
   },
   openExternal(target: string) {
     return ipcRenderer.invoke('roco:open-external', target);

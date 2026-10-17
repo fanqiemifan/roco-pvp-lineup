@@ -134,6 +134,8 @@ declare global {
       readTextFile?: (filePath: string) => Promise<string>;
       writeTextFile?: (filePath: string, text: string) => Promise<boolean>;
       statFile?: (filePath: string) => Promise<{ mtimeMs: number; size: number }>;
+      /** Electron 32+ 用 webUtils.getPathForFile 取代已移除的 File.path（拖拽 / 文件框选中的 File 都能取到真实路径） */
+      getPathForFile?: (file: File) => string;
     };
     rocoFloat?: {
       toggle?: () => void;

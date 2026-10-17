@@ -125,6 +125,7 @@ import { MatchPushCard } from './components/MatchPushCard';
 import type { MatchPushKind, MatchPushPayload } from './components/MatchPushCard';
 import { AdvanceRankCard } from './components/AdvanceRankCard';
 import type { AdvanceRankPayload } from './components/AdvanceRankCard';
+import { LiveWatchCard } from './components/LiveWatchCard';
 import { formatDateTime } from './lib/format';
 import {
   buildHistoryBattleEntries,
@@ -145,13 +146,19 @@ import {
   resolveMatchSemanticRound,
 } from './lib/tournament';
 import {
+  LIVE_WATCH_POLL_MS,
   clampNumber,
+  createLiveWatchSnapshot,
   extractLiveConfigPanel,
   findConfigTargetIndex,
+  formatWatchError,
   getEnergyLevel,
   getHealthLevel,
   readNumberField,
+  readStoredLiveWatchPath,
   stringifyLiveConfig,
+  writeStoredLiveWatchPath,
+  type LiveWatchSnapshot,
 } from './lib/live';
 import {
   buildProgressItems,
@@ -641,10 +648,13 @@ function Dashboard() {
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
   const [liveFilePath, setLiveFilePath] = useState<string | null>(null);
-  const [liveFileName, setLiveFileName] = useState('');
   const [liveConfigEnabled, setLiveConfigEnabled] = useState(false);
-  const [liveConfigLastModified, setLiveConfigLastModified] = useState<number | null>(null);
-  const [liveConfigLastContent, setLiveConfigLastContent] = useState('');
+  /** 监听状态快照（开始时间 / 最近同步 / 最近回写 / 错误），LiveWatchCard 只读展示 */
+  const [liveWatch, setLiveWatch] = useState<LiveWatchSnapshot>(createLiveWatchSnapshot);
+  /** 读取 / 切换监听文件过程中（按钮 loading） */
+  const [liveWatchBusy, setLiveWatchBusy] = useState(false);
+  /** 上次成功监听的文件路径（localStorage 记忆，重启后仍能一键恢复） */
+  const [liveRememberedPath, setLiveRememberedPath] = useState<string>(() => readStoredLiveWatchPath());
   const [createMatchForm] = Form.useForm<CreateMatchValues>();
   const [playerProfileForm] = Form.useForm<PlayerProfileFormValues>();
   const [teamProfileForm] = Form.useForm<TeamProfileFormValues>();
@@ -653,6 +663,26 @@ function Dashboard() {
   const liveWriteRef = useRef(false);
   const liveSaveTimerRef = useRef<number | null>(null);
   const livePollTimerRef = useRef<number | null>(null);
+  /**
+   * 监听会话（轮询闭包只读这份 ref，不读 state）。
+   *
+   * 踩过的坑：以前 setInterval 里调的是渲染闭包中的 pollLiveConfigFile，它读到的是
+   * 「开启监听之前」那次渲染的 liveConfigEnabled=false / liveFilePath=null，于是轮询
+   * 每次都直接 return —— 界面显示「监听中」，实际从未读取过文件。会话状态必须放 ref。
+   */
+  const liveWatchRef = useRef<{
+    enabled: boolean;
+    filePath: string | null;
+    /** 已应用到面板的文件内容（相同则跳过，避免自己回写后又被当成外部改动） */
+    lastContent: string;
+    lastModified: number | null;
+  }>({ enabled: false, filePath: null, lastContent: '', lastModified: null });
+  /** 轮询心跳（最近一次检查文件的时刻）：LiveWatchCard 每秒自读，用来展示「最近检查 x 秒前」 */
+  const liveHeartbeatRef = useRef(0);
+  /** 一次只允许一个轮询在跑（读取 + 应用期间不重入） */
+  const livePollBusyRef = useRef(false);
+  /** 最新面板状态：轮询 / 250ms 回写定时器都是异步回调，不能闭包读 panels（会写回旧值） */
+  const livePanelsRef = useRef(panels);
   const previewFrameShellRef = useRef<HTMLDivElement | null>(null);
   // 待开始小局草稿上下文（getPendingDraftContext）：pending 时编辑器显示源为赛事草稿、全局面板仅供推流页，
   // 由 applyServerState / loadInitialData 应用 store 时同步维护，避免渲染闭包读到旧状态
@@ -683,6 +713,8 @@ function Dashboard() {
   const [petEditorKeyword, setPetEditorKeyword] = useState('');
   const activeMatch = getActiveMatch(matchStore);
   const currentGame = getCurrentGame(activeMatch);
+  // 桌面版才有本地文件读写能力：浏览器 / 无头模式下实时监听不可用（只能上传一次 JSON）
+  const liveDesktopSupported = Boolean(window.rocoDesktop?.readTextFile && window.rocoDesktop?.statFile);
   const lineupLocked = activeMatch?.status === 'completed';
   const progress = buildProgressItems(activeMatch);
   const allHistoryTags = buildHistoryTags(matchStore.matches);
@@ -1082,6 +1114,11 @@ function Dashboard() {
   useEffect(() => {
     void loadInitialData();
   }, []);
+
+  // 轮询 / 回写定时器在异步回调里读最新面板（闭包里的 panels 会是旧值，导致写回文件丢掉刚改的数值）
+  useEffect(() => {
+    livePanelsRef.current = panels;
+  }, [panels]);
 
   // 切换/回显到待开始小局时，用赛事草稿槽位回填阵容编辑器：
   // pending 状态下全局面板被服务端清空（未开局阵容不上推流页），此前编辑器直接显示空面板，
@@ -3263,17 +3300,34 @@ function Dashboard() {
     return String(filePath || '').split(/[\\/]/).pop() || 'roco-live-config.json';
   }
 
+  function rememberLiveWatchPath(filePath: string) {
+    setLiveRememberedPath(filePath);
+    writeStoredLiveWatchPath(filePath);
+  }
+
+  function forgetLiveWatchPath() {
+    setLiveRememberedPath('');
+    writeStoredLiveWatchPath(null);
+    setLiveNotice({ tone: 'info', text: '已清除上次监听记录' });
+  }
+
   async function writeLiveConfigToPath(filePath: string, text: string, notice?: string) {
-    if (!window.rocoDesktop?.writeTextFile || !window.rocoDesktop?.statFile) {
+    const desktop = window.rocoDesktop;
+    if (!desktop?.writeTextFile || !desktop?.statFile) {
       throw new Error('当前环境不支持写入监听文件');
     }
 
     liveWriteRef.current = true;
     try {
-      await window.rocoDesktop.writeTextFile(filePath, text);
-      const stat = await window.rocoDesktop.statFile(filePath);
-      setLiveConfigLastModified(stat.mtimeMs);
-      setLiveConfigLastContent(text);
+      await desktop.writeTextFile(filePath, text);
+      const stat = await desktop.statFile(filePath);
+      // 记住刚写进去的内容：否则下一秒轮询会把我们自己的回写当成外部改动再应用一遍
+      const session = liveWatchRef.current;
+      if (session.filePath === filePath) {
+        session.lastContent = text;
+        session.lastModified = stat.mtimeMs;
+      }
+      setLiveWatch((prev) => ({ ...prev, lastWriteAt: Date.now() }));
       if (notice) {
         setLiveNotice({ tone: 'success', text: notice });
       }
@@ -3301,7 +3355,14 @@ function Dashboard() {
     });
   }
 
-  async function applyLiveConfigText(text: string, source = '监听文件') {
+  /**
+   * 把监听 / 上传的 JSON 内容应用到面板。
+   *
+   * @param options.notify 是否在页面顶部弹提示：自动轮询默认静默（结果由 LiveWatchCard 的
+   *   「最近同步」展示，每秒都在变的横幅纯属噪音），手动上传 / 首次开启由调用方提示。
+   */
+  async function applyLiveConfigText(text: string, source = '监听文件', options: { notify?: boolean } = {}) {
+    const notify = options.notify !== false;
     let payload: Record<string, unknown>;
     try {
       payload = JSON.parse(text) as Record<string, unknown>;
@@ -3311,10 +3372,12 @@ function Dashboard() {
 
     liveApplyRef.current = true;
     try {
-      let changed = false;
+      // 以 ref 里的最新面板为基准：轮询回调闭包里的 panels 可能是几秒前的旧值
+      const basePanels = livePanelsRef.current;
+      let changedSlots = 0;
       const nextPanels: Record<PanelSide, PanelEditorState> = {
-        left: { ...panels.left, selected: cloneSelected(panels.left.selected) },
-        right: { ...panels.right, selected: cloneSelected(panels.right.selected) },
+        left: { ...basePanels.left, selected: cloneSelected(basePanels.left.selected) },
+        right: { ...basePanels.right, selected: cloneSelected(basePanels.right.selected) },
       };
 
       (['left', 'right'] as PanelSide[]).forEach((panel) => {
@@ -3339,56 +3402,99 @@ function Dashboard() {
           const slot = { ...nextPanels[panel].selected[targetIndex] };
           const hp = readNumberField(item, ['HP', 'hp', 'healthPercent', 'health'], 0, 100);
           const value = readNumberField(item, ['value', 'energyValue', 'energy'], 0, 10);
+          let slotChanged = false;
 
           if (hp !== null && slot.healthPercent !== hp) {
             slot.healthPercent = hp;
-            changed = true;
+            slotChanged = true;
           }
           if (value !== null && slot.energyValue !== value) {
             slot.energyValue = value;
-            changed = true;
+            slotChanged = true;
+          }
+          if (slotChanged) {
+            changedSlots += 1;
           }
 
           nextPanels[panel].selected[targetIndex] = slot;
         });
       });
 
-      if (!changed) {
-        setLiveNotice({ tone: 'info', text: `${source}无变化` });
+      if (!changedSlots) {
+        setLiveWatch((prev) => ({ ...prev, lastAppliedAt: Date.now(), lastAppliedCount: 0, error: null, errorAt: null }));
+        if (notify) {
+          setLiveNotice({ tone: 'info', text: `${source}无变化（面板数值已经是文件里的值）` });
+        }
         return;
       }
 
+      livePanelsRef.current = nextPanels;
       startTransition(() => {
         setPanels(nextPanels);
       });
       await saveLivePanelsSilently(nextPanels);
-      setLiveNotice({ tone: 'success', text: `已根据${source}更新` });
+      setLiveWatch((prev) => ({
+        ...prev,
+        lastAppliedAt: Date.now(),
+        lastAppliedCount: changedSlots,
+        error: null,
+        errorAt: null,
+      }));
+      if (notify) {
+        setLiveNotice({ tone: 'success', text: `已根据${source}更新 ${changedSlots} 个槽位` });
+      }
     } finally {
       liveApplyRef.current = false;
     }
   }
 
+  /**
+   * 轮询监听文件（每秒一次）。
+   *
+   * 只能读 liveWatchRef / livePanelsRef：本函数被 setInterval 捕获，闭包里任何 state
+   * 都停在「开启监听之前」的那次渲染（曾导致轮询检查 !liveConfigEnabled 永远成立、直接早退）。
+   */
   async function pollLiveConfigFile() {
-    if (!liveConfigEnabled || !liveFilePath || liveWriteRef.current) {
+    const desktop = window.rocoDesktop;
+    const session = liveWatchRef.current;
+    if (!session.enabled || !session.filePath || !desktop?.readTextFile || !desktop?.statFile) {
       return;
     }
-    if (!window.rocoDesktop?.readTextFile || !window.rocoDesktop?.statFile) {
+    if (livePollBusyRef.current || liveWriteRef.current || liveApplyRef.current) {
       return;
     }
 
+    const filePath = session.filePath;
+    livePollBusyRef.current = true;
     try {
-      const [text, stat] = await Promise.all([
-        window.rocoDesktop.readTextFile(liveFilePath),
-        window.rocoDesktop.statFile(liveFilePath),
-      ]);
-      if (text === liveConfigLastContent || stat.mtimeMs === liveConfigLastModified) {
+      const [text, stat] = await Promise.all([desktop.readTextFile(filePath), desktop.statFile(filePath)]);
+      const current = liveWatchRef.current;
+      if (!current.enabled || current.filePath !== filePath) {
         return;
       }
-      setLiveConfigLastModified(stat.mtimeMs);
-      setLiveConfigLastContent(text);
-      await applyLiveConfigText(text, '监听文件');
+      liveHeartbeatRef.current = Date.now();
+      if (text === current.lastContent || stat.mtimeMs === current.lastModified) {
+        // 读到了但没有变化：顺手清掉上一次读取失败的错误（文件恢复可读）
+        setLiveWatch((prev) => (prev.error ? { ...prev, error: null, errorAt: null } : prev));
+        return;
+      }
+      await applyLiveConfigText(text, '监听文件', { notify: false });
+      if (liveWatchRef.current === current) {
+        current.lastContent = text;
+        current.lastModified = stat.mtimeMs;
+      }
     } catch (error) {
-      setLiveNotice({ tone: 'error', text: error instanceof Error ? error.message : '监听文件读取失败' });
+      liveHeartbeatRef.current = Date.now();
+      const message = formatWatchError(error);
+      setLiveWatch((prev) => {
+        // 同一个错误（如文件被删）每秒都会抛一次：5 秒内只更新一次，避免整个后台每秒重渲染
+        if (prev.error === message && prev.errorAt !== null && Date.now() - prev.errorAt < 5000) {
+          return prev;
+        }
+        return { ...prev, error: message, errorAt: Date.now() };
+      });
+    } finally {
+      livePollBusyRef.current = false;
     }
   }
 
@@ -3434,66 +3540,113 @@ function Dashboard() {
   }
 
   async function startLiveConfigWatch() {
+    if (!window.rocoDesktop?.showOpenDialog) {
+      setLiveNotice({ tone: 'warning', text: '当前环境不支持持续监听：请在桌面版中选择监听文件' });
+      return;
+    }
+
     try {
-      let filePath: string | null = null;
-
-      if (window.rocoDesktop?.showOpenDialog) {
-        filePath = await window.rocoDesktop.showOpenDialog();
-      }
-
+      const filePath = await window.rocoDesktop.showOpenDialog();
       if (!filePath) {
-        setLiveNotice({ tone: 'info', text: '已取消实时监听' });
+        setLiveNotice({ tone: 'info', text: '已取消选择监听文件' });
         return;
       }
       await startLiveConfigWatchFromPath(filePath);
     } catch (error) {
-      stopLiveConfigWatch(false);
-      setLiveNotice({ tone: 'error', text: error instanceof Error ? error.message : '实时监听开启失败' });
+      setLiveNotice({ tone: 'error', text: `实时监听开启失败：${formatWatchError(error)}` });
     }
   }
 
+  /**
+   * 开始（或切换）监听一个本地 JSON。
+   *
+   * - 读取失败 = 根本没法监听：抛错给调用方提示，并停掉旧监听。
+   * - 首次解析 / 应用失败不算致命（外部计分工具可能正在写文件、读到半截 JSON）：保留监听、
+   *   把错误挂到状态卡上，下一秒自动重试。
+   */
   async function startLiveConfigWatchFromPath(filePath: string) {
-    if (!window.rocoDesktop?.readTextFile || !window.rocoDesktop?.statFile) {
+    const desktop = window.rocoDesktop;
+    if (!desktop?.readTextFile || !desktop?.statFile) {
       throw new Error('当前环境不支持实时监听');
     }
 
-    const [text, stat] = await Promise.all([
-      window.rocoDesktop.readTextFile(filePath),
-      window.rocoDesktop.statFile(filePath),
-    ]);
+    setLiveWatchBusy(true);
+    try {
+      const [text, stat] = await Promise.all([desktop.readTextFile(filePath), desktop.statFile(filePath)]);
 
-    setLiveFilePath(filePath);
-    setLiveFileName(getLiveConfigFileName(filePath));
-    setLiveConfigEnabled(true);
-    setLiveConfigLastModified(stat.mtimeMs);
-    setLiveConfigLastContent(text);
+      clearLivePollTimer();
+      liveWatchRef.current = { enabled: true, filePath, lastContent: '', lastModified: null };
+      liveHeartbeatRef.current = 0;
+      setLiveFilePath(filePath);
+      setLiveConfigEnabled(true);
+      setLiveWatch({ ...createLiveWatchSnapshot(), startedAt: Date.now() });
+      rememberLiveWatchPath(filePath);
 
-    if (text.trim()) {
-      await applyLiveConfigText(text, '监听文件');
-    } else {
-      await writeLiveConfigToPath(filePath, stringifyLiveConfig(panels), `监听中：${getLiveConfigFileName(filePath)}`);
-    }
+      let initialError = '';
+      try {
+        if (text.trim()) {
+          await applyLiveConfigText(text, '监听文件', { notify: false });
+          const session = liveWatchRef.current;
+          if (session.filePath === filePath) {
+            session.lastContent = text;
+            session.lastModified = stat.mtimeMs;
+          }
+        } else {
+          // 空文件：把当前面板写进去，外部工具才有初始结构可读
+          await writeLiveConfigToPath(filePath, stringifyLiveConfig(livePanelsRef.current), `监听中：${getLiveConfigFileName(filePath)}`);
+        }
+      } catch (error) {
+        initialError = formatWatchError(error);
+        setLiveWatch((prev) => ({ ...prev, error: initialError, errorAt: Date.now() }));
+        setLiveNotice({ tone: 'error', text: initialError });
+      }
 
-    clearLivePollTimer();
-    livePollTimerRef.current = window.setInterval(() => {
+      livePollTimerRef.current = window.setInterval(() => {
+        void pollLiveConfigFile();
+      }, LIVE_WATCH_POLL_MS);
+      // 立刻检查一次：让「最近检查」马上有心跳，不用等第一个整秒
       void pollLiveConfigFile();
-    }, 1000);
-    setLiveNotice({ tone: 'success', text: `实时监听已开启：${getLiveConfigFileName(filePath)}` });
+
+      if (!initialError) {
+        setLiveNotice({ tone: 'success', text: `实时监听已开启：${getLiveConfigFileName(filePath)}` });
+      }
+    } catch (error) {
+      stopLiveConfigWatch(false);
+      throw error;
+    } finally {
+      setLiveWatchBusy(false);
+    }
+  }
+
+  async function restoreLiveConfigWatch() {
+    if (!liveRememberedPath) {
+      return;
+    }
+    try {
+      await startLiveConfigWatchFromPath(liveRememberedPath);
+    } catch (error) {
+      setLiveNotice({
+        tone: 'error',
+        text: `无法恢复上次监听：${formatWatchError(error)}`,
+      });
+    }
   }
 
   async function handleLiveConfigUpload(file: File & { path?: string }) {
     try {
-      const uploadPath = typeof file.path === 'string' && file.path.trim() ? file.path.trim() : null;
+      // Electron 32+ 移除了 File.path：改由 preload 的 webUtils.getPathForFile 拿真实路径（拖拽 / 文件框都适用）
+      const legacyPath = typeof file.path === 'string' ? file.path.trim() : '';
+      const resolvedPath = legacyPath || window.rocoDesktop?.getPathForFile?.(file)?.trim() || '';
 
-      if (uploadPath) {
-        await startLiveConfigWatchFromPath(uploadPath);
+      if (resolvedPath) {
+        await startLiveConfigWatchFromPath(resolvedPath);
         return false;
       }
 
       if (window.rocoDesktop?.showOpenDialog) {
         const filePath = await window.rocoDesktop.showOpenDialog();
         if (!filePath) {
-          setLiveNotice({ tone: 'info', text: '已取消实时监听' });
+          setLiveNotice({ tone: 'info', text: '已取消选择监听文件' });
           return false;
         }
         await startLiveConfigWatchFromPath(filePath);
@@ -3506,7 +3659,7 @@ function Dashboard() {
       return false;
     } catch (error) {
       stopLiveConfigWatch(false);
-      setLiveNotice({ tone: 'error', text: error instanceof Error ? error.message : '实时监听开启失败' });
+      setLiveNotice({ tone: 'error', text: `实时监听开启失败：${formatWatchError(error)}` });
       return false;
     }
   }
@@ -3516,24 +3669,32 @@ function Dashboard() {
     clearLiveSaveTimer();
     liveApplyRef.current = false;
     liveWriteRef.current = false;
+    livePollBusyRef.current = false;
+    liveWatchRef.current = { enabled: false, filePath: null, lastContent: '', lastModified: null };
+    liveHeartbeatRef.current = 0;
     setLiveConfigEnabled(false);
     setLiveFilePath(null);
-    setLiveFileName('');
-    setLiveConfigLastModified(null);
-    setLiveConfigLastContent('');
+    setLiveWatch(createLiveWatchSnapshot());
     if (shouldResetNotice) {
       setLiveNotice({ tone: 'info', text: '实时监听已关闭' });
     }
   }
 
   function scheduleLiveConfigWrite(reason = '已同步到监听文件') {
-    if (!liveConfigEnabled || !liveFilePath || liveApplyRef.current) {
+    const session = liveWatchRef.current;
+    if (!session.enabled || !session.filePath || liveApplyRef.current || liveWriteRef.current) {
       return;
     }
+    const filePath = session.filePath;
     clearLiveSaveTimer();
     liveSaveTimerRef.current = window.setTimeout(() => {
-      void writeLiveConfigToPath(liveFilePath, stringifyLiveConfig(panels), reason).catch((error) => {
-        setLiveNotice({ tone: 'error', text: error instanceof Error ? error.message : '监听文件写入失败' });
+      liveSaveTimerRef.current = null;
+      // 定时器是 250ms 后执行的：期间若正在应用外部文件的改动，这次回写让位，避免把文件内容改回去
+      if (liveApplyRef.current) {
+        return;
+      }
+      void writeLiveConfigToPath(filePath, stringifyLiveConfig(livePanelsRef.current), reason).catch((error) => {
+        setLiveNotice({ tone: 'error', text: `监听文件写入失败：${formatWatchError(error)}` });
       });
     }, 250);
   }
@@ -3693,10 +3854,22 @@ function Dashboard() {
       { key: 'profiles', icon: <NavIcon name="profiles" />, label: VIEW_LABEL.profiles },
       { key: 'page11', icon: <NavIcon name="page11" />, label: VIEW_LABEL.page11 },
       { key: 'preview', icon: <NavIcon name="preview" />, label: VIEW_LABEL.preview },
-      { key: 'live', icon: <NavIcon name="live" />, label: VIEW_LABEL.live },
+      {
+        key: 'live',
+        icon: <NavIcon name="live" />,
+        // 「监听是否开着」要能从任何视图一眼看到：开着时导航项带一个蓝色呼吸点（悬停看文件名）
+        label: liveConfigEnabled ? (
+          <span className="nav-label-with-badge">
+            {VIEW_LABEL.live}
+            <Tooltip title={`实时监听中：${liveFilePath ? getLiveConfigFileName(liveFilePath) : ''}`}>
+              <Badge status="processing" />
+            </Tooltip>
+          </span>
+        ) : VIEW_LABEL.live,
+      },
       { key: 'about', icon: <NavIcon name="about" />, label: VIEW_LABEL.about },
     ],
-    [cloudNavPending, cloudNavNewVersion]
+    [cloudNavPending, cloudNavNewVersion, liveConfigEnabled, liveFilePath]
   );
 
   if (loading) {
@@ -6801,29 +6974,21 @@ function Dashboard() {
                   </Row>
                   <Row gutter={[16, 16]}>
                     <Col xs={24}>
-                      <Card size="small" className="subtle-card live-watch-card">
-                        <Space direction="vertical" size={14} className="control-stack">
-                          <Space align="start" className="live-watch-header">
-                            <div>
-                              <Text type="secondary">监听目标 JSON</Text>
-                              <Title level={5}>{liveConfigEnabled ? '监听中' : '未监听'}</Title>
-                              <Text type="secondary">{liveFileName || '点击或拖拽选择要监听的 JSON 文件'}</Text>
-                            </div>
-                            <Button type={liveConfigEnabled ? 'default' : 'primary'} danger={liveConfigEnabled} onClick={handleLiveConfigWatchToggle}>
-                              {liveConfigEnabled ? '关闭监听' : '开启实时监听'}
-                            </Button>
-                          </Space>
-                          <Upload.Dragger
-                            accept=".json,application/json"
-                            showUploadList={false}
-                            className="live-watch-uploader"
-                            beforeUpload={(file) => handleLiveConfigUpload(file as File & { path?: string })}
-                          >
-                            <p className="ant-upload-text">选择或拖拽监听 JSON</p>
-                            <p className="ant-upload-hint">监听开启后，后台会持续读取这个本地文件并回写当前数值。</p>
-                          </Upload.Dragger>
-                        </Space>
-                      </Card>
+                      <LiveWatchCard
+                        enabled={liveConfigEnabled}
+                        busy={liveWatchBusy}
+                        supported={liveDesktopSupported}
+                        filePath={liveFilePath}
+                        fileName={liveFilePath ? getLiveConfigFileName(liveFilePath) : ''}
+                        snapshot={liveWatch}
+                        heartbeat={liveHeartbeatRef}
+                        rememberedPath={liveRememberedPath}
+                        onToggle={handleLiveConfigWatchToggle}
+                        onPickFile={() => { void startLiveConfigWatch(); }}
+                        onRestore={() => { void restoreLiveConfigWatch(); }}
+                        onForget={forgetLiveWatchPath}
+                        onUpload={handleLiveConfigUpload}
+                      />
                     </Col>
                   </Row>
                 </Space>

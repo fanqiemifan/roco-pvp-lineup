@@ -42,7 +42,13 @@
   - 顶栏「镜像反转」（stage.mirrorSides，导播切视角用）：**页面1-3 主画面与阵容悬浮窗（float.js）的左右展示互换**——四个脚本渲染时按「视图侧 → 数据侧」映射（各自实现 `mapSide`：overlay.js / roco-pvp-page2.js / page3-display.js / float.js），page1/page2/float 为此订阅 stage:update 与首连快照携带 stage；**不改数据、胜负登记、头像解析与统计口径**，下场对局浮层 / 结算页保持真实左右。float.js 的槽位点击（阵亡）与右键更换菜单按视图侧反查实际侧再调接口，右键菜单的文案用视图侧（viewSide 查询参数）、接口用实际侧（side）。**禁止用 CSS 翻转整页实现（立绘与文字会倒置）**；切换时清空渲染签名并按新映射增量重渲染（避免整页重载闪烁）。
   - 「推流页面5-统计口径」移入「数据统计」视图（见 stats 条目）；「团队积分榜设置（page9）」因批量录入 + 保存按钮保留在本页。
 - page11 - 选手介绍（画面切换 left/right/versus；「选手介绍数据」按侧配置来源 manual/match，手动填写字段留空回退「信息录入」按名字匹配值）
-- live - 实时控制（比赛开始、胜负记录、撤销/恢复）
+- live - 实时控制（左右各 6 个槽位的 HP / 能量滑块 + 「监听目标 JSON」本地文件桥：外部计分工具写 JSON → 后台每秒读取 → 更新面板并回写）
+  - 监听状态必须可见：卡片（components/LiveWatchCard.tsx）展示状态标签（监听中 / 正在连接 / 监听停滞 / 监听异常 / 未监听）、完整文件路径（可复制、悬停看全路径）、心跳（已监听时长 / 最近检查 x 秒前 / 最近回写 / 最近同步了几个槽位）与错误横幅；监听开着时导航「实时控制」项带蓝色呼吸点（Badge status="processing"，悬停显示文件名），切到别的视图也能看出还开着。**「监听停滞」= 心跳超过 LIVE_WATCH_STALL_MS 没更新**，用来暴露「看着在监听、其实轮询已经死了」。
+  - 轮询只能读 ref：`liveWatchRef`（enabled / filePath / lastContent / lastModified）+ `livePanelsRef`（最新面板）。**踩过的坑**：旧实现 `setInterval(() => pollLiveConfigFile())` 捕获的是开启监听之前那次渲染的闭包，里面 `liveConfigEnabled=false` / `liveFilePath=null` → 每秒直接 return，界面显示「监听中」但文件从未被读取。同理回写定时器读闭包 `panels` 会写回旧值。心跳 `liveHeartbeatRef` 由轮询写入，状态卡自己每秒 tick 刷新相对时间（**别让 App 每秒 setState**，整个后台会跟着重渲染）。
+  - 读失败（文件被删 / 被占用）不停监听：错误挂状态卡、每秒重试（同一错误 5 秒内只更新一次）；文件恢复可读后自动清错。首次开启时读到半截 JSON（外部工具正在写）同样保留监听。
+  - 空文件开启时把当前面板写进去（外部工具才有初始结构）；自己回写后同步 `lastContent`，避免下一秒把自己的回写当成外部改动再应用一遍。
+  - 选文件：拖拽 / 文件框都走 preload 暴露的 `webUtils.getPathForFile`（**Electron 32+ 移除了 `File.path`**，不要再读 `file.path`）；浏览器 / 无头模式没有该能力，卡片顶部黄条提示「不支持持续监听」，只能上传一次 JSON。
+  - 路径记在 localStorage（`roco.live-watch-path`）：未监听时卡片显示「上次监听 … [恢复监听] [清除记录]」。**不自动恢复**——上一场遗留的旧 HP 会直接覆盖新面板，必须人工点。
 - mvp - 结算画面（MVP 结算 / 推流页面4；导航图标 结算页面.svg）。**顶部操作引导条 = Steps 状态条**（样式复用赛事面板「当前比赛」的 `.current-match-statusbar`）：载入胜方 → 选择精灵 → 标记 MVP → 显示结算，current 由 buildMvpProgressItems（lib/mvp.ts，node 单测覆盖）按状态推导（显示中 = 全部完成态）；取代原三行文字说明，其余引导交给按钮命名与卡片内短提示
   - 载入胜方：`载入当前对局胜方` 把当前对局「最近一个已分胜负小局」胜者一侧（lib/match.ts `getRecentWinnerLineup`，优先槽位快照 pet_id、回退小局阵容）的**选手名字+阵容快照**一并保存进 mvp.json（winner: matchId/side/playerName）；**只收最终形态精灵**（`sprite.isFinalForm`），胜者阵容无可用精灵时仅载入名字；保存后切换对局不会改变推流画面，需重新载入保存才更新，当前对局胜方与已载入不一致时给出提示。
   - 显示控制：`显示 MVP 结算`（POST /api/mvp/show：记录当前画面到 returnPage 并切 stage 到 page4）/ `关闭`（POST /api/mvp/hide：切回 returnPage）；状态标签显示已标记精灵 n/6、标签是否完整、是否已标记 MVP；另展示**已载入胜方头像（56 圆形，`.mvp-winner-avatar`）+ 名字 + 侧/比赛 id**（头像按快照 matchId+side 解析、带 mtime 缓存参数，未上传回退 left/right-avatar.png 占位图，数据取 GET /api/mvp 的 winner，mvp:update 用 payload、avatar:update 时重拉）；未标记 MVP 时禁用「显示」（标签可留空，不要求全部填完）。
@@ -72,6 +78,7 @@
 - leftPanel / rightPanel、scoreboard、matches、avatars、stage、page7 / page9 / page11 / page14（配置状态与对应草稿/保存中标记；page14 另有 page14Standings = 服务端算好的当前阶段榜单）、tournaments（系列赛编排记录列表）
 - stats 相关：statsMetric / statsPlayer / statsTag / statsTournamentId / statsSearch
 - cloudStatus + 云同步草稿（cloudKeyDraft / cloudRoleDraft / cloudWorkerUrlDraft / cloudLabelDraft / cloudPeerDraft）、cloudPreviewFlow（pull / ack，复用同一份 syncPreview 状态与预览弹窗）、cloudAckSources / cloudAckSource / cloudAckCode（确认台按分控端分组）、cloudAssignDraft（指派工作台草稿）、cloudAckedMatchIds（分控端已确认集合）
+- 实时监听：liveWatch（状态快照）、liveRememberedPath（上次监听路径）、liveWatchBusy、liveConfigEnabled / liveFilePath；会话与心跳在 ref（liveWatchRef / liveHeartbeatRef / livePanelsRef / livePollBusyRef），**不要挪回 state**（轮询闭包会拿到开启监听前的旧值）
 - socket - Socket.IO 连接实例
 
 ### 核心逻辑（lib/）
@@ -84,7 +91,7 @@
 - sprite.ts - 精灵数据辅助（buildSpriteLookup：id/文件名/别名多键查找）
 - match.ts - 比赛操作辅助（getPendingDraftContext：当前小局 pending 且赛事未完赛时返回该局草稿槽位上下文）
 - panel.ts - 面板状态辅助（draftSlotsToSelected：赛事草稿快照 pet_id → 编辑器槽位，查不到的精灵降级空槽位）
-- live.ts - 实时控制辅助
+- live.ts - 实时控制辅助（监听状态快照 createLiveWatchSnapshot / 状态标签 getLiveWatchBadge / 相对时间与时长格式化 formatWatchRelative·formatWatchDuration·formatWatchClock / 错误文案 formatWatchError / 上次监听路径记忆 readStoredLiveWatchPath·writeStoredLiveWatchPath + HP·能量配置读写转换）
 - history.ts - 历史记录辅助（getLineupEntryBlockReason：录入阵容入口锁定文案；buildHistoryTournamentFilters/getEffectiveTournamentId：系列赛筛选维度，PLAIN_HISTORY_MATCH_FILTER=普通对局）
 - stats.ts - 统计聚合（buildUsageStats、buildStatsCsv）
 - format.ts - 格式化工具

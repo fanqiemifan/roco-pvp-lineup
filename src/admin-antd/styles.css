@@ -1197,15 +1197,70 @@ a {
   height: 100%;
 }
 
-.live-watch-header {
+.live-watch-body {
   width: 100%;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
 }
 
-.live-watch-header .ant-typography {
-  margin-bottom: 0;
+.live-watch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.live-watch-file {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.live-watch-file > .ant-typography {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.live-watch-title.ant-typography {
+  margin: 0;
+  font-size: 16px;
+}
+
+.live-watch-state-tag.ant-tag {
+  margin-inline-end: 0;
+}
+
+/* 完整路径：占满一行、超出省略，悬停看全路径，右侧带复制图标 */
+.live-watch-path.ant-typography {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.live-watch-meta {
+  font-size: 13px;
+}
+
+.live-watch-sync-line.ant-typography {
+  font-size: 12px;
+}
+
+.live-watch-remembered {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px dashed rgba(91, 67, 43, 0.25);
+  background: rgba(199, 99, 47, 0.04);
+  min-width: 0;
+}
+
+.live-watch-remembered > .ant-typography {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .live-watch-uploader.ant-upload-wrapper .ant-upload-drag {
