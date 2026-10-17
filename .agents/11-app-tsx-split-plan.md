@@ -123,6 +123,8 @@ interface AdminData {
 - 云同步轮询副作用（注意：它目前依赖 `cloudStatus.config`，角标也读 `cloudStatus`，**必须一起搬**）；
 - page10 自动切回定时器（依赖 activeMatchId 与当前 stage）。
 
+> M1 核对：page10 自动切回**实际由 `electron/socket-server.ts` 的定时器驱动**（登记胜负时切 page10、到点切回），前端没有这个副作用，数据层只需消费 `stage:update`。别再在 App.tsx 里找它。
+
 ## 4. 里程碑与顺序
 
 ### M0 · 工具与基线（0.5 天）
@@ -232,7 +234,8 @@ interface AdminData {
 ## 9. 交接
 
 - 分支：`feat/admin-ds-lite`
-- 已有提交：`579e68c`（主题底座）→ `7636355`（蓝红/Hint/StatusTag）→ `01315af`（收尾）→ `35b73d1`（弹窗宽度）→ `29e4861`（死类名）→ `28fa565`（Surface/EmptyState）→ `df52d18`（SyncView 拆分）
-- 当前状态：`df52d18` 因网络 SSL 失败**尚未推送**（本地 ahead 1），恢复后先 `git push`
-- 下一步：M1 共享数据层（或先把 SyncView scope 从 99 收缩，作为 M2 前置验证）
+- 已有提交：`579e68c`（主题底座）→ `7636355`（蓝红/Hint/StatusTag）→ `01315af`（收尾）→ `35b73d1`（弹窗宽度）→ `29e4861`（死类名）→ `28fa565`（Surface/EmptyState）→ `df52d18`（SyncView 拆分）→ `1c6e71f`（本方案）→ M1 共享数据层（`refactor(admin): 抽离共享数据层 AdminDataProvider`）
+- 当前状态（M1 完成后）：`App.tsx` 7,942 → 7,433 行；Dashboard 的 `useState` 168 → 133（35 个 + 对应订阅搬进 `src/admin-antd/data/`，Provider 755 行）；`SyncView` scope 仍为 99（M2 处理）。
+- M1 验证记录：`typecheck:frontend` / `typecheck:tests` / `npm test`（622 绿）/ `build:renderer` 通过；CDP 12 屏截图对比 11 屏 0 像素差、直播推流仅 iframe 动画帧 35 px；socket 建场/选场/开局/登记/撤回与 page10 自动切回冒烟通过。
+- 下一步：M2 回炉 SyncView（先做，作为数据层解耦的试金石），通过后再进 M3；M2 前建议补 M0 的 `scripts/screenshot-views.mjs`（本次 M1 用的是临时 CDP 脚本，尚未入库）。
 - 新会话启动时先读：本文件 + `AGENTS.md` + `.agents/09`，再跑 `npm run audit:ui` 与 `npm test` 确认基线

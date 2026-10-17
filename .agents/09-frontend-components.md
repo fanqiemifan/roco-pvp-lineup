@@ -16,7 +16,8 @@
 
 ### 目录结构
 
-- App.tsx — 主组件：Layout（Header/Sider/Content）、视图分发、顶栏按钮（阵容悬浮窗 + 倒计时 / 下一场预告 / 画面设置 三个弹窗入口）、「开一局」创建赛事弹窗（选手名/排位排名/头像/赛制/标签）
+- App.tsx — 主组件：Layout（Header/Sider/Content）、视图分发、顶栏按钮（阵容悬浮窗 + 倒计时 / 下一场预告 / 画面设置 三个弹窗入口）、「开一局」创建赛事弹窗（选手名/排位排名/头像/赛制/标签）；服务端状态与订阅已由 `data/` 的 Provider 持有（M1），App 只留自己的 UI 状态
+- data/ — 共享数据层（`AdminDataProvider` + `useAdminData`）：服务端状态（比赛/系列赛/档案/面板/记分牌/各推流页）、`applyServerState`、初始加载、socket 订阅、云同步轮询；`useAdminData()` 目前供 Dashboard 读取，M2 起视图直接调用、不再逐层传 scope
 - views/ — 各视图独立页面（RosterPanelEditor、StatsView、TournamentView、HistoryLineupEntryModal、MatchLineupDetailModal；SyncView 是从 App.tsx 拆出的第一个整视图，状态暂由 scope 传入）
 - components/ — 可复用小组件（SettingField、SpritePetCard、StageThumb、AttributeFilterChips、BracketBoard、TournamentNodeCard）
 - ui/ — UI 原语（Hint：12px 次要文字；StatusTag：比赛状态标签；Surface：四种卡片面；EmptyState：空态四段式）

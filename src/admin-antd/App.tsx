@@ -44,9 +44,7 @@ import {
 import zhCN from 'antd/locale/zh_CN';
 import type { MenuProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { io } from 'socket.io-client';
 
-import { SOCKET_EVENTS } from '../../shared/events';
 import {
   CLOUD_SYNC_POLL_INTERVALS,
   CLOUD_SYNC_ROSTER_MAX,
@@ -61,10 +59,8 @@ import {
 import type {
   AvatarCollectionState,
   CloudSyncAckSource,
-  CloudSyncInboxEntry,
   CloudSyncKeyGuardResult,
   CloudSyncPendingQueue,
-  CloudSyncRole,
   CloudSyncStatus,
   CloudSyncVersion,
   MachineCodeGuardResult,
@@ -75,10 +71,8 @@ import type {
   MatchStoreState,
   MvpSlotEntry,
   MvpState,
-  MvpWinnerInfo,
   MvpWinnerSnapshot,
   NextGamePayload,
-  NextGameState,
   Page6State,
   Page7State,
   Page8State,
@@ -105,7 +99,6 @@ import type {
   SyncImportPreview,
   SyncImportResult,
   TeamProfile,
-  TournamentRecord,
 } from '../../shared/types';
 
 import {
@@ -118,6 +111,8 @@ import {
   normalizeStageTransition,
 } from './constants';
 import { rocoTheme } from '../theme';
+import { AdminDataProvider } from './data/admin-data';
+import { useAdminData } from './data/use-admin-data';
 import { StageThumb } from './components/StageThumb';
 import { SettingField } from './components/SettingField';
 import { MatchPushCard } from './components/MatchPushCard';
@@ -166,7 +161,6 @@ import {
   getGameResultLabel,
   getGameStatusLabel,
   getNoticeTagColor,
-  getPendingDraftContext,
   getRecentWinnerLineup,
   summarizeSeriesForBestOf,
 } from './lib/match';
@@ -175,10 +169,7 @@ import {
   cloneSelected,
   createDefaultSpriteFilterState,
   createEmptySlot,
-  createPanelEditorState,
   createSpriteFilterState,
-  draftSlotsToSelected,
-  panelStateToSelected,
 } from './lib/panel';
 import {
   PREVIEW_NAV_GROUPS,
@@ -413,47 +404,80 @@ function CountdownRemainingText({ state, clockOffsetMs }: { state: CountdownStat
 
 function Dashboard() {
   const { message, modal } = App.useApp();
+  // 共享数据层（M1）：服务端状态、socket 订阅、初始加载与云同步轮询统一由 AdminDataProvider 持有。
+  // 这里只留「仪表盘/视图自己的 UI 状态」（弹窗、草稿、筛选、当前 tab），后续按视图继续下沉。
+  const {
+    loading,
+    pageError,
+    scoreboard,
+    matchStore,
+    avatars,
+    panels,
+    sprites,
+    stage,
+    nextgame,
+    countdown,
+    countdownClockRef,
+    mvp,
+    mvpWinner,
+    page6,
+    page7,
+    page8,
+    page9,
+    page11,
+    page14,
+    page14Standings,
+    profiles,
+    tournaments,
+    locallyRemoved,
+    recycleBin,
+    machineCodeInput,
+    cloudStatus,
+    cloudKeyDraft,
+    cloudTokenDraft,
+    cloudRoleDraft,
+    cloudWorkerUrlDraft,
+    cloudLabelDraft,
+    cloudPeerDraft,
+    cloudBusy,
+    cloudAckedMatchIds,
+    setAvatars,
+    setPanels,
+    setStage,
+    setPage14,
+    setPage14Standings,
+    setProfiles,
+    setMachineCodeInput,
+    setCloudKeyDraft,
+    setCloudTokenDraft,
+    setCloudRoleDraft,
+    setCloudWorkerUrlDraft,
+    setCloudLabelDraft,
+    setCloudPeerDraft,
+    setCloudBusy,
+    applyServerState,
+    loadInitialData,
+    applyCloudStatus,
+    postCloud,
+    pollCloudStatus,
+  } = useAdminData();
   const [view, setView] = useState<ViewKey>('roster');
   // 导航栏收起状态：收起后仅显示 SVG 图标
   const [siderCollapsed, setSiderCollapsed] = useState(false);
-  const [loading, setLoading] = useState(true);
   // 顶栏弹窗开关：倒计时 / 下一场预告 / 画面设置（页面2、页面3、选手介绍、画面切换行为）
   const [countdownModalOpen, setCountdownModalOpen] = useState(false);
   const [nextgameModalOpen, setNextgameModalOpen] = useState(false);
   const [screenSettingsModalOpen, setScreenSettingsModalOpen] = useState(false);
   // 顶栏弹窗开关：直播推送教程（获取推流地址 + OBS / 直播姬填入方式）
   const [streamGuideOpen, setStreamGuideOpen] = useState(false);
-  const [pageError, setPageError] = useState('');
-  const [scoreboard, setScoreboard] = useState<ScoreboardState | null>(null);
-  const [matchStore, setMatchStore] = useState<MatchStoreState>({
-    activeMatchId: null,
-    matches: [],
-    undo: {
-      canUndo: false,
-      canRedo: false,
-      canUndoDelete: false,
-      deleteUndoCount: 0,
-      byMatch: {},
-    },
-    mtime: null,
-  });
-  const [avatars, setAvatars] = useState<AvatarCollectionState>({
-    left: { side: 'left', exists: false },
-    right: { side: 'right', exists: false },
-  });
   const [createLeftAvatar, setCreateLeftAvatar] = useState<File | null>(null);
   const [createRightAvatar, setCreateRightAvatar] = useState<File | null>(null);
   const [createLeftAvatarUrl, setCreateLeftAvatarUrl] = useState<string | null>(null);
   const [createRightAvatarUrl, setCreateRightAvatarUrl] = useState<string | null>(null);
-  const [panels, setPanels] = useState<Record<PanelSide, PanelEditorState>>({
-    left: createPanelEditorState(),
-    right: createPanelEditorState(),
-  });
   // 赛事面板阵容编辑器共享一份精灵筛选
   const [spriteFilter, setSpriteFilter] = useState<SpriteFilterState>(createDefaultSpriteFilterState);
   // 赛事面板共享精灵搜索（输入即时回显，过滤用 useDeferredValue 防抖）
   const [rosterSearch, setRosterSearch] = useState('');
-  const [sprites, setSprites] = useState<SpriteRecord[]>([]);
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
   // 快速创建比赛：从「信息录入」选手多选后随机配对生成对局
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
@@ -491,37 +515,16 @@ function Dashboard() {
   const [previewSlot, setPreviewSlot] = useState<PreviewSlotKey>('stage');
   const [previewScale, setPreviewScale] = useState(1);
   const [previewShellSize, setPreviewShellSize] = useState({ width: 960, height: 540 });
-  const [stage, setStage] = useState<StageConfig | null>(null);
   const [stageSaving, setStageSaving] = useState(false);
-  const [nextgame, setNextgame] = useState<NextGameState | null>(null);
-  const [nextgameMatch, setNextgameMatch] = useState<MatchRecord | null>(null);
   const [nextgameSaving, setNextgameSaving] = useState(false);
-  // 倒计时插件：服务端时钟偏差（serverNow - 本地时间）用于 running 时计算剩余时间
-  const [countdown, setCountdown] = useState<CountdownState | null>(null);
   const [countdownSaving, setCountdownSaving] = useState(false);
-  const countdownClockRef = useRef({ offset: 0 });
-  // MVP 结算（推流页面4）：精灵项（最多 6 个，顺序即页面从左到右）、标签与 MVP 标记
-  const [mvp, setMvp] = useState<MvpState | null>(null);
-  // 已载入胜方的选手信息（名字 + 头像，由快照 matchId+side 解析，展示在「结算画面」面板）
-  const [mvpWinner, setMvpWinner] = useState<MvpWinnerInfo | null>(null);
   const [mvpSaving, setMvpSaving] = useState(false);
   const [mvpSlotsDraft, setMvpSlotsDraft] = useState<MvpSlotEntry[]>(createEmptyMvpSlots);
-  const [page6, setPage6] = useState<Page6State | null>(null);
   const [page5TitleDraft, setPage5TitleDraft] = useState('');
   const [page2EventTitleDraft, setPage2EventTitleDraft] = useState('');
-  const [page8, setPage8] = useState<Page8State | null>(null);
-  const [page7, setPage7] = useState<Page7State | null>(null);
   // 三个推流选场弹窗的推送中状态（key: page6/page7/page8）
   const [matchPushLoading, setMatchPushLoading] = useState<Record<string, boolean>>({});
-  const [page9, setPage9] = useState<Page9State | null>(null);
-  const [page11, setPage11] = useState<Page11State | null>(null);
-  // === 晋级积分榜（推流页面14） ===
-  const [page14, setPage14] = useState<Page14State | null>(null);
-  // 服务端按系列赛阶段重算的榜单（当前阶段；系列赛缺失时为 null）
-  const [page14Standings, setPage14Standings] = useState<StageStandings | null>(null);
   const [page14Saving, setPage14Saving] = useState(false);
-  // socket 回调里判断「是否配了系列赛」用（回调注册在 [] 依赖的 effect 里，读不到最新 state）
-  const page14ConfiguredRef = useRef(false);
   // 选手介绍手动填写草稿（左侧/右侧），source 切换时同步
   const [page11LeftDraft, setPage11LeftDraft] = useState({ source: 'match' as 'manual' | 'match', name: '', rank: '', declaration: '', pets: '' });
   const [page11RightDraft, setPage11RightDraft] = useState({ source: 'match' as 'manual' | 'match', name: '', rank: '', declaration: '', pets: '' });
@@ -533,18 +536,6 @@ function Dashboard() {
   );
   const [page9Saving, setPage9Saving] = useState(false);
   const [page9SettingsNotice, setPage9SettingsNotice] = useState<NoticeState>(null);
-  // === 信息录入（选手 / 战队） ===
-  const [profiles, setProfiles] = useState<ProfileStoreState | null>(null);
-  // === 系列赛编排 ===
-  const [tournaments, setTournaments] = useState<TournamentRecord[]>([]);
-  // 本机已「本机移除」的系列赛（localOnly，仅本机视图隐藏）：恢复弹窗与比赛管理/推流选场过滤用
-  const [locallyRemoved, setLocallyRemoved] = useState<TournamentRecord[]>([]);
-  // 系列赛回收站（删除后 7 天内可整届恢复的 grace 墓碑）：恢复弹窗与比赛管理/推流选场过滤用
-  const [recycleBin, setRecycleBin] = useState<TournamentRecord[]>([]);
-  // 保持 page14ConfiguredRef 与最新配置同步（供读不到 state 的 socket 回调用）
-  useEffect(() => {
-    page14ConfiguredRef.current = Boolean(page14?.tournamentId);
-  }, [page14?.tournamentId]);
   // 快速创建弹窗选手列表：按信息录入添加时间排序（档案 id 内嵌 base36 创建时间戳，先录者在前；
   // 数组顺序可能被手动编辑/导入/删后重录打乱，id 解析失败的按原数组顺序兜底排在末尾）
   const quickCreatePlayerList = useMemo(() => {
@@ -600,7 +591,6 @@ function Dashboard() {
   // 比赛管理「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
   // === 数据同步（双机同步包导出 / 导入） ===
-  const [machineCodeInput, setMachineCodeInput] = useState('');
   const [machineCodeSaving, setMachineCodeSaving] = useState(false);
   const [syncExportInclProfiles, setSyncExportInclProfiles] = useState(true);
   const [syncExportInclAvatars, setSyncExportInclAvatars] = useState(true);
@@ -619,35 +609,22 @@ function Dashboard() {
   const [syncOverwriteAvatars, setSyncOverwriteAvatars] = useState(false);
   const [syncImporting, setSyncImporting] = useState(false);
   // === 云同步（点击式：主控「同步分发 / 检查回传 / 确认台」+ 分控「同步最新 / 回传」） ===
-  const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus | null>(null);
-  // 云同步设置区草稿（本地编辑，点「保存设置」才落 config.json）
-  const [cloudKeyDraft, setCloudKeyDraft] = useState('');
-  const [cloudTokenDraft, setCloudTokenDraft] = useState('');
-  const [cloudRoleDraft, setCloudRoleDraft] = useState<CloudSyncRole>('main');
-  const [cloudWorkerUrlDraft, setCloudWorkerUrlDraft] = useState('');
-  const [cloudLabelDraft, setCloudLabelDraft] = useState('');
-  const [cloudPeerDraft, setCloudPeerDraft] = useState('');
   const [cloudSaving, setCloudSaving] = useState(false);
   const [cloudTesting, setCloudTesting] = useState(false);
   // 换房间守卫：改「房间号」时服务端回 409 + guard，弹窗让用户选「重置旧状态 / 原样保留」再重试（缺省拒绝保存）
   const [cloudRoomGuard, setCloudRoomGuard] = useState<{ action: 'save' | 'test'; guard: CloudSyncKeyGuardResult } | null>(null);
-  const [cloudBusy, setCloudBusy] = useState<'push' | 'pull' | 'upload' | 'check' | 'apply' | 'assignment' | 'poll' | ''>('');
   // 云端数据走与「导入同步包」同一套预览：flow 区分「拉取待合并」与「主控确认台」
   const [cloudPreviewFlow, setCloudPreviewFlow] = useState<'pull' | 'incoming' | null>(null);
   const [cloudAckSource, setCloudAckSource] = useState<CloudSyncAckSource | null>(null);
   const [cloudAckSources, setCloudAckSources] = useState<CloudSyncAckSource[]>([]);
   const [cloudAckCode, setCloudAckCode] = useState('');
   const [cloudDistInfo, setCloudDistInfo] = useState('');
-  const [cloudPollNotified, setCloudPollNotified] = useState('');
   // 指派工作台（按比赛勾选 / 按波次批量）
   const [cloudAssignOpen, setCloudAssignOpen] = useState(false);
   const [cloudAssignDraft, setCloudAssignDraft] = useState<Record<string, string>>({});
-  // 分控电脑本地「已被主控确认」的赛果集合（登记入口判定接口回传，避免逐行算）
-  const [cloudAckedMatchIds, setCloudAckedMatchIds] = useState<string[]>([]);
   // 预览里被取消勾选的系列赛 id（随导入一起提交：整条不导入，含它名下的比赛）
   const [syncExcludedTournamentIds, setSyncExcludedTournamentIds] = useState<string[]>([]);
   const [syncCollapsedGroupKeys, setSyncCollapsedGroupKeys] = useState<string[]>([]);
-  const cloudPollTimerRef = useRef<number | null>(null);
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
   const [liveFilePath, setLiveFilePath] = useState<string | null>(null);
@@ -687,11 +664,6 @@ function Dashboard() {
   /** 最新面板状态：轮询 / 250ms 回写定时器都是异步回调，不能闭包读 panels（会写回旧值） */
   const livePanelsRef = useRef(panels);
   const previewFrameShellRef = useRef<HTMLDivElement | null>(null);
-  // 待开始小局草稿上下文（getPendingDraftContext）：pending 时编辑器显示源为赛事草稿、全局面板仅供推流页，
-  // 由 applyServerState / loadInitialData 应用 store 时同步维护，避免渲染闭包读到旧状态
-  const pendingDraftRef = useRef<ReturnType<typeof getPendingDraftContext>>(null);
-  // 已回填过的草稿上下文键（matchId|gameNumber），防止保存回显等 store 更新反复覆写编辑中的缓冲区
-  const draftBackfillKeyRef = useRef<string | null>(null);
 
   const spriteMap = buildSpriteLookup(sprites);
   // 「信息录入」选手常用精灵多选选项：去重后的精灵名（选手介绍页按名字匹配精灵图渲染）
@@ -932,358 +904,10 @@ function Dashboard() {
     }));
   }
 
-  function syncPanelFromApi(side: PanelSide, panel: PanelState | null | undefined) {
-    setPanels((prev) => ({
-      ...prev,
-      [side]: {
-        ...prev[side],
-        // 待开始小局：全局面板按设计为空（未开局阵容不上推流页），保留编辑器缓冲区等待草稿回填，
-        // 仅重置 dirty/saving 让防抖自动保存随上下文切换一并取消，避免旧编辑写入新赛事草稿
-        selected: pendingDraftRef.current ? prev[side].selected : panelStateToSelected(panel),
-        dirty: false,
-        saving: false,
-      },
-    }));
-  }
-
-  function applyServerState(payload: {
-    scoreboard?: ScoreboardState;
-    store?: MatchStoreState;
-    avatars?: AvatarCollectionState;
-    panels?: PanelState[];
-    panel?: PanelState;
-    stage?: StageConfig;
-    page6?: Page6State;
-    page7?: Page7State;
-    page8?: Page8State;
-    page9?: Page9State;
-    page11?: Page11State;
-    page14?: Page14State;
-    nextgame?: NextGamePayload;
-    profiles?: ProfileStoreState;
-    tournaments?: TournamentRecord[];
-    locallyRemoved?: TournamentRecord[];
-    recycleBin?: TournamentRecord[];
-    countdown?: CountdownPayload;
-    mvp?: MvpState;
-  }) {
-    startTransition(() => {
-      if (payload.scoreboard) {
-        setScoreboard(payload.scoreboard);
-      }
-      if (payload.store) {
-        setMatchStore(payload.store);
-        // 先于同批 panels 处理维护草稿上下文：snapshot/select 响应里 store 与空 panels 同批到达时，
-        // syncPanelFromApi 需据此判断当前是否 pending（pending 时全局面板不覆写编辑器）
-        pendingDraftRef.current = getPendingDraftContext(payload.store);
-      }
-      if (payload.avatars) {
-        setAvatars(payload.avatars);
-      }
-      if (payload.nextgame) {
-        setNextgame(payload.nextgame.state);
-        setNextgameMatch(payload.nextgame.match ?? null);
-      }
-      if (payload.countdown) {
-        countdownClockRef.current.offset = payload.countdown.serverNow - Date.now();
-        setCountdown(payload.countdown.state);
-      }
-      if (Array.isArray(payload.panels)) {
-        payload.panels.forEach((panel) => {
-          if (panel.position === 'left' || panel.position === 'right') {
-            syncPanelFromApi(panel.position, panel);
-          }
-        });
-      }
-      if (payload.panel && (payload.panel.position === 'left' || payload.panel.position === 'right')) {
-        syncPanelFromApi(payload.panel.position, payload.panel);
-      }
-      if (payload.stage) {
-        setStage(payload.stage);
-      }
-      if (payload.page6) {
-        setPage6(payload.page6);
-      }
-      if (payload.page7) {
-        setPage7(payload.page7);
-      }
-      if (payload.page8) {
-        setPage8(payload.page8);
-      }
-      if (payload.page9) {
-        setPage9(payload.page9);
-      }
-      if (payload.page11) {
-        setPage11(payload.page11);
-      }
-      if (payload.page14) {
-        setPage14(payload.page14);
-      }
-      if (payload.profiles) {
-        setProfiles(payload.profiles);
-      }
-      if (payload.tournaments) {
-        setTournaments(payload.tournaments);
-      }
-      if (payload.locallyRemoved) {
-        setLocallyRemoved(payload.locallyRemoved);
-      }
-      if (payload.recycleBin) {
-        setRecycleBin(payload.recycleBin);
-      }
-      if (payload.mvp) {
-        setMvp(payload.mvp);
-      }
-    });
-  }
-
-  async function loadInitialData(showToast = false) {
-    setPageError('');
-
-    try {
-      const [auth, nextScoreboard, nextMatches, nextAvatars, nextPanels, nextSprites, nextStage, nextPage6, nextPage7, nextPage8, nextPage9, nextPage11, nextPage14, nextNextgame, nextProfiles, nextCountdown, nextMvp, nextRuntimeConfig, nextTournaments, nextLocallyRemoved] = await Promise.all([
-        requestJson<{ authenticated: boolean }>('/api/auth/check'),
-        requestJson<ScoreboardState>('/api/scoreboard'),
-        requestJson<MatchStoreState>('/api/matches'),
-        requestJson<AvatarCollectionState>('/api/avatars'),
-        requestJson<{ panels: [PanelState, PanelState] }>('/api/panels'),
-        requestJson<{ sprites: SpriteRecord[] }>('/api/sprites'),
-        requestJson<StageConfig>('/api/stage'),
-        requestJson<{ state: Page6State }>('/api/page6'),
-        requestJson<{ state: Page7State }>('/api/page7'),
-        requestJson<{ state: Page8State }>('/api/page8'),
-        requestJson<{ state: Page9State }>('/api/page9'),
-        requestJson<{ state: Page11State }>('/api/page11'),
-        requestJson<{ state: Page14State; standings: StageStandings | null }>('/api/page14'),
-        requestJson<NextGamePayload>('/api/nextgame'),
-        requestJson<ProfileStoreState>('/api/profiles'),
-        requestJson<CountdownPayload>('/api/countdown'),
-        requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp'),
-        requestJson<{ port: number; machineCode: string; syncConfig?: CloudSyncStatus }>('/api/runtime-config'),
-        requestJson<{ tournaments: TournamentRecord[] }>('/api/tournaments'),
-        requestJson<{ tournaments: TournamentRecord[] }>('/api/tournaments/local-removed'),
-      ]);
-
-      if (!auth.authenticated) {
-        window.location.href = '/login.html';
-        return;
-      }
-
-      startTransition(() => {
-        setScoreboard(nextScoreboard);
-        setMatchStore(nextMatches);
-        setAvatars(nextAvatars);
-        setSprites(nextSprites.sprites);
-        setStage(nextStage);
-        setPage6(nextPage6.state);
-        setPage7(nextPage7.state);
-        setPage8(nextPage8.state);
-        setPage9(nextPage9.state);
-        setPage11(nextPage11.state);
-        setPage14(nextPage14.state);
-        setPage14Standings(nextPage14.standings);
-        setProfiles(nextProfiles);
-        setTournaments(nextTournaments.tournaments);
-        setLocallyRemoved(nextLocallyRemoved.tournaments);
-        setNextgame(nextNextgame.state);
-        setNextgameMatch(nextNextgame.match ?? null);
-        setMvp(nextMvp.state);
-        setMvpWinner(nextMvp.winner ?? null);
-        setMachineCodeInput(nextRuntimeConfig.machineCode ?? '');
-        if (nextRuntimeConfig.syncConfig) {
-          applyCloudStatus(nextRuntimeConfig.syncConfig);
-        }
-        // 与 applyServerState 一致：先维护草稿上下文再同步面板，避免 pending 时全局面板覆写编辑器
-        pendingDraftRef.current = getPendingDraftContext(nextMatches);
-        syncPanelFromApi('left', nextPanels.panels[0]);
-        syncPanelFromApi('right', nextPanels.panels[1]);
-      });
-
-      if (showToast) {
-        message.success('后台数据已刷新');
-      }
-    } catch (error) {
-      const nextMessage = error instanceof Error ? error.message : String(error);
-      if (nextMessage.includes('authenticated') || nextMessage.includes('请先登录')) {
-        window.location.href = '/login.html';
-        return;
-      }
-      setPageError(nextMessage);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadInitialData();
-  }, []);
-
   // 轮询 / 回写定时器在异步回调里读最新面板（闭包里的 panels 会是旧值，导致写回文件丢掉刚改的数值）
   useEffect(() => {
     livePanelsRef.current = panels;
   }, [panels]);
-
-  // 切换/回显到待开始小局时，用赛事草稿槽位回填阵容编辑器：
-  // pending 状态下全局面板被服务端清空（未开局阵容不上推流页），此前编辑器直接显示空面板，
-  // 造成“已登记阵容消失”的错觉，且空缓冲区被误编辑后自动保存会覆盖整份草稿
-  useEffect(() => {
-    const draft = pendingDraftRef.current;
-    if (!draft) {
-      // 离开 pending 上下文（开局/完赛/切走）时重置键，下次回到 pending 会重新回填
-      draftBackfillKeyRef.current = null;
-      return;
-    }
-    const key = `${draft.matchId}|${draft.gameNumber}`;
-    if (draftBackfillKeyRef.current === key) {
-      return;
-    }
-    // 精灵库未加载完成（如 socket 快照先于初始加载到达）先不回填也不记键，待加载后重试
-    if (!sprites.length) {
-      return;
-    }
-    draftBackfillKeyRef.current = key;
-    const leftSelected = draftSlotsToSelected(draft.leftSlots, spriteMap);
-    const rightSelected = draftSlotsToSelected(draft.rightSlots, spriteMap);
-    setPanels((prev) => ({
-      left: { ...prev.left, selected: leftSelected, dirty: false, saving: false },
-      right: { ...prev.right, selected: rightSelected, dirty: false, saving: false },
-    }));
-  }, [matchStore, sprites]);
-
-  useEffect(() => {
-    const socket = io({
-      transports: ['websocket', 'polling'],
-      query: { role: 'admin' },
-    });
-
-    socket.on(SOCKET_EVENTS.snapshot, (payload) => {
-      applyServerState(payload ?? {});
-      // 快照只带 page14 配置，榜单（standings）要另外取一次
-      if (payload?.page14) {
-        void refreshPage14View();
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.panelUpdate, (payload) => {
-      if (payload?.panel) {
-        applyServerState({ panel: payload.panel });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.scoreboardUpdate, (payload) => {
-      if (payload?.scoreboard) {
-        applyServerState({ scoreboard: payload.scoreboard });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.matchesUpdate, (payload) => {
-      if (payload?.store) {
-        applyServerState({ store: payload.store });
-      }
-      // 登记/撤回赛果会改变系列赛阶段的胜负累计：重取榜单（未配系列赛时跳过）
-      if (page14ConfiguredRef.current) {
-        void refreshPage14View();
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.avatarUpdate, (payload) => {
-      if (payload?.avatars) {
-        applyServerState({ avatars: payload.avatars });
-      }
-      // 已载入胜方的头像按快照 matchId+side 解析：头像上传/删除后同步刷新面板展示
-      void refreshMvpWinner();
-    });
-
-    socket.on(SOCKET_EVENTS.stageUpdate, (payload) => {
-      if (payload?.stage) {
-        applyServerState({ stage: payload.stage });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.page6Update, (payload) => {
-      if (payload?.state) {
-        applyServerState({ page6: payload.state });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.page7Update, (payload) => {
-      if (payload?.state) {
-        applyServerState({ page7: payload.state });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.page8Update, (payload) => {
-      if (payload?.state) {
-        applyServerState({ page8: payload.state });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.page9Update, (payload) => {
-      if (payload?.state) {
-        applyServerState({ page9: payload.state });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.page14Update, (payload) => {
-      if (payload?.state) {
-        applyServerState({ page14: payload.state });
-        void refreshPage14View();
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.page11Update, (payload) => {
-      if (payload?.state) {
-        applyServerState({ page11: payload.state });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.nextgameUpdate, (payload) => {
-      if (payload?.state) {
-        applyServerState({ nextgame: payload });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.countdownUpdate, (payload) => {
-      if (payload?.state) {
-        applyServerState({ countdown: payload });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.profilesUpdate, (payload) => {
-      if (payload?.profiles) {
-        applyServerState({ profiles: payload.profiles });
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.mvpUpdate, (payload) => {
-      if (payload?.state) {
-        applyServerState({ mvp: payload.state });
-      }
-      if (payload?.winner !== undefined) {
-        setMvpWinner(payload.winner ?? null);
-      }
-    });
-
-    socket.on(SOCKET_EVENTS.tournamentUpdate, (payload) => {
-      if (Array.isArray(payload?.tournaments)) {
-        applyServerState({ tournaments: payload.tournaments });
-      }
-      if (Array.isArray(payload?.locallyRemoved)) {
-        applyServerState({ locallyRemoved: payload.locallyRemoved });
-      }
-      if (Array.isArray(payload?.recycleBin)) {
-        applyServerState({ recycleBin: payload.recycleBin });
-      }
-      // 阶段推进/回退、阶段改名都会影响榜单标题与行
-      if (page14ConfiguredRef.current) {
-        void refreshPage14View();
-      }
-    });
-
-    return () => {
-      socket.close();
-    };
-  }, []);
 
   useEffect(() => {
     // 赛事面板阵容编辑统一自动保存（600ms 防抖）；saving 期间跳过调度，避免保存触发的 saving/dirty 状态变化导致重复 POST
@@ -2846,17 +2470,6 @@ function Dashboard() {
     }
   }
 
-  // 晋级积分榜（page14）：读取服务端算好的榜单（系列赛赛果/编排变化后由 socket 触发重取）
-  async function refreshPage14View(): Promise<void> {
-    try {
-      const data = await requestJson<{ state: Page14State; standings: StageStandings | null }>('/api/page14');
-      setPage14(data.state);
-      setPage14Standings(data.standings);
-    } catch {
-      // 静默失败：榜单是展示信息，偶发请求失败不该打断登记操作
-    }
-  }
-
   /**
    * 保存晋级积分榜配置（卡片内联的阶段切换/翻页与弹窗确认共用）。
    * 失败时抛错给调用方（弹窗据此保持打开），此处负责提示与 saving 标记。
@@ -2982,17 +2595,6 @@ function Dashboard() {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setNextgameSaving(false);
-    }
-  }
-
-  /** 刷新 MVP 结算状态与已载入胜方信息（avatar:update 等无法从广播直接得到 winner 的场景） */
-  async function refreshMvpWinner() {
-    try {
-      const data = await requestJson<{ state: MvpState; winner: MvpWinnerInfo }>('/api/mvp');
-      applyServerState({ mvp: data.state });
-      setMvpWinner(data.winner ?? null);
-    } catch {
-      // 刷新失败静默处理，不打断后台操作
     }
   }
 
@@ -3787,36 +3389,6 @@ function Dashboard() {
     // view 也作为依赖：预览外壳在「页面预览」与「战绩详情」两个视图中分别挂载，切换后需重新计算缩放
   }, [previewSlot, view]);
 
-  // 红点轮询：默认开、可关、可设 30~300s；只读小键提示，绝不自动合并数据。
-  // 必须位于任何条件 return 之前（React Hooks 规则），否则 loading 切换时 hook 数量变化会触发 React #310 白屏。
-  useEffect(() => {
-    if (!cloudStatus?.config.syncKey || !cloudStatus.config.workerUrl || !cloudStatus.config.machineCode) {
-      return;
-    }
-    if (cloudStatus.config.pollEnabled === false) {
-      return;
-    }
-    const intervalMs = Math.max(30, cloudStatus.config.pollIntervalSeconds || 60) * 1000;
-    cloudPollTimerRef.current = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void pollCloudStatus(true);
-      }
-    }, intervalMs);
-    return () => {
-      if (cloudPollTimerRef.current) {
-        window.clearInterval(cloudPollTimerRef.current);
-        cloudPollTimerRef.current = null;
-      }
-    };
-  }, [
-    cloudStatus?.config.syncKey,
-    cloudStatus?.config.workerUrl,
-    cloudStatus?.config.machineCode,
-    cloudStatus?.config.role,
-    cloudStatus?.config.pollEnabled,
-    cloudStatus?.config.pollIntervalSeconds,
-  ]);
-
   /**
    * 导航「数据同步」角标：入口从「比赛管理」底部搬到导航后，云同步的待办状态必须仍然一眼可见
    * （口径与卡片里的 cloudLiveBadge 一致：主控看待确认场次，分控看待交回场次 + 云端有新版本）。
@@ -4300,89 +3872,6 @@ function Dashboard() {
       counts[item.action] += 1;
     });
     return counts;
-  }
-
-  /** 应用云同步状态：首次加载或保存设置后回填设置区草稿（编辑中的草稿不覆盖） */
-  function applyCloudStatus(next: CloudSyncStatus, force = false) {
-    setCloudStatus(next);
-    if (force || !cloudKeyDraft) {
-      setCloudKeyDraft(next.config.syncKey);
-    }
-    if (force || !cloudTokenDraft) {
-      setCloudTokenDraft(next.config.syncToken);
-    }
-    if (force || !cloudWorkerUrlDraft) {
-      setCloudWorkerUrlDraft(next.config.workerUrl);
-    }
-    if (force || !cloudLabelDraft) {
-      setCloudLabelDraft(next.config.machineLabel);
-    }
-    if (force || !cloudPeerDraft) {
-      setCloudPeerDraft(
-        next.config.role === 'main'
-          ? next.roster.filter((entry) => entry.code !== next.config.machineCode).map((entry) => entry.code).join(', ')
-          : '',
-      );
-    }
-    setCloudRoleDraft(next.config.role);
-    setCloudAckedMatchIds(next.pending.ackedMatchIds);
-  }
-
-  /** 云同步请求统一出口：自动带房间密钥、访问令牌与机器码（服务端校验一致才执行） */  async function postCloud<T>(pathname: string, body: Record<string, unknown> = {}): Promise<T & { status: CloudSyncStatus }> {
-    const result = await requestJson<T & { status: CloudSyncStatus }>(pathname, {
-      method: 'POST',
-      json: {
-        syncKey: cloudStatus?.config.syncKey ?? cloudKeyDraft,
-        syncToken: cloudStatus?.config.syncToken ?? cloudTokenDraft,
-        machineCode: cloudStatus?.config.machineCode ?? machineCodeInput,
-        ...body,
-      },
-    });
-    if (result?.status) {
-      setCloudStatus(result.status);
-      setCloudAckedMatchIds(result.status.pending.ackedMatchIds);
-    }
-    return result;
-  }
-
-  /** 红点轮询：只读云端小键（version / ack / uplink），绝不自动合并数据 */
-  async function pollCloudStatus(silent = true) {
-    const status = cloudStatus;
-    if (!status?.config.syncKey || !status.config.workerUrl || !status.config.machineCode) {
-      return;
-    }
-    if (!silent) {
-      setCloudBusy('poll');
-    }
-    try {
-      const result = await postCloud<{ version: CloudSyncVersion | null; changed: boolean; inbox: CloudSyncInboxEntry[] }>(
-        '/api/cloud-sync/poll',
-      );
-      if (status.config.role === 'sub' && result.changed && result.version) {
-        const key = `v${result.version.v}`;
-        if (cloudPollNotified !== key) {
-          setCloudPollNotified(key);
-          message.info('主控电脑上传了新内容，点「从云端获取最新」查看');
-        }
-      }
-      if (status.config.role === 'main') {
-        const pendingCount = result.inbox.reduce((sum, entry) => sum + entry.pending.length, 0);
-        if (pendingCount > 0 && !silent) {
-          message.info(`有 ${result.inbox.length} 台电脑交回了赛果，共 ${pendingCount} 场等你确认`);
-        }
-      }
-      if (!silent) {
-        message.success('已刷新同步状态');
-      }
-    } catch (error) {
-      if (!silent) {
-        message.error(error instanceof Error ? error.message : String(error));
-      }
-    } finally {
-      if (!silent) {
-        setCloudBusy('');
-      }
-    }
   }
 
   /**
@@ -7935,7 +7424,9 @@ export function AdminApp() {
   return (
     <ConfigProvider theme={rocoTheme} locale={zhCN}>
       <App>
-        <Dashboard />
+        <AdminDataProvider>
+          <Dashboard />
+        </AdminDataProvider>
       </App>
     </ConfigProvider>
   );
