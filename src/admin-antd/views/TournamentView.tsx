@@ -43,6 +43,7 @@ import type {
   TournamentRecord,
   TournamentWave,
 } from '../../../shared/types';
+import { useAdminData } from '../data/use-admin-data';
 import {
   buildPlayerNameMap,
   buildWaveCards,
@@ -136,56 +137,34 @@ const THIRD_PLACE_BEST_SEGMENTS = THIRD_PLACE_BEST_OF_OPTIONS.map((value) => ({
 /* ==================== 系列赛列表 + 详情容器 ==================== */
 
 export interface TournamentViewProps {
-  tournaments: TournamentRecord[];
-  profiles: ProfileStoreState | null;
-  matches: MatchRecord[];
-  /** 当前比赛 id（判断卡片菜单里「已是当前比赛」，以及撤回可用性回落口径） */
-  activeMatchId: string | null;
-  /** 撤销栈读模型（含 byMatch：非当前比赛的撤回可用性） */
-  undo: MatchStoreState['undo'];
-  /** 对某场执行流程动作（开始 / 登记胜负 / 撤回 / 取消撤回）：headless，不切当前比赛 */
-  onMatchAction(
-    matchId: string,
-    action: 'start' | 'undo' | 'redo' | 'winner',
-    extra?: Record<string, unknown>,
-  ): void;
-  /** 打开某场的 Drawer 面板 */
+  /** 打开某场的 Drawer 面板（Drawer 挂在 App 根，状态由 App 持有） */
   onOpenMatchPanel(matchId: string): void;
-  /** 云同步登记闸门（分控端未指派 → 置灰） */
-  registerGate(matchId: string): { allowed: boolean; reason: string };
-  /** 云同步撤回闸门（分控端已确认 → 禁撤回） */
-  undoGate(matchId: string): { allowed: boolean; reason: string };
-  /** 精灵索引：导出模板回显已有阵容名（与解析口径一致） */
-  sprites: SpriteRecord[];
-  /** 本机机器标识：判定系列赛是否归本机编排（只读副本禁用编排操作） */
-  machineCode: string;
-  /** 本机已「本机移除」的系列赛（仅本机视图隐藏，可在恢复弹窗中恢复） */
-  locallyRemoved: TournamentRecord[];
-  /** 系列赛回收站（删除后 7 天内可整届恢复）：恢复弹窗数据源 */
-  recycleBin: TournamentRecord[];
   /** 「进入管理」：切换为当前比赛后跳转赛事面板（App 提供） */
   onJumpToRoster?: () => void;
-  /** 阵容录入保存后回传最新赛事 store（App 统一应用，免等 socket 广播） */
-  onMatchesStore?: (store: MatchStoreState) => void;
 }
 
-export function TournamentView({
-  tournaments,
-  profiles,
-  matches,
-  activeMatchId,
-  undo,
-  onMatchAction,
-  onOpenMatchPanel,
-  registerGate,
-  undoGate,
-  sprites,
-  machineCode,
-  locallyRemoved,
-  recycleBin,
-  onJumpToRoster,
-  onMatchesStore,
-}: TournamentViewProps): React.ReactElement {
+export function TournamentView({ onOpenMatchPanel, onJumpToRoster }: TournamentViewProps): React.ReactElement {
+  // 共享数据/动作直接走数据层（M3）：系列赛、档案、比赛 store、精灵、机器码、云闸门、对局动作
+  const {
+    tournaments,
+    profiles,
+    matchStore,
+    sprites,
+    machineCode,
+    locallyRemoved,
+    recycleBin,
+    applyServerState,
+    runMatchAction,
+    cloudRegisterGate,
+    cloudUndoGate,
+  } = useAdminData();
+  const matches = matchStore.matches;
+  const activeMatchId = matchStore.activeMatchId;
+  const undo = matchStore.undo;
+  const onMatchAction = runMatchAction;
+  const registerGate = cloudRegisterGate;
+  const undoGate = cloudUndoGate;
+  const onMatchesStore = (store: MatchStoreState) => applyServerState({ store });
   const { message } = App.useApp();
   /**
    * 卡片右键 / 「⋯」菜单三件套：可用性在这里一次算好（卡片本身只有 BracketCard，

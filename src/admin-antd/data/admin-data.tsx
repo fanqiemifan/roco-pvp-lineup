@@ -105,6 +105,8 @@ export interface AdminData {
   machineCode: string;
   /** 比赛管理顶部的最近一条操作提示（数据同步导入成功也会写它，跨视图） */
   historyNotice: NoticeState;
+  /** 赛事面板顶部的最近一条操作提示（系列比赛的对局动作也会写它，跨视图） */
+  rosterNotice: NoticeState;
 
   cloudStatus: CloudSyncStatus | null;
   /** 已被主控确认的赛果 id（分控端撤回闸门用） */
@@ -123,9 +125,20 @@ export interface AdminData {
   setProfiles: Dispatch<SetStateAction<ProfileStoreState | null>>;
   setMachineCode: Dispatch<SetStateAction<string>>;
   setHistoryNotice: Dispatch<SetStateAction<NoticeState>>;
+  setRosterNotice: Dispatch<SetStateAction<NoticeState>>;
 
   /** 统一应用服务端状态（REST 响应 / socket 广播共用） */
   applyServerState: (payload: ApplyServerStatePayload) => void;
+  /** 对某场执行流程动作（开始 / 登记胜负 / 撤回 / 取消撤回）：headless，不切当前比赛 */
+  runMatchAction: (
+    matchId: string,
+    action: 'start' | 'undo' | 'redo' | 'winner',
+    extra?: Record<string, unknown>,
+  ) => Promise<void>;
+  /** 云同步登记闸门（分控端未指派 → 置灰） */
+  cloudRegisterGate: (matchId: string) => { allowed: boolean; reason: string };
+  /** 云同步撤回闸门（分控端已确认 → 禁撤回） */
+  cloudUndoGate: (matchId: string) => { allowed: boolean; reason: string };
   /** 重新拉取全部后台数据（首屏、云同步合并后、监听异常兜底） */
   loadInitialData: (showToast?: boolean) => Promise<void>;
   /** 应用云同步状态（只写状态与已确认集；设置区草稿由 SyncView 自己回填） */
@@ -189,6 +202,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const [machineCode, setMachineCode] = useState('');
   // 跨视图提示：比赛管理的操作提示 / 数据同步导入结果都会写它
   const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
+  // 赛事面板顶部的提示：当前比赛面板与系列比赛的对局动作共用
+  const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus | null>(null);
   const [cloudPollNotified, setCloudPollNotified] = useState('');
   const [cloudAckedMatchIds, setCloudAckedMatchIds] = useState<string[]>([]);
@@ -290,6 +305,73 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         setMvp(payload.mvp);
       }
     });
+  }
+
+  /**
+   * 对某一场执行流程动作（开始 / 登记胜负 / 撤回 / 取消撤回）。
+   * 服务端按 matchId 工作，因此**不必**先把该场设为当前比赛：系列比赛的右键菜单与 Drawer
+   * 都是 headless 登记（推流画面保持原样）；只有当前比赛才触发 page10 自动切入（服务端守卫）。
+   */
+  async function runMatchAction(
+    matchId: string,
+    action: 'start' | 'undo' | 'redo' | 'winner',
+    extra?: Record<string, unknown>,
+  ) {
+    const target = matchStore.matches.find((match) => match.id === matchId);
+    if (!target) {
+      return;
+    }
+
+    try {
+      const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>(
+        `/api/matches/${encodeURIComponent(matchId)}/${action}`,
+        {
+          method: 'POST',
+          json: extra,
+        },
+      );
+      applyServerState({
+        store: data.store,
+        scoreboard: data.scoreboard,
+        panels: data.panels,
+      });
+
+      const nextStore = data.store ?? matchStore;
+      const nextMatch = nextStore.matches.find((match) => match.id === matchId) ?? null;
+      // headless：推流画面没有跟着切，提示里必须说清楚，否则会被当成「没生效」
+      const headlessSuffix = nextStore.activeMatchId === matchId
+        ? ''
+        : '（未切换当前比赛，推流画面保持不变）';
+      if (action === 'start') {
+        const nextText = `本局已开始，后续仍可继续编辑阵容、血量与能量值${headlessSuffix}`;
+        setRosterNotice({ tone: 'success', text: nextText });
+        message.success(nextText);
+        return;
+      }
+      if (action === 'undo') {
+        const nextText = `已撤回上一步操作${headlessSuffix}`;
+        setRosterNotice({ tone: 'success', text: nextText });
+        message.success(nextText);
+        return;
+      }
+      if (action === 'redo') {
+        const nextText = `已恢复刚刚撤回的操作${headlessSuffix}`;
+        setRosterNotice({ tone: 'success', text: nextText });
+        message.success(nextText);
+        return;
+      }
+      if (action === 'winner') {
+        const winner = extra?.winner === 'left' || extra?.winner === 'right' ? extra.winner : null;
+        const sideText = winner === 'left' ? '左侧' : '右侧';
+        const nextText = nextMatch?.status === 'completed'
+          ? `比赛已结束，${sideText}拿下系列赛${headlessSuffix}`
+          : `已记录${sideText}本局获胜，下一局等待开始${headlessSuffix}`;
+        setRosterNotice({ tone: 'success', text: nextText });
+        message.success(nextText);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
   }
 
   async function loadInitialData(showToast = false) {
@@ -395,6 +477,44 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   function applyCloudStatus(next: CloudSyncStatus) {
     setCloudStatus(next);
     setCloudAckedMatchIds(next.pending.ackedMatchIds);
+  }
+
+  /** 指派作用域：空 = 主控端自己登记（未指派的比赛一律归主控端） */
+  function cloudScopeOf(matchId: string): string {
+    return cloudStatus?.assignment[matchId] ?? '';
+  }
+
+  /** 本机能否登记某场比赛（分控电脑只允许登记主控安排给本机的比赛；没启用云同步时不干预） */
+  function cloudRegisterGate(matchId: string): { allowed: boolean; reason: string } {
+    const status = cloudStatus;
+    if (!status?.configured) {
+      return { allowed: true, reason: '' };
+    }
+    const scope = cloudScopeOf(matchId);
+    if (status.config.role === 'main') {
+      return scope === '' || scope === status.config.machineCode
+        ? { allowed: true, reason: '' }
+        : { allowed: false, reason: `这场已安排给 ${scope} 号机登记，请到那台电脑上登记` };
+    }
+    if (scope === status.config.machineCode) {
+      return { allowed: true, reason: '' };
+    }
+    return {
+      allowed: false,
+      reason: scope
+        ? `这场安排给 ${scope} 号机登记，本机不能登记`
+        : '这场没有安排给本机登记（没安排的默认由主控电脑登记）',
+    };
+  }
+
+  /** 已被主控确认的赛果，分控电脑不能再撤回（会让两边的比分对不上） */
+  function cloudUndoGate(matchId: string): { allowed: boolean; reason: string } {
+    if (cloudStatus?.config.role !== 'sub') {
+      return { allowed: true, reason: '' };
+    }
+    return cloudAckedMatchIds.includes(matchId)
+      ? { allowed: false, reason: '这场已经被主控电脑确认了：如果结果有误，请联系主控电脑退回这一轮，重新获取后再登记' }
+      : { allowed: true, reason: '' };
   }
 
   /** 云同步请求统一出口：自动带房间密钥、访问令牌与机器码（服务端校验一致才执行） */
@@ -673,6 +793,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     recycleBin,
     machineCode,
     historyNotice,
+    rosterNotice,
     cloudStatus,
     cloudAckedMatchIds,
     setAvatars,
@@ -688,7 +809,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     setProfiles,
     setMachineCode,
     setHistoryNotice,
+    setRosterNotice,
     applyServerState,
+    runMatchAction,
+    cloudRegisterGate,
+    cloudUndoGate,
     loadInitialData,
     applyCloudStatus,
     postCloud,

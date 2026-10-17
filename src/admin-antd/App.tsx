@@ -89,6 +89,8 @@ import {
   DEFAULT_TAGS,
   EXCLUSIVE_FORM_FILTERS,
   MVP_TAG_PRESETS,
+  PAGE6_MAX_MATCHES,
+  PAGE8_MAX_MATCHES,
   STAGE_OPTIONS,
   STAGE_TRANSITION_OPTIONS,
   normalizeStagePage,
@@ -154,12 +156,6 @@ import {
   createEmptySlot,
   createSpriteFilterState,
 } from './lib/panel';
-import {
-  PREVIEW_NAV_GROUPS,
-  buildPreviewUrl,
-  getLocalAddressText,
-  getPreviewNavLabel,
-} from './lib/preview';
 import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from './lib/request';
 import { renderProfileTemplateXlsx } from './lib/profile-template-xlsx';
 import type { ProfileXlsxImportResponse, ProfileXlsxPreviewResponse } from './types';
@@ -167,6 +163,8 @@ import { buildSpriteLookup } from './lib/sprite';
 import { deriveMatchActionAvailability } from './lib/match-actions';
 import { buildMvpProgressItems } from './lib/mvp';
 import { CurrentMatchPanel } from './components/CurrentMatchPanel';
+import { AboutView } from './views/AboutView';
+import { PreviewView } from './views/PreviewView';
 import { MatchLineupDetailPanel } from './views/MatchLineupDetailModal';
 import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
 import { RosterPanelEditor } from './views/RosterPanelEditor';
@@ -205,7 +203,6 @@ import type {
   PanelSide,
   PlayerAvatarBatchResponse,
   PlayerProfileFormValues,
-  PreviewSlotKey,
   SpriteFilterState,
   TeamProfileFormValues,
   ViewKey,
@@ -217,7 +214,7 @@ import { Surface } from './ui/Surface';
 import { EmptyState } from './ui/EmptyState';
 
 const { Header, Sider, Content } = Layout;
-const { Title, Paragraph, Text, Link } = Typography;
+const { Title, Paragraph, Text } = Typography;
 const { TextArea } = Input;
 
 /** 切换当前赛事确认弹窗的「不再提示」标记：按浏览器本地记忆（localStorage），跨会话保留 */
@@ -313,13 +310,6 @@ const HISTORY_STATUS_RANK: Record<MatchRecord['status'], number> = {
   completed: 2,
 };
 
-/**
- * 推流页选场上限：比赛结果 / 比赛预告均为 9 场（3×3 卡片网格，结构决定）；
- * 战绩详情（page7）画面是一屏 4 行 + 整屏过渡，行数不影响结构，**不设上限**（不传 maxCount），
- * 支持整届 / 按阶段·波次勾选，规模提示由弹窗里的「已选 N 场 ≈ M 屏」承担。
- */
-const PAGE6_MAX_MATCHES = 9;
-const PAGE8_MAX_MATCHES = 9;
 /** 团队积分榜（page9）后台可录入的战队行数 */
 const PAGE9_TEAM_COUNT = 4;
 
@@ -414,8 +404,8 @@ function Dashboard() {
     tournaments,
     locallyRemoved,
     recycleBin,
-    machineCode,
     historyNotice,
+    rosterNotice,
     cloudStatus,
     cloudAckedMatchIds,
     setAvatars,
@@ -425,7 +415,11 @@ function Dashboard() {
     setPage14Standings,
     setProfiles,
     setHistoryNotice,
+    setRosterNotice,
     applyServerState,
+    runMatchAction,
+    cloudRegisterGate,
+    cloudUndoGate,
     loadInitialData,
   } = useAdminData();
   const [view, setView] = useState<ViewKey>('roster');
@@ -479,9 +473,6 @@ function Dashboard() {
   const [statsTag, setStatsTag] = useState<string | null>(null);
   const [statsTournamentId, setStatsTournamentId] = useState<string | null>(null);
   const [statsSearch, setStatsSearch] = useState('');
-  const [previewSlot, setPreviewSlot] = useState<PreviewSlotKey>('stage');
-  const [previewScale, setPreviewScale] = useState(1);
-  const [previewShellSize, setPreviewShellSize] = useState({ width: 960, height: 540 });
   const [stageSaving, setStageSaving] = useState(false);
   const [nextgameSaving, setNextgameSaving] = useState(false);
   const [countdownSaving, setCountdownSaving] = useState(false);
@@ -553,7 +544,6 @@ function Dashboard() {
   const [avatarBatchResult, setAvatarBatchResult] = useState<{ matched: number; unmatched: string[]; failed: Array<{ name: string; reason: string }> } | null>(null);
   const [avatarBatchResultOpen, setAvatarBatchResultOpen] = useState(false);
   const avatarBatchInputRef = useRef<HTMLInputElement | null>(null);
-  const [rosterNotice, setRosterNotice] = useState<NoticeState>(null);
   // 比赛管理「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
@@ -594,8 +584,6 @@ function Dashboard() {
   const livePollBusyRef = useRef(false);
   /** 最新面板状态：轮询 / 250ms 回写定时器都是异步回调，不能闭包读 panels（会写回旧值） */
   const livePanelsRef = useRef(panels);
-  const previewFrameShellRef = useRef<HTMLDivElement | null>(null);
-
   const spriteMap = buildSpriteLookup(sprites);
   // 「信息录入」选手常用精灵多选选项：去重后的精灵名（选手介绍页按名字匹配精灵图渲染）
   const playerPetOptions = Array.from(
@@ -2173,68 +2161,6 @@ function Dashboard() {
    * 服务端按 matchId 工作，因此**不必**先把该场设为当前比赛：系列比赛的右键菜单与 Drawer
    * 都是 headless 登记（推流画面保持原样）；只有当前比赛才触发 page10 自动切入（服务端守卫）。
    */
-  async function runMatchAction(
-    matchId: string,
-    action: 'start' | 'undo' | 'redo' | 'winner',
-    extra?: Record<string, unknown>,
-  ) {
-    const target = matchStore.matches.find((match) => match.id === matchId);
-    if (!target) {
-      return;
-    }
-
-    try {
-      const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>(
-        `/api/matches/${encodeURIComponent(matchId)}/${action}`,
-        {
-          method: 'POST',
-          json: extra,
-        },
-      );
-      applyServerState({
-        store: data.store,
-        scoreboard: data.scoreboard,
-        panels: data.panels,
-      });
-
-      const nextStore = data.store ?? matchStore;
-      const nextMatch = nextStore.matches.find((match) => match.id === matchId) ?? null;
-      // headless：推流画面没有跟着切，提示里必须说清楚，否则会被当成「没生效」
-      const headlessSuffix = nextStore.activeMatchId === matchId
-        ? ''
-        : '（未切换当前比赛，推流画面保持不变）';
-      if (action === 'start') {
-        const nextText = `本局已开始，后续仍可继续编辑阵容、血量与能量值${headlessSuffix}`;
-        setRosterNotice({ tone: 'success', text: nextText });
-        message.success(nextText);
-        return;
-      }
-      if (action === 'undo') {
-        const nextText = `已撤回上一步操作${headlessSuffix}`;
-        setRosterNotice({ tone: 'success', text: nextText });
-        message.success(nextText);
-        return;
-      }
-      if (action === 'redo') {
-        const nextText = `已恢复刚刚撤回的操作${headlessSuffix}`;
-        setRosterNotice({ tone: 'success', text: nextText });
-        message.success(nextText);
-        return;
-      }
-      if (action === 'winner') {
-        const winner = extra?.winner === 'left' || extra?.winner === 'right' ? extra.winner : null;
-        const sideText = winner === 'left' ? '左侧' : '右侧';
-        const nextText = nextMatch?.status === 'completed'
-          ? `比赛已结束，${sideText}拿下系列赛${headlessSuffix}`
-          : `已记录${sideText}本局获胜，下一局等待开始${headlessSuffix}`;
-        setRosterNotice({ tone: 'success', text: nextText });
-        message.success(nextText);
-      }
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
   // 即时保存：推流页面5标题（失焦触发，值未变化时跳过）
   async function savePage5TitleNow() {
     if (!scoreboard || page5TitleDraft === (scoreboard.page5Title ?? '')) {
@@ -2760,24 +2686,6 @@ function Dashboard() {
     }
   }
 
-  async function handleCopyLocalAddress() {
-    try {
-      await copyText(getLocalAddressText(previewSlot));
-      message.success('本地地址已复制');
-    } catch {
-      message.error('复制失败，请手动复制');
-    }
-  }
-
-  async function handleCopyPreviewLink() {
-    try {
-      await copyText(buildPreviewUrl(previewSlot));
-      message.success('预览链接已复制');
-    } catch {
-      message.error('复制失败，请手动复制');
-    }
-  }
-
   async function handleCopyStageLocalAddress() {
     const host = window.location.port ? `127.0.0.1:${window.location.port}` : '127.0.0.1';
     try {
@@ -3286,40 +3194,6 @@ function Dashboard() {
     };
   }, []);
 
-  useEffect(() => {
-    const shell = previewFrameShellRef.current;
-    if (!shell || typeof ResizeObserver === 'undefined') {
-      return;
-    }
-
-    const updatePreviewLayout = () => {
-      const rect = shell.getBoundingClientRect();
-      const availableHeight = Math.max(320, Math.floor(window.innerHeight - rect.top - 24));
-      const availableWidth = shell.clientWidth;
-
-      if (!availableWidth || !availableHeight) {
-        return;
-      }
-
-      const nextScale = Math.min(availableWidth / 1920, availableHeight / 1080, 1);
-      const nextWidth = Math.floor(1920 * nextScale);
-      const nextHeight = Math.floor(1080 * nextScale);
-
-      setPreviewShellSize({ width: nextWidth, height: nextHeight });
-      setPreviewScale(nextScale > 0 ? nextScale : 1);
-    };
-
-    updatePreviewLayout();
-    const observer = new ResizeObserver(() => updatePreviewLayout());
-    observer.observe(shell);
-    window.addEventListener('resize', updatePreviewLayout);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', updatePreviewLayout);
-    };
-    // view 也作为依赖：预览外壳在「页面预览」与「战绩详情」两个视图中分别挂载，切换后需重新计算缩放
-  }, [previewSlot, view]);
-
   /**
    * 导航「数据同步」角标：入口从「比赛管理」底部搬到导航后，云同步的待办状态必须仍然一眼可见
    * （口径与卡片里的 cloudLiveBadge 一致：主控看待确认场次，分控看待交回场次 + 云端有新版本）。
@@ -3599,44 +3473,6 @@ function Dashboard() {
     message.success(`已导出 ${sortedMatches.length} 场赛事历史`);
   }
 
-  /** 指派作用域：空 = 主控端自己登记（未指派的比赛一律归主控端） */
-  function cloudScopeOf(matchId: string): string {
-    return cloudStatus?.assignment[matchId] ?? '';
-  }
-
-  /** 本机能否登记某场比赛（分控电脑只允许登记主控安排给本机的比赛；没启用云同步时不干预） */
-  function cloudRegisterGate(matchId: string): { allowed: boolean; reason: string } {
-    const status = cloudStatus;
-    if (!status?.configured) {
-      return { allowed: true, reason: '' };
-    }
-    const scope = cloudScopeOf(matchId);
-    if (status.config.role === 'main') {
-      return scope === '' || scope === status.config.machineCode
-        ? { allowed: true, reason: '' }
-        : { allowed: false, reason: `这场已安排给 ${scope} 号机登记，请到那台电脑上登记` };
-    }
-    if (scope === status.config.machineCode) {
-      return { allowed: true, reason: '' };
-    }
-    return {
-      allowed: false,
-      reason: scope
-        ? `这场安排给 ${scope} 号机登记，本机不能登记`
-        : '这场没有安排给本机登记（没安排的默认由主控电脑登记）',
-    };
-  }
-
-  /** 已被主控确认的赛果，分控电脑不能再撤回（会让两边的比分对不上） */
-  function cloudUndoGate(matchId: string): { allowed: boolean; reason: string } {
-    if (cloudStatus?.config.role !== 'sub') {
-      return { allowed: true, reason: '' };
-    }
-    return cloudAckedMatchIds.includes(matchId)
-      ? { allowed: false, reason: '这场已经被主控电脑确认了：如果结果有误，请联系主控电脑退回这一轮，重新获取后再登记' }
-      : { allowed: true, reason: '' };
-  }
-
   return (
     <Layout className="admin-shell">
       <Sider
@@ -3665,10 +3501,6 @@ function Dashboard() {
           items={menuItems}
           onClick={({ key }) => {
             setView(key as ViewKey);
-            // 进入「战绩详情」视图时同步预览槽位，方便「页面预览」视图直达页面7
-            if (key === 'page7') {
-              setPreviewSlot('page7');
-            }
           }}
           className="admin-menu"
         />
@@ -4938,169 +4770,18 @@ function Dashboard() {
           ) : null}
 
           {view === 'preview' ? (
-            <Space direction="vertical" size={18} className="page-stack">
-              <Card
-                className="preview-page-card"
-                title={getPreviewNavLabel(previewSlot)}
-                extra={<Button type="primary" href={buildPreviewUrl(previewSlot)} target="_blank">新窗口打开</Button>}
-              >
-                <div className="preview-layout">
-                  {/* 左侧分组导航：18 个预览槽位全部列出，超高在本列内滚动，不再像原来那排 Segmented 被裁掉 */}
-                  <nav className="preview-nav" aria-label="预览页面选择">
-                    {PREVIEW_NAV_GROUPS.map((group) => (
-                      <div className="preview-nav-group" key={group.title}>
-                        <div className="preview-nav-group-title">{group.title}</div>
-                        {group.items.map((item) => {
-                          const selected = item.slot === previewSlot;
-                          return (
-                            <button
-                              type="button"
-                              key={item.slot}
-                              className={selected ? 'preview-nav-item is-active' : 'preview-nav-item'}
-                              aria-current={selected ? 'page' : undefined}
-                              onClick={() => setPreviewSlot(item.slot)}
-                            >
-                              {item.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </nav>
-                  <div className="preview-main">
-                    {/* 地址行：原来两张 Statistic 卡各占半屏，收成一行小字 + 复制按钮，把高度让给画面 */}
-                    <div className="preview-address-row">
-                      <div className="preview-address">
-                        <span className="preview-address-label">预览地址</span>
-                        <Tooltip title={`本地：${getLocalAddressText(previewSlot)}　完整：${buildPreviewUrl(previewSlot)}`}>
-                          <code className="preview-address-text">{getLocalAddressText(previewSlot)}</code>
-                        </Tooltip>
-                      </div>
-                      <Space size={8}>
-                        <Button size="small" onClick={() => void handleCopyLocalAddress()}>复制地址</Button>
-                        <Button size="small" onClick={() => void handleCopyPreviewLink()}>复制链接</Button>
-                      </Space>
-                    </div>
-                    {previewSlot === 'page6' || previewSlot === 'page7' || previewSlot === 'page8' ? (
-                      <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
-                        对局选择与推送在「比赛管理」视图顶部的功能卡片中完成：点击对应卡片，在弹窗内勾选比赛、调整场序{previewSlot === 'page6' || previewSlot === 'page8' ? '与场序时间' : ''}后确认推送（最多 {PAGE8_MAX_MATCHES} 场）。
-                      </Paragraph>
-                    ) : null}
-                    <div className="preview-frame-shell" ref={previewFrameShellRef}>
-                      <div
-                        className="preview-frame-viewport"
-                        style={{ width: `${previewShellSize.width}px`, height: `${previewShellSize.height}px` }}
-                      >
-                        <div className="preview-frame-stage" style={{ transform: `scale(${previewScale})` }}>
-                          <iframe title="preview" className="preview-frame" src={buildPreviewUrl(previewSlot)} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </Space>
+            <PreviewView />
           ) : null}
 
           {view === 'tournament' ? (
             <TournamentView
-              tournaments={tournaments}
-              profiles={profiles}
-              matches={matchStore.matches}
-              activeMatchId={matchStore.activeMatchId}
-              undo={matchStore.undo}
-              onMatchAction={(matchId, action, extra) => void runMatchAction(matchId, action, extra)}
               onOpenMatchPanel={openMatchPanel}
-              registerGate={cloudRegisterGate}
-              undoGate={cloudUndoGate}
-              sprites={sprites}
-              machineCode={machineCode}
-              locallyRemoved={locallyRemoved}
-              recycleBin={recycleBin}
               onJumpToRoster={() => setView('roster')}
-              onMatchesStore={(store) => applyServerState({ store })}
             />
           ) : null}
 
           {view === 'about' ? (
-            <Space direction="vertical" size={18} className="page-stack">
-              <Card title="项目链接">
-                <Space wrap size={12}>
-                  <Link href="/login.html" target="_blank">登录页入口</Link>
-                  <Link href="/admin.html" target="_blank">当前后台入口</Link>
-                  <Link href="/roco-pvp-page3.html" target="_blank">推流页面 3</Link>
-                  <Link href="rocom.shallow.ink" target="_blank">精灵图素材来源</Link>
-                  <Link href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans" target="_blank">CC BY-NC-SA 4.0</Link>
-                </Space>
-              </Card>
-              <Card>
-                <Space direction="vertical" size={16} className="page-stack">
-                      <div>
-                        <Text className="eyebrow">About This Site</Text>
-                        <Title level={3}>关于这应用的说明</Title>
-                      </div>
-                      <Paragraph>
-                        这个应用面向洛克王国 PVP 直播场景，把赛事录入、阵容同步、比分控制、素材管理和推流页面预览统一收口到同一套 Ant Design 工作台里。
-                      </Paragraph>
-                      <Row gutter={[16, 16]}>
-                        <Col xs={24} md={8}>
-                          <Card size="small" className="subtle-card">
-                            <Title level={5}>赛事与比分统一管理</Title>
-                            <Paragraph type="secondary">创建赛事、维护 BO 赛制、记录每小局胜负，并把当前状态同步到推流页面。</Paragraph>
-                          </Card>
-                        </Col>
-                        <Col xs={24} md={8}>
-                          <Card size="small" className="subtle-card">
-                            <Title level={5}>左右阵容独立编辑</Title>
-                            <Paragraph type="secondary">两边阵容可分别配置，并独立调节血量、能力值、透明度和饱和度。</Paragraph>
-                          </Card>
-                        </Col>
-                        <Col xs={24} md={8}>
-                          <Card size="small" className="subtle-card">
-                            <Title level={5}>素材与预览联动</Title>
-                            <Paragraph type="secondary">头像、推流页面 1/2/3 和等待页都能在后台里一起管理。</Paragraph>
-                          </Card>
-                        </Col>
-                      </Row>
-                      <Card size="small" className="subtle-card" title="作者与许可">
-                        <Space direction="vertical" size={8} className="page-stack">
-                          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                            作者邮箱：<Link href="mailto:463218006@qq.com">463218006@qq.com</Link>
-                          </Paragraph>
-                          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                            本软件<Text strong>免费开源使用</Text>，基于 MIT License 发布，可自由使用、复制、修改与分发（分发时需保留版权声明与许可声明）。
-                          </Paragraph>
-                        </Space>
-                      </Card>
-                      <Card size="small" className="subtle-card" title="字体说明">
-                        <Space direction="vertical" size={8} className="page-stack">
-                          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                            本项目内置了 <Text strong>MiSans</Text> 系列字体（精灵名字使用 MiSans-Medium、推流页面3 选手名字使用 MiSans-Regular 等）。
-                          </Paragraph>
-                          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                            以下推流页面使用了 <Text strong>YouSheBiaoTiHei</Text>（优设标题黑）字体，该字体<Text strong>未随软件打包</Text>，需要您在电脑上自行安装后才能正常显示，未安装时页面会自动回退到 MiSans：
-                          </Paragraph>
-                          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                            · 推流页面2（比分栏等标题）· 推流页面5（登场/胜率排行）· 推流页面6（比赛结果）· 等待页
-                          </Paragraph>
-                          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                            下载 YouSheBiaoTiHei：
-                            <Link href="https://www.fonts.net.cn/font-38213257557.html" target="_blank">免登录下载</Link>
-                            &nbsp;·&nbsp;
-                            <Link href="https://www.uisdc.com/uisdc-first-free-font" target="_blank">官网下载（需登录）</Link>
-                          </Paragraph>
-                        </Space>
-                      </Card>
-                      <Card size="small" className="subtle-card" title="数据来源">
-                        <Space direction="vertical" size={8} className="page-stack">
-                          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                            本应用相关数据由洛克魔法书（rocom.shallow.ink）提供，仅供娱乐参考。数据源于民间整理、用户授权接口返回或算法推断，非《洛克王国》官方数据，与官方无任何关联。游戏素材及版权归属于《洛克王国》项目组，准确信息请以官方游戏内为准。因使用数据产生的任何后果与争议，由使用者自行承担，本应用及洛克魔法书团队不承担任何责任。
-                          </Paragraph>
-                        </Space>
-                      </Card>
-                    </Space>
-                  </Card>
-            </Space>
+            <AboutView />
           ) : null}
         </Content>
       </Layout>

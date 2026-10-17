@@ -78,6 +78,10 @@ const CONTROL_FILES = [
     file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'sync', 'use-sync-controller.ts'),
     start: 'export function useSyncController(',
   },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'PreviewView.tsx'),
+    start: 'export function PreviewView(',
+  },
 ];
 
 function scanHooksAfterTopLevelReturn(source: string, startPrefix: string): { returnLine: number; hooksAfter: string[] } {

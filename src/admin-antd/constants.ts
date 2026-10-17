@@ -15,6 +15,10 @@ export const MVP_TAG_PRESETS = [
   '顶级终端',
 ];
 
+/** 推流页选场上限：比赛结果 / 比赛预告均为 9 场（3×3 卡片网格，结构决定）；page7 不设上限 */
+export const PAGE6_MAX_MATCHES = 9;
+export const PAGE8_MAX_MATCHES = 9;
+
 export const PREVIEW_PAGES: Record<PreviewSlotKey, PreviewConfig> = {
   stage: {
     title: '直播推流（全局推流页面）',

@@ -234,9 +234,10 @@ interface AdminData {
 ## 9. 交接
 
 - 分支：`feat/admin-ds-lite`
-- 已有提交：`579e68c`（主题底座）→ `7636355`（蓝红/Hint/StatusTag）→ `01315af`（收尾）→ `35b73d1`（弹窗宽度）→ `29e4861`（死类名）→ `28fa565`（Surface/EmptyState）→ `df52d18`（SyncView 拆分）→ `1c6e71f`（本方案）→ M1 共享数据层（`refactor(admin): 抽离共享数据层 AdminDataProvider`）→ M2 SyncView 回炉（`refactor(admin): 收缩 SyncView scope，状态下沉视图`）
-- 当前状态（M2 完成后）：`App.tsx` 7,942 → 6,379 行；Dashboard 的 `useState` 168 → 106；`SyncView` 的 99 项 scope 已清零（组件无 props，状态/处理器在 `views/sync/use-sync-controller.ts`，纯逻辑在 `views/sync/sync-helpers.ts`）；数据层 Provider 699 行。
+- 已有提交：`579e68c`（主题底座）→ `7636355`（蓝红/Hint/StatusTag）→ `01315af`（收尾）→ `35b73d1`（弹窗宽度）→ `29e4861`（死类名）→ `28fa565`（Surface/EmptyState）→ `df52d18`（SyncView 拆分）→ `1c6e71f`（本方案）→ M1 共享数据层（`refactor(admin): 抽离共享数据层 AdminDataProvider`）→ M2 SyncView 回炉（`refactor(admin): 收缩 SyncView scope，状态下沉视图`）→ M3 低耦合三连（`refactor(admin): 拆出 About/Preview 视图，TournamentView 改 hooks`）
+- 当前状态（M3 完成后）：`App.tsx` 7,942 → 6,060 行；Dashboard 的 `useState` 168 → 102；`SyncView` 的 99 项 scope 已清零（组件无 props，状态/处理器在 `views/sync/use-sync-controller.ts`，纯逻辑在 `views/sync/sync-helpers.ts`）；`AboutView` / `PreviewView` 无 props，`TournamentView` 15 项 props → 2 个 App 壳交互（数据/动作/云闸门走 `useAdminData()`）；数据层 Provider 824 行（新增 `runMatchAction` / 云闸门 / `rosterNotice`）。
 - M1 验证记录：`typecheck:frontend` / `typecheck:tests` / `npm test`（622 绿）/ `build:renderer` 通过；CDP 12 屏截图对比 11 屏 0 像素差、直播推流仅 iframe 动画帧 35 px；socket 建场/选场/开局/登记/撤回与 page10 自动切回冒烟通过。
 - M2 验证记录：`typecheck:frontend` / `typecheck:tests` / `npm test`（633 绿，新增 sync-helpers 7 例与数据层 hooks 顺序守卫）/ `build:renderer` 通过；12 屏截图 11 屏 0 像素差、直播推流仅 iframe 动画帧 123 px；数据同步定向冒烟（本机标识保存 / 云设置保存+草稿回填 / 导出下载 / 导入预览 / 离开再回来草稿恢复）通过。
-- 下一步：M3 低耦合三连（about → preview → tournament 改 hooks）；M0 的 `scripts/screenshot-views.mjs` 仍未入库，建议 M3 前补上。
+- M3 验证记录：`typecheck:frontend` / `typecheck:tests` / `npm test`（634 绿，新增 PreviewView hooks 守卫）/ `build:renderer` 通过；12 屏截图 11 屏 0 像素差、直播推流仅 iframe 动画帧 7 px；关于/页面预览/系列比赛定向冒烟（18 个预览槽位、page6 切换、卡片菜单 Drawer、进入管理跳转）与 M1/M2 冒烟通过。
+- 下一步：M4 低耦合视图（roster → page11 → stage）；M0 的 `scripts/screenshot-views.mjs` 仍未入库，建议 M4 前补上。
 - 新会话启动时先读：本文件 + `AGENTS.md` + `.agents/09`，再跑 `npm run audit:ui` 与 `npm test` 确认基线
