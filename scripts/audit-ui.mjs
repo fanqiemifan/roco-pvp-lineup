@@ -52,6 +52,18 @@ const decls = css.match(/[a-z-]+:\s*[^;{}]+;/g) ?? [];
 const uniqueDecls = uniq(decls);
 const antSelectors = count(css, /\.ant-/g);
 const important = count(css, /!important/g);
+
+// 无引用类名：模板字符串的动态前缀（如 `bracket-stage-group-${n}`）要保留，避免误报
+const dynamicPrefixes = new Set(
+  [...tsx.matchAll(/`([^`]*?)\$\{/g)]
+    .map((m) => (m[1].split(/[\s"'`>]/).filter(Boolean).pop() ?? ''))
+    .filter((p) => /^[a-zA-Z][\w-]*$/.test(p) && p.length >= 2),
+);
+const cssClassNames = uniq([...css.matchAll(/\.((?!ant-)[a-zA-Z][\w-]*)/g)].map((m) => m[1]));
+const deadClasses = cssClassNames.filter(
+  (cls) => !tsx.includes(cls) && ![...dynamicPrefixes].some((p) => cls.startsWith(p)),
+);
+
 // 弹窗宽度：契约后只统计 MODAL_WIDTH.* 的档位；残留的裸数字额外计入，方便发现回潮
 const widthKeys = new Set((tsx.match(/MODAL_WIDTH\.(\w+)/g) ?? []).map((s) => s.split('.')[1]));
 const rawWidths = new Set(
@@ -69,6 +81,7 @@ const rows = [
   ['内联 fontSize: 12', inlineFontSizeHits, 0],
   ['CSS 行数', cssLines, 2400],
   ['CSS 声明重复率', `${Math.round((1 - uniqueDecls.length / Math.max(decls.length, 1)) * 100)}%`, '≤ 40%'],
+  ['无引用类名', deadClasses.length, 0],
   ['antd 内部类引用', antSelectors, 15],
   ['!important', important, 0],
   ['Modal 宽度档位', modalWidths, 4],

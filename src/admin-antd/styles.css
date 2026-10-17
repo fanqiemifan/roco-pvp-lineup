@@ -160,10 +160,6 @@ a {
   color: currentColor;
 }
 
-.workspace-card {
-  margin: 0 16px 18px;
-}
-
 .admin-menu {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -229,16 +225,14 @@ a {
   min-width: 0;
 }
 
-.admin-content .ant-card,
-.workspace-card {
+.admin-content .ant-card {
   border-color: rgba(91, 67, 43, 0.12);
   box-shadow: 0 20px 50px rgba(77, 48, 25, 0.08);
   background: rgba(255, 250, 245, 0.92);
   backdrop-filter: blur(18px);
 }
 
-.admin-content .ant-card .ant-card-body,
-.workspace-card .ant-card-body {
+.admin-content .ant-card .ant-card-body {
   border-radius: 12px;
 }
 
@@ -358,7 +352,6 @@ a {
 }
 
 .page-stack,
-.panel-editor-stack,
 .control-stack {
   width: 100%;
 }
@@ -462,90 +455,6 @@ a {
   min-height: 0;
 }
 
-.panel-editor-layout {
-  display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-  min-height: 760px;
-  height: 100%;
-}
-
-.panel-editor-layout-right {
-  grid-template-columns: minmax(0, 1fr) 132px;
-}
-
-.panel-slot-rail {
-  min-width: 0;
-}
-
-.panel-slot-rail-right {
-  order: 2;
-}
-
-.panel-editor-main {
-  min-width: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 16px;
-  min-height: 0;
-}
-
-.panel-editor-layout-right .panel-editor-main {
-  order: 1;
-}
-
-.panel-editor-tools {
-  display: grid;
-  gap: 16px;
-}
-
-.panel-slot-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-}
-
-.panel-slot-grid-left {
-  justify-items: start;
-}
-
-.panel-slot-grid-right {
-  justify-items: end;
-}
-
-.slot-button {
-  width: 100%;
-  max-width: 116px;
-  height: auto;
-  min-height: 116px;
-  padding: 6px;
-  border-radius: var(--roco-radius-lg);
-}
-
-.slot-button-left {
-  justify-self: start;
-}
-
-.slot-button-right {
-  justify-self: end;
-}
-
-.slot-button-inner {
-  width: 100%;
-  display: grid;
-  place-items: center;
-  min-height: 104px;
-}
-
-.slot-button-inner-left {
-  justify-items: start;
-}
-
-.slot-button-inner-right {
-  justify-items: end;
-}
-
 /* 赛事面板·合并阵容编辑器：复用「录入阵容」（lineup-entry）三栏布局的补充样式 */
 .roster-lineup-body .lineup-entry-sprite-scroll {
   /* 后台页面纵向空间比弹窗充裕，精灵区放宽一档 */
@@ -555,26 +464,6 @@ a {
 .roster-lineup-hint {
   font-size: 12px;
   color: var(--roco-text-hint);
-}
-
-.slot-meta {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  flex: 1;
-}
-
-.sprite-card-inner {
-  width: 100%;
-  min-height: 104px;
-  display: grid;
-  place-items: center;
-}
-
-.avatar-preview-image {
-  width: 88px;
-  height: 88px;
-  object-fit: contain;
 }
 
 /* 选手头像：64×64 圆形裁剪 + 1px #C9C9C9 内描边 */
@@ -669,76 +558,11 @@ a {
   color: #6b5645;
 }
 
-.sprite-card-button {
-  width: 100%;
-  height: auto;
-  min-width: 0;
-  min-height: 0;
-  aspect-ratio: 1;
-  padding: 6px;
-  border-radius: var(--roco-radius-lg);
-}
-
-.sprite-picker-card .ant-card-body {
-  padding: 16px;
-  height: 100%;
-}
-
-.sprite-picker-shell {
-  display: grid;
-  grid-template-rows: auto auto auto;
-  gap: 12px;
-}
-
 .sprite-picker-scroll {
   max-height: calc((126px * 4) + (10px * 3));
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
-}
-
-.sprite-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.sprite-card-inner {
-  container-type: inline-size;
-  width: 100%;
-  min-height: 0;
-  aspect-ratio: 1;
-  display: grid;
-  place-items: center;
-}
-
-.sprite-card-inner > .sprite-pet-card {
-  --sprite-picker-card-size: clamp(64px, calc(100cqw - 12px), 96px);
-}
-
-.sprite-filter-panel {
-  display: grid;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid rgba(116, 82, 51, 0.12);
-  border-radius: 14px;
-  background: rgba(255, 248, 240, 0.88);
-}
-
-.sprite-filter-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.sprite-filter-group {
-  display: grid;
-  gap: 4px;
-}
-
-.sprite-filter-label.ant-typography {
-  font-size: 11px;
 }
 
 .attribute-filter-grid {
@@ -1423,28 +1247,6 @@ a {
   background: rgba(215, 210, 202, 0.6);
 }
 
-.quick-fill-group {
-  display: grid;
-  gap: 8px;
-}
-
-.quick-fill-candidate-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.quick-fill-candidate-button {
-  width: 82px;
-  height: 82px;
-  padding: 5px;
-  border-radius: 14px;
-}
-
-.quick-fill-candidate-card {
-  transform: scale(0.96);
-}
-
 .history-filter-row {
   margin-bottom: 16px;
 }
@@ -1612,14 +1414,6 @@ a {
   background: #fff;
 }
 
-.avatar-card .ant-card-body {
-  padding: 16px;
-}
-
-.full-width-number {
-  width: 100%;
-}
-
 .admin-antd-loading {
   min-height: 100vh;
   display: grid;
@@ -1633,19 +1427,6 @@ a {
   .admin-content {
     padding-left: 18px;
     padding-right: 18px;
-  }
-
-  .panel-slot-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .panel-editor-layout {
-    grid-template-columns: 112px minmax(0, 1fr);
-    min-height: 720px;
-  }
-
-  .panel-editor-layout-right {
-    grid-template-columns: minmax(0, 1fr) 112px;
   }
 
   .live-grid {
@@ -1665,11 +1446,6 @@ a {
     width: 100%;
   }
 
-  .panel-editor-layout {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-
   /* 合并阵容编辑器：窄屏时左右槽位栏并排一行，中部区域换行铺满 */
   .roster-lineup-body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1686,22 +1462,6 @@ a {
   .roster-lineup-body .lineup-entry-center {
     order: 3;
     grid-column: 1 / -1;
-  }
-
-  .panel-slot-rail {
-    order: 1;
-  }
-
-  .panel-slot-rail-right {
-    order: 1;
-  }
-
-  .panel-editor-main {
-    order: 2;
-  }
-
-  .sprite-picker-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .live-grid {
@@ -1949,11 +1709,6 @@ a {
   font-size: 12px;
 }
 
-.stats-side-stack {
-  display: flex;
-  flex-direction: column;
-}
-
 .stats-attribute-row {
   display: flex;
   align-items: center;
@@ -1967,27 +1722,11 @@ a {
   gap: 10px 18px;
 }
 
-.stats-equal-card > .ant-card-body {
-  height: 300px;
-  overflow: hidden;
-}
-
-.stats-equal-card .stats-attribute-grid {
-  max-height: 100%;
-  overflow-y: auto;
-}
-
 .stats-card-empty {
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.stats-trend-stack {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
 }
 
 .stats-trend-chart {
@@ -2496,15 +2235,6 @@ a {
 
 .cloud-sync-fields {
   margin-top: 12px;
-}
-
-.cloud-sync-hints {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 8px;
-  font-size: 12px;
-  line-height: 1.7;
 }
 
 /* ===== 云同步状态卡：头部状态 + 三格信息 + 本机记录时间线 ===== */
