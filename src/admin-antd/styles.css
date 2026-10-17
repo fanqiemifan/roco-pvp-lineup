@@ -193,6 +193,19 @@ a {
   line-height: 1;
 }
 
+/* 直播推送教程弹窗 */
+.stream-guide-step-desc {
+  margin: 8px 0;
+  color: rgba(0, 0, 0, 0.72);
+}
+
+.stream-guide-img {
+  display: block;
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+}
+
 .eyebrow {
   display: inline-block;
   margin-bottom: 12px;

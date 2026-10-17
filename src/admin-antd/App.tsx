@@ -206,6 +206,12 @@ import previewIcon from '../assets/ui/页面预览.svg?raw';
 import aboutIcon from '../assets/ui/关于项目.svg?raw';
 import tournamentIcon from '../assets/ui/系列比赛.svg?raw';
 import brandLogoRaw from '../assets/ui/logo.svg?raw';
+import streamGuideAddress from '../assets/stream-guide/address-locate.png';
+import streamGuideObs1 from '../assets/stream-guide/obs-1.png';
+import streamGuideObs2 from '../assets/stream-guide/obs-2.png';
+import streamGuideHime1 from '../assets/stream-guide/hime-1.png';
+import streamGuideHime2 from '../assets/stream-guide/hime-2.png';
+import streamGuideHime3 from '../assets/stream-guide/hime-3.png';
 import type {
   CreateMatchValues,
   LiveField,
@@ -400,6 +406,8 @@ function Dashboard() {
   const [countdownModalOpen, setCountdownModalOpen] = useState(false);
   const [nextgameModalOpen, setNextgameModalOpen] = useState(false);
   const [screenSettingsModalOpen, setScreenSettingsModalOpen] = useState(false);
+  // 顶栏弹窗开关：直播推送教程（获取推流地址 + OBS / 直播姬填入方式）
+  const [streamGuideOpen, setStreamGuideOpen] = useState(false);
   const [pageError, setPageError] = useState('');
   const [scoreboard, setScoreboard] = useState<ScoreboardState | null>(null);
   const [matchStore, setMatchStore] = useState<MatchStoreState>({
@@ -4975,6 +4983,9 @@ function Dashboard() {
             >
               阵容悬浮窗
             </Button>
+            <Tooltip title="如何进行直播推送？获取推流地址并填入 OBS / 直播姬的图文教程">
+              <Button onClick={() => setStreamGuideOpen(true)}>直播推送教程</Button>
+            </Tooltip>
             <Tooltip title="导播切视角用：仅交换推流页面1-3与16的画面左右展示，不影响数据、阵容与胜负登记">
               <Button
                 type={stage?.mirrorSides ? 'primary' : 'default'}
@@ -7745,6 +7756,54 @@ function Dashboard() {
             },
           ]}
         />
+      </Modal>
+
+      {/* 顶栏弹窗：直播推送教程（获取推流地址 → OBS / 直播姬 填入方式） */}
+      <Modal
+        title="如何进行直播推送？"
+        open={streamGuideOpen}
+        onCancel={() => setStreamGuideOpen(false)}
+        footer={null}
+        width={880}
+      >
+        <Space direction="vertical" size={16} className="control-stack" style={{ width: '100%' }}>
+          <div>
+            <Tag color="gold">第一步 · 获取推流地址</Tag>
+            <div className="stream-guide-step-desc">
+              在直播平台（如B站直播间设置页）按下图获取推流地址：
+            </div>
+            <img className="stream-guide-img" src={streamGuideAddress} alt="获取推流地址" />
+          </div>
+          <div>
+            <Tag color="gold">第二步 · 填入直播软件</Tag>
+            <div className="stream-guide-step-desc">按使用的软件选择对应教程，填入上一步拿到的推流地址：</div>
+            <Tabs
+              items={[
+                {
+                  key: 'obs',
+                  label: 'OBS',
+                  children: (
+                    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                      <img className="stream-guide-img" src={streamGuideObs1} alt="OBS 填入推流地址（1）" />
+                      <img className="stream-guide-img" src={streamGuideObs2} alt="OBS 填入推流地址（2）" />
+                    </Space>
+                  ),
+                },
+                {
+                  key: 'hime',
+                  label: '直播姬',
+                  children: (
+                    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                      <img className="stream-guide-img" src={streamGuideHime1} alt="直播姬填入推流地址（1）" />
+                      <img className="stream-guide-img" src={streamGuideHime2} alt="直播姬填入推流地址（2）" />
+                      <img className="stream-guide-img" src={streamGuideHime3} alt="直播姬填入推流地址（3）" />
+                    </Space>
+                  ),
+                },
+              ]}
+            />
+          </div>
+        </Space>
       </Modal>
 
       <Modal
