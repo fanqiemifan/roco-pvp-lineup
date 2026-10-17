@@ -7469,6 +7469,7 @@ function Dashboard() {
         width={460}
       >
         <Space direction="vertical" size={12} className="control-stack">
+          <Text type="secondary">开启后仅在「阵容展示3」显示下场对局预告，其他展示页面不受影响。</Text>
           <SettingField label="待开始比赛：">
             <Select
               className="stage-page5-tag-select"
@@ -7645,7 +7646,7 @@ function Dashboard() {
                       onChange={(value) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16SpriteSource: value as SpriteSource }); }}
                     />
                   </SettingField>
-                  <SettingField label="排名数字：" hint="页面16 底部选手头像卡上的排名数字，选手有排名时才显示。">
+                  <SettingField label="排名数字：" hint="页面16 底部选手头像卡上的排名数字，选手有排名时才显示；页面17 的排名显示需切换至「推流页面3设置」开启「排位图标」。">
                     <Space wrap>
                       <Switch
                         checked={stage?.page16RankVisible ?? true}
