@@ -1,7 +1,9 @@
 import React, { type ReactNode } from 'react';
 import { Typography } from 'antd';
 
-const { Paragraph, Text } = Typography;
+import { Hint } from '../ui/Hint';
+
+const { Text } = Typography;
 
 /**
  * variant:
@@ -24,9 +26,7 @@ export function SettingField({
     return (
       <div>
         <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>{label}</Text>
-        {hint ? (
-          <Paragraph type="secondary" style={{ marginBottom: 6, fontSize: 12 }}>{hint}</Paragraph>
-        ) : null}
+        {hint ? <Hint block>{hint}</Hint> : null}
         {children}
       </div>
     );

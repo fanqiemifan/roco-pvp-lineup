@@ -1,4 +1,5 @@
 @import "../styles/sprite-pet-card.css";
+@import "./tokens.css";
 
 :root {
   color-scheme: light;
@@ -136,7 +137,7 @@ a {
   font-size: 12px;
   font-weight: 400;
   line-height: 1.3;
-  color: #999;
+  color: var(--roco-text-hint);
   white-space: nowrap;
 }
 
@@ -393,7 +394,7 @@ a {
 
 .setting-row-hint {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--roco-text-hint);
   margin-top: 3px;
   line-height: 1.6;
 }
@@ -415,7 +416,7 @@ a {
   align-items: center;
   gap: 5px;
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--roco-text-hint);
   white-space: nowrap;
 }
 
@@ -429,19 +430,19 @@ a {
 }
 
 .setting-status.on {
-  color: #389e0d;
+  color: var(--roco-success);
 }
 
 .setting-status.on::before {
-  background: #52c41a;
+  background: var(--roco-success);
 }
 
 .setting-status.red {
-  color: #cf1322;
+  color: var(--roco-danger);
 }
 
 .setting-status.red::before {
-  background: #ff4d4f;
+  background: var(--roco-danger-strong);
 }
 
 /* 卡体高度必须扣除卡头：height:100% 会让卡体溢出卡片一个卡头的高度，
@@ -519,7 +520,7 @@ a {
   height: auto;
   min-height: 116px;
   padding: 6px;
-  border-radius: 18px;
+  border-radius: var(--roco-radius-lg);
 }
 
 .slot-button-left {
@@ -553,7 +554,7 @@ a {
 
 .roster-lineup-hint {
   font-size: 12px;
-  color: #8a7a66;
+  color: var(--roco-text-hint);
 }
 
 .slot-meta {
@@ -675,7 +676,7 @@ a {
   min-height: 0;
   aspect-ratio: 1;
   padding: 6px;
-  border-radius: 18px;
+  border-radius: var(--roco-radius-lg);
 }
 
 .sprite-picker-card .ant-card-body {
@@ -904,7 +905,7 @@ a {
 /* 比赛列表分组标题行（赛事 · 阶段 · 轮次） */
 .match-list-group-title {
   font-size: 12px;
-  color: #8a7a5f;
+  color: var(--roco-text-hint);
   padding: 2px 4px 0;
   line-height: 1.6;
 }
@@ -923,9 +924,9 @@ a {
   flex-wrap: wrap;
   margin-top: 4px;
   padding: 10px 12px;
-  background: rgba(22, 119, 255, 0.06);
-  border: 1px solid rgba(22, 119, 255, 0.18);
-  border-radius: 8px;
+  background: var(--roco-brand-soft);
+  border: 1px solid var(--roco-brand-line);
+  border-radius: var(--roco-radius-md);
 }
 
 .match-list-current-players {
@@ -943,7 +944,7 @@ a {
 .match-list-more {
   text-align: center;
   font-size: 12px;
-  color: #b6a692;
+  color: var(--roco-text-hint);
   padding: 4px 0 2px;
 }
 
@@ -977,11 +978,11 @@ a {
 }
 
 .current-match-player-name-left.ant-typography {
-  color: #1677ff;
+  color: var(--roco-side-left);
 }
 
 .current-match-player-name-right.ant-typography {
-  color: #f5222d;
+  color: var(--roco-side-right);
 }
 
 .current-match-meta.ant-typography,
@@ -992,10 +993,10 @@ a {
 .current-match-score-card {
   min-width: 180px;
   padding: 18px 24px;
-  border-radius: 18px;
+  border-radius: var(--roco-radius-lg);
   border: 1px solid rgba(116, 82, 51, 0.12);
   background: rgba(255, 252, 248, 0.96);
-  box-shadow: 0 14px 32px rgba(77, 48, 25, 0.08);
+  box-shadow: var(--roco-shadow-2);
 }
 
 .current-match-scoreline {
@@ -1126,8 +1127,8 @@ a {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #f5222d;
-  box-shadow: 0 0 0 3px rgba(245, 34, 45, 0.16);
+  background: var(--roco-live);
+  box-shadow: 0 0 0 3px rgba(194, 70, 53, 0.16);
 }
 
 .match-panel-stream-label {
@@ -1481,7 +1482,7 @@ a {
 
 .history-sort-triangle.is-asc,
 .history-sort-triangle.is-desc {
-  color: #1677ff;
+  color: var(--roco-brand-text);
 }
 
 .history-notice {
@@ -1517,11 +1518,11 @@ a {
 }
 
 .history-slot-card-left.ant-card {
-  border-color: rgba(199, 99, 47, 0.22);
+  border-color: var(--roco-side-left-soft);
 }
 
 .history-slot-card-right.ant-card {
-  border-color: rgba(45, 122, 88, 0.22);
+  border-color: var(--roco-side-right-soft);
 }
 
 .history-slot-card.is-lost.ant-card {
@@ -1805,7 +1806,7 @@ a {
   width: 100%;
   padding: 14px 16px 16px;
   border: 1px solid rgba(91, 67, 43, 0.12);
-  border-radius: 12px;
+  border-radius: var(--roco-radius-md);
   background: rgba(255, 253, 248, 0.72);
 }
 
@@ -1896,7 +1897,7 @@ a {
   width: auto;
   background: transparent;
   box-shadow: none;
-  color: #8a8f99;
+  color: var(--roco-text-hint);
   font-weight: 500;
 }
 
@@ -2207,7 +2208,7 @@ a {
 .lineup-entry-rail-head .cnt {
   margin-left: auto;
   font-size: 11px;
-  color: #8a7a66;
+  color: var(--roco-text-hint);
   white-space: nowrap;
 }
 
@@ -3045,7 +3046,7 @@ a {
 
 .tournament-validation-errors {
   background: rgba(255, 77, 79, 0.08);
-  color: #cf1322;
+  color: var(--roco-danger);
 }
 
 .tournament-validation-warnings {
@@ -3079,7 +3080,7 @@ a {
 }
 
 .tournament-dot-promoted {
-  background: #52c41a;
+  background: var(--roco-success);
 }
 
 .tournament-dot-alive {
@@ -3501,7 +3502,7 @@ a {
 }
 
 .bestof-guide-chip.is-ok {
-  color: #389e0d;
+  color: var(--roco-success);
   border-color: #b7eb8f;
   background: #f6ffed;
 }

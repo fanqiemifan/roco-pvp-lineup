@@ -2,15 +2,10 @@ import React from 'react';
 import { Button, Dropdown, Space, Tag, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import { formatWinnerActionLabel } from '../lib/match-actions';
+import { BRACKET_STATUS_COLOR } from '../lib/status';
 import type { BracketCard, BracketSlot } from '../lib/tournament';
 
 const { Text } = Typography;
-
-const STATUS_COLOR: Record<BracketCard['status'], string> = {
-  completed: 'success',
-  in_progress: 'processing',
-  pending: 'default',
-};
 
 /** 登记 / 撤回闸门（云同步未指派、已确认禁撤回时给出中文原因） */
 export interface CardActionGate {
@@ -222,7 +217,7 @@ export function TournamentNodeCard({
       }}
     >
       <div className="bracket-card-head">
-        <Tag color={STATUS_COLOR[card.status]}>{card.statusLabel}</Tag>
+        <Tag color={BRACKET_STATUS_COLOR[card.status]}>{card.statusLabel}</Tag>
         {card.isCrossBucket ? <Tag color="orange">跨桶</Tag> : null}
         <Text type="secondary" className="bracket-card-id">{card.nodeId}</Text>
         {menu && matchId ? (

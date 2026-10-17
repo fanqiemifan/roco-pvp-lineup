@@ -1,5 +1,6 @@
 import type { GameRecord, MatchRecord, MatchStoreState, SpriteRecord } from '../../../shared/types';
 import type { NoticeTone } from '../types';
+import { getMatchStatusMeta } from './status';
 
 export function winsNeeded(bestOf: number): number {
   return Math.floor(bestOf / 2) + 1;
@@ -121,23 +122,11 @@ export function formatLineupSummary(lineup: string[], spriteMap: Map<string, Spr
 }
 
 export function getMatchStatusColor(status: MatchRecord['status']): string {
-  if (status === 'completed') {
-    return 'success';
-  }
-  if (status === 'in_progress') {
-    return 'processing';
-  }
-  return 'default';
+  return getMatchStatusMeta(status).color;
 }
 
 export function getMatchStatusLabel(status: MatchRecord['status']): string {
-  if (status === 'completed') {
-    return '已完成';
-  }
-  if (status === 'in_progress') {
-    return '进行中';
-  }
-  return '待开始';
+  return getMatchStatusMeta(status).label;
 }
 
 export function getNoticeTagColor(tone: NoticeTone): string {

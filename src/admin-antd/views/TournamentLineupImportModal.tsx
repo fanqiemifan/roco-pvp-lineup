@@ -399,7 +399,7 @@ export function TournamentLineupImportModal({
               <>
                 <div className="lineup-import-summary">
                   <Text>
-                    共 {previewRows?.length ?? 0} 场 · 可导入 <Text strong style={{ color: '#1f7a4c' }}>{readyRows.length}</Text> 场
+                    共 {previewRows?.length ?? 0} 场 · 可导入 <Text strong style={{ color: 'var(--roco-success)' }}>{readyRows.length}</Text> 场
                     {skippedRows.length ? <> · 跳过 <Text strong type="danger">{skippedRows.length}</Text> 场</> : null}
                   </Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>

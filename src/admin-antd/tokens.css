@@ -1,0 +1,66 @@
+/*
+ * DS-lite 设计契约 · 自研样式唯一允许的取色来源。
+ *
+ * 与 src/theme.ts 的对应关系（改一边必须同步另一边，audit:ui 会校验）：
+ *   --roco-brand      = token.colorPrimary    #b3552a
+ *   --roco-brand-text = token.colorInfo       #8f4323
+ *   --roco-radius-md  = token.borderRadius    10px
+ *   --roco-radius-lg  = token.borderRadiusLG  14px
+ *
+ * 规则：新写的 CSS 不允许再出现裸 #rrggbb / rgba()，一律引用这里的变量；
+ * 左右方颜色以推流页 3 的蓝 / 橙红为准，禁止再用 antd 默认 #1677ff / #f5222d。
+ */
+:root {
+  /* 品牌 */
+  --roco-brand: #b3552a;
+  --roco-brand-text: #8f4323;
+  --roco-brand-soft: #fdf2e6;
+  --roco-brand-line: rgba(199, 99, 47, 0.22);
+
+  /* 状态 */
+  --roco-success: #2d7a58;
+  --roco-danger: #b23a2c;
+  --roco-danger-strong: #c24635;
+
+  /* 左右方（与 roco-pvp-page3.css 的头像渐变同源） */
+  --roco-side-left: #3973ff;
+  --roco-side-right: #ff7c6b;
+  --roco-side-left-soft: rgba(57, 115, 255, 0.22);
+  --roco-side-right-soft: rgba(255, 124, 107, 0.3);
+
+  /* 文字与状态 */
+  --roco-text-hint: rgba(0, 0, 0, 0.55);
+  --roco-live: #c24635;
+
+  /* 形状：4 档，替代原先的 12 档 */
+  --roco-radius-sm: 6px;
+  --roco-radius-md: 10px;
+  --roco-radius-lg: 14px;
+  --roco-radius-pill: 999px;
+
+  /* 阴影：3 档，替代原先的 24 种手写值 */
+  --roco-shadow-1: 0 2px 8px rgba(77, 48, 25, 0.06);
+  --roco-shadow-2: 0 10px 28px rgba(77, 48, 25, 0.08);
+  --roco-shadow-3: 0 20px 50px rgba(77, 48, 25, 0.1);
+}
+
+/*
+ * 12px 次要说明文字。
+ * 原来散落 56 处内联 `fontSize: 12` + 4 种灰（#999 / #8a7a66 / #b6a692 / .45），
+ * 其中三种对比度都不达 WCAG AA；这里统一到 4.67:1。
+ */
+.roco-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--roco-text-hint);
+}
+
+.roco-hint.is-block {
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* 只改颜色的弱化文字（图标前缀、次级标签），字号沿用调用方 */
+.roco-muted {
+  color: var(--roco-text-hint);
+}

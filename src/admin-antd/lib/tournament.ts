@@ -17,6 +17,7 @@ import type {
   TournamentRecord,
   TournamentWave,
 } from '../../../shared/types';
+import { getTournamentStatusMeta as getTournamentStatusMetaByStatus } from './status';
 
 /* ==================== 纯函数：展示/校验辅助（可单测，不依赖 DOM） ==================== */
 
@@ -79,13 +80,7 @@ export function getTournamentStatusMeta(record: TournamentRecord): {
   label: string;
   color: string;
 } {
-  if (record.status === 'setup') {
-    return { label: '待开赛', color: 'default' };
-  }
-  if (record.status === 'completed') {
-    return { label: '已完赛', color: 'success' };
-  }
-  return { label: '进行中', color: 'processing' };
+  return getTournamentStatusMetaByStatus(record.status);
 }
 
 /** 阶段在系列赛中的状态：done 已完成 / current 正在进行 / pending 未开始 */

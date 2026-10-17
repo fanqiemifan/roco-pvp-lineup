@@ -13,5 +13,5 @@
     "noEmit": true,
     "types": ["react", "react-dom/client"]
   },
-  "include": ["src/admin-antd/**/*", "src/login-antd/**/*", "shared/**/*.ts"]
+  "include": ["src/admin-antd/**/*", "src/login-antd/**/*", "src/theme.ts", "shared/**/*.ts"]
 }

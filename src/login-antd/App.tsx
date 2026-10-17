@@ -15,6 +15,8 @@ import {
 } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 
+import { loginTheme } from '../theme';
+
 type LoginFormValues = {
   username: string;
   password: string;
@@ -203,34 +205,7 @@ function LoginPage() {
 
 export function LoginApp() {
   return (
-    <ConfigProvider
-      locale={zhCN}
-      theme={{
-        token: {
-          colorPrimary: '#b6532a',
-          colorInfo: '#b6532a',
-          colorSuccess: '#2b7a57',
-          colorError: '#b93d32',
-          colorWarning: '#cf8a2e',
-          borderRadius: 18,
-          fontFamily: '"Avenir Next", "Microsoft YaHei", sans-serif',
-          colorText: '#2f2418',
-          colorBgBase: '#f8f2e8',
-        },
-        components: {
-          Card: {
-            bodyPadding: 36,
-          },
-          Button: {
-            controlHeightLG: 52,
-            fontWeight: 700,
-          },
-          Input: {
-            controlHeightLG: 52,
-          },
-        },
-      }}
-    >
+    <ConfigProvider locale={zhCN} theme={loginTheme}>
       <App>
         <LoginPage />
       </App>

@@ -117,8 +117,8 @@ import {
   STAGE_TRANSITION_OPTIONS,
   normalizeStagePage,
   normalizeStageTransition,
-  theme,
 } from './constants';
+import { rocoTheme } from '../theme';
 import { StageThumb } from './components/StageThumb';
 import { SettingField } from './components/SettingField';
 import { MatchPushCard } from './components/MatchPushCard';
@@ -8015,7 +8015,7 @@ function Dashboard() {
           >
             <Input
               allowClear
-              prefix={<span style={{ color: '#999' }}>搜索</span>}
+              prefix={<span className="roco-muted">搜索</span>}
               placeholder="输入选手名字过滤"
               value={quickCreateKeyword}
               onChange={(event) => setQuickCreateKeyword(event.target.value)}
@@ -8367,7 +8367,7 @@ function Dashboard() {
           <Form.Item label={`常用精灵（点击选择，最多 6 个，可选可不选）当前已选 ${playerPetEditorValue.length}/6`} name="pets">
             <Input
               allowClear
-              prefix={<span style={{ color: '#999' }}>搜索</span>}
+              prefix={<span className="roco-muted">搜索</span>}
               placeholder="输入精灵名字快速过滤"
               value={petEditorKeyword}
               onChange={(event) => setPetEditorKeyword(event.target.value)}
@@ -8433,7 +8433,7 @@ function Dashboard() {
                         <Text style={{ fontSize: 13, lineHeight: 1.2 }} ellipsis={{ tooltip: name }}>
                           {name}
                         </Text>
-                        {selected ? <span style={{ marginLeft: 'auto', color: '#1677ff', fontSize: 14 }}>✓</span> : null}
+                        {selected ? <span style={{ marginLeft: 'auto', color: 'var(--roco-brand-text)', fontSize: 14 }}>✓</span> : null}
                       </div>
                     );
                   })}
@@ -8733,7 +8733,7 @@ function Dashboard() {
 
 export function AdminApp() {
   return (
-    <ConfigProvider theme={theme} locale={zhCN}>
+    <ConfigProvider theme={rocoTheme} locale={zhCN}>
       <App>
         <Dashboard />
       </App>
