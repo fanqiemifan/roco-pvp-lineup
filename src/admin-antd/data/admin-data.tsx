@@ -43,6 +43,7 @@ import { buildPanelRequest, createPanelEditorState, draftSlotsToSelected, panelS
 import { requestJson } from '../lib/request';
 import { buildSpriteLookup } from '../lib/sprite';
 import type { NoticeState, PanelEditorState, PanelSide } from '../types';
+import { useLiveControl, type LiveControl } from './use-live-control';
 
 /** 切换推流画面 / 保存画面设置的可选覆盖项（缺省沿用当前 stage） */
 export interface SaveStageOptions {
@@ -186,6 +187,12 @@ export interface AdminData {
   postCloud: <T>(pathname: string, body?: Record<string, unknown>) => Promise<T & { status: CloudSyncStatus }>;
   /** 红点轮询：只读云端小键（version / ack / uplink），绝不自动合并数据 */
   pollCloudStatus: (silent?: boolean) => Promise<void>;
+
+  /**
+   * 实时控制：监听文件轮询 / 回写定时器 / 状态快照。
+   * 挂在常驻 Provider 而不是 LiveView，视图切走监听仍继续、导航呼吸点能从任何视图看到。
+   */
+  live: LiveControl;
 }
 
 export const AdminDataContext = createContext<AdminData | null>(null);
@@ -906,6 +913,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     cloudStatus?.config.pollIntervalSeconds,
   ]);
 
+  // 实时控制（文件监听 / 回写定时器）挂在常驻 Provider：切走视图监听仍在跑，导航呼吸点也从这里读
+  const live = useLiveControl({ panels, setPanels, applyServerState, loadInitialData });
+
   const value: AdminData = {
     loading,
     pageError,
@@ -962,6 +972,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     applyCloudStatus,
     postCloud,
     pollCloudStatus,
+    live,
   };
 
   return <AdminDataContext.Provider value={value}>{children}</AdminDataContext.Provider>;

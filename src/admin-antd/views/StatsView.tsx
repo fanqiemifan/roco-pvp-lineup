@@ -22,8 +22,11 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { ATTRIBUTE_ICON_BY_LABEL } from '../constants';
 import { SettingField } from '../components/SettingField';
-import type { MatchStoreState, SpriteRecord, TournamentRecord } from '../../../shared/types';
+import { useAdminData } from '../data/use-admin-data';
+import type { ScoreboardState } from '../../../shared/types';
 import { buildHistoryTournamentFilters } from '../lib/history';
+import { requestJson } from '../lib/request';
+import { buildSpriteLookup } from '../lib/sprite';
 import {
   buildStatsCsv,
   buildUsageStats,
@@ -76,70 +79,82 @@ function StatsColumnTitle({ text, tip }: { text: string; tip: string }) {
   );
 }
 
-type StatsViewProps = {
-  matches: MatchStoreState['matches'];
-  spriteMap: Map<string, SpriteRecord>;
-  tournaments: TournamentRecord[];
-  metric: StatsMetricKey;
-  player: string | null;
-  tag: string | null;
-  tournamentId: string | null;
-  search: string;
-  onMetricChange: (value: StatsMetricKey) => void;
-  onPlayerChange: (value: string | null) => void;
-  onTagChange: (value: string | null) => void;
-  onTournamentChange: (value: string | null) => void;
-  onSearchChange: (value: string) => void;
-  // 推流页面5 显示设置（由「直播推流」视图移入；控制推流画面内容，与统计口径相互独立）
-  page5TitleDraft: string;
-  page5TournamentId: string;
-  page5Stage: string;
-  stageSaving: boolean;
-  onPage5TitleChange: (value: string) => void;
-  onPage5TitleBlur: () => void;
-  onPage5DisplayChange: (patch: { page5TournamentId?: string; page5Stage?: string }) => void;
-  // 推流页面15（数据统计）显示设置；同样控制推流画面内容，与统计口径相互独立
-  page15TournamentId: string;
-  page15Stage: string;
-  page15SortBy: 'picks' | 'games' | 'winRate';
-  page15SortOrder: 'asc' | 'desc';
-  /** 数据回放播放方式：false = 不播放直接展示最终数据（默认），true = 逐场播放 */
-  page15ReplayPlay: boolean;
-  onPage15DisplayChange: (patch: { page15TournamentId?: string; page15Stage?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page15SortOrder?: 'asc' | 'desc'; page15ReplayPlay?: boolean }) => void;
-  /** 数据回放：把系列赛「从 xx 阶段到 xx 阶段」的场次变动推给推流页面15 逐场累加播放（错误提示由 App 层弹） */
-  onPage15Replay: (payload: { tournamentId: string; fromStage: number; toStage: number; speed: 'slow' | 'normal' | 'fast' }) => Promise<void> | void;
-};
-
-export function StatsView({
-  matches,
-  spriteMap,
-  tournaments,
-  metric,
-  player,
-  tag,
-  tournamentId,
-  search,
-  onMetricChange,
-  onPlayerChange,
-  onTagChange,
-  onTournamentChange,
-  onSearchChange,
-  page5TitleDraft,
-  page5TournamentId,
-  page5Stage,
-  stageSaving,
-  onPage5TitleChange,
-  onPage5TitleBlur,
-  onPage5DisplayChange,
-  page15TournamentId,
-  page15Stage,
-  page15SortBy,
-  page15SortOrder,
-  page15ReplayPlay,
-  onPage15DisplayChange,
-  onPage15Replay,
-}: StatsViewProps) {
+/**
+ * 数据统计（M5 起直接读共享数据层，不再由 App 传 20 个 props）。
+ *
+ * 统计口径（指标 / 选手 / 系列赛 / 标签 / 搜索）与推流页面5/15 的显示设置草稿都是本视图
+ * 本地状态：离开视图会重置回默认筛选，但显示设置本身是「改即保存」的全局配置，重进后由
+ * `stage` / `scoreboard` 回填。
+ */
+export function StatsView(): React.ReactElement {
   const { message } = App.useApp();
+  const { matchStore, tournaments, sprites, stage, stageSaving, scoreboard, applyServerState, saveStage } = useAdminData();
+  const matches = matchStore.matches;
+  // 统计口径（只影响本页表格与图表，与推流画面设置相互独立）
+  const [metric, setMetric] = React.useState<StatsMetricKey>('pickRate');
+  const [player, setPlayer] = React.useState<string | null>(null);
+  const [tag, setTag] = React.useState<string | null>(null);
+  const [tournamentId, setTournamentId] = React.useState<string | null>(null);
+  const [search, setSearch] = React.useState('');
+  // 推流页面5 标题草稿：失焦保存（与推流页同源，重进视图由 scoreboard 回填）
+  const [page5TitleDraft, setPage5TitleDraft] = React.useState('');
+  const spriteMap = React.useMemo(() => buildSpriteLookup(sprites), [sprites]);
+
+  // 推流页面5 / 15 的显示设置（由「直播推流」视图移入；控制推流画面内容，与统计口径相互独立）
+  const page5TournamentId = stage?.page5TournamentId ?? '';
+  const page5Stage = stage?.page5Stage ?? '';
+  const page15TournamentId = stage?.page15TournamentId ?? '';
+  const page15Stage = stage?.page15Stage ?? '';
+  const page15SortBy = stage?.page15SortBy ?? 'picks';
+  const page15SortOrder = stage?.page15SortOrder ?? 'desc';
+  const page15ReplayPlay = stage?.page15ReplayPlay ?? false;
+  const onPage5DisplayChange = (patch: { page5TournamentId?: string; page5Stage?: string }) => {
+    void saveStage(stage?.page ?? 'page3', { silent: true, ...patch });
+  };
+  const onPage15DisplayChange = (patch: {
+    page15TournamentId?: string;
+    page15Stage?: string;
+    page15SortBy?: 'picks' | 'games' | 'winRate';
+    page15SortOrder?: 'asc' | 'desc';
+    page15ReplayPlay?: boolean;
+  }) => {
+    void saveStage(stage?.page ?? 'page3', { silent: true, ...patch });
+  };
+
+  React.useEffect(() => {
+    setPage5TitleDraft(scoreboard?.page5Title ?? '');
+  }, [scoreboard?.page5Title]);
+
+  // 即时保存：推流页面5标题（失焦触发，值未变化时跳过）
+  async function savePage5TitleNow() {
+    if (!scoreboard || page5TitleDraft === (scoreboard.page5Title ?? '')) {
+      return;
+    }
+    try {
+      const data = await requestJson<{ success: boolean; scoreboard: ScoreboardState }>('/api/scoreboard', {
+        method: 'POST',
+        json: { ...scoreboard, page5Title: page5TitleDraft },
+      });
+      applyServerState({ scoreboard: data.scoreboard });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+      setPage5TitleDraft(scoreboard.page5Title ?? '');
+    }
+  }
+
+  // 数据回放：把系列赛「从 xx 阶段到 xx 阶段」的逐场增量推给推流页面15 播放（错误提示在后台弹，回放画面由 socket 事件驱动）
+  async function handlePage15Replay(payload: { tournamentId: string; fromStage: number; toStage: number; speed: 'slow' | 'normal' | 'fast' }) {
+    try {
+      const data = await requestJson<{ ok: boolean; tournamentName: string; steps: number }>('/api/stats/replay', {
+        method: 'POST',
+        json: payload,
+      });
+      message.success(`已推送数据回放（${data.tournamentName}，共 ${data.steps} 场）到推流页面15`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   const [chartMode, setChartMode] = React.useState<StatsChartMode>('rank');
   // 推流页面5/15 设置弹窗（卡片收成入口，完整设置收进弹窗；设置本身仍即时保存）
   const [page5SettingsOpen, setPage5SettingsOpen] = React.useState(false);
@@ -429,8 +444,8 @@ export function StatsView({
                     maxLength={40}
                     placeholder="例如：洛克比赛（自动拼上系列赛名与精灵出场胜率）"
                     value={page5TitleDraft}
-                    onChange={(event) => onPage5TitleChange(event.target.value)}
-                    onBlur={onPage5TitleBlur}
+                    onChange={(event) => setPage5TitleDraft(event.target.value)}
+                    onBlur={savePage5TitleNow}
                   />
                 </SettingField>
               </Col>
@@ -657,7 +672,7 @@ export function StatsView({
                     onClick={async () => {
                       setReplayPushing(true);
                       try {
-                        await onPage15Replay({
+                        await handlePage15Replay({
                           tournamentId: replayTournamentId,
                           fromStage: Number(replayFrom),
                           toStage: Number(replayTo),
@@ -682,7 +697,7 @@ export function StatsView({
           <Segmented
             value={metric}
             options={STATS_METRIC_OPTIONS}
-            onChange={(value) => onMetricChange(value as StatsMetricKey)}
+            onChange={(value) => setMetric(value as StatsMetricKey)}
           />
           <Select
             showSearch
@@ -690,7 +705,7 @@ export function StatsView({
             placeholder="搜索选择选手"
             value={player ?? undefined}
             options={playerOptions.map((playerName) => ({ value: playerName, label: playerName }))}
-            onChange={(value) => onPlayerChange(value ?? null)}
+            onChange={(value) => setPlayer(value ?? null)}
             className="stats-filter-select"
             optionFilterProp="label"
           />
@@ -700,7 +715,7 @@ export function StatsView({
             placeholder="选择系列赛"
             value={tournamentId ?? undefined}
             options={tournamentOptions.map((item) => ({ value: item.id, label: `🏆 ${item.name}（${item.count}）` }))}
-            onChange={(value) => onTournamentChange(value ?? null)}
+            onChange={(value) => setTournamentId(value ?? null)}
             className="stats-filter-select"
             optionFilterProp="label"
           />
@@ -710,7 +725,7 @@ export function StatsView({
             placeholder="搜索选择标签"
             value={tag ?? undefined}
             options={tagOptions.map((tagName) => ({ value: tagName, label: tagName }))}
-            onChange={(value) => onTagChange(value ?? null)}
+            onChange={(value) => setTag(value ?? null)}
             className="stats-filter-select"
             optionFilterProp="label"
           />
@@ -776,7 +791,7 @@ export function StatsView({
                   <Input.Search
                     placeholder="搜索精灵名称"
                     value={search}
-                    onChange={(event) => onSearchChange(event.target.value)}
+                    onChange={(event) => setSearch(event.target.value)}
                     className="stats-search"
                     allowClear
                   />

@@ -199,7 +199,7 @@ interface AdminData {
 ## 6. 验证手段
 
 - **静态**：`npm run typecheck:frontend`、`npm run typecheck:tests`、`npm run build:renderer`；
-- **测试**：`npm test`（622 个纯函数/服务用例，组件层目前为 0）；
+- **测试**：`npm test`（646 个纯函数/服务用例 + hooks 顺序守卫，组件层目前为 0）；
 - **截图**：`scripts/screenshot-views.mjs`（CDP 驱动 Chrome，逐个点击导航截图）；拆分前存 baseline，拆分后逐屏对比；
 - **冒烟清单**（每视图 5–10 条），示例：
   - 赛事面板：开一局 / 选场 / 左赢右赢 / 撤回 / 阵容快速填充；
@@ -234,11 +234,12 @@ interface AdminData {
 ## 9. 交接
 
 - 分支：`feat/admin-ds-lite`
-- 已有提交：`579e68c`（主题底座）→ `7636355`（蓝红/Hint/StatusTag）→ `01315af`（收尾）→ `35b73d1`（弹窗宽度）→ `29e4861`（死类名）→ `28fa565`（Surface/EmptyState）→ `df52d18`（SyncView 拆分）→ `1c6e71f`（本方案）→ M1 共享数据层（`refactor(admin): 抽离共享数据层 AdminDataProvider`）→ M2 SyncView 回炉（`refactor(admin): 收缩 SyncView scope，状态下沉视图`）→ M3 低耦合三连（`refactor(admin): 拆出 About/Preview 视图，TournamentView 改 hooks`）→ M4 低耦合视图（`refactor(admin): 拆出 Roster/Page11/Stage 视图，面板与保存动作上移`）
-- 当前状态（M4 完成后）：`App.tsx` 7,942 → 4,968 行；Dashboard 的 `useState` 168 → 87；`SyncView` 无 props（控制器在 `views/sync/`）、`AboutView` / `PreviewView` / `Page11View` / `StageView` 无 props、`TournamentView` 15 → 2 个 App 壳交互；`RosterView` 只剩 3 个 App 壳回调，`RosterEditor` / `CurrentMatchPanelContainer` 为赛事面板与 Drawer 共用容器；数据层 Provider 968 行（新增 `savePanel` / `saveStage` / `runMatchAction` / 云闸门 / 通知）。视图本地草稿（筛选、page9/page11、懒加载页码等）随视图卸载重置。
+- 已有提交：`579e68c`（主题底座）→ `7636355`（蓝红/Hint/StatusTag）→ `01315af`（收尾）→ `35b73d1`（弹窗宽度）→ `29e4861`（死类名）→ `28fa565`（Surface/EmptyState）→ `df52d18`（SyncView 拆分）→ `1c6e71f`（本方案）→ M1 共享数据层（`refactor(admin): 抽离共享数据层 AdminDataProvider`）→ M2 SyncView 回炉（`refactor(admin): 收缩 SyncView scope，状态下沉视图`）→ M3 低耦合三连（`refactor(admin): 拆出 About/Preview 视图，TournamentView 改 hooks`）→ M4 低耦合视图（`refactor(admin): 拆出 Roster/Page11/Stage 视图，面板与保存动作上移`）→ M5 中耦合视图（`refactor(admin): 拆出 Stats/Live/Mvp/Profiles 视图，监听会话下沉数据层`）
+- 当前状态（M5 完成后）：`App.tsx` 7,942 → 2,685 行；Dashboard 的 `useState` 168 → 42（含 1 处局部 tick）；数据层 Provider 980 行 + `data/use-live-control.ts` 615 行；`StatsView` 20 → 0 props（直接 `useAdminData()`）、`LiveView` / `MvpView` / `ProfilesView` 新建且无 props；实时控制的监听轮询 / 回写定时器 / ref 心跳全部挂在常驻 `useLiveControl()`（切走视图监听继续、导航呼吸点跨视图可见）；视图本地草稿（stats 筛选、mvp 精灵项、profiles 表单/导入预览、live 提示）随视图卸载重置；600ms 面板自动保存仍挂在常驻 App。
+- M5 验证记录：`typecheck:frontend` / `typecheck:tests` / `npm test`（646 绿，新增 `getLiveConfigFileName` 2 例与 M5 四个视图 + live 控制器的 hooks 顺序守卫）/ `build:renderer` 通过；`audit:ui` 指标与 M4 基线完全一致；CDP 12 屏截图 11 屏 0 像素差、直播推流仅 iframe 动画帧 491 px（stage 卡片内嵌预览页，非本次改动）；冒烟 24/24（stats 指标/搜索、live 监听提示与滑块写入草稿、profiles 新增选手/战队与 JSON 导入预览、mvp 载入胜方/标记/显示关闭，以及 roster 切换确认、page11 画面切换、stage 画面切换、tournament/sync/history 渲染，全程无前端异常）。冒烟时临时选中待开始比赛并写入面板草稿，结束后已从备份恢复 `LuokePVPWebui/runtime/cache`。
 - M4 验证记录：`typecheck:frontend` / `typecheck:tests` / `npm test`（639 绿，新增 M4 视图 hooks 守卫）/ `build:renderer` 通过；12 屏截图 11 屏 0 像素差、直播推流仅 iframe 动画帧 7 px；赛事面板（列表/选择/开弹窗/编辑器）、选手介绍（画面切换+手动保存）、直播推流（画面切换+page9 保存）定向冒烟通过；额外验证「异步快速填充后切走视图仍自动保存」；M1/M2/M3 冒烟全部回归通过。
 - M1 验证记录：`typecheck:frontend` / `typecheck:tests` / `npm test`（622 绿）/ `build:renderer` 通过；CDP 12 屏截图对比 11 屏 0 像素差、直播推流仅 iframe 动画帧 35 px；socket 建场/选场/开局/登记/撤回与 page10 自动切回冒烟通过。
 - M2 验证记录：`typecheck:frontend` / `typecheck:tests` / `npm test`（633 绿，新增 sync-helpers 7 例与数据层 hooks 顺序守卫）/ `build:renderer` 通过；12 屏截图 11 屏 0 像素差、直播推流仅 iframe 动画帧 123 px；数据同步定向冒烟（本机标识保存 / 云设置保存+草稿回填 / 导出下载 / 导入预览 / 离开再回来草稿恢复）通过。
 - M3 验证记录：`typecheck:frontend` / `typecheck:tests` / `npm test`（634 绿，新增 PreviewView hooks 守卫）/ `build:renderer` 通过；12 屏截图 11 屏 0 像素差、直播推流仅 iframe 动画帧 7 px；关于/页面预览/系列比赛定向冒烟（18 个预览槽位、page6 切换、卡片菜单 Drawer、进入管理跳转）与 M1/M2 冒烟通过。
-- 下一步：M5 中耦合视图（stats / live / profiles / mvp）；M0 的 `scripts/screenshot-views.mjs` 仍未入库，建议 M5 前补上。
+- 下一步：M6 高耦合视图（history，54 个依赖 / 34 个 state）。建议先补 `@testing-library/react` + jsdom（组件测试）再动手，用测试覆盖筛选（标签/系列赛/搜索）、批量删除、回收站恢复、删除撤销这几条高风险路径；M0 的 `scripts/screenshot-views.mjs` 仍未入库，可随 M6 一并补上，把 CDP 截图流程固化下来。
 - 新会话启动时先读：本文件 + `AGENTS.md` + `.agents/09`，再跑 `npm run audit:ui` 与 `npm test` 确认基线

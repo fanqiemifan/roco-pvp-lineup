@@ -184,6 +184,11 @@ export function writeStoredLiveWatchPath(filePath: string | null): void {
   }
 }
 
+/** 监听文件在界面上的展示名（路径最后一段；空路径回退默认文件名） */
+export function getLiveConfigFileName(filePath: string | null | undefined): string {
+  return String(filePath || '').split(/[\\/]/).pop() || 'roco-live-config.json';
+}
+
 export function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }

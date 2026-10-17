@@ -8,6 +8,7 @@ import {
   formatWatchDuration,
   formatWatchRelative,
   formatWatchError,
+  getLiveConfigFileName,
   getLiveWatchBadge,
   readStoredLiveWatchPath,
   writeStoredLiveWatchPath,
@@ -168,5 +169,17 @@ describe('监听文件路径的本地记忆', () => {
     writeStoredLiveWatchPath(null);
     expect(readStoredLiveWatchPath()).toBe('');
     expect(storage.size()).toBe(0);
+  });
+});
+
+describe('getLiveConfigFileName 监听文件展示名', () => {
+  it('取路径最后一段，Windows / POSIX 分隔符都认', () => {
+    expect(getLiveConfigFileName('D:\\logs\\roco-live-config.json')).toBe('roco-live-config.json');
+    expect(getLiveConfigFileName('/var/log/live.json')).toBe('live.json');
+  });
+
+  it('空路径回退默认文件名（导航呼吸点悬停文案不会出现空串）', () => {
+    expect(getLiveConfigFileName(null)).toBe('roco-live-config.json');
+    expect(getLiveConfigFileName('')).toBe('roco-live-config.json');
   });
 });

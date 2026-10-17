@@ -102,6 +102,26 @@ const CONTROL_FILES = [
     file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'CurrentMatchPanelContainer.tsx'),
     start: 'export function CurrentMatchPanelContainer(',
   },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'StatsView.tsx'),
+    start: 'export function StatsView(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'LiveView.tsx'),
+    start: 'export function LiveView(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'MvpView.tsx'),
+    start: 'export function MvpView(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'ProfilesView.tsx'),
+    start: 'export function ProfilesView(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'data', 'use-live-control.ts'),
+    start: 'export function useLiveControl(',
+  },
 ];
 
 function scanHooksAfterTopLevelReturn(source: string, startPrefix: string): { returnLine: number; hooksAfter: string[] } {
