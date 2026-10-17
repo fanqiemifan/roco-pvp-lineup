@@ -2,6 +2,8 @@
 
 ## admin-antd（管理后台，React + Ant Design）
 
+> App.tsx 的拆解方案（状态归属、视图顺序、里程碑、验证方式）见 `.agents/11-app-tsx-split-plan.md`。
+
 ### 设计契约（DS-lite）
 
 - **主题唯一真源 = `src/theme.ts`**：`rocoTheme` 给后台、`loginTheme` 给登录页。登录页只允许覆盖密度类 token（控件高度、卡片内边距），**不允许再覆盖颜色**——两个入口各抄一份近似色就是这么漂出来的。
