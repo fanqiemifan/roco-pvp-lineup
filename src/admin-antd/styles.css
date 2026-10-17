@@ -249,24 +249,111 @@ a {
   overflow-x: hidden;
 }
 
-.preview-info-card {
-  height: 100%;
+/* ===== 页面预览：左侧分组导航 + 右侧预览 =====
+   18 个预览槽位纵向排列，超长时在导航列内部滚动；原来那排 Segmented 一行排不下会被裁掉。 */
+.preview-layout {
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
 }
 
-.preview-info-card .ant-statistic {
+.preview-nav {
+  min-height: 240px;
+  max-height: calc(100vh - 300px);
+  padding-right: 6px;
+  overflow-y: auto;
+  border-right: 1px solid rgba(91, 67, 43, 0.1);
+}
+
+.preview-nav-group + .preview-nav-group {
+  margin-top: 14px;
+}
+
+.preview-nav-group-title {
+  padding: 0 10px 6px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(91, 67, 43, 0.55);
+}
+
+.preview-nav-item {
+  display: block;
   width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.preview-info-card .ant-statistic-content {
-  width: 100%;
-  font-size: clamp(16px, 1.5vw, 22px);
-  line-height: 1.5;
+.preview-nav-item:hover {
+  background: rgba(199, 99, 47, 0.1);
 }
 
-.preview-info-card .ant-statistic-content-value {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+.preview-nav-item.is-active {
+  color: #fff8ef;
+  font-weight: 600;
+  background: #c7632f;
+}
+
+.preview-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* 地址行：一行小字 + 复制按钮，替代原来两张各占半屏的 Statistic 卡 */
+.preview-address-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preview-address {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.preview-address-label {
+  flex: none;
+  font-size: 12px;
+  color: rgba(91, 67, 43, 0.55);
+}
+
+.preview-address-text {
+  min-width: 0;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 窄屏：导航转为顶部横向块，避免和预览抢宽度 */
+@media (max-width: 991px) {
+  .preview-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .preview-nav {
+    max-height: 200px;
+    padding-right: 0;
+    padding-bottom: 8px;
+    border-right: none;
+    border-bottom: 1px solid rgba(91, 67, 43, 0.1);
+  }
 }
 
 .page-stack,

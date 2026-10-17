@@ -176,7 +176,12 @@ import {
   draftSlotsToSelected,
   panelStateToSelected,
 } from './lib/panel';
-import { buildPreviewUrl, getLocalAddressText, getPreviewPage } from './lib/preview';
+import {
+  PREVIEW_NAV_GROUPS,
+  buildPreviewUrl,
+  getLocalAddressText,
+  getPreviewNavLabel,
+} from './lib/preview';
 import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from './lib/request';
 import { renderProfileTemplateXlsx } from './lib/profile-template-xlsx';
 import type { ProfileXlsxImportResponse, ProfileXlsxPreviewResponse } from './types';
@@ -7135,62 +7140,63 @@ function Dashboard() {
             <Space direction="vertical" size={18} className="page-stack">
               <Card
                 className="preview-page-card"
-                title={getPreviewPage(previewSlot).title}
+                title={getPreviewNavLabel(previewSlot)}
                 extra={<Button type="primary" href={buildPreviewUrl(previewSlot)} target="_blank">新窗口打开</Button>}
               >
-                <Space direction="vertical" size={16} className="page-stack">
-                  <Segmented
-                    value={previewSlot}
-                    options={[
-                      { value: 'stage', label: '直播推流' },
-                      { value: 'page1', label: '推流页面1' },
-                      { value: 'page2', label: '推流页面2' },
-                      { value: 'page3', label: '推流页面3' },
-                      { value: 'page5', label: '推流页面5' },
-                      { value: 'page6', label: '推流页面6' },
-                      { value: 'page7', label: '推流页面7' },
-                      { value: 'page8', label: '推流页面8' },
-                      { value: 'page9', label: '推流页面9' },
-                      { value: 'page10', label: '推流页面10' },
-                      { value: 'page14', label: '推流页面14（晋级积分榜）' },
-                      { value: 'page15', label: '推流页面15' },
-                      { value: 'page16', label: '推流页面16' },
-                      { value: 'page17', label: '推流页面17' },
-                    ]}
-                    onChange={(value) => setPreviewSlot(value as PreviewSlotKey)}
-                  />
-                  <Row gutter={[16, 16]}>
-                    <Col xs={24} md={12}>
-                      <Card size="small" className="subtle-card preview-info-card">
-                        <Statistic title="本地部署地址" value={getLocalAddressText(previewSlot)} />
-                        <Divider />
-                        <Button block onClick={() => void handleCopyLocalAddress()}>复制地址</Button>
-                      </Card>
-                    </Col>
-                    <Col xs={24} md={12}>
-                      <Card size="small" className="subtle-card preview-info-card">
-                        <Statistic title="完整预览链接" value={buildPreviewUrl(previewSlot)} />
-                        <Divider />
-                        <Button block onClick={() => void handleCopyPreviewLink()}>复制链接</Button>
-                      </Card>
-                    </Col>
-                  </Row>
-                  {previewSlot === 'page6' || previewSlot === 'page7' || previewSlot === 'page8' ? (
-                    <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                      对局选择与推送在「比赛管理」视图顶部的功能卡片中完成：点击对应卡片，在弹窗内勾选比赛、调整场序{previewSlot === 'page6' || previewSlot === 'page8' ? '与场序时间' : ''}后确认推送（最多 {PAGE8_MAX_MATCHES} 场）。
-                    </Paragraph>
-                  ) : null}
-                  <div className="preview-frame-shell" ref={previewFrameShellRef}>
-                    <div
-                      className="preview-frame-viewport"
-                      style={{ width: `${previewShellSize.width}px`, height: `${previewShellSize.height}px` }}
-                    >
-                      <div className="preview-frame-stage" style={{ transform: `scale(${previewScale})` }}>
-                      <iframe title="preview" className="preview-frame" src={buildPreviewUrl(previewSlot)} />
+                <div className="preview-layout">
+                  {/* 左侧分组导航：18 个预览槽位全部列出，超高在本列内滚动，不再像原来那排 Segmented 被裁掉 */}
+                  <nav className="preview-nav" aria-label="预览页面选择">
+                    {PREVIEW_NAV_GROUPS.map((group) => (
+                      <div className="preview-nav-group" key={group.title}>
+                        <div className="preview-nav-group-title">{group.title}</div>
+                        {group.items.map((item) => {
+                          const selected = item.slot === previewSlot;
+                          return (
+                            <button
+                              type="button"
+                              key={item.slot}
+                              className={selected ? 'preview-nav-item is-active' : 'preview-nav-item'}
+                              aria-current={selected ? 'page' : undefined}
+                              onClick={() => setPreviewSlot(item.slot)}
+                            >
+                              {item.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </nav>
+                  <div className="preview-main">
+                    {/* 地址行：原来两张 Statistic 卡各占半屏，收成一行小字 + 复制按钮，把高度让给画面 */}
+                    <div className="preview-address-row">
+                      <div className="preview-address">
+                        <span className="preview-address-label">预览地址</span>
+                        <Tooltip title={`本地：${getLocalAddressText(previewSlot)}　完整：${buildPreviewUrl(previewSlot)}`}>
+                          <code className="preview-address-text">{getLocalAddressText(previewSlot)}</code>
+                        </Tooltip>
+                      </div>
+                      <Space size={8}>
+                        <Button size="small" onClick={() => void handleCopyLocalAddress()}>复制地址</Button>
+                        <Button size="small" onClick={() => void handleCopyPreviewLink()}>复制链接</Button>
+                      </Space>
+                    </div>
+                    {previewSlot === 'page6' || previewSlot === 'page7' || previewSlot === 'page8' ? (
+                      <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
+                        对局选择与推送在「比赛管理」视图顶部的功能卡片中完成：点击对应卡片，在弹窗内勾选比赛、调整场序{previewSlot === 'page6' || previewSlot === 'page8' ? '与场序时间' : ''}后确认推送（最多 {PAGE8_MAX_MATCHES} 场）。
+                      </Paragraph>
+                    ) : null}
+                    <div className="preview-frame-shell" ref={previewFrameShellRef}>
+                      <div
+                        className="preview-frame-viewport"
+                        style={{ width: `${previewShellSize.width}px`, height: `${previewShellSize.height}px` }}
+                      >
+                        <div className="preview-frame-stage" style={{ transform: `scale(${previewScale})` }}>
+                          <iframe title="preview" className="preview-frame" src={buildPreviewUrl(previewSlot)} />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </Space>
+                </div>
               </Card>
             </Space>
           ) : null}
@@ -7795,7 +7801,7 @@ function Dashboard() {
                   label: 'OBS',
                   children: (
                     <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                      <img className="stream-guide-img" src={streamGuideObs1} alt="OBS 填入推流地址（1）" />
+                      <img className="stream-guide-img" src={streamGuideObs1} alt="OBS 添加浏览器源（1）" />
                       <img className="stream-guide-img" src={streamGuideObs2} alt="OBS 填入推流地址（2）" />
                     </Space>
                   ),
