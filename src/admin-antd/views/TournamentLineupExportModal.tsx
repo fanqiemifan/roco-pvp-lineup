@@ -3,6 +3,7 @@ import { App, Button, Modal, Radio, Select, Space, Table, Tag, Typography } from
 import type { MatchRecord, SpriteRecord, TournamentRecord } from '../../../shared/types';
 import { buildLineupTemplate, type LineupTemplateMatchRow, type LineupTemplateScope } from '../lib/lineup-sheet';
 import { renderLineupTemplateXlsx } from '../lib/lineup-template-xlsx';
+import { Hint } from '../ui/Hint';
 
 const { Text } = Typography;
 
@@ -88,7 +89,7 @@ export function TournamentLineupExportModal({
     >
       <Space direction="vertical" size={14} style={{ width: '100%' }}>
         <div>
-          <Text type="secondary" style={{ fontSize: 12 }}>导出范围</Text>
+          <Hint>导出范围</Hint>
           <div style={{ marginTop: 8 }}>
             <Radio.Group
               value={scopeKind}
@@ -139,7 +140,7 @@ export function TournamentLineupExportModal({
                 title: '对局ID',
                 dataIndex: 'matchId',
                 width: 160,
-                render: (value: string) => <Text type="secondary" style={{ fontSize: 12 }}>{value}</Text>,
+                render: (value: string) => <Hint>{value}</Hint>,
               },
               {
                 title: '阵容回显',
@@ -152,10 +153,10 @@ export function TournamentLineupExportModal({
             ]}
           />
         ) : null}
-        <Text type="secondary" style={{ fontSize: 12 }}>
+        <Hint>
           模板只含待开始比赛的第 1 局；已开赛 / 已完赛不再导出（阵容修改走赛事面板）。第 1 局已录阵容会回显预填；
           精灵1..6 列带最终形态下拉（隐藏「精灵列表」sheet 提供选项），填写后可直接把 .xlsx 回传导入。
-        </Text>
+        </Hint>
       </Space>
     </Modal>
   );

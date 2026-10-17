@@ -6,8 +6,8 @@
 
 - **主题唯一真源 = `src/theme.ts`**：`rocoTheme` 给后台、`loginTheme` 给登录页。登录页只允许覆盖密度类 token（控件高度、卡片内边距），**不允许再覆盖颜色**——两个入口各抄一份近似色就是这么漂出来的。
 - **自研样式取色 = `src/admin-antd/tokens.css` 的 `--roco-*`**：新增/改动的 CSS 不再写裸色值，也不再内联 `fontSize`；12px 次要说明文字统一用 `ui/Hint.tsx`。
-- **状态色唯一映射 = `lib/status.ts`**：比赛 / 系列赛 / 晋级图的状态文案与颜色都从这里取，组件里不再维护 `STATUS_COLOR` 或三元表达式。
-- **左右方配色 = `--roco-side-left` / `--roco-side-right`**（与推流页 3 的头像渐变同源）；antd 默认蓝/红不再承担「左右方」或「当前比赛」语义。
+- **状态色唯一映射 = `lib/status.ts`**：比赛 / 系列赛 / 晋级图的状态文案与颜色都从这里取，组件里不再维护 `STATUS_COLOR` 或三元表达式；比赛状态标签直接用 `ui/StatusTag.tsx` 的 `MatchStatusTag`。
+- **左右方配色 = `--roco-side-left` / `--roco-side-right`**：后台固定蓝 / 红（2026-10 定案，不跟随推流页 3 的橙红）；antd 默认蓝/红不再承担「左右方」或「当前比赛」语义，改用这两个 token。
 - 体检：`npm run audit:ui` 打印唯一色值、字号、圆角、内联样式等现状与目标，只观察趋势，不阻断构建。
 
 ### 目录结构
@@ -15,7 +15,7 @@
 - App.tsx — 主组件：Layout（Header/Sider/Content）、视图分发、顶栏按钮（阵容悬浮窗 + 倒计时 / 下一场预告 / 画面设置 三个弹窗入口）、「开一局」创建赛事弹窗（选手名/排位排名/头像/赛制/标签）
 - views/ — 各视图独立页面（RosterPanelEditor、StatsView、TournamentView、HistoryLineupEntryModal、MatchLineupDetailModal）
 - components/ — 可复用小组件（SettingField、SpritePetCard、StageThumb、AttributeFilterChips、BracketBoard、TournamentNodeCard）
-- ui/ — UI 原语（Hint：唯一的 12px 次要文字口径）
+- ui/ — UI 原语（Hint：唯一的 12px 次要文字口径；StatusTag：比赛状态标签，文案/颜色取自 `lib/status.ts`）
 - lib/ — 无状态纯函数（请求、统计、格式化等；status.ts 为状态文案/颜色唯一映射）
 - constants.ts / types.ts — 本地常量与类型
 - tokens.css — 自研样式唯一取色来源（`--roco-*`）

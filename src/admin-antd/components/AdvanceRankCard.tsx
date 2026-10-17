@@ -4,6 +4,7 @@ import { App, Button, Card, Input, InputNumber, Modal, Segmented, Select, Space,
 import { formatStageBestOf, PAGE14_ROWS_PER_PAGE } from '../../../shared/constants';
 import type { Page14State, StageStandings, TournamentRecord } from '../../../shared/types';
 import { getStagePlayerCount, summarizeStageMatches } from '../lib/tournament';
+import { Hint } from '../ui/Hint';
 
 const { Text } = Typography;
 
@@ -179,11 +180,11 @@ export function AdvanceRankCard({ tournaments, state, standings, saving, onSave 
         <Space direction="vertical" size={10} className="match-push-card-body">
           {current && activeStage ? (
             <>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Hint>
                 {standings
                   ? `${standings.stageName} · ${standings.rows.length} 人 · 已完赛 ${standings.completedMatches}/${standings.totalMatches} 场`
                   : `${activeStage.name} · 阶段尚未开始`}
-              </Text>
+              </Hint>
               {/* 阶段多的系列赛（64 人共 6 个阶段）在窄列里横向滚动，避免压扁换行 */}
               <div className="advance-rank-stages">
                 <Segmented

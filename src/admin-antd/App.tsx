@@ -166,8 +166,6 @@ import {
   getCurrentGame,
   getGameResultLabel,
   getGameStatusLabel,
-  getMatchStatusColor,
-  getMatchStatusLabel,
   getNoticeTagColor,
   getPendingDraftContext,
   getRecentWinnerLineup,
@@ -238,6 +236,8 @@ import type {
   TeamProfileFormValues,
   ViewKey,
 } from './types';
+import { Hint } from './ui/Hint';
+import { MatchStatusTag } from './ui/StatusTag';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Paragraph, Text, Link } = Typography;
@@ -901,7 +901,7 @@ function Dashboard() {
         <div className="match-list-item-foot">
           <Space size={6} wrap>
             <Tag color="gold">BO{match.bestOf}</Tag>
-            <Tag color={getMatchStatusColor(match.status)}>{getMatchStatusLabel(match.status)}</Tag>
+            <MatchStatusTag status={match.status} />
             <Tag bordered={false} className="match-list-score-tag">{match.leftScore} : {match.rightScore}</Tag>
           </Space>
           <Button size="small" onClick={() => void selectMatch(match.id)}>选择</Button>
@@ -4014,7 +4014,7 @@ function Dashboard() {
       key: 'status',
       render: (status: MatchRecord['status'], record: MatchRecord) => (
         <Space size={4} wrap>
-          <Tag color={getMatchStatusColor(status)}>{getMatchStatusLabel(status)}</Tag>
+          <MatchStatusTag status={status} />
           {cloudPendingIdSet.has(record.id) ? <Tag color="purple">待交回</Tag> : null}
           {cloudAckedSet.has(record.id) && cloudStatus?.config.role === 'sub' ? <Tag color="green">已确认</Tag> : null}
         </Space>
@@ -4801,7 +4801,7 @@ function Dashboard() {
       render: (_value, record) => (
         <Space direction="vertical" size={0}>
           <Text>{record.label}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+          <Hint>{record.id}</Hint>
         </Space>
       ),
     },
@@ -5211,7 +5211,7 @@ function Dashboard() {
                             </span>
                             <Space size={6} wrap>
                               <Tag color="gold">BO{dashboardActiveMatch.bestOf}</Tag>
-                              <Tag color={getMatchStatusColor(dashboardActiveMatch.status)}>{getMatchStatusLabel(dashboardActiveMatch.status)}</Tag>
+                              <MatchStatusTag status={dashboardActiveMatch.status} />
                               <Tag bordered={false} className="match-list-score-tag">{dashboardActiveMatch.leftScore} : {dashboardActiveMatch.rightScore}</Tag>
                             </Space>
                           </div>
@@ -5250,9 +5250,7 @@ function Dashboard() {
                             {rosterNotice.text}
                           </Tag>
                         ) : null}
-                        <Tag color={activeMatch ? getMatchStatusColor(activeMatch.status) : 'default'}>
-                          {activeMatch ? getMatchStatusLabel(activeMatch.status) : '未创建'}
-                        </Tag>
+                        <MatchStatusTag status={activeMatch?.status} fallback="未创建" />
                       </Space>
                     )}
                   >
@@ -6121,9 +6119,9 @@ function Dashboard() {
                         >
                           覆盖已有头像 / logo（{syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张，仅同档案）
                         </Checkbox>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
+                        <Hint>
                           已有 {syncPreview.avatars.players.existing + syncPreview.avatars.teams.existing} 张{syncOverwriteAvatars ? '将被覆盖' : '保持不动'} · 无法对应档案 {syncPreview.avatars.players.unmatched + syncPreview.avatars.teams.unmatched} 张
-                        </Text>
+                        </Hint>
                       </Space>
                     )}
 
@@ -6165,7 +6163,7 @@ function Dashboard() {
                               render: (_value, record) => ('isGroup' in record ? (
                                 <Space size={6} wrap>
                                   <Text strong>{record.id ? (record.name || record.id) : '不属于任何系列赛的比赛'}</Text>
-                                  {record.id ? <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text> : null}
+                                  {record.id ? <Hint>{record.id}</Hint> : null}
                                   {record.playerCount ? <Tag>{record.playerCount} 人</Tag> : null}
                                   {record.tombstone ? (
                                     <Tag color="red">上游已删除，随同步清理本机副本</Tag>
@@ -6186,15 +6184,15 @@ function Dashboard() {
                                     </>
                                   )}
                                   {record.stageSummary ? <Tag>{record.stageSummary}</Tag> : null}
-                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                  <Hint>
                                     共 {record.matchKeys.length} 场（{record.selectableCount} 场待写入）
-                                  </Text>
+                                  </Hint>
                                 </Space>
                               ) : (
                                 // 名字与 id 同行（原来上下两行会把每行撑高一倍）
                                 <Space size={6} align="baseline">
                                   <Text>{record.label}</Text>
-                                  <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+                                  <Hint>{record.id}</Hint>
                                 </Space>
                               )),
                             },
@@ -6296,7 +6294,7 @@ function Dashboard() {
                             <Space wrap size={8} align="center">
                               <Tag>{SYNC_KIND_LABELS[syncActiveItem.kind]}</Tag>
                               <Text strong>{syncActiveItem.label}</Text>
-                              <Text type="secondary" style={{ fontSize: 12 }}>{syncActiveItem.id}</Text>
+                              <Hint>{syncActiveItem.id}</Hint>
                             </Space>
 
                             {syncActiveItem.conflict ? (
@@ -6354,7 +6352,7 @@ function Dashboard() {
                             {syncActiveItem.avatarCompare ? (
                               <Space align="start" size={14} wrap>
                                 <div className="sync-avatar-compare">
-                                  <Text type="secondary" style={{ fontSize: 12 }}>本机</Text>
+                                  <Hint>本机</Hint>
                                   {syncActiveItem.avatarCompare.localUrl ? (
                                     <img src={syncActiveItem.avatarCompare.localUrl} alt="本机头像" />
                                   ) : (
@@ -6362,7 +6360,7 @@ function Dashboard() {
                                   )}
                                 </div>
                                 <div className="sync-avatar-compare">
-                                  <Text type="secondary" style={{ fontSize: 12 }}>包内</Text>
+                                  <Hint>包内</Hint>
                                   {syncActiveItem.avatarCompare.incomingDataUrl ? (
                                     <img src={syncActiveItem.avatarCompare.incomingDataUrl} alt="包内头像" />
                                   ) : (
@@ -6489,7 +6487,7 @@ function Dashboard() {
                         render: (_value, record) => (
                           <Space size={6}>
                             <Tag>{`${record.leftScore} : ${record.rightScore}`}</Tag>
-                            <Tag color={getMatchStatusColor(record.status)}>{getMatchStatusLabel(record.status)}</Tag>
+                            <MatchStatusTag status={record.status} />
                           </Space>
                         ),
                       },
@@ -6522,7 +6520,7 @@ function Dashboard() {
 
           {view === 'profiles' ? (
             <Card
-              title="信息录入"
+              title="选手与战队"
               extra={
                 <Space size={12}>
                   <Segmented
@@ -6753,7 +6751,7 @@ function Dashboard() {
                                 <Text strong>{option.label}</Text>
                                 {active ? <Tag color="green">当前画面</Tag> : null}
                               </Space>
-                              <Text type="secondary" style={{ fontSize: 12 }}>{option.description}</Text>
+                              <Hint>{option.description}</Hint>
                             </Space>
                           </Card>
                         </Col>
@@ -6905,7 +6903,7 @@ function Dashboard() {
           {view === 'live' ? (
             <Space direction="vertical" size={18} className="page-stack">
               <Card
-                title="实时控制"
+                title="面板实时预览"
                 extra={(
                   <Space wrap>
                     <Button onClick={() => void loadInitialData(true)}>重新加载</Button>
@@ -7043,11 +7041,11 @@ function Dashboard() {
                             />
                             <Space direction="vertical" size={0}>
                               <Text strong>{mvp?.winner?.playerName || '未载入胜方'}</Text>
-                              <Text type="secondary" style={{ fontSize: 12 }}>
+                              <Hint>
                                 {mvp?.winner
                                   ? `已载入胜方 · ${mvp.winner.side === 'left' ? '左侧' : '右侧'} · ${mvp.winner.matchId}`
                                   : '点「载入当前对局胜方」后在这里显示选手头像'}
-                              </Text>
+                              </Hint>
                             </Space>
                           </Space>
                         </Space>
@@ -7197,7 +7195,7 @@ function Dashboard() {
                                 <Text strong>{option.label}</Text>
                                 {active ? <Tag color="green">当前画面</Tag> : null}
                               </Space>
-                              <Text type="secondary" style={{ fontSize: 12 }}>{option.description}</Text>
+                              <Hint>{option.description}</Hint>
                               <StageThumb label={option.label} previewPath={option.previewPath} />
                             </Space>
                           </Card>
@@ -7502,7 +7500,7 @@ function Dashboard() {
                   <Space wrap size={8} className="match-panel-status-head">
                     {tournament ? <Tag color="purple">🏆 {tournament.name}</Tag> : null}
                     {stageRound ? <Tag bordered={false}>{stageRound}</Tag> : null}
-                    <Tag color={getMatchStatusColor(target.status)}>{getMatchStatusLabel(target.status)}</Tag>
+                    <MatchStatusTag status={target.status} />
                     {rosterNotice ? (
                       <Tag
                         closable
@@ -8055,7 +8053,7 @@ function Dashboard() {
                     >
                       <Checkbox checked={checked} />
                       <span>{player.name}</span>
-                      {player.rank ? <Text type="secondary" style={{ fontSize: 12 }}>（排名 {player.rank}）</Text> : null}
+                      {player.rank ? <Hint>（排名 {player.rank}）</Hint> : null}
                     </div>
                   );
                 })}
@@ -8605,15 +8603,15 @@ function Dashboard() {
                     : '/assets/ui/left-avatar.png'}
                 />
                 <div>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
+                  <Hint>
                     {item.player.avatarExists ? '原头像' : '原头像（未设置）'}
-                  </Text>
+                  </Hint>
                 </div>
               </div>
               <Text type="secondary">→</Text>
               <div style={{ textAlign: 'center' }}>
                 <Image preview={false} width={56} height={56} style={{ borderRadius: 8, objectFit: 'cover' }} src={item.url} />
-                <div><Text type="secondary" style={{ fontSize: 12 }}>新头像</Text></div>
+                <div><Hint>新头像</Hint></div>
               </div>
               <Text strong style={{ marginLeft: 'auto', marginRight: 8 }}>{item.player.name}</Text>
             </div>

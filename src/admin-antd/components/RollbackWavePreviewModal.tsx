@@ -3,6 +3,7 @@ import { Alert, App, Modal, Space, Spin, Tag, Typography } from 'antd';
 
 import type { RollbackWavePreview, RollbackWavePreviewRow, TournamentRecord } from '../../../shared/types';
 import { previewRollbackWaveApi, rollbackWaveApi } from '../lib/tournament-api';
+import { Hint } from '../ui/Hint';
 
 const { Text } = Typography;
 
@@ -174,9 +175,9 @@ export function RollbackWavePreviewModal({ open, record, onClose }: RollbackWave
           ) : null}
 
           {preview.executable ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Hint>
               以上为当前状态下的预览，实际以执行一刻为准；编排机专属操作，多机环境回退后请「重新分发」。
-            </Text>
+            </Hint>
           ) : null}
         </Space>
       ) : null}

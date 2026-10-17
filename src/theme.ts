@@ -67,6 +67,9 @@ export const rocoTheme: ThemeConfig = {
     colorBgBase: '#f6efe6',
     colorBgContainer: '#fbf5ec',
     colorTextBase: '#2f2418',
+    // 次要文字：antd 默认 .45 在奶油底上只有 3.31:1，提到 .55（4.67:1）才过 AA。
+    // 自研的 .roco-hint 用同一取值，两条路径颜色一致，迁移过程中不会一屏两色。
+    colorTextSecondary: 'rgba(0, 0, 0, 0.55)',
     colorBorder: 'rgba(91, 67, 43, 0.14)',
     borderRadius: 10,
     borderRadiusLG: 14,

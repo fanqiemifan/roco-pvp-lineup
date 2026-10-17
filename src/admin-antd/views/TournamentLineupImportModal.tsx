@@ -23,6 +23,7 @@ import type {
 import { parseLineupJsonText, parseLineupSheetTable, parseLineupSheetText, type LineupSheetEntry, type LineupSheetParseResult } from '../lib/lineup-sheet';
 import { formatStageRoundLabel } from '../lib/tournament';
 import { applyLineupImportApi, parseLineupXlsxApi, previewLineupImportApi } from '../lib/tournament-api';
+import { Hint } from '../ui/Hint';
 
 const { Text, Paragraph } = Typography;
 
@@ -402,9 +403,9 @@ export function TournamentLineupImportModal({
                     共 {previewRows?.length ?? 0} 场 · 可导入 <Text strong style={{ color: 'var(--roco-success)' }}>{readyRows.length}</Text> 场
                     {skippedRows.length ? <> · 跳过 <Text strong type="danger">{skippedRows.length}</Text> 场</> : null}
                   </Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
+                  <Hint>
                     黄标 = 同名多候选，点击可切换；红标 = 未匹配（请返回修改原文）
-                  </Text>
+                  </Hint>
                 </div>
                 <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
                   预览按对局聚合展示（表格两行 / JSON 一条 = 一场，左右两组格子并排）。

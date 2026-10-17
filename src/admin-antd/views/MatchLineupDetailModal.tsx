@@ -10,11 +10,10 @@ import {
 import {
   getGameResultLabel,
   getGameStatusLabel,
-  getMatchStatusColor,
-  getMatchStatusLabel,
   summarizeSeriesForBestOf,
 } from '../lib/match';
 import { buildSpriteLookup } from '../lib/sprite';
+import { MatchStatusTag } from '../ui/StatusTag';
 
 const { Text } = Typography;
 
@@ -70,7 +69,7 @@ export function MatchLineupDetailPanel({
             <Text strong>{match.leftPlayer || '左侧'}</Text>
             <Text type="secondary">vs</Text>
             <Text strong>{match.rightPlayer || '右侧'}</Text>
-            <Tag color={getMatchStatusColor(match.status)}>{getMatchStatusLabel(match.status)}</Tag>
+            <MatchStatusTag status={match.status} />
             <Text type="secondary">BO{match.bestOf} · 比分 {summary.leftScore}:{summary.rightScore}</Text>
             {stageRoundText ? <Tag color="purple">{stageRoundText}</Tag> : null}
           </>

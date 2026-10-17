@@ -7,6 +7,7 @@ import type { BracketCard, BracketColumn, BracketSlot } from '../lib/tournament'
 import { forfeitApi } from '../lib/tournament-api';
 import { TournamentNodeCard } from './TournamentNodeCard';
 import type { TournamentCardMenuHandlers } from './TournamentNodeCard';
+import { Hint } from '../ui/Hint';
 
 const { Text } = Typography;
 
@@ -522,11 +523,11 @@ export function BracketBoard({
         <div className="bracket-column-body">
           {column.pairingStatus === 'draft' ? (
             <div className="bracket-draft">
-              <Text type="secondary" style={{ fontSize: 12 }}>
+              <Hint>
                 配对草稿（未建场），请到「波次列表」完成配对确认
-              </Text>
+              </Hint>
               {column.draftPairs.length === 0 ? (
-                <Text type="secondary" style={{ fontSize: 12 }}>暂无候选配对</Text>
+                <Hint>暂无候选配对</Hint>
               ) : column.draftPairs.map((pair, index) => (
                 <div className="bracket-draft-row" key={`${pair.a}-${pair.b}-${index}`}>
                   <span>{pair.a || '待定'}</span>
@@ -686,9 +687,9 @@ export function BracketBoard({
                 右侧弃权
               </Button>
             </Space>
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Hint>
               仅未开始的比赛可弃权；系统按决胜局数补比分并标注「弃权」。
-            </Text>
+            </Hint>
           </Space>
         ) : null}
       </Modal>

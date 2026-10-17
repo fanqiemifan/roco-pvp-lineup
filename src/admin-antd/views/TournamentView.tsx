@@ -97,6 +97,7 @@ import { HistoryLineupEntryModal } from './HistoryLineupEntryModal';
 import { MatchLineupDetailModal } from './MatchLineupDetailModal';
 import { TournamentLineupExportModal } from './TournamentLineupExportModal';
 import { TournamentLineupImportModal } from './TournamentLineupImportModal';
+import { Hint } from '../ui/Hint';
 
 const { Text, Paragraph } = Typography;
 
@@ -579,9 +580,9 @@ export function TournamentView({
                       <Text strong>{record.name || record.id}</Text>
                       <Tag style={{ marginInlineStart: 8 }}>{record.playerIds.length} 人</Tag>
                     </div>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
+                    <Hint>
                       {matchCount} 场对局 · 删除于 {(record.deletedAt ?? '').slice(0, 16).replace('T', ' ')} · {recycleDaysLeft(record)}
-                    </Text>
+                    </Hint>
                   </div>
                   <Space size={4}>
                     <Popconfirm
@@ -606,9 +607,9 @@ export function TournamentView({
                 </div>
               );
             })}
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Hint>
               恢复 = 编排、波次、进度、名下对局一体还原。跨机环境：对端副本已随删除清理，恢复后请用「定向同步」重新发给对端。
-            </Text>
+            </Hint>
           </Space>
         ) : (
           <Empty description="回收站是空的" />
@@ -635,7 +636,7 @@ export function TournamentView({
               render: (name: string, record) => (
                 <Space direction="vertical" size={0}>
                   <Text strong>{name || record.id}</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+                  <Hint>{record.id}</Hint>
                 </Space>
               ),
             },
@@ -849,9 +850,9 @@ function TournamentDetail({
             status: state === 'done' ? 'finish' : state === 'current' ? 'process' : 'wait',
             description: (
               <Space size={4} wrap>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Hint>
                   {stage.format === 'double-life' ? '双败' : '单败'} · {formatStageBestOf(stage)}
-                </Text>
+                </Hint>
               </Space>
             ),
           };
@@ -1062,9 +1063,9 @@ function SetupDraftPanel({
           </Tag>
         ))}
       </div>
-      <Text type="secondary" style={{ fontSize: 12 }}>
+      <Hint>
         以上顺序为配对基准顺序，随机生成、不含强弱种子
-      </Text>
+      </Hint>
       <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 10 }}>
         首波对阵预览（按当前 seed 只读生成，确认开赛后才会建场）
       </Text>
@@ -1078,14 +1079,14 @@ function SetupDraftPanel({
             </div>
           ))
         ) : (
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Hint>
             {previewLoading ? '预览生成中…' : '预览不可用'}
-          </Text>
+          </Hint>
         )}
       </div>
-      <Text type="secondary" style={{ fontSize: 12 }}>
+      <Hint>
         开赛后系统生成第 1 波全部比赛；手动配对/需确认的阶段会先进入配对确认台。
-      </Text>
+      </Hint>
     </Card>
   );
 }
@@ -1467,13 +1468,13 @@ function PairingConsole({
         </Button>
         <Button onClick={() => setImportOpen(true)} disabled={readOnly || drawing}>📋 导入对阵表</Button>
         <Button onClick={addRow} disabled={readOnly || drawing}>＋ 添加一行</Button>
-        <Text type="secondary" style={{ fontSize: 12 }}>
+        <Hint>
           {readOnly
             ? '只读副本：配对草稿由编排机编辑'
             : drawing
               ? '抽签中…揭晓完成后自动暂存'
               : saving ? '保存中…' : '草稿自动暂存（锁定前赛事面板看不到比赛）'}
-        </Text>
+        </Hint>
       </Space>
 
       <Row gutter={[12, 12]}>
@@ -1539,9 +1540,9 @@ function PairingConsole({
                 );
               })}
               {group.rows.length === 0 ? (
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Hint>
                   （暂无配对，点上方「🎲 桶内随机重排」或「＋ 添加一行」）
-                </Text>
+                </Hint>
               ) : null}
             </div>
           </Col>
@@ -1591,9 +1592,9 @@ function PairingConsole({
           value={importText}
           onChange={(event) => setImportText(event.target.value)}
         />
-        <Text type="secondary" style={{ fontSize: 12 }}>
+        <Hint>
           名字按档案精确/子串模糊匹配（仅限本波选手）；匹配不上的行会列出供人工处理。
-        </Text>
+        </Hint>
       </Modal>
     </div>
   );
@@ -1712,9 +1713,9 @@ function NodeGrid({
                 右侧弃权
               </Button>
             </Space>
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Hint>
               仅未开始的比赛可弃权；系统按决胜局数补比分并标注「弃权」。
-            </Text>
+            </Hint>
           </Space>
         ) : null}
       </Modal>
@@ -2053,9 +2054,9 @@ function CreateTournamentModal({
             },
           ]}
           footer={() => (
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Hint>
               只剩 2 人的阶段（总决赛）固定为单败：该阶段双败既产出不了冠军，也配不出下一波
-            </Text>
+            </Hint>
           )}
         />
       ) : null}
@@ -2069,10 +2070,10 @@ function CreateTournamentModal({
               options={THIRD_PLACE_BEST_SEGMENTS}
               onChange={(value) => setThirdPlaceBestOf(value as number)}
             />
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Hint>
               4 进 2 打完后，用两名落败者自动建一场季军赛（附加赛，不影响晋级与积分榜）；
               选「不安排」则不建场
-            </Text>
+            </Hint>
           </Space>
         </div>
       ) : null}
@@ -2099,9 +2100,9 @@ function CreateTournamentModal({
                 }
               }}
             />
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Hint>
               按波次设置局数：双败阶段的 W2 / W3 可单独用不同 BO，默认跟随基础局数（W1）
-            </Text>
+            </Hint>
           </Space>
           {advancedOpen ? (
             doubleLifeStageEntries.length ? (
@@ -2110,9 +2111,9 @@ function CreateTournamentModal({
                   <div key={stage.id} className="tournament-advanced-stage">
                     <Space size={8}>
                       <Text strong style={{ fontSize: 12 }}>{stage.name}</Text>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
+                      <Hint>
                         双败 · {formatStageBestOf(stage)}
-                      </Text>
+                      </Hint>
                     </Space>
                     {([1, 2, 3] as const).map((waveIndex) => {
                       const explicit = waveIndex === 1 ? undefined : stage.waveBestOf?.[waveIndex];

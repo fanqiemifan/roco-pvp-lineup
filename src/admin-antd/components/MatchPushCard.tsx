@@ -7,6 +7,7 @@ import type { MatchRecord, Page6State, Page7State, Page8State, TournamentRecord 
 import { CHINESE_ORDINALS, computeScheduleTimes, normalizeHHmm } from '../../../shared/match-schedule';
 import { countPushRows } from '../lib/history';
 import { buildPushCandidateGroups, type PushCandidateGroup } from '../lib/tournament';
+import { Hint } from '../ui/Hint';
 
 const { Text } = Typography;
 
@@ -380,9 +381,9 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
             </div>
           ) : null}
           <div style={{ marginTop: 8 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Hint>
               推送后各场时间固化为固定值，改时间需重新推送。
-            </Text>
+            </Hint>
           </div>
         </div>
       ),
@@ -445,7 +446,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
             <Text strong={isEligible(record)} type={isEligible(record) ? undefined : 'secondary'}>
               {versusText(record)}
             </Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>{record.id}</Text>
+            <Hint>{record.id}</Hint>
           </Space>
         );
       },
@@ -608,7 +609,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
             <div className="match-push-selected">
               <Space style={{ justifyContent: 'space-between', width: '100%', marginBottom: 8 }}>
                 <Text strong>已选（{draftIds.length}/{maxCount}）</Text>
-                {draftIds.length > 1 ? <Text type="secondary" style={{ fontSize: 12 }}>可上下调整场序</Text> : null}
+                {draftIds.length > 1 ? <Hint>可上下调整场序</Hint> : null}
               </Space>
               {selectedMatches.length ? (
                 <Space direction="vertical" size={8} className="match-push-selected-list">
