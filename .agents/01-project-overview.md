@@ -116,7 +116,7 @@ roco-pvp-lineup/
 | page5-display.js | 登场/胜率排行页（page5）脚本 |
 | page16-display.js | 阵容同步展示页（page16）脚本（panels/scoreboard/avatars 三接口，复用 petscard 组件渲染双方阵容与选手头像卡；卡片按双方 1-12 排名直接挂画面并做换位平移过渡，见 .agents/09） |
 | page16-rank.js | page16 排名纯函数（独立零依赖，`Page16Rank.assignRanks(entries, mode)`：双方 12 卡统一编排名次、同值同名次跳号、无值并列末位；可在 node:vm 单测，见 tests/pages/page16-rank.test.ts） |
-| petscard.js | 精灵卡片组件（独立零依赖，`Petscard.render(容器, 参数)` 一次渲染一张卡 / `Petscard.update(卡片, 参数)` 就地改序号与标签条；标签条支持 stat 图标+数值（resources/stat/，sum 档橙色）；属性背景纹理在 resources/roco-bg/，属性图标复用 resources/attribute/，组件 assetBase 固定 /resources） |
+| petscard.js | 精灵卡片组件（独立零依赖，`Petscard.render(容器, 参数)` 一次渲染一张卡 / `Petscard.update(卡片, 参数)` 就地改序号与标签条；标签条支持 stat 图标+数值（resources/base-stats/，sum 档橙色）；属性背景纹理在 resources/roco-bg/，属性图标复用 resources/attribute/，组件 assetBase 固定 /resources） |
 | petsicon.js | 精灵头像卡组件（独立零依赖，`Petsicon.render(槽位, 参数)` / `Petsicon.create(参数)`；圆形底托 + 头像优先失败回退立绘 + 阵亡渐变，page1/float/page4/7/10/11 共用，见 .agents/09） |
 | sprite-pet-card.js | 精灵立绘卡片组件（独立零依赖，`SpritePetCard.render(槽位, 参数)` / `SpritePetCard.create(参数)`；双属性徽章 + 底部名字条，名字支持 canvas 名字图（page3）与纯文本（page5）双模式，见 .agents/09） |
 | page15-display.js | 数据统计展示页（page15）脚本（GET /api/stats/ranking 拿全量后前端按 stage.page15SortBy + stage.page15SortOrder 排序取前 20，双列各 10 行；另含数据回放引擎——收 page15:replay 后默认不播放、直接静态渲染最终数据，stage.page15ReplayPlay 开启逐场播放时才播演化动画，见 .agents/09） |

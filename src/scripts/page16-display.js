@@ -24,7 +24,7 @@
     };
 
     // 画面设置：精灵图来源（sprite 原图 / icon 头像，语义与 page3 一致）、排名数字显隐、
-    // 卡片标签与 1-12 序号排序依据（stats 任意字段：sum = 种族值总和（默认，橙色）/
+    // 卡片标签与 1-12 序号排序依据（种族值 baseStats 任意字段：sum = 种族值总和（默认，橙色）/
     // hp/physical_attack/physical_defense/magic_attack/magic_defense/speed = 对应种族值项；
     // name = 只显名字，排序仍按 sum。与 shared/constants PAGE16_CARD_LABEL_OPTIONS 保持一致）
     let page16SpriteSource = 'sprite';
@@ -50,8 +50,8 @@
         return side === 'left' ? orderIndex + 1 : 6 - orderIndex;
     }
 
-    // stat 图标目录（resources/stat，文件名 = 属性字段名）
-    const STAT_ICON_BASE = '/resources/stat';
+    // base stats 图标目录（resources/base-stats，文件名 = 种族值字段名）
+    const STAT_ICON_BASE = '/resources/base-stats';
 
     const cardRecords = {
         left: new Array(MAX_SLOTS).fill(null),
@@ -213,13 +213,13 @@
         return candidates;
     }
 
-    // 卡片标签内容：stat 字段 → 该项图标+数值（sum 橙色高亮）；name 或数值缺失 → null（回退显示名字）
+    // 卡片标签内容：种族值字段 → 该项图标+数值（sum 橙色高亮）；name 或数值缺失 → null（回退显示名字）
     function buildCardStat(sprite) {
         if (!sprite || page16CardLabel === 'name') {
             return null;
         }
-        const stats = sprite.stats || null;
-        const value = stats ? stats[page16CardLabel] : null;
+        const baseStats = sprite.baseStats || null;
+        const value = baseStats ? baseStats[page16CardLabel] : null;
         if (value == null) {
             return null;
         }

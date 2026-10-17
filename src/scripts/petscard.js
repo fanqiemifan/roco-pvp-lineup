@@ -11,7 +11,7 @@
  *     side: '左',                            // 站位：'左' | '右'（头像+右 → 镜像）
  *     dead: false,                          // 阵亡态
  *     attributes: ['光'],                    // 属性1 匹配背景，属性2 追加徽章
- *     stat: { icon: 'assets/stat/sum.png', text: '582', highlight: true },
+ *     stat: { icon: 'assets/base-stats/sum.png', text: '582', highlight: true },
  *                                           // 可选：标签条改显 stat 图标+数值（highlight = 橙色），
  *                                           // 缺省回退显示 name；已渲染卡片用 Petscard.update 就地改序号/标签
  *   });

@@ -32,7 +32,7 @@ function makeSprite(id: string, name: string, patch: Partial<Omit<SpriteRecord, 
     form: '',
     petForm: '',
     isFinalForm: false,
-    stats: {
+    baseStats: {
       hp: null,
       physical_attack: null,
       physical_defense: null,

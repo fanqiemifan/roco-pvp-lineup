@@ -22,18 +22,18 @@
   ];
 
   /**
-   * 排序取值：stats 字段（sum/hp/攻击/魔攻/物防/魔防/速度）；name → 回退按 sum 排（只显名字时序号仍有意义）
-   * @param {{stats?: Record<string, number|null>|null}|null} sprite
+   * 排序取值：种族值 baseStats 字段（sum/hp/攻击/魔攻/物防/魔防/速度）；name → 回退按 sum 排（只显名字时序号仍有意义）
+   * @param {{baseStats?: Record<string, number|null>|null}|null} sprite
    * @param {string} mode
    * @returns {number|null}
    */
   function getSortValue(sprite, mode) {
-    const stats = sprite && sprite.stats ? sprite.stats : null;
-    if (!stats) {
+    const baseStats = sprite && sprite.baseStats ? sprite.baseStats : null;
+    if (!baseStats) {
       return null;
     }
     const key = mode === 'name' || SUPPORTED_MODES.indexOf(mode) < 0 ? 'sum' : mode;
-    const value = stats[key];
+    const value = baseStats[key];
     return value == null ? null : value;
   }
 
