@@ -37,12 +37,12 @@ body {
 }
 
 /* 精灵槽可点击阵亡，需排除在拖动区域外 */
-.float-stage .petsdiv3 {
+.float-stage .petsicon {
     -webkit-app-region: no-drag;
     cursor: pointer;
 }
 
-.float-stage .petsdiv3.is-empty {
+.float-stage .petsicon.is-empty {
     cursor: pointer;
 }
 

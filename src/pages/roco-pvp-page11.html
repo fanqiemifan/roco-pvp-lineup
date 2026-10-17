@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>洛克王国PVP - 选手介绍</title>
-    <!-- 复用 lineup.css 的 petsdiv3（精灵卡）与 page10.css 的 winner-lineup-div（阵容条） -->
-    <link rel="stylesheet" href="/styles/roco-pvp-lineup.css">
+    <!-- 精灵卡 = petsicon 组件（petsicon.css）；阵容条复用 page10.css 的 winner-lineup-div -->
+    <link rel="stylesheet" href="/styles/petsicon.css">
     <link rel="stylesheet" href="/styles/roco-pvp-page10.css">
     <link rel="stylesheet" href="/styles/roco-pvp-page11.css">
     <link rel="icon" type="image/svg+xml" href="/assets/ui/logo.svg">
@@ -40,7 +40,7 @@
             </div>
         </section>
 
-        <!-- 内容卡1：擅长精灵（petsdiv3 x N，复用推流页面1 比例 80） -->
+        <!-- 内容卡1：擅长精灵（petsicon 精灵卡 x N，比例 80） -->
         <section class="page11-card page11-card-pets" aria-label="擅长精灵">
             <div class="page11-card-title">擅长精灵</div>
             <div class="page11-pets" id="page11Pets"></div>
@@ -99,6 +99,7 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/petsicon.js"></script>
     <script src="/scripts/page11-display.js"></script>
 </body>
 </html>

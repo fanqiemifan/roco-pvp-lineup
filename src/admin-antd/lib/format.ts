@@ -31,6 +31,10 @@ export function cleanSpriteCardName(value: string | null | undefined): string {
   return String(value ?? '').trim().replace(/[-_－—]\d+$/u, '');
 }
 
+/**
+ * 名字条左偏移查表：与展示页组件 scripts/sprite-pet-card.js 的 getNameLeftByLength 互为副本。
+ * 展示页无构建无法 import shared TS，两处改动需手动同步（规格见 .agents/09 sprite-pet-card 段）。
+ */
 export function getSpriteCardNameLeft(nameLength: number): number {
   switch (nameLength) {
     case 2:

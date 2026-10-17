@@ -1,0 +1,71 @@
+/* petsicon 精灵头像卡组件样式（scripts/petsicon.js 的配套样式）：
+   圆形底托 + 精灵头像/立绘 + 阵亡置灰与斜杠渐变。
+   page1 比分栏、float 悬浮窗、page4/7/10/11 共用；
+   页面按需覆盖 --petsicon-scale（必须写在 .petsicon 自身，写在父容器会被组件声明覆盖而无效）。 */
+
+.petsicon {
+    position: relative;
+    --petsicon-scale: 1;
+    width: calc(98px * var(--petsicon-scale));
+    height: calc(98px * var(--petsicon-scale));
+    overflow: visible;
+    flex: none;
+    /* 阵亡变黑渐变：filter 作用在常驻的槽位上，立绘更换时也不会生硬跳变 */
+    transition: filter 240ms ease-out;
+}
+
+.petsicon.is-active::before,
+.petsicon.is-empty::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(80px * var(--petsicon-scale));
+    height: calc(80px * var(--petsicon-scale));
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: #424442;
+    border: calc(3px * var(--petsicon-scale)) solid #5d5d5d;
+    overflow: hidden;
+}
+
+.petsicon img {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(110px * var(--petsicon-scale));
+    height: calc(110px * var(--petsicon-scale));
+    transform: translate(-50%, -50%);
+    object-fit: contain;
+    pointer-events: none;
+}
+
+.petsicon.is-empty img {
+    display: none;
+}
+
+.petsicon.is-dead {
+    filter: grayscale(1) brightness(0.72);
+}
+
+/* 阵亡斜杠：常驻伪元素，靠 opacity/transform 过渡，阵亡与复活两个方向都是渐变 */
+.petsicon::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: calc(70px * var(--petsicon-scale));
+    height: calc(4px * var(--petsicon-scale));
+    transform: translate(-50%, -50%) rotate(-28deg) scale(0.6);
+    border-radius: 999px;
+    background: rgba(214, 73, 60, 0.92);
+    box-shadow: 0 0 0 1px rgba(120, 18, 18, 0.16);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 240ms ease-out, transform 240ms ease-out;
+}
+
+.petsicon.is-dead::after {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-28deg) scale(1);
+}

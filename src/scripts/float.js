@@ -2,8 +2,6 @@
     'use strict';
 
     const MAX_SLOTS = 6;
-    // 精灵头像目录（sprites-icon，与 sprites-img 立绘同命名：{pet_id}_{name}.png）
-    const SPRITE_ICON_RESOURCE_BASE = '/resources/sprites-icon';
     const FALLBACK_IMG = '/assets/ui/back.png';
 
     // 阵容条原始尺寸与整体缩放：内容按 782×74 布局，缩放到 0.75 后为 587×56
@@ -49,72 +47,17 @@
         right: document.querySelector('.lineup-right'),
     };
 
-    const unavailableIconPaths = new Set();
-
-    function basename(value) {
-        return String(value || '').split('/').filter(Boolean).pop() || '';
-    }
-
-
     function getSpriteDisplayName(sprite) {
         if (!sprite || typeof sprite !== 'object') {
             return '';
         }
         // 优先使用原始名称（精灵名称），如 卡瓦重（草地附近的样子），而非去掉变体后缀的短名 displayName
-        return String(sprite.name || sprite.displayName || basename(sprite.path) || '').trim();
-    }
-
-    function buildSpriteIconCandidates(sprite) {
-        const iconUrl = String(sprite && sprite.iconUrl ? sprite.iconUrl : '').trim();
-        return iconUrl ? [iconUrl] : [];
-    }
-
-    function applySpriteImage(imgEl, sprite) {
-        const fallbackSrc = sprite && sprite.path ? String(sprite.path) : '';
-        const spriteIconCandidates = buildSpriteIconCandidates(sprite).filter((path) => !unavailableIconPaths.has(path));
-        const sourceQueue = [...spriteIconCandidates, ...(fallbackSrc ? [fallbackSrc] : [])];
-
-        if (sourceQueue.length === 0) {
-            imgEl.removeAttribute('src');
-            delete imgEl.dataset.imageSignature;
-            delete imgEl.dataset.currentSrc;
-            imgEl.onerror = null;
-            return;
-        }
-
-        const imageSignature = JSON.stringify(sourceQueue);
-        if (imgEl.dataset.imageSignature === imageSignature && imgEl.getAttribute('src')) {
-            return;
-        }
-
-        imgEl.dataset.imageSignature = imageSignature;
-        let currentIndex = 0;
-
-        const assignNext = () => {
-            imgEl.dataset.currentSrc = sourceQueue[currentIndex];
-            imgEl.src = sourceQueue[currentIndex];
-        };
-
-        imgEl.onerror = () => {
-            const failedSrc = imgEl.dataset.currentSrc || '';
-            if (failedSrc.startsWith(SPRITE_ICON_RESOURCE_BASE)) {
-                unavailableIconPaths.add(failedSrc);
-            }
-            currentIndex += 1;
-            if (currentIndex >= sourceQueue.length) {
-                imgEl.onerror = null;
-                imgEl.src = FALLBACK_IMG;
-                return;
-            }
-            assignNext();
-        };
-
-        assignNext();
+        return String(sprite.name || sprite.displayName || '').trim();
     }
 
     function buildSlotEl(side, index) {
         const el = document.createElement('div');
-        el.className = 'petsdiv3 is-empty';
+        el.className = 'petsicon is-empty';
         el.dataset.side = side;
         el.dataset.slot = String(index);
         el.innerHTML = '<img alt="" />';
@@ -150,21 +93,17 @@
         const sprite = slotData && slotData.sprite ? slotData.sprite : null;
         const isDead = Boolean(sprite && Number(slotData.healthPercent) <= 0);
 
-        slotEl.classList.toggle('is-active', Boolean(sprite));
-        slotEl.classList.toggle('is-empty', !sprite);
-        slotEl.classList.toggle('is-dead', isDead);
+        // 精灵头像卡组件：头像优先、失败回退立绘、最终兜底 back.png；身份不变时只切状态 class
+        window.Petsicon.render(slotEl, {
+            pet: sprite,
+            dead: isDead,
+            name: getSpriteDisplayName(sprite),
+            fallbackSrc: FALLBACK_IMG,
+        });
 
-        const imgEl = slotEl.querySelector('img');
         if (sprite) {
-            imgEl.alt = getSpriteDisplayName(sprite);
-            applySpriteImage(imgEl, sprite);
             slotEl.title = `${getSpriteDisplayName(sprite)}（点击${isDead ? '复活' : '阵亡'} · 右键更换）`;
         } else {
-            imgEl.removeAttribute('src');
-            delete imgEl.dataset.imageSignature;
-            delete imgEl.dataset.currentSrc;
-            imgEl.onerror = null;
-            imgEl.alt = '';
             slotEl.title = '右键添加精灵';
         }
     }

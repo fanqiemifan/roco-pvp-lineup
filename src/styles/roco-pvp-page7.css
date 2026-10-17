@@ -299,40 +299,14 @@ body {
     flex-direction: row-reverse;
 }
 
-/* 精灵卡：参考 page1 的 petsdiv3（容器 98 -> 80 等比缩放 0.816） */
-.page7-pet {
-    position: relative;
-    width: 80px;
-    height: 80px;
-    overflow: visible;
-    flex: none;
+/* 精灵卡：petsicon 组件（petsdiv3 家族），容器 98 -> 80（scale = 80/98 ≈ 0.8163） */
+.page7-pets .petsicon {
+    --petsicon-scale: 0.8163265306122449;
 }
 
-/* 圆形底托：active 时显示（80px*0.816≈65px，描边 3px*0.816≈2.5px） */
-.page7-pet.is-active::before {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 65px;
-    height: 65px;
-    transform: translate(-50%, -50%);
-    border-radius: 50%;
-    background: #424442;
-    border: 2.5px solid #5d5d5d;
-    overflow: hidden;
-}
-
-/* 图片：110px*0.816≈90px，大于容器并居中（与 petsdiv3 一致） */
-.page7-pet img {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 90px;
-    height: 90px;
-    transform: translate(-50%, -50%);
-    object-fit: contain;
-    pointer-events: none;
+/* 索引缺失的槽位保持历史行为：不显示圆形底托（组件默认空槽有底托） */
+.page7-pets .petsicon.is-empty::before {
+    content: none;
 }
 
 /* 胜负图标：w145 h120；左侧 x594 y24，右侧距右 594 y24 */
