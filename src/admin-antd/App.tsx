@@ -851,28 +851,29 @@ function Dashboard() {
     }
   }
 
-  /** 比赛列表卡片行（分组列表内使用） */
+  /**
+   * 比赛列表卡片行（分组列表内使用）。
+   * 两行布局：第一行 = 状态点 + 选手名（单行截断，悬停看全名）；第二行 = 赛制/状态/比分胶囊 +「选择」按钮。
+   * 不用 List.Item 的 actions：按钮独占右列会挤掉名字宽度，窗口一窄名字就折行、行高也参差。
+   */
   function renderDashboardMatchItem(match: MatchRecord) {
+    const title = `${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`;
     return (
-      <List.Item
-        className="match-list-item"
-        actions={[
-          <Button key="select" onClick={() => void selectMatch(match.id)}>
-            选择
-          </Button>,
-        ]}
-      >
-        <List.Item.Meta
-          avatar={<Badge status={match.status === 'completed' ? 'success' : match.status === 'in_progress' ? 'processing' : 'default'} />}
-          title={`${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`}
-          description={(
-            <Space wrap>
-              <Tag color="gold">BO{match.bestOf}</Tag>
-              <Tag color={getMatchStatusColor(match.status)}>{getMatchStatusLabel(match.status)}</Tag>
-              <Tag bordered={false} className="match-list-score-tag">{match.leftScore} : {match.rightScore}</Tag>
-            </Space>
-          )}
-        />
+      <List.Item className="match-list-item">
+        <div className="match-list-item-main">
+          <Badge status={match.status === 'completed' ? 'success' : match.status === 'in_progress' ? 'processing' : 'default'} />
+          <Tooltip title={title}>
+            <span className="match-list-item-name">{title}</span>
+          </Tooltip>
+        </div>
+        <div className="match-list-item-foot">
+          <Space size={6} wrap>
+            <Tag color="gold">BO{match.bestOf}</Tag>
+            <Tag color={getMatchStatusColor(match.status)}>{getMatchStatusLabel(match.status)}</Tag>
+            <Tag bordered={false} className="match-list-score-tag">{match.leftScore} : {match.rightScore}</Tag>
+          </Space>
+          <Button size="small" onClick={() => void selectMatch(match.id)}>选择</Button>
+        </div>
       </List.Item>
     );
   }
@@ -3676,6 +3677,7 @@ function Dashboard() {
       { key: 'tournament', icon: <NavIcon name="tournament" />, label: VIEW_LABEL.tournament },
       { key: 'mvp', icon: <NavIcon name="mvp" />, label: VIEW_LABEL.mvp },
       { key: 'history', icon: <NavIcon name="history" />, label: VIEW_LABEL.history },
+      { key: 'stats', icon: <NavIcon name="stats" />, label: VIEW_LABEL.stats },
       {
         key: 'sync',
         icon: <NavIcon name="sync" />,
@@ -3690,7 +3692,6 @@ function Dashboard() {
       },
       { key: 'profiles', icon: <NavIcon name="profiles" />, label: VIEW_LABEL.profiles },
       { key: 'page11', icon: <NavIcon name="page11" />, label: VIEW_LABEL.page11 },
-      { key: 'stats', icon: <NavIcon name="stats" />, label: VIEW_LABEL.stats },
       { key: 'preview', icon: <NavIcon name="preview" />, label: VIEW_LABEL.preview },
       { key: 'live', icon: <NavIcon name="live" />, label: VIEW_LABEL.live },
       { key: 'about', icon: <NavIcon name="about" />, label: VIEW_LABEL.about },

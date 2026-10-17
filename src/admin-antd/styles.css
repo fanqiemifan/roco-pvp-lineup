@@ -847,25 +847,45 @@ a {
   gap: 12px;
 }
 
+/* 比赛列表卡片行：两行布局（选手名一行、胶囊 + 「选择」按钮一行）。
+   名字单行截断而不是折行——否则窗口一窄整行变两三行，既有行高节奏全乱。 */
 .match-list-item.ant-list-item {
+  display: block;
+  padding: 8px 0;
+}
+
+.match-list-item-main {
+  display: flex;
   align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.match-list-item .ant-list-item-meta {
+.match-list-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-list-item-foot {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding-left: 14px;
 }
 
-.match-list-item .ant-list-item-meta-content {
-  display: grid;
-  align-content: center;
-  gap: 6px;
-  text-align: left;
+/* 极窄时只让胶囊换行，按钮保持完整不缩 */
+.match-list-item-foot .ant-space {
+  min-width: 0;
 }
 
-.match-list-item .ant-list-item-meta-title,
-.match-list-item .ant-list-item-meta-description {
-  margin-bottom: 0 !important;
-  text-align: left;
+.match-list-item-foot > .ant-btn {
+  flex: none;
 }
 
 .match-list-item .ant-space {
@@ -909,8 +929,13 @@ a {
 }
 
 .match-list-current-players {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
   font-weight: 600;
   color: #2f2418;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin-right: auto;
 }
 
