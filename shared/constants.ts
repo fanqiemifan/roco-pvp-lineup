@@ -27,6 +27,7 @@ export const SUPPORTED_BEST_OF = new Set([1, 3, 5, 7]);
  * - page14: 推流页面14（晋级积分榜）
  * - page15: 推流页面15（数据统计：使用次数/登场场次排行）
  * - page16: 推流页面16（阵容同步：比分栏 + petscard 双方阵容 + 选手头像卡）
+ * - page17: 推流页面17（阵容展示5：黑色比分栏 + petscard2 双方阵容，画面设置与 page16 共用）
  * - page11: 选手介绍-左侧选手（同一页面文件 ?mode=left）
  * - page12: 选手介绍-右侧选手（同一页面文件 ?mode=right）
  * - page13: 选手介绍-对战页（同一页面文件 ?mode=versus）
@@ -50,6 +51,7 @@ export const SUPPORTED_STAGE_PAGES = new Set([
   'page14',
   'page15',
   'page16',
+  'page17',
   'blank',
 ]);
 

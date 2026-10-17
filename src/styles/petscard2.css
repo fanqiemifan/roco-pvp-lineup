@@ -1,0 +1,49 @@
+/* ============================================================
+ * petscard2 精灵卡片组件 · 独立版
+ * 基准画布 214×238（--pc2-scale 整体缩放，transform 原点左上，布局盒不缩放）
+ * 层级：卡面 z0 ← 蒙版 z1{ 背景 z0 / 精灵图 z1 } ← 序号 z2 ← 种族值条 z2 ← 属性圈 z3
+ * 依赖：petscard.js 提供属性→背景/图标映射（--pc2-top/light/bot/pattern 由 JS 注入）
+ * 形状源文件：src/assets/ui/petscard-Rectangle-03.svg（卡面）、petscard-Rectangle-04.svg（蒙版）
+ * ============================================================ */
+
+.petscard2{position:relative;width:214px;height:238px;font-family:"MiSans","PingFang SC","Microsoft YaHei",sans-serif;user-select:none;transform:scale(var(--pc2-scale,1));transform-origin:0 0;}
+
+/* 卡面 Rectangle-03（214×210，fill 走 --pc2-frame-color） */
+.petscard2-frame{position:absolute;left:0;top:0;width:214px;height:210px;z-index:0;fill:var(--pc2-frame-color,#190000);}
+
+/* 序号：40×40 黑底 @x5 y5，白字 32px MiSans Medium 居中；双位数整体左移 3px；阵亡 50% */
+.petscard2-num{position:absolute;left:5px;top:5px;width:40px;height:40px;z-index:2;background:#000;display:flex;align-items:center;justify-content:center;font-family:"MiSans-Medium","MiSans","Microsoft YaHei",sans-serif;font-size:32px;line-height:1;color:#fff;}
+.petscard2-num.is-double{transform:translateX(-3px);}
+.petscard2.is-dead .petscard2-num{opacity:.5;}
+
+/* 蒙版 Rectangle-04：202×198 @x5 y5，异形 clip-path，嵌套内容不超出蒙版区域 */
+.petscard2-mask{position:absolute;left:5px;top:5px;width:202px;height:198px;z-index:1;
+  clip-path:path("M0 0H198.224L202 189.514L12.271 198L0 0Z");}
+
+/* 属性背景：渐变（--pc2-top/light/bot 由 JS 按属性1注入）+ 纹理 64×64 平铺 + 暗角；阵亡 50% */
+.petscard2-bg{position:absolute;inset:0;z-index:0;background:linear-gradient(180deg,var(--pc2-top) 0%,var(--pc2-light) 65%,var(--pc2-bot) 100%);}
+.petscard2.is-dead .petscard2-bg{opacity:.5;}
+.petscard2-bg-pattern{position:absolute;inset:-40px;background-image:var(--pc2-pattern);background-repeat:repeat;background-size:64px 64px;opacity:.2;transform:rotate(-8deg);transform-origin:center center;}
+.petscard2-bg-fade{position:absolute;inset:0;background:radial-gradient(rgba(0,0,0,.1) 0%,rgba(0,0,0,.1) 100%),linear-gradient(rgba(0,0,0,.1),transparent 40%,rgba(0,0,0,.1));}
+
+/* 精灵图/头像 226×226 Y0 水平居中（超出蒙版区域被裁切）；头像+右侧选手 水平镜像；阵亡 灰度+50% */
+.petscard2-pet{position:absolute;z-index:1;top:0;left:calc(50% - 113px);width:226px;height:226px;object-fit:contain;}
+.petscard2-pet.is-flip{transform:scaleX(-1);}
+.petscard2.is-dead .petscard2-pet{opacity:.5;filter:grayscale(1);}
+
+/* 属性圈 32×32 圆底 #3E3E3E @x0 y182，属性图 40×40 溢出居中；第二枚 x34；阵亡图标 50% */
+.petscard2-attr{position:absolute;z-index:3;top:182px;width:32px;height:32px;border-radius:50%;background:#3E3E3E;}
+.petscard2-attr.a1{left:0;}
+.petscard2-attr.a2{left:34px;}
+.petscard2-attr img{position:absolute;left:calc(50% - 20px);top:calc(50% - 20px);width:40px;height:40px;object-fit:contain;}
+.petscard2.is-dead .petscard2-attr img{opacity:.5;}
+
+/* 种族值条 110×36 黑底 @x57 y202：图标 32×32 + 数值 24px MiSans Medium 白字，居中排布、零间隔；
+   sum 高亮档：图标 24×24、间隔 4px、文字 #FFC65F；阵亡图标与文字 50%（黑底不减淡）
+   （MiSans-Medium @font-face 由引用页声明，缺失时回退系统字体） */
+.petscard2-stat{position:absolute;left:57px;top:202px;width:110px;height:36px;z-index:2;background:#000;display:flex;align-items:center;justify-content:center;gap:0;font-family:"MiSans-Medium","MiSans","Microsoft YaHei",sans-serif;font-size:24px;line-height:1;color:#fff;white-space:nowrap;}
+.petscard2-stat img{width:32px;height:32px;object-fit:contain;flex:none;}
+.petscard2-stat.is-highlight{gap:4px;color:#FFC65F;}
+.petscard2-stat.is-highlight img{width:24px;height:24px;}
+.petscard2.is-dead .petscard2-stat img{opacity:.5;}
+.petscard2.is-dead .petscard2-stat-text{opacity:.5;}

@@ -6996,9 +6996,6 @@ function Dashboard() {
                 }
               >
                 <Space direction="vertical" size={16} className="page-stack">
-                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    推流软件（OBS 等）只需固定捕获根路径 <code>/</code>。在此切换后，推流页面会实时加载所选画面，无需修改推流来源；画面与倒计时等设置已收进顶栏（倒计时 / 下一场预告 / 画面设置），页面5统计口径改到「数据统计」中设置；团队积分榜为批量录入，仍需点击保存。
-                  </Paragraph>
                   <Row gutter={[16, 16]}>
                     {STAGE_OPTIONS.map((option) => {
                       const active = (stage?.page ?? null) === option.value;
@@ -7144,6 +7141,7 @@ function Dashboard() {
                       { value: 'page14', label: '推流页面14（晋级积分榜）' },
                       { value: 'page15', label: '推流页面15' },
                       { value: 'page16', label: '推流页面16' },
+                      { value: 'page17', label: '推流页面17' },
                     ]}
                     onChange={(value) => setPreviewSlot(value as PreviewSlotKey)}
                   />
@@ -7618,10 +7616,10 @@ function Dashboard() {
             },
             {
               key: 'page16',
-              label: '推流页面16设置',
+              label: '推流页面16/17设置',
               children: (
                 <Space direction="vertical" size={12} className="control-stack">
-                  <SettingField label="精灵图片：">
+                  <SettingField label="精灵图片：" hint="页面16/17 共用：控制阵容卡片精灵主体图片来源（原图 / 头像）。">
                     <Segmented
                       block
                       value={stage?.page16SpriteSource ?? 'sprite'}
@@ -7646,7 +7644,7 @@ function Dashboard() {
                   </SettingField>
                   <SettingField
                     label="卡片标签："
-                    hint="精灵卡片底部标签与序号（1-12）排序依据：选择种族值总和（默认，橙色）或任意一项种族值（生命/攻击/魔攻/物防/魔防/速度）时，标签显示对应图标与数值，并按该值从大到小编排双方序号；名字只显示精灵名，序号仍按种族值总和排序。数值相同的精灵并列同名次，无数据的排在最后。"
+                    hint="页面16/17 共用：精灵卡片底部标签与序号（1-12）排序依据：选择种族值总和（默认，橙色）或任意一项种族值（生命/攻击/魔攻/物防/魔防/速度）时，标签显示对应图标与数值，并按该值从大到小编排双方序号；名字只显示精灵名，序号仍按种族值总和排序（页面17 无名字条，标签回落显种族值总和）。数值相同的精灵并列同名次，无数据的排在最后。"
                   >
                     <Segmented
                       block

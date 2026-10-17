@@ -29,6 +29,7 @@
         'page14': { label: '推流页面14（晋级积分榜）', path: '/roco-pvp-page14.html' },
         'page15': { label: '推流页面15（数据统计）', path: '/roco-pvp-page15.html' },
         'page16': { label: '推流页面16（阵容同步）', path: '/roco-pvp-page16.html' },
+        'page17': { label: '推流页面17（阵容展示5）', path: '/roco-pvp-page17.html' },
         'blank': { label: '黑场', path: null }
     };
 
