@@ -18,7 +18,8 @@
 
 - App.tsx — 主组件：Layout（Header/Sider/Content）、视图分发、顶栏按钮（阵容悬浮窗 + 倒计时 / 下一场预告 / 画面设置 三个弹窗入口）、「开一局」创建赛事弹窗（选手名/排位排名/头像/赛制/标签）；服务端状态与订阅已由 `data/` 的 Provider 持有（M1），App 只留自己的 UI 状态
 - data/ — 共享数据层（`AdminDataProvider` + `useAdminData`）：服务端状态（比赛/系列赛/档案/面板/记分牌/各推流页）、`applyServerState`、初始加载、socket 订阅、云同步轮询；`useAdminData()` 目前供 Dashboard 读取，M2 起视图直接调用、不再逐层传 scope
-- views/ — 各视图独立页面（RosterPanelEditor、StatsView、TournamentView、HistoryLineupEntryModal、MatchLineupDetailModal；SyncView 是从 App.tsx 拆出的第一个整视图，状态暂由 scope 传入）
+- views/ — 各视图独立页面（RosterPanelEditor、StatsView、TournamentView、HistoryLineupEntryModal、MatchLineupDetailModal；SyncView 的本地状态 / 处理器在 views/sync/，组件不再接收 scope）
+- views/sync/ — SyncView 的本地控制器与纯逻辑：`use-sync-controller.ts`（同步包、云同步草稿、预览勾选、确认台、指派工作台及全部处理函数；共享数据走 `useAdminData()`）、`sync-helpers.ts`（排序 / 默认勾选 / 分组行构建，单测在 `tests/admin-antd/sync-view.test.ts`）。**视图本地草稿的生命周期随视图**：离开「数据同步」会重置未保存草稿与未确认预览，已保存配置与服务端数据不受影响。
 - components/ — 可复用小组件（SettingField、SpritePetCard、StageThumb、AttributeFilterChips、BracketBoard、TournamentNodeCard）
 - ui/ — UI 原语（Hint：12px 次要文字；StatusTag：比赛状态标签；Surface：四种卡片面；EmptyState：空态四段式）
 - lib/ — 无状态纯函数（请求、统计、格式化等；status.ts 为状态文案/颜色唯一映射）

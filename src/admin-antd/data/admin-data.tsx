@@ -7,7 +7,6 @@ import { SOCKET_EVENTS } from '../../../shared/events';
 import type {
   AvatarCollectionState,
   CloudSyncInboxEntry,
-  CloudSyncRole,
   CloudSyncStatus,
   CloudSyncVersion,
   CountdownPayload,
@@ -36,7 +35,7 @@ import { getPendingDraftContext } from '../lib/match';
 import { createPanelEditorState, draftSlotsToSelected, panelStateToSelected } from '../lib/panel';
 import { requestJson } from '../lib/request';
 import { buildSpriteLookup } from '../lib/sprite';
-import type { PanelEditorState, PanelSide } from '../types';
+import type { NoticeState, PanelEditorState, PanelSide } from '../types';
 
 /** applyServerState 的载荷：与各 REST 响应/ socket 广播一一对应，缺省字段表示本次不更新 */
 export interface ApplyServerStatePayload {
@@ -61,13 +60,11 @@ export interface ApplyServerStatePayload {
   mvp?: MvpState;
 }
 
-type CloudBusyKind = 'push' | 'pull' | 'upload' | 'check' | 'apply' | 'assignment' | 'poll' | '';
-
 /**
- * 管理后台共享数据层（M1）。
+ * 管理后台共享数据层（M1 建立，M2 起视图把本地状态下沉）。
  *
- * 这里只搬「服务端状态 + 订阅 + 初始加载 + 跨视图动作」：12 个视图与 Dashboard 的 UI 状态
- * （弹窗开关、草稿、筛选、当前 tab）暂时仍留在 App.tsx，等 M2+ 逐个视图下沉。
+ * 这里只放「服务端状态 + 订阅 + 初始加载 + 跨视图动作」；视图自己的弹窗 / 草稿 / 筛选
+ * 留在各自视图（如 SyncView 的 `views/sync/use-sync-controller.ts`），数据层不再持有它们。
  *
  * 行为约定：
  * - 先保持「任一数据更新 → 全量重渲染」的现有行为（与拆解前完全等价），不做 Context 拆分；
@@ -104,16 +101,13 @@ export interface AdminData {
   tournaments: TournamentRecord[];
   locallyRemoved: TournamentRecord[];
   recycleBin: TournamentRecord[];
-  machineCodeInput: string;
+  /** 本机标识（运行时配置；SyncView 的输入框以它为初值，保存后回写） */
+  machineCode: string;
+  /** 比赛管理顶部的最近一条操作提示（数据同步导入成功也会写它，跨视图） */
+  historyNotice: NoticeState;
 
   cloudStatus: CloudSyncStatus | null;
-  cloudKeyDraft: string;
-  cloudTokenDraft: string;
-  cloudRoleDraft: CloudSyncRole;
-  cloudWorkerUrlDraft: string;
-  cloudLabelDraft: string;
-  cloudPeerDraft: string;
-  cloudBusy: CloudBusyKind;
+  /** 已被主控确认的赛果 id（分控端撤回闸门用） */
   cloudAckedMatchIds: string[];
 
   setAvatars: Dispatch<SetStateAction<AvatarCollectionState>>;
@@ -127,21 +121,15 @@ export interface AdminData {
   setPage14: Dispatch<SetStateAction<Page14State | null>>;
   setPage14Standings: Dispatch<SetStateAction<StageStandings | null>>;
   setProfiles: Dispatch<SetStateAction<ProfileStoreState | null>>;
-  setMachineCodeInput: Dispatch<SetStateAction<string>>;
-  setCloudKeyDraft: Dispatch<SetStateAction<string>>;
-  setCloudTokenDraft: Dispatch<SetStateAction<string>>;
-  setCloudRoleDraft: Dispatch<SetStateAction<CloudSyncRole>>;
-  setCloudWorkerUrlDraft: Dispatch<SetStateAction<string>>;
-  setCloudLabelDraft: Dispatch<SetStateAction<string>>;
-  setCloudPeerDraft: Dispatch<SetStateAction<string>>;
-  setCloudBusy: Dispatch<SetStateAction<CloudBusyKind>>;
+  setMachineCode: Dispatch<SetStateAction<string>>;
+  setHistoryNotice: Dispatch<SetStateAction<NoticeState>>;
 
   /** 统一应用服务端状态（REST 响应 / socket 广播共用） */
   applyServerState: (payload: ApplyServerStatePayload) => void;
   /** 重新拉取全部后台数据（首屏、云同步合并后、监听异常兜底） */
   loadInitialData: (showToast?: boolean) => Promise<void>;
-  /** 应用云同步状态：首次加载或保存设置后回填设置区草稿（编辑中的草稿不覆盖） */
-  applyCloudStatus: (next: CloudSyncStatus, force?: boolean) => void;
+  /** 应用云同步状态（只写状态与已确认集；设置区草稿由 SyncView 自己回填） */
+  applyCloudStatus: (next: CloudSyncStatus) => void;
   /** 云同步请求统一出口：自动带房间密钥、访问令牌与机器码 */
   postCloud: <T>(pathname: string, body?: Record<string, unknown>) => Promise<T & { status: CloudSyncStatus }>;
   /** 红点轮询：只读云端小键（version / ack / uplink），绝不自动合并数据 */
@@ -197,16 +185,11 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   const [locallyRemoved, setLocallyRemoved] = useState<TournamentRecord[]>([]);
   // 系列赛回收站（删除后 7 天内可整届恢复的 grace 墓碑）
   const [recycleBin, setRecycleBin] = useState<TournamentRecord[]>([]);
-  const [machineCodeInput, setMachineCodeInput] = useState('');
+  // 本机标识（运行时配置）：由初始加载写入，SyncView 保存后回写
+  const [machineCode, setMachineCode] = useState('');
+  // 跨视图提示：比赛管理的操作提示 / 数据同步导入结果都会写它
+  const [historyNotice, setHistoryNotice] = useState<NoticeState>(null);
   const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus | null>(null);
-  // 云同步设置区草稿（本地编辑，点「保存设置」才落 config.json）
-  const [cloudKeyDraft, setCloudKeyDraft] = useState('');
-  const [cloudTokenDraft, setCloudTokenDraft] = useState('');
-  const [cloudRoleDraft, setCloudRoleDraft] = useState<CloudSyncRole>('main');
-  const [cloudWorkerUrlDraft, setCloudWorkerUrlDraft] = useState('');
-  const [cloudLabelDraft, setCloudLabelDraft] = useState('');
-  const [cloudPeerDraft, setCloudPeerDraft] = useState('');
-  const [cloudBusy, setCloudBusy] = useState<CloudBusyKind>('');
   const [cloudPollNotified, setCloudPollNotified] = useState('');
   const [cloudAckedMatchIds, setCloudAckedMatchIds] = useState<string[]>([]);
   const cloudPollTimerRef = useRef<number | null>(null);
@@ -361,7 +344,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
         setNextgameMatch(nextNextgame.match ?? null);
         setMvp(nextMvp.state);
         setMvpWinner(nextMvp.winner ?? null);
-        setMachineCodeInput(nextRuntimeConfig.machineCode ?? '');
+        setMachineCode(nextRuntimeConfig.machineCode ?? '');
         if (nextRuntimeConfig.syncConfig) {
           applyCloudStatus(nextRuntimeConfig.syncConfig);
         }
@@ -408,29 +391,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  /** 应用云同步状态：首次加载或保存设置后回填设置区草稿（编辑中的草稿不覆盖） */
-  function applyCloudStatus(next: CloudSyncStatus, force = false) {
+  /** 应用云同步状态：只写状态与已确认集；设置区草稿由 SyncView 自己按需回填 */
+  function applyCloudStatus(next: CloudSyncStatus) {
     setCloudStatus(next);
-    if (force || !cloudKeyDraft) {
-      setCloudKeyDraft(next.config.syncKey);
-    }
-    if (force || !cloudTokenDraft) {
-      setCloudTokenDraft(next.config.syncToken);
-    }
-    if (force || !cloudWorkerUrlDraft) {
-      setCloudWorkerUrlDraft(next.config.workerUrl);
-    }
-    if (force || !cloudLabelDraft) {
-      setCloudLabelDraft(next.config.machineLabel);
-    }
-    if (force || !cloudPeerDraft) {
-      setCloudPeerDraft(
-        next.config.role === 'main'
-          ? next.roster.filter((entry) => entry.code !== next.config.machineCode).map((entry) => entry.code).join(', ')
-          : '',
-      );
-    }
-    setCloudRoleDraft(next.config.role);
     setCloudAckedMatchIds(next.pending.ackedMatchIds);
   }
 
@@ -439,9 +402,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     const result = await requestJson<T & { status: CloudSyncStatus }>(pathname, {
       method: 'POST',
       json: {
-        syncKey: cloudStatus?.config.syncKey ?? cloudKeyDraft,
-        syncToken: cloudStatus?.config.syncToken ?? cloudTokenDraft,
-        machineCode: cloudStatus?.config.machineCode ?? machineCodeInput,
+        syncKey: cloudStatus?.config.syncKey ?? '',
+        syncToken: cloudStatus?.config.syncToken ?? '',
+        machineCode: cloudStatus?.config.machineCode ?? machineCode,
         ...body,
       },
     });
@@ -457,9 +420,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     const status = cloudStatus;
     if (!status?.config.syncKey || !status.config.workerUrl || !status.config.machineCode) {
       return;
-    }
-    if (!silent) {
-      setCloudBusy('poll');
     }
     try {
       const result = await postCloud<{ version: CloudSyncVersion | null; changed: boolean; inbox: CloudSyncInboxEntry[] }>(
@@ -484,10 +444,6 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       if (!silent) {
         message.error(error instanceof Error ? error.message : String(error));
-      }
-    } finally {
-      if (!silent) {
-        setCloudBusy('');
       }
     }
   }
@@ -715,15 +671,9 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     tournaments,
     locallyRemoved,
     recycleBin,
-    machineCodeInput,
+    machineCode,
+    historyNotice,
     cloudStatus,
-    cloudKeyDraft,
-    cloudTokenDraft,
-    cloudRoleDraft,
-    cloudWorkerUrlDraft,
-    cloudLabelDraft,
-    cloudPeerDraft,
-    cloudBusy,
     cloudAckedMatchIds,
     setAvatars,
     setPanels,
@@ -736,14 +686,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     setPage14,
     setPage14Standings,
     setProfiles,
-    setMachineCodeInput,
-    setCloudKeyDraft,
-    setCloudTokenDraft,
-    setCloudRoleDraft,
-    setCloudWorkerUrlDraft,
-    setCloudLabelDraft,
-    setCloudPeerDraft,
-    setCloudBusy,
+    setMachineCode,
+    setHistoryNotice,
     applyServerState,
     loadInitialData,
     applyCloudStatus,

@@ -1,4 +1,4 @@
-import React, { type Dispatch, type SetStateAction } from 'react';
+import React from 'react';
 import {
   Alert,
   Button,
@@ -29,10 +29,11 @@ import type {
   SyncImportItem,
   SyncImportItemKind,
   SyncImportPreview,
-  SyncImportTournamentGroup,
   TournamentRecord,
 } from '../../../shared/types';
 import { formatDateTime } from '../lib/format';
+import { useSyncController } from './sync/use-sync-controller';
+import type { SyncPreviewRow } from './sync/sync-helpers';
 import { formatStageRoundLabel } from '../lib/tournament';
 import { EmptyState } from '../ui/EmptyState';
 import { Hint } from '../ui/Hint';
@@ -42,118 +43,12 @@ import { Surface } from '../ui/Surface';
 
 const { Text } = Typography;
 
-type SyncPreviewRow = SyncImportItem | (SyncImportTournamentGroup & { isGroup: true; rowKey: string });
-
 /**
- * 数据同步视图（从 App.tsx 的 Dashboard 中拆出的第一个视图）。
- *
- * 这里是「展示层拆分」：状态与处理函数仍留在 Dashboard，通过 scope 传入。
- * 这样拆的好处是行为零改动、可逐步迁移；代价是 scope 字段偏多，下一步会把
- * 仅本视图使用的状态/处理函数搬进本文件，scope 会缩到十几个共享依赖。
+ * 数据同步视图（M2）：本视图自己的状态 / 处理函数都在 useSyncController，
+ * 共享数据（比赛 / 系列赛 / 云状态 / applyServerState）直接由数据层提供，
+ * 不再从 Dashboard 逐层传 scope。
  */
-export interface SyncViewScope {
-  applyCloudPreview: () => Promise<void>;
-  applySyncPreview: () => Promise<void>;
-  checkCloudInbox: (code?: string) => Promise<void>;
-  clearRememberedExclusions: () => Promise<void>;
-  closeCloudPreview: () => void;
-  closeSyncPreview: () => void;
-  cloudAckCode: string;
-  cloudAckSource: CloudSyncAckSource | null;
-  cloudAckSources: CloudSyncAckSource[];
-  cloudAssignDraft: Record<string, string>;
-  cloudAssignMatches: MatchRecord[];
-  cloudAssignOpen: boolean;
-  cloudAssignPeers: CloudSyncRosterEntry[];
-  cloudAssignWaveGroups: { key: string; label: string; matchIds: string[]; }[];
-  cloudBusy: "" | "push" | "pull" | "upload" | "check" | "apply" | "assignment" | "poll";
-  cloudDistInfo: string;
-  cloudInboxCount: number;
-  cloudKeyDraft: string;
-  cloudLabelDraft: string;
-  cloudLiveBadge: string;
-  cloudMachineText: (entry: { code: string; label: string; }) => string;
-  cloudPeerDraft: string;
-  cloudPreviewFlow: "pull" | "incoming" | null;
-  cloudPullNothingToMerge: boolean;
-  cloudRoleDraft: CloudSyncRole;
-  cloudRoomGuard: { action: "save" | "test"; guard: CloudSyncKeyGuardResult; } | null;
-  cloudSaving: boolean;
-  cloudStatus: CloudSyncStatus | null;
-  cloudSyncState: { tone: "idle"; label: string; hint: string; } | { tone: "main"; label: string; hint: string; } | { tone: "warn"; label: string; hint: string; } | { tone: "ok"; label: string; hint: string; };
-  cloudTesting: boolean;
-  cloudTimeline: { key: string; label: string; at: string; }[];
-  cloudTodo: { count: number; label: string; hint: string; };
-  cloudTokenDraft: string;
-  cloudVersionText: string;
-  cloudWorkerUrlDraft: string;
-  exportSyncBundle: () => Promise<void>;
-  handleSyncFile: (file: File) => void;
-  loadSyncPreview: (file: File, mode: SyncConflictMode) => Promise<void>;
-  machineCodeInput: string;
-  machineCodeSaving: boolean;
-  markCloudPullReviewed: () => Promise<void>;
-  openCloudAssign: () => void;
-  pollCloudStatus: (silent?: boolean) => Promise<void>;
-  pullCloudBundle: () => Promise<void>;
-  pushCloudBundle: () => Promise<void>;
-  rejectCloudInbox: () => Promise<void>;
-  resolveCloudRoomGuard: (cloudStateAction: "reset" | "keep") => void;
-  resolveSyncConflicts: (accept: boolean) => void;
-  saveCloudAssignDraft: () => Promise<void>;
-  saveCloudSettings: (cloudStateAction?: "reset" | "keep") => Promise<void>;
-  saveMachineCode: (confirmChange?: boolean) => Promise<void>;
-  setCloudAssignDraft: Dispatch<SetStateAction<Record<string, string>>>;
-  setCloudAssignOpen: Dispatch<SetStateAction<boolean>>;
-  setCloudKeyDraft: Dispatch<SetStateAction<string>>;
-  setCloudLabelDraft: Dispatch<SetStateAction<string>>;
-  setCloudPeerDraft: Dispatch<SetStateAction<string>>;
-  setCloudRoleDraft: Dispatch<SetStateAction<CloudSyncRole>>;
-  setCloudRoomGuard: Dispatch<SetStateAction<{ action: "save" | "test"; guard: CloudSyncKeyGuardResult; } | null>>;
-  setCloudTokenDraft: Dispatch<SetStateAction<string>>;
-  setCloudWorkerUrlDraft: Dispatch<SetStateAction<string>>;
-  setMachineCodeInput: Dispatch<SetStateAction<string>>;
-  setSyncActiveKey: Dispatch<SetStateAction<string | null>>;
-  setSyncCollapsedGroupKeys: Dispatch<SetStateAction<string[]>>;
-  setSyncExportInclAvatars: Dispatch<SetStateAction<boolean>>;
-  setSyncExportInclProfiles: Dispatch<SetStateAction<boolean>>;
-  setSyncIncludeAvatars: Dispatch<SetStateAction<boolean>>;
-  setSyncMode: Dispatch<SetStateAction<SyncConflictMode>>;
-  setSyncOverwriteAvatars: Dispatch<SetStateAction<boolean>>;
-  setSyncSelectedKeys: Dispatch<SetStateAction<string[]>>;
-  switchCloudAckSource: (code: string) => Promise<void>;
-  SYNC_ACTION_LABELS: Record<SyncImportAction, string>;
-  SYNC_KIND_LABELS: Record<SyncImportItemKind, string>;
-  syncActiveItem: SyncImportItem | null;
-  syncActiveKey: string | null;
-  syncCollapsedGroupKeys: string[];
-  syncConflictCount: number;
-  syncExcludedMatchKeys: Set<string>;
-  syncExcludedTournamentIds: string[];
-  syncExportInclAvatars: boolean;
-  syncExportInclProfiles: boolean;
-  syncExporting: boolean;
-  syncFile: File | null;
-  syncGroupOfMatchKey: Map<string, SyncImportTournamentGroup>;
-  syncImporting: boolean;
-  syncIncludeAvatars: boolean;
-  syncMatchActionCounts: Record<SyncImportAction, number>;
-  syncMatchRows: SyncImportItem[];
-  syncMode: SyncConflictMode;
-  syncOverwriteAvatars: boolean;
-  syncPreview: SyncImportPreview | null;
-  syncPreviewLoading: boolean;
-  syncPreviewNotes: string[];
-  syncPreviewRows: (SyncImportItem | (SyncImportTournamentGroup & { isGroup: true; rowKey: string; }))[];
-  syncSelectedKeys: string[];
-  testCloudWorker: (cloudStateAction?: "reset" | "keep") => Promise<void>;
-  toggleSyncTournamentGroup: (group: SyncImportTournamentGroup) => void;
-  tournamentNameMap: Map<string, string>;
-  tournamentRecordMap: Map<string, TournamentRecord>;
-  uploadCloudResults: () => Promise<void>;
-}
-
-export function SyncView({ scope }: { scope: SyncViewScope }) {
+export function SyncView() {
   const {
     applyCloudPreview,
     applySyncPreview,
@@ -254,7 +149,7 @@ export function SyncView({ scope }: { scope: SyncViewScope }) {
     tournamentNameMap,
     tournamentRecordMap,
     uploadCloudResults,
-  } = scope;
+  } = useSyncController();
   return (
             <Space direction="vertical" size={18} className="page-stack">
               <Card
@@ -373,7 +268,7 @@ export function SyncView({ scope }: { scope: SyncViewScope }) {
                       />
                       <Button onClick={() => void testCloudWorker()} loading={cloudTesting}>测试能否连上云端</Button>
                       <Button onClick={() => void saveCloudSettings()} loading={cloudSaving}>保存设置</Button>
-                      <Button onClick={() => void pollCloudStatus(false)} loading={cloudBusy === 'poll'}>刷新同步状态</Button>
+                      <Button onClick={() => void pollCloudStatus()} loading={cloudBusy === 'poll'}>刷新同步状态</Button>
                     </Space>
 
                     <Row gutter={[12, 8]} className="cloud-sync-fields">

@@ -64,6 +64,43 @@ function scanDashboardHooks(source: string): ScanResult {
   return { earlyReturnLine, hooksAfter };
 }
 
+/** M2 起数据层 / 视图内部也有大段 hook：同样不允许顶层 return 之后再调 hook */
+const CONTROL_FILES = [
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'data', 'admin-data.tsx'),
+    start: 'export function AdminDataProvider(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'SyncView.tsx'),
+    start: 'export function SyncView(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'sync', 'use-sync-controller.ts'),
+    start: 'export function useSyncController(',
+  },
+];
+
+function scanHooksAfterTopLevelReturn(source: string, startPrefix: string): { returnLine: number; hooksAfter: string[] } {
+  const lines = source.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) => line.startsWith(startPrefix));
+  if (startIndex === -1) {
+    return { returnLine: -1, hooksAfter: [] };
+  }
+  const returnIndex = lines.findIndex((line, index) => index > startIndex && line.startsWith('  return'));
+  if (returnIndex === -1) {
+    return { returnLine: -1, hooksAfter: [] };
+  }
+  const hooksAfter: string[] = [];
+  for (let index = returnIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    // 只看组件/自定义 hook 的顶层语句（缩进 2）；嵌套函数与 JSX 内部缩进更深
+    if (line.startsWith('  ') && !line.startsWith('    ') && HOOK_PATTERN.test(line)) {
+      hooksAfter.push(`第 ${index + 1} 行：${line.trim().slice(0, 90)}`);
+    }
+  }
+  return { returnLine: returnIndex + 1, hooksAfter };
+}
+
 describe('Dashboard hooks 顺序（React #310 白屏守卫）', () => {
   it('组件内所有 hook 都位于 if (loading) 早退分支之前', () => {
     const result = scanDashboardHooks(readFileSync(APP_PATH, 'utf-8'));
@@ -90,6 +127,30 @@ describe('Dashboard hooks 顺序（React #310 白屏守卫）', () => {
     // 注入的 hook 必须被抓出来
     const scanned = scanDashboardHooks(injected);
     expect(scanned.earlyReturnLine).toBe(target + 1);
+    expect(scanned.hooksAfter.join()).toContain('useEffect');
+  });
+});
+
+describe('数据层 / 视图内部 hooks 顺序', () => {
+  for (const { file, start } of CONTROL_FILES) {
+    it(`${path.relative(process.cwd(), file)} 的 hook 不在顶层 return 之后`, () => {
+      const result = scanHooksAfterTopLevelReturn(readFileSync(file, 'utf-8'), start);
+      expect(result.returnLine, `没有找到 ${start} 的顶层 return，扫描逻辑可能已失效`).toBeGreaterThan(-1);
+      expect(result.hooksAfter, `以下 hook 位于顶层 return 之后，会破坏 hooks 顺序：\n${result.hooksAfter.join('\n')}`).toEqual([]);
+    });
+  }
+
+  it('扫描本身有效：顶层 return 后注入 hook 必须被抓出来', () => {
+    const source = readFileSync(CONTROL_FILES[0].file, 'utf-8');
+    const lines = source.split(/\r?\n/);
+    const target = lines.findIndex((line) => line.startsWith('  return'));
+    expect(target).toBeGreaterThan(-1);
+    const injected = [
+      ...lines.slice(0, target + 1),
+      '  useEffect(() => {}, []);',
+      ...lines.slice(target + 1),
+    ].join('\n');
+    const scanned = scanHooksAfterTopLevelReturn(injected, CONTROL_FILES[0].start);
     expect(scanned.hooksAfter.join()).toContain('useEffect');
   });
 });
