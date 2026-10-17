@@ -13,6 +13,13 @@
     font-display: swap;
 }
 
+/* 卡片标签数值字体：随包分发的 MiSans Heavy（assets/fonts/MiSans-Heavy.otf） */
+@font-face {
+    font-family: "MiSans-Heavy";
+    src: url("/assets/fonts/MiSans-Heavy.otf") format("opentype");
+    font-display: swap;
+}
+
 @font-face {
     font-family: "MiSans-Medium";
     src: url("/assets/fonts/MiSans-Medium.otf") format("opentype");
@@ -88,38 +95,25 @@ body {
     color: #fff;
 }
 
-/* ===== 2. 双方阵容（petscard 卡位） ===== */
-.page16-slot {
+/* ===== 2. 双方阵容（petscard 卡片直接挂画面，位置/层级由 page16-display.js 按排名注入内联样式） ===== */
+/* 横向坐标表（与 6 个展示位一一对应）：左侧 left = 220 起步向中缝递增；
+   右侧镜像（距右缘同一组数值），换算成 left 以便左右互换时走同一条 left 过渡 */
+/* z-index 与位置绑定（不随排名）：左侧序位 0-5 → 1-6（向中缝递增），
+   右侧镜像 6-1——卡片互换时由脚本同步更新，保证叠放方向不变 */
+
+.page16-card {
     position: absolute;
     top: 920px;
-    width: 122px;
-    height: 150px;
-    /* 阵亡下沉 / 复活归位做平滑动过渡（920 ↔ 948） */
-    transition: top 0.24s ease;
+    /* 排名重排平移过渡（left）+ 阵亡下沉/复活归位（top，920 ↔ 948） */
+    transition: left 0.35s ease, top 0.24s ease;
 }
 
-.page16-slot.is-dead {
+.page16-card.is-dead {
     top: 948px;
 }
 
-/* 卡位横向坐标：左侧从左缘数，右侧复用同一组数值改为距右缘距离；
-   z-index 与左侧镜像：右侧序号6（最靠屏幕中缝）为 1，序号1（最靠右缘）为 6 */
-.page16-slot[data-side="left"][data-slot="0"] { left: 220px; z-index: 1; }
-.page16-slot[data-side="left"][data-slot="1"] { left: 332px; z-index: 2; }
-.page16-slot[data-side="left"][data-slot="2"] { left: 442px; z-index: 3; }
-.page16-slot[data-side="left"][data-slot="3"] { left: 552px; z-index: 4; }
-.page16-slot[data-side="left"][data-slot="4"] { left: 662px; z-index: 5; }
-.page16-slot[data-side="left"][data-slot="5"] { left: 772px; z-index: 6; }
-
-.page16-slot[data-side="right"][data-slot="0"] { right: 220px; z-index: 6; }
-.page16-slot[data-side="right"][data-slot="1"] { right: 332px; z-index: 5; }
-.page16-slot[data-side="right"][data-slot="2"] { right: 442px; z-index: 4; }
-.page16-slot[data-side="right"][data-slot="3"] { right: 552px; z-index: 3; }
-.page16-slot[data-side="right"][data-slot="4"] { right: 662px; z-index: 2; }
-.page16-slot[data-side="right"][data-slot="5"] { right: 772px; z-index: 1; }
-
 /* 卡片投影：卡面是异形（左上斜切 + 蒙版），用 drop-shadow 跟随轮廓，box-shadow 会出方框影子 */
-.page16-slot .petscard {
+.page16-card.petscard {
     filter: drop-shadow(-4px 4px 20px rgba(0, 0, 0, 0.25));
 }
 

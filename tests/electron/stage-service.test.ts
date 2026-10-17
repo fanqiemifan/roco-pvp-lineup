@@ -138,3 +138,27 @@ describe('stage-service：数据统计页设置（page15 过滤与排序）', ()
     expect(getStageState(paths).page15ReplayPlay).toBe(false);
   });
 });
+
+describe('stage-service：页面16卡片标签（page16CardLabel）', () => {
+  it('空目录默认 sum（种族值总和）', () => {
+    expect(getStageState(createIsolatedPaths()).page16CardLabel).toBe('sum');
+  });
+
+  it('保存 hp/name 后落盘持久化，且保存其他字段不会重置', () => {
+    const paths = createIsolatedPaths();
+    expect(saveStageState(paths, { page16CardLabel: 'hp', page: 'page16' }).page16CardLabel).toBe('hp');
+    expect(getStageState(paths).page16CardLabel).toBe('hp');
+
+    saveStageState(paths, { page16CardLabel: 'name' });
+    expect(getStageState(paths).page16CardLabel).toBe('name');
+
+    saveStageState(paths, { page16RankVisible: false });
+    expect(getStageState(paths).page16CardLabel).toBe('name');
+  });
+
+  it('非法值归一为 sum', () => {
+    const paths = createIsolatedPaths();
+    saveStageState(paths, { page16CardLabel: 'hack' });
+    expect(getStageState(paths).page16CardLabel).toBe('sum');
+  });
+});

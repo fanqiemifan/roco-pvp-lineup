@@ -76,7 +76,7 @@ function makeMatch(id: string, patch: Partial<MatchRecord> = {}): MatchRecord {
   };
 }
 
-function makeSprite(id: string, displayName: string, patch: Partial<SpriteRecord> = {}): SpriteRecord {
+function makeSprite(id: string, displayName: string, patch: Partial<Omit<SpriteRecord, 'stats'>> = {}): SpriteRecord {
   return {
     id,
     filename: `${id}_${displayName}.png`,
@@ -93,6 +93,15 @@ function makeSprite(id: string, displayName: string, patch: Partial<SpriteRecord
     form: '',
     petForm: '',
     isFinalForm: false,
+    stats: {
+      hp: null,
+      physical_attack: null,
+      physical_defense: null,
+      magic_attack: null,
+      magic_defense: null,
+      speed: null,
+      sum: null,
+    },
     ...patch,
   };
 }

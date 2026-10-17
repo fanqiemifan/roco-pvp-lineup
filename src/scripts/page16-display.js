@@ -22,15 +22,31 @@
         3: { size: 16, left: 12 }
     };
 
-    // 画面设置：精灵图来源（sprite 原图 / icon 头像，语义与 page3 一致）与排名数字显隐
+    // 画面设置：精灵图来源（sprite 原图 / icon 头像，语义与 page3 一致）、排名数字显隐、
+    // 卡片标签与 1-12 序号排序依据（sum = 种族值总和（默认）/ hp = 体力 / name = 只显名字，排序仍按 sum）
     let page16SpriteSource = 'sprite';
     let page16RankVisible = true;
+    let page16CardLabel = 'sum';
 
     if (window.Petscard) {
         window.Petscard.assetBase = PETSCARD_ASSET_BASE;
     }
 
-    const slotSpriteKeys = {
+    // 卡位横向坐标（6 个展示位）：左侧 left 从左缘向中缝递增；右侧为「距右缘距离」，
+    // 换算成 left（1920 - 卡宽122 - 右距）统一走 left 过渡，左右互换才能平移动画
+    const CARD_LEFT_X = [220, 332, 442, 552, 662, 772];
+    const CARD_RIGHT_X = CARD_LEFT_X.map((x) => 1920 - 122 - x);
+
+    // z-index 与展示位绑定（不随排名）：左侧向中缝递增 1-6，右侧镜像 6-1，保持既有叠放方向；
+    // 卡片换位时由 positionCard 同步更新，防止旧层级残留导致新位置被压在底下
+    function cardZIndex(side, orderIndex) {
+        return side === 'left' ? orderIndex + 1 : 6 - orderIndex;
+    }
+
+    // stat 图标目录（resources/stat，文件名 = 属性字段名）
+    const STAT_ICON_BASE = '/resources/stat';
+
+    const cardRecords = {
         left: new Array(MAX_SLOTS).fill(null),
         right: new Array(MAX_SLOTS).fill(null)
     };
@@ -190,69 +206,158 @@
         return candidates;
     }
 
-    function renderSlot(slotEl, slotData) {
-        const side = slotEl.dataset.side;
-        const index = Number(slotEl.dataset.slot || 0);
-        const sprite = slotData && slotData.sprite ? slotData.sprite : null;
-        const dead = isSlotDead(slotData);
-        const spriteKey = getSlotSpriteKey(sprite);
-
-        if (slotSpriteKeys[side][index] !== spriteKey) {
-            slotSpriteKeys[side][index] = spriteKey;
-            slotEl.innerHTML = '';
-            if (sprite && window.Petscard) {
-                const imageCandidates = getSlotImageCandidates(sprite);
-                window.Petscard.render(slotEl, {
-                    name: String(sprite.displayName || sprite.name || '').trim(),
-                    num: String(index + 1),
-                    image: imageCandidates[0] || '',
-                    useIcon: page16SpriteSource === 'icon',
-                    side: side === 'right' ? '右' : '左',
-                    dead,
-                    attributes: getSlotAttributeNames(sprite)
-                });
-                // 头像加载失败逐级回退到候选图（头像 → 原图）
-                const petImage = slotEl.querySelector('.petscard-pet');
-                if (petImage && imageCandidates.length > 1) {
-                    let imageIndex = 0;
-                    petImage.onerror = () => {
-                        imageIndex += 1;
-                        if (imageIndex < imageCandidates.length) {
-                            petImage.src = imageCandidates[imageIndex];
-                        } else {
-                            petImage.onerror = null;
-                        }
-                    };
-                }
-            }
-        } else {
-            const card = slotEl.querySelector('.petscard');
-            if (card) {
-                card.classList.toggle('is-dead', dead);
-            }
+    // 卡片标签内容：sum/hp → stat 图标+数值（sum 橙色高亮）；name 或数值缺失 → null（回退显示名字）
+    function buildCardStat(sprite) {
+        if (!sprite || page16CardLabel === 'name') {
+            return null;
         }
-        slotEl.classList.toggle('is-dead', dead && Boolean(sprite));
+        const stats = sprite.stats || null;
+        const value = page16CardLabel === 'hp'
+            ? (stats ? stats.hp : null)
+            : (stats ? stats.sum : null);
+        if (value == null) {
+            return null;
+        }
+        return {
+            icon: `${STAT_ICON_BASE}/${page16CardLabel}.png`,
+            text: String(value),
+            highlight: page16CardLabel === 'sum'
+        };
     }
 
-    function renderPanel(position, panelData) {
-        const selected = panelData && Array.isArray(panelData.selected) ? panelData.selected : [];
-        const slotEls = document.querySelectorAll(`.page16-slot[data-side="${position}"]`);
-        slotEls.forEach((slotEl, index) => {
-            renderSlot(slotEl, selected[index] || null);
+    function getScreenHost() {
+        return document.querySelector('.page16-screen');
+    }
+
+    // 新建一张卡片并挂到画面（left/z-index 在同一帧内注入，初始定位不触发过渡）
+    function createCard(sprite, side, dead) {
+        const imageCandidates = getSlotImageCandidates(sprite);
+        const el = window.Petscard.render(getScreenHost(), {
+            name: String(sprite.displayName || sprite.name || '').trim(),
+            num: '1',
+            image: imageCandidates[0] || '',
+            useIcon: page16SpriteSource === 'icon',
+            side: side === 'right' ? '右' : '左',
+            dead,
+            attributes: getSlotAttributeNames(sprite)
+        });
+        el.classList.add('page16-card');
+        // 头像加载失败逐级回退到候选图（头像 → 原图）
+        const petImage = el.querySelector('.petscard-pet');
+        if (petImage && imageCandidates.length > 1) {
+            let imageIndex = 0;
+            petImage.onerror = () => {
+                imageIndex += 1;
+                if (imageIndex < imageCandidates.length) {
+                    petImage.src = imageCandidates[imageIndex];
+                } else {
+                    petImage.onerror = null;
+                }
+            };
+        }
+        return el;
+    }
+
+    // 展示位与层级：left（两侧统一用 left 才能平移过渡）+ z-index 随展示位同步更新
+    function positionCard(el, side, orderIndex) {
+        el.style.left = `${side === 'left' ? CARD_LEFT_X[orderIndex] : CARD_RIGHT_X[orderIndex]}px`;
+        el.style.zIndex = String(cardZIndex(side, orderIndex));
+    }
+
+    function updateCardContent(el, sprite, rank, slotData) {
+        window.Petscard.update(el, {
+            num: rank,
+            name: String(sprite.displayName || sprite.name || '').trim(),
+            stat: buildCardStat(sprite)
+        });
+        el.classList.toggle('is-dead', isSlotDead(slotData));
+    }
+
+    /**
+     * 双方阵容统一重排（排名跨两侧，单侧变化也会影响另一侧序号，必须整屏重算）：
+     * 1) 收集两侧上场精灵 → Page16Rank 编排 1-12 名次（同值同名次）；
+     * 2) 每侧按名次升序分配展示位（同名次按槽位号），排序切换时卡片 left 平移换位、z-index 随展示位更新；
+     * 3) 卡片按「槽位 + 精灵身份签名」复用——签名没变只改序号/标签/阵亡态，精灵图不重载
+     */
+    function renderPanels() {
+        if (!window.Petscard) {
+            return;
+        }
+        const entries = [];
+        ['left', 'right'].forEach((side) => {
+            const panel = panelDataCache[side];
+            const selected = panel && Array.isArray(panel.selected) ? panel.selected : [];
+            selected.slice(0, MAX_SLOTS).forEach((slotData, slot) => {
+                const sprite = slotData && slotData.sprite ? slotData.sprite : null;
+                if (sprite) {
+                    entries.push({ side, slot, sprite, slotData });
+                }
+            });
+        });
+        const rankMap = window.Page16Rank
+            ? window.Page16Rank.assignRanks(entries, page16CardLabel)
+            : new Map();
+
+        ['left', 'right'].forEach((side) => {
+            const ordered = entries
+                .filter((entry) => entry.side === side)
+                .map((entry) => {
+                    const rankInfo = rankMap.get(`${side}:${entry.slot}`);
+                    return { entry, rank: rankInfo ? rankInfo.rank : MAX_SLOTS * 2 };
+                })
+                .sort((left, right) => (left.rank - right.rank) || (left.entry.slot - right.entry.slot));
+            const orderOfSlot = new Map();
+            ordered.forEach((item, orderIndex) => {
+                orderOfSlot.set(item.entry.slot, orderIndex);
+            });
+
+            const records = cardRecords[side];
+            const activeSlots = new Set();
+            ordered.forEach(({ entry, rank }) => {
+                const { slot, sprite, slotData } = entry;
+                activeSlots.add(slot);
+                const spriteKey = getSlotSpriteKey(sprite);
+                let record = records[slot];
+                if (record && record.spriteKey !== spriteKey) {
+                    record.el.remove();
+                    record = null;
+                }
+                if (!record) {
+                    record = { el: createCard(sprite, side, isSlotDead(slotData)), spriteKey };
+                    records[slot] = record;
+                }
+                positionCard(record.el, side, orderOfSlot.get(slot) || 0);
+                updateCardContent(record.el, sprite, rank, slotData);
+            });
+
+            // 未上场/清空的槽位：移除卡片
+            records.forEach((record, slot) => {
+                if (record && !activeSlots.has(slot)) {
+                    record.el.remove();
+                    records[slot] = null;
+                }
+            });
         });
     }
 
-    // 精灵图来源切换：签名里带 source，清空后按缓存面板重渲染
+    // 精灵图来源切换：卡片签名含 source，重排时签名不一致的卡片自动重建
     function setPage16SpriteSource(source) {
         const next = source === 'icon' ? 'icon' : 'sprite';
         if (page16SpriteSource === next) {
             return;
         }
         page16SpriteSource = next;
-        slotSpriteKeys.left.fill(null);
-        slotSpriteKeys.right.fill(null);
-        renderPanel('left', panelDataCache.left);
-        renderPanel('right', panelDataCache.right);
+        renderPanels();
+    }
+
+    function setPage16CardLabel(value) {
+        const next = value === 'hp' || value === 'name' ? value : 'sum';
+        if (page16CardLabel === next) {
+            return;
+        }
+        page16CardLabel = next;
+        // 标签与序号排序依据变化：序号重排 + 卡片平移换位（卡片本体复用，不重建）
+        renderPanels();
     }
 
     function setPage16RankVisible(visible) {
@@ -270,8 +375,8 @@
         panelDataCache.right = panels.find((panel) => panel && panel.position === 'right') || null;
         setPage16SpriteSource(payload && payload.stage ? payload.stage.page16SpriteSource : 'sprite');
         setPage16RankVisible(payload && payload.stage ? payload.stage.page16RankVisible === true : true);
-        renderPanel('left', panelDataCache.left);
-        renderPanel('right', panelDataCache.right);
+        setPage16CardLabel(payload && payload.stage ? payload.stage.page16CardLabel : 'sum');
+        renderPanels();
         renderScoreboard(payload ? payload.scoreboard : null);
         renderAvatars(payload ? payload.avatars : null);
     }
@@ -316,7 +421,9 @@
 
         socket.on('panel:update', (payload) => {
             if (payload && payload.panel && payload.panel.position) {
-                renderPanel(payload.panel.position, payload.panel);
+                // 排名跨两侧，单侧面板变化也要整屏重算序号与位置
+                panelDataCache[payload.panel.position] = payload.panel;
+                renderPanels();
             }
         });
 
@@ -332,6 +439,7 @@
             const stage = payload && payload.stage ? payload.stage : payload;
             setPage16SpriteSource(stage && stage.page16SpriteSource);
             setPage16RankVisible(stage && stage.page16RankVisible === true);
+            setPage16CardLabel(stage && stage.page16CardLabel);
         });
 
         socket.on('connect_error', (error) => {

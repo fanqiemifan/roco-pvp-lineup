@@ -1,3 +1,14 @@
+/** pets.json profile.attributes 种族值（上游缺失的字段记 null；page16 卡片标签与 1-12 排名用） */
+export interface SpriteStats {
+  hp: number | null;
+  physical_attack: number | null;
+  physical_defense: number | null;
+  magic_attack: number | null;
+  magic_defense: number | null;
+  speed: number | null;
+  sum: number | null;
+}
+
 export interface SpriteRecord {
   id: string;
   filename: string;
@@ -17,6 +28,8 @@ export interface SpriteRecord {
   /** pets.json 原始 form 字段（如 春天的样子，空字符串 = 无特殊形态），持久化快照用 */
   petForm: string;
   isFinalForm: boolean;
+  /** 种族值（来自 pets.json profile.attributes） */
+  stats: SpriteStats;
 }
 
 export interface SlotState {
@@ -181,6 +194,11 @@ export type StageTransitionType = 'none' | 'blinds' | 'wolf';
 export type SpriteSource = 'sprite' | 'icon';
 /** 推流页面3红光特效策略：关闭 / 自动开启（按阵亡阈值触发） */
 export type Page3RedLightMode = 'off' | 'auto';
+/**
+ * 推流页面16卡片标签与序号排序依据：
+ * sum = 种族值总和（默认，橙色标签）/ hp = 体力（白色标签）/ name = 只显精灵名（排序仍按种族值总和）
+ */
+export type Page16CardLabel = 'sum' | 'hp' | 'name';
 
 export interface StageConfig {
   page: StagePageKey;
@@ -217,6 +235,8 @@ export interface StageConfig {
   page16SpriteSource: SpriteSource;
   /** 推流页面16（阵容同步）：是否显示选手头像卡上的排名数字 */
   page16RankVisible: boolean;
+  /** 推流页面16（阵容同步）：卡片标签与 1-12 序号排序依据（sum 默认 / hp / name，name 排序仍按 sum） */
+  page16CardLabel: Page16CardLabel;
   /** 战绩详情（page7）：整屏切换间隔（秒）——一屏 4 行停留该时长后整屏交叉过渡到下一屏 */
   page7SwitchSeconds: number;
   /** 胜者结算画面（page10）：登记本局胜负后自动切入的停留时长 */

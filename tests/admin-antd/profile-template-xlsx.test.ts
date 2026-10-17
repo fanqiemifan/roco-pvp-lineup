@@ -15,7 +15,7 @@ import type { SpriteRecord } from '../../shared/types';
 /** 头像字节桩：仅用于验证图片被嵌入（exceljs 不解码像素，读到锚点即可） */
 const AVATAR_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]).buffer;
 
-function makeSprite(id: string, name: string, patch: Partial<SpriteRecord> = {}): SpriteRecord {
+function makeSprite(id: string, name: string, patch: Partial<Omit<SpriteRecord, 'stats'>> = {}): SpriteRecord {
   return {
     id,
     filename: `${id}_${name}.png`,
@@ -32,6 +32,15 @@ function makeSprite(id: string, name: string, patch: Partial<SpriteRecord> = {})
     form: '',
     petForm: '',
     isFinalForm: false,
+    stats: {
+      hp: null,
+      physical_attack: null,
+      physical_defense: null,
+      magic_attack: null,
+      magic_defense: null,
+      speed: null,
+      sum: null,
+    },
     ...patch,
   };
 }

@@ -77,8 +77,11 @@ export const DEFAULT_PAGE3_RED_LIGHT_INSTANT = false;
  * 推流页面16（阵容同步）：
  * - page16SpriteSource: 精灵主体图片来源（sprite 原图 / icon 头像），语义与页面3一致（复用 SpriteSource 类型与 DEFAULT_SPRITE_SOURCE 默认值）
  * - page16RankVisible: 是否显示选手头像卡上的排名数字
+ * - page16CardLabel: 卡片标签与 1-12 序号排序依据（sum 默认 / hp / name；name 只显名字、排序仍按 sum）
  */
 export const DEFAULT_PAGE16_RANK_VISIBLE = true;
+export const SUPPORTED_PAGE16_CARD_LABELS = new Set(['sum', 'hp', 'name']);
+export const DEFAULT_PAGE16_CARD_LABEL = 'sum' as const;
 /** 选手介绍（page11-13）：默认显示选手排位排名 div（无排名时自动隐藏） */
 export const DEFAULT_PAGE11_RANK_VISIBLE = true;
 export const RANK_TEXT_MAX_LENGTH = 10;

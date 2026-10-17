@@ -26,7 +26,7 @@ function makeSlot(slot: number, petId: string | null): MatchSlotSnapshot {
   };
 }
 
-function makeSprite(id: string, name: string, patch: Partial<SpriteRecord> = {}): SpriteRecord {
+function makeSprite(id: string, name: string, patch: Partial<Omit<SpriteRecord, 'stats'>> = {}): SpriteRecord {
   return {
     id,
     filename: `${id}_${name}.png`,
@@ -43,6 +43,15 @@ function makeSprite(id: string, name: string, patch: Partial<SpriteRecord> = {})
     form: '',
     petForm: '',
     isFinalForm: false,
+    stats: {
+      hp: null,
+      physical_attack: null,
+      physical_defense: null,
+      magic_attack: null,
+      magic_defense: null,
+      speed: null,
+      sum: null,
+    },
     ...patch,
   };
 }

@@ -107,7 +107,7 @@
 
 ## 精灵管理 (sprite-service.ts)
 
-数据源 `resources/data/pets.json`（字段映射：精灵编号=handbook_no、精灵名称=name、精灵属性=elements、精灵形态=stage，4=首领）；本地图片按 `{pet_id}_{name}.png` 命名（sprites-img 立绘 / sprites-icon 头像），名字经 `sanitizeFilenameSegment` 清洗（含零宽字符剔除；脚本与 sprite-service.ts 各一份实现，须同步改动）。
+数据源 `resources/data/pets.json`（字段映射：精灵编号=handbook_no、精灵名称=name、精灵属性=elements、精灵形态=stage（4=首领）、种族值=profile.attributes→stats（字段缺失记 null，page16 卡片标签与排名消费））；本地图片按 `{pet_id}_{name}.png` 命名（sprites-img 立绘 / sprites-icon 头像），名字经 `sanitizeFilenameSegment` 清洗（含零宽字符剔除；脚本与 sprite-service.ts 各一份实现，须同步改动）。
 
 **进程级缓存**：`listSprites`/`spriteLookup` 结果按 AppPaths 实例缓存在 WeakMap，签名 = pets.json + sprites-img + sprites-icon 三者 mtimeMs；资源变化（如 sync:sprites 后）自动失效重建，无需重启；单次请求内 lookup 复用（如 savePanelState 6 槽只建一次）。
 

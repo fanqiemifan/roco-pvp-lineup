@@ -1,7 +1,7 @@
 /* ============================================================
  * petscard 精灵卡片组件 · 独立版
  * 画布 122×150（无投影，嵌入页面按需自行叠加 box-shadow/drop-shadow）
- * 层级：卡面 z0 ← 序号 z2 ← 蒙版 z1{ 背景 z0 / 精灵图 z1 / 名字条 z2 / 属性圈 z3 }
+ * 层级：卡面 z0 ← 序号 z2 ← 蒙版 z1{ 背景 z0 / 精灵图 z1 / 标签条（名字或 stat 图标+数值）z2 / 属性圈 z3 }
  * 依赖：petscard.js 提供属性→背景/图标映射与 DOM 构造
  * ============================================================ */
 
@@ -29,9 +29,17 @@
 .petscard-pet.is-flip{transform:scaleX(-1);}
 .petscard.is-dead .petscard-pet{opacity:.5;filter:grayscale(1);}
 
-/* 名字条 72×22 黑 50% 始终圆角；超 6 字 JS 降为 10px；阵亡文字 #9F9F9F */
-.petscard-name{position:absolute;z-index:2;bottom:4px;left:calc(50% - 36px);width:72px;height:22px;background:rgba(0,0,0,.5);border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;white-space:nowrap;overflow:hidden;}
+/* 标签条（名字 / stat 图标+数值）100×24 黑 50% 始终圆角，内容水平垂直居中、图标与文字 0 间隔；
+   名字超 6 字 JS 降为 10px；阵亡文字 #9F9F9F；stat 高亮（sum）#FFC65F，默认白色
+   （MiSans-Heavy @font-face 由引用页声明，缺失时回退 Semibold/系统字体） */
+.petscard-name{position:absolute;z-index:2;bottom:4px;left:calc(50% - 50px);width:100px;height:24px;background:rgba(0,0,0,.5);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;}
 .petscard.is-dead .petscard-name{color:#9F9F9F;}
+
+/* stat 标签条：图标 24×24 + 数值 14px MiSans Heavy，居中排布、零间隔；sum 模式高亮橙 */
+.petscard-tag{position:absolute;z-index:2;bottom:4px;left:calc(50% - 50px);width:100px;height:24px;background:rgba(0,0,0,.5);border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:"MiSans-Heavy","MiSans-Semibold","Microsoft YaHei",sans-serif;font-size:14px;line-height:1;color:#fff;white-space:nowrap;overflow:hidden;}
+.petscard-tag img{width:24px;height:24px;object-fit:contain;flex:none;}
+.petscard-tag.is-highlight{color:#FFC65F;}
+.petscard.is-dead .petscard-tag{color:#9F9F9F;}
 
 /* 属性圈 18×18 圆底 #3E3E3E，属性图 22×22 溢出居中；y4 右距4，第二枚右距+20 */
 .petscard-attr{position:absolute;z-index:3;top:4px;width:18px;height:18px;border-radius:50%;background:#3E3E3E;}

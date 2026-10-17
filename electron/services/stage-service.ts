@@ -13,15 +13,17 @@ import {
   DEFAULT_PAGE3_RED_LIGHT_INSTANT,
   DEFAULT_PAGE3_RED_LIGHT_MODE,
   DEFAULT_PAGE3_TEAM_VISIBLE,
+  DEFAULT_PAGE16_CARD_LABEL,
   DEFAULT_PAGE16_RANK_VISIBLE,
   DEFAULT_SPRITE_SOURCE,
   SUPPORTED_PAGE3_RED_LIGHT_MODES,
+  SUPPORTED_PAGE16_CARD_LABELS,
   SUPPORTED_SPRITE_SOURCES,
   SUPPORTED_STAGE_PAGES,
   SUPPORTED_STAGE_TRANSITIONS,
   TOURNAMENT_ID_REGEX,
 } from '../../shared/constants.js';
-import type { NextGameDurationUnit, Page3RedLightMode, SpriteSource, StageConfig, StagePageKey, StageTransitionType } from '../../shared/types.js';
+import type { NextGameDurationUnit, Page16CardLabel, Page3RedLightMode, SpriteSource, StageConfig, StagePageKey, StageTransitionType } from '../../shared/types.js';
 import { ensureRuntimeDirs } from './image-service.js';
 import type { AppPaths } from './path-service.js';
 
@@ -82,6 +84,13 @@ function normalizeSpriteSource(value: unknown): SpriteSource {
 
 function normalizePage16RankVisible(value: unknown): boolean {
   return typeof value === 'boolean' ? value : DEFAULT_PAGE16_RANK_VISIBLE;
+}
+
+/** 推流页面16：卡片标签与排序依据白名单（非法值回「种族值总和」） */
+function normalizePage16CardLabel(value: unknown): Page16CardLabel {
+  return typeof value === 'string' && SUPPORTED_PAGE16_CARD_LABELS.has(value)
+    ? value as Page16CardLabel
+    : DEFAULT_PAGE16_CARD_LABEL;
 }
 
 function normalizePage3RankVisible(value: unknown): boolean {
@@ -152,6 +161,7 @@ function defaultStageState(): StageConfig {
     page15ReplayPlay: false,
     page16SpriteSource: DEFAULT_SPRITE_SOURCE,
     page16RankVisible: DEFAULT_PAGE16_RANK_VISIBLE,
+    page16CardLabel: DEFAULT_PAGE16_CARD_LABEL,
     page7SwitchSeconds: DEFAULT_PAGE7_SWITCH_SECONDS,
     page10Duration: DEFAULT_PAGE10_DURATION,
     page10DurationUnit: DEFAULT_PAGE10_DURATION_UNIT as NextGameDurationUnit,
@@ -187,6 +197,7 @@ export function getStageState(paths: AppPaths): StageConfig {
       page15ReplayPlay: normalizePage15ReplayPlay(metadata.page15ReplayPlay),
       page16SpriteSource: normalizeSpriteSource(metadata.page16SpriteSource),
       page16RankVisible: normalizePage16RankVisible(metadata.page16RankVisible),
+      page16CardLabel: normalizePage16CardLabel(metadata.page16CardLabel),
       page7SwitchSeconds: normalizePage7SwitchSeconds(metadata.page7SwitchSeconds),
       page10Duration: normalizePage10Duration(metadata.page10Duration, page10DurationUnit),
       page10DurationUnit,
@@ -236,12 +247,15 @@ export function saveStageState(paths: AppPaths, payload: unknown): StageConfig {
     page15ReplayPlay: normalizePage15ReplayPlay(
       raw.page15ReplayPlay === undefined ? current.page15ReplayPlay : raw.page15ReplayPlay,
     ),
-    // page16 两个字段带 current 兜底：切换画面等局部保存只传 page/transition，不得清空页面设置
+    // page16 三个字段带 current 兜底：切换画面等局部保存只传 page/transition，不得清空页面设置
     page16SpriteSource: normalizeSpriteSource(
       raw.page16SpriteSource === undefined ? current.page16SpriteSource : raw.page16SpriteSource,
     ),
     page16RankVisible: normalizePage16RankVisible(
       raw.page16RankVisible === undefined ? current.page16RankVisible : raw.page16RankVisible,
+    ),
+    page16CardLabel: normalizePage16CardLabel(
+      raw.page16CardLabel === undefined ? current.page16CardLabel : raw.page16CardLabel,
     ),
     page7SwitchSeconds: normalizePage7SwitchSeconds(
       raw.page7SwitchSeconds === undefined ? current.page7SwitchSeconds : raw.page7SwitchSeconds,

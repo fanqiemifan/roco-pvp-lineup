@@ -19,7 +19,12 @@ function writeSpriteLibrary(): void {
     join(paths.dataDir, 'pets.json'),
     JSON.stringify({
       items: [
-        { pet_id: '1001', name: '暮星辰', handbook_no: 1 },
+        {
+          pet_id: '1001',
+          name: '暮星辰',
+          handbook_no: 1,
+          profile: { attributes: { hp: 120, speed: 92, sum: 582, magic_attack: '非法数值' } },
+        },
         { pet_id: '1002', name: '暮星辰', form: '春天的样子', handbook_no: 1 },
         { pet_id: '2001', name: '怖哭菇', handbook_no: 2 },
         { pet_id: '3001', name: '缺图精灵', handbook_no: 3 },
@@ -62,6 +67,16 @@ describe('listSprites', () => {
     expect(sprite.number).toBe(1);
     for (const alias of ['1', '001', 'NO.001']) {
       expect(sprite.aliases).toContain(alias);
+    }
+  });
+
+  it('种族值：profile.attributes 解析为 stats，缺失/非法字段记 null', () => {
+    const sprites = listSprites(paths);
+    expect(sprites[0].stats).toMatchObject({ hp: 120, speed: 92, sum: 582 });
+    expect(sprites[0].stats.magic_attack).toBeNull();
+    // 无 profile 的条目全部字段为 null
+    for (const value of Object.values(sprites[2].stats)) {
+      expect(value).toBeNull();
     }
   });
 });

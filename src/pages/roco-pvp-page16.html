@@ -34,19 +34,8 @@
             <div class="page16-player-name" id="page16RightName"></div>
         </div>
 
-        <!-- 双方阵容：petscard 卡位，横向坐标与层级见 roco-pvp-page16.css -->
-        <div class="page16-slot" data-side="left" data-slot="0"></div>
-        <div class="page16-slot" data-side="left" data-slot="1"></div>
-        <div class="page16-slot" data-side="left" data-slot="2"></div>
-        <div class="page16-slot" data-side="left" data-slot="3"></div>
-        <div class="page16-slot" data-side="left" data-slot="4"></div>
-        <div class="page16-slot" data-side="left" data-slot="5"></div>
-        <div class="page16-slot" data-side="right" data-slot="0"></div>
-        <div class="page16-slot" data-side="right" data-slot="1"></div>
-        <div class="page16-slot" data-side="right" data-slot="2"></div>
-        <div class="page16-slot" data-side="right" data-slot="3"></div>
-        <div class="page16-slot" data-side="right" data-slot="4"></div>
-        <div class="page16-slot" data-side="right" data-slot="5"></div>
+        <!-- 双方阵容：petscard 卡片由 page16-display.js 按双方 1-12 排名直接挂到画面上
+             （left/z-index 内联注入，位置互换带平移过渡，坐标与层级见 roco-pvp-page16.css） -->
 
         <!-- 装饰条 -->
         <div class="page16-deco page16-deco-left" aria-hidden="true"></div>
@@ -57,6 +46,7 @@
     </main>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/scripts/page16-rank.js"></script>
     <script src="/scripts/petscard.js"></script>
     <script src="/scripts/page16-display.js"></script>
 </body>

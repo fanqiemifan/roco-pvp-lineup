@@ -11,6 +11,9 @@
  *     side: '左',                            // 站位：'左' | '右'（头像+右 → 镜像）
  *     dead: false,                          // 阵亡态
  *     attributes: ['光'],                    // 属性1 匹配背景，属性2 追加徽章
+ *     stat: { icon: 'assets/stat/sum.png', text: '582', highlight: true },
+ *                                           // 可选：标签条改显 stat 图标+数值（highlight = 橙色），
+ *                                           // 缺省回退显示 name；已渲染卡片用 Petscard.update 就地改序号/标签
  *   });
  *
  * 资源路径基准：Petscard.assetBase（默认 'assets'，相对页面；需要时可改为绝对/CDN 路径）
@@ -71,6 +74,51 @@
     return no ? state.assetBase + '/attribute/' + no + '.png' : '';
   }
 
+  // 标签条内容：stat（图标+数值）优先，否则精灵名；超 6 字名字降为 10px
+  function buildLabelElement(opts) {
+    if (opts.stat && opts.stat.icon && opts.stat.text != null && String(opts.stat.text) !== '') {
+      const tag = document.createElement('div');
+      tag.className = 'petscard-tag' + (opts.stat.highlight ? ' is-highlight' : '');
+      tag.innerHTML = `<img src="${esc(opts.stat.icon)}" alt=""><span class="petscard-tag-text">${esc(opts.stat.text)}</span>`;
+      return tag;
+    }
+    const name = opts.name != null ? String(opts.name) : '';
+    if (name === '') {
+      return null;
+    }
+    const label = document.createElement('div');
+    label.className = 'petscard-name';
+    label.style.fontSize = (name.length > 6 ? 10 : 14) + 'px';
+    label.textContent = name;
+    return label;
+  }
+
+  /**
+   * 就地更新一张已渲染卡片的序号与标签条（不重建卡片，精灵图不重载；
+   * 供排名重排/标签切换时平移过渡使用）
+   * @param {HTMLElement} card .petscard 根元素
+   * @param {{ num?: string|number, name?: string, stat?: {icon: string, text: string|number, highlight?: boolean}|null }} opts
+   */
+  function update(card, opts) {
+    opts = opts || {};
+    const numEl = card.querySelector('.petscard-num');
+    if (numEl && opts.num != null) {
+      numEl.textContent = String(opts.num);
+    }
+    const mask = card.querySelector('.petscard-mask');
+    if (!mask) {
+      return;
+    }
+    const existing = mask.querySelector('.petscard-name, .petscard-tag');
+    const next = buildLabelElement(opts);
+    if (existing) {
+      existing.remove();
+    }
+    if (next) {
+      mask.appendChild(next);
+    }
+  }
+
   /**
    * 渲染一张精灵卡片
    * @param {HTMLElement|string} target 挂载容器（元素或选择器），卡片 append 进去
@@ -82,6 +130,9 @@
    *   side?: '左'|'右',          // 站位，默认 '左'
    *   dead?: boolean,           // 阵亡态（卡面置灰/背景与图片减淡/名字变灰）
    *   attributes?: string[],    // 属性列表：属性1 匹配背景，前 2 个渲染徽章
+   *   stat?: {icon: string, text: string|number, highlight?: boolean}|null,
+   *                           // 标签条显示 stat 图标+数值（替代名字）；highlight = sum 橙色 #FFC65F，
+   *                           // 缺省或数据为空回退显示名字
    * }} opts
    * @returns {HTMLElement} 卡片根元素（.petscard）
    */
@@ -112,13 +163,17 @@
       <div class="petscard-mask" style="--pc-top:${bg.top};--pc-light:${bg.light};--pc-bot:${bg.bot};--pc-pattern:url('${esc(state.assetBase + '/roco-bg/' + bg.file)}')">
         <div class="petscard-bg"><div class="petscard-bg-pattern"></div><div class="petscard-bg-fade"></div></div>
         ${opts.image ? `<img class="petscard-pet${mirror ? ' is-flip' : ''}" src="${esc(opts.image)}" alt="${esc(name || '精灵')}">` : ''}
-        <div class="petscard-name" style="font-size:${name.length > 6 ? 10 : 12}px">${esc(name)}</div>
         ${attrHtml}
       </div>`;
+    const mask = card.querySelector('.petscard-mask');
+    const label = buildLabelElement(opts);
+    if (label) {
+      mask.appendChild(label);
+    }
 
     host.appendChild(card);
     return card;
   }
 
-  global.Petscard = { render, ATTR_BG, ATTR_NO, get assetBase() { return state.assetBase; }, set assetBase(v) { state.assetBase = String(v || 'assets'); } };
+  global.Petscard = { render, update, ATTR_BG, ATTR_NO, get assetBase() { return state.assetBase; }, set assetBase(v) { state.assetBase = String(v || 'assets'); } };
 })(typeof window !== 'undefined' ? window : this);

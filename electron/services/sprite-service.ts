@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { MAX_SELECTION_COUNT, SUPPORTED_IMAGE_EXTENSIONS } from '../../shared/constants.js';
-import type { QuickFillPreview, SpriteRecord } from '../../shared/types.js';
+import type { QuickFillPreview, SpriteRecord, SpriteStats } from '../../shared/types.js';
 import type { AppPaths } from './path-service.js';
 
 const SPRITE_RESOURCE_BASE = '/resources/sprites-img';
@@ -144,6 +144,16 @@ function buildSpriteEntry(filename: string, paths: AppPaths): SpriteRecord {
     form: '',
     petForm: '',
     isFinalForm: false,
+    // 目录扫描兜底没有 pets.json 数据源，种族值不可知，全部记 null
+    stats: {
+      hp: null,
+      physical_attack: null,
+      physical_defense: null,
+      magic_attack: null,
+      magic_defense: null,
+      speed: null,
+      sum: null,
+    },
   };
 }
 
@@ -239,6 +249,29 @@ function resolveIconUrl(petId: string, name: string, paths: AppPaths): string {
   return fallback ? `${SPRITE_ICON_RESOURCE_BASE}/${fallback}` : '';
 }
 
+// pets.json profile.attributes → 种族值（字段缺失/非法记 null，展示端按「无数据」排在末位）
+function normalizePetStats(profile: unknown): SpriteStats {
+  const attributes = profile && typeof profile === 'object'
+    ? (profile as Record<string, unknown>).attributes
+    : null;
+  const statSource = attributes && typeof attributes === 'object'
+    ? (attributes as Record<string, unknown>)
+    : null;
+  const read = (key: string): number | null => {
+    const value = Number(statSource?.[key]);
+    return Number.isFinite(value) ? value : null;
+  };
+  return {
+    hp: read('hp'),
+    physical_attack: read('physical_attack'),
+    physical_defense: read('physical_defense'),
+    magic_attack: read('magic_attack'),
+    magic_defense: read('magic_defense'),
+    speed: read('speed'),
+    sum: read('sum'),
+  };
+}
+
 // pets.json 单条记录 → SpriteRecord
 // 字段对应：精灵编号=handbook_no、精灵名称=name、精灵属性=elements、精灵形态=stage（4=首领）
 function normalizePetRecord(record: unknown, paths: AppPaths): SpriteRecord | null {
@@ -307,6 +340,7 @@ function normalizePetRecord(record: unknown, paths: AppPaths): SpriteRecord | nu
     form,
     petForm: formText,
     isFinalForm: finalFormIds.has(petId),
+    stats: normalizePetStats(item.profile),
   };
 }
 

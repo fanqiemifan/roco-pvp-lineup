@@ -91,6 +91,7 @@ import type {
   ScoreboardState,
   SpriteSource,
   Page3RedLightMode,
+  Page16CardLabel,
   SlotState,
   SpriteRecord,
   StageConfig,
@@ -2817,7 +2818,7 @@ function Dashboard() {
 
   async function saveStage(
     nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5TournamentId?: string; page5Stage?: string; page15TournamentId?: string; page15Stage?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page15SortOrder?: 'asc' | 'desc'; page15ReplayPlay?: boolean; page16SpriteSource?: SpriteSource; page16RankVisible?: boolean; page7SwitchSeconds?: number; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
+    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5TournamentId?: string; page5Stage?: string; page15TournamentId?: string; page15Stage?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page15SortOrder?: 'asc' | 'desc'; page15ReplayPlay?: boolean; page16SpriteSource?: SpriteSource; page16RankVisible?: boolean; page16CardLabel?: Page16CardLabel; page7SwitchSeconds?: number; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
   ) {
     const silent = options?.silent ?? false;
     const normalized = normalizeStagePage(nextPage);
@@ -2838,16 +2839,17 @@ function Dashboard() {
     const page15ReplayPlay = options?.page15ReplayPlay ?? stage?.page15ReplayPlay ?? false;
     const page16SpriteSource = options?.page16SpriteSource ?? stage?.page16SpriteSource ?? 'sprite';
     const page16RankVisible = options?.page16RankVisible ?? stage?.page16RankVisible ?? true;
+    const page16CardLabel: Page16CardLabel = options?.page16CardLabel ?? stage?.page16CardLabel ?? 'sum';
     const page7SwitchSeconds = options?.page7SwitchSeconds ?? stage?.page7SwitchSeconds ?? DEFAULT_PAGE7_SWITCH_SECONDS;
     const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
     const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
     // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page7SwitchSeconds, page10Duration, page10DurationUnit } : prev));
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page16CardLabel, page7SwitchSeconds, page10Duration, page10DurationUnit } : prev));
     setStageSaving(true);
     try {
       const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
         method: 'POST',
-        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page7SwitchSeconds, page10Duration, page10DurationUnit },
+        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page16CardLabel, page7SwitchSeconds, page10Duration, page10DurationUnit },
       });
       applyServerState({ stage: data.stage });
       if (!silent) {
@@ -7640,6 +7642,22 @@ function Dashboard() {
                       />
                       {stage?.page16RankVisible ? <Tag color="green">已开启</Tag> : <Tag>已关闭</Tag>}
                     </Space>
+                  </SettingField>
+                  <SettingField
+                    label="卡片标签："
+                    hint="精灵卡片底部标签与序号（1-12）排序依据：种族值总和（默认，橙色）与体力显示对应数值图标并按该值从大到小编排双方序号；名字只显示精灵名，序号仍按种族值总和排序。数值相同的精灵并列同名次，无数据的排在最后。"
+                  >
+                    <Segmented
+                      block
+                      value={stage?.page16CardLabel ?? 'sum'}
+                      disabled={stageSaving}
+                      options={[
+                        { value: 'sum', label: '种族值总和' },
+                        { value: 'hp', label: '体力' },
+                        { value: 'name', label: '名字' },
+                      ]}
+                      onChange={(value) => { void saveStage(stage?.page ?? 'page16', { silent: true, page16CardLabel: value as Page16CardLabel }); }}
+                    />
                   </SettingField>
                 </Space>
               ),
