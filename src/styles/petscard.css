@@ -41,6 +41,7 @@
 .petscard-tag img{width:24px;height:24px;object-fit:contain;flex:none;}
 .petscard-tag.is-highlight{color:#FFC65F;}
 .petscard.is-dead .petscard-tag{color:#9F9F9F;}
+.petscard.is-dead .petscard-tag img{opacity:.5;}
 
 /* 属性圈 18×18 圆底 #3E3E3E，属性图 22×22 溢出居中；y4 右距4，第二枚右距+20 */
 .petscard-attr{position:absolute;z-index:3;top:4px;width:18px;height:18px;border-radius:50%;background:#3E3E3E;}
