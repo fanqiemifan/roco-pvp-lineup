@@ -209,7 +209,7 @@ const ROLE_ADMIN = 'admin';
 const KNOWN_SOCKET_ROLES = new Set([
   ROLE_ADMIN,
   'page1', 'page2', 'page3', 'page4', 'page5', 'page6',
-  'page7', 'page8', 'page9', 'page10', 'page11', 'page14', 'page15', 'page16',
+  'page7', 'page8', 'page9', 'page10', 'page11', 'page14', 'page15', 'page16', 'page17',
   'float', 'carrier', 'countdown',
 ]);
 const ROLE_ROOM_PREFIX = 'role:';
@@ -235,6 +235,8 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
   page15: ['stage'],
   // page16 只读阵容面板 + 记分牌 + 头像 + stage（精灵来源/排名显隐），不订阅比赛与编排数据
   page16: ['panels', 'scoreboard', 'avatars', 'stage'],
+  // page17（阵容展示5）与 page16 同源：只读阵容面板 + 记分牌 + 头像 + stage
+  page17: ['panels', 'scoreboard', 'avatars', 'stage'],
   page10: [],
   page11: [],
   // float 需要 stage 仅取 mirrorSides（阵容悬浮窗跟随页面1-3 的镜像反转开关）
@@ -246,11 +248,11 @@ const SNAPSHOT_FIELDS_BY_ROLE: Partial<Record<string, Array<keyof SnapshotPayloa
 // 事件 → 需要该事件的角色（admin 房间始终收到全部）
 // page1/page2 订阅 stage:update 仅为「阵容镜像反转」实时切换（两页其余渲染不依赖 stage 配置）；
 // float 订阅它同理（阵容悬浮窗跟随镜像反转）；page7 订阅它是为「战绩详情整屏切换间隔」（画面设置里改，改完立即按新节奏走）
-const ROLES_FOR_STAGE = ['page1', 'page2', 'page3', 'page5', 'page7', 'page11', 'page15', 'page16', 'carrier', 'float'];
-const ROLES_FOR_AVATAR = ['page3', 'page4', 'page6', 'page7', 'page8', 'page10', 'page11', 'page16'];
+const ROLES_FOR_STAGE = ['page1', 'page2', 'page3', 'page5', 'page7', 'page11', 'page15', 'page16', 'page17', 'carrier', 'float'];
+const ROLES_FOR_AVATAR = ['page3', 'page4', 'page6', 'page7', 'page8', 'page10', 'page11', 'page16', 'page17'];
 const ROLES_FOR_MATCHES = ['page3', 'page5', 'page6', 'page7', 'page8', 'page10', 'page11', 'page14', 'page15'];
-const ROLES_FOR_SCOREBOARD = ['page2', 'page3', 'page5', 'page16'];
-const ROLES_FOR_PANEL = ['page1', 'page2', 'page3', 'page11', 'page16', 'float'];
+const ROLES_FOR_SCOREBOARD = ['page2', 'page3', 'page5', 'page16', 'page17'];
+const ROLES_FOR_PANEL = ['page1', 'page2', 'page3', 'page11', 'page16', 'page17', 'float'];
 const ROLES_FOR_PROFILES = ['page3', 'page11'];
 
 /** 活跃比赛记录（头像解析需要选手名做档案兜底，故不只是取 id） */
@@ -730,6 +732,7 @@ export async function createLocalServer(
   app.get('/roco-pvp-page14.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page14.html'));
   app.get('/roco-pvp-page15.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page15.html'));
   app.get('/roco-pvp-page16.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page16.html'));
+  app.get('/roco-pvp-page17.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page17.html'));
   // 选手介绍（page11-13）：同一页面文件通过 ?mode=left/right/versus 区分三种画面
   app.get('/roco-pvp-page11.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page11.html'));
   app.get('/roco-pvp-page1.html', (_request, response) => sendPage(paths, response, 'roco-pvp-page1.html'));
@@ -787,7 +790,7 @@ export async function createLocalServer(
       const isPublicStatic = publicStaticPrefixes.some(p =>
         req.path === p || req.path.startsWith(p + '/')
       );
-      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/roco-pvp-page14.html', '/roco-pvp-page15.html', '/roco-pvp-page16.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
+      const isPublicPage = ['/', '/login.html', '/roco-pvp-page1.html', '/roco-pvp-page2.html', '/roco-pvp-page3.html', '/roco-pvp-page4.html', '/roco-pvp-page5.html', '/roco-pvp-page6.html', '/roco-pvp-page7.html', '/roco-pvp-page8.html', '/roco-pvp-page9.html', '/roco-pvp-page10.html', '/roco-pvp-page11.html', '/roco-pvp-page14.html', '/roco-pvp-page15.html', '/roco-pvp-page16.html', '/roco-pvp-page17.html', '/float.html', '/float-menu.html', '/float-nextgame.html'].includes(req.path);
       // 推流页面仅用于展示，所需的数据 GET 接口公开（含选手头像/录入信息），写操作仍受保护
       const isPublicPage5Api = req.method === 'GET' && ['/api/stage', '/api/scoreboard', '/api/stats/ranking', '/api/page6', '/api/page7', '/api/page8', '/api/page9', '/api/page10', '/api/page11', '/api/page14', '/api/mvp', '/api/panels', '/api/matches', '/api/sprites', '/api/nextgame', '/api/profiles', '/api/avatars', '/api/countdown'].includes(req.path);
       // 头像图片公开访问（含按赛事隔离的 /api/avatar/{matchId}/{side}-avatar.png），推流页无需登录

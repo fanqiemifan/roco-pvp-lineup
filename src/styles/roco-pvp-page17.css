@@ -1,0 +1,279 @@
+/* 推流页面17：阵容展示5（黑色比分栏 + petscard2 双方阵容） */
+/* 比分栏结构与几何复用 page3（1170×100 @376,956），仅配色换黑色主题：
+   轨道黑、中央底板奶油色（与 page3 互为反色），比分/名字转白，VS 块与排位排名徽章不变 */
+
+@font-face {
+    font-family: "MiSans-Medium";
+    src: url("/assets/fonts/MiSans-Medium.otf") format("opentype");
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Regular";
+    src: url("/assets/fonts/MiSans-Regular.otf") format("opentype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "MiSans-Semibold";
+    src: url("/assets/fonts/MiSans-Semibold.otf") format("opentype");
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent !important;
+    color: #fff;
+    font-family: "Microsoft YaHei", sans-serif;
+}
+
+body {
+    --page17-name-size: 36px;
+    --page17-score-size: 48px;
+}
+
+.page17-screen {
+    position: relative;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: transparent !important;
+    font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
+}
+
+/* ===== 1. 比分栏（几何与 page3 一致，黑色主题） ===== */
+.page17-scoreboard {
+    position: absolute;
+    left: 376px;
+    top: 956px;
+    width: 1170px;
+    height: 100px;
+    transition: opacity 180ms ease;
+}
+
+.page17-scoreboard.is-hidden {
+    opacity: 0;
+}
+
+.page17-scoreboard-track {
+    position: absolute;
+    inset: 4px 0;
+    border-radius: 30px;
+    border: 4px solid #3a3a41;
+    background: #06060a;
+}
+
+/* 中央区：透明定位容器，奶油色底板由 center-back 提供（与黑色轨道反色） */
+.page17-scoreboard-center {
+    position: absolute;
+    left: 452px;
+    top: 0;
+    width: 266px;
+    height: 100px;
+}
+
+.page17-scoreboard-center-back {
+    position: absolute;
+    left: 0;
+    top: 4px;
+    width: 266px;
+    height: 92px;
+    border-radius: 30px;
+    background: #F2ECDF;
+}
+
+/* 排位排名图标：位于比分栏中央两侧（位置与 page3 一致），黑底橙字徽章在黑色轨道上自然融入 */
+.page17-rank {
+    position: absolute;
+    top: 14px;
+    width: 53px;
+    height: 64px;
+    pointer-events: none;
+}
+
+.page17-rank-left {
+    left: 387px;
+}
+
+.page17-rank-right {
+    left: 730px;
+}
+
+.page17-rank img {
+    display: block;
+    width: 53px;
+    height: 64px;
+    object-fit: contain;
+}
+
+.page17-rank-txt {
+    position: absolute;
+    top: 46px;
+    font-family: "MiSans-Heavy", "MiSans-Medium", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    font-weight: 900;
+    color: #FEC55E;
+    background: #000;
+    padding: 4px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.page17-score {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: "MiSans-Medium", "Microsoft YaHei", sans-serif;
+    font-size: var(--page17-score-size);
+    font-weight: 500;
+    line-height: 1;
+    color: #000000;
+}
+
+.page17-score-left {
+    left: 37px;
+}
+
+.page17-score-right {
+    right: 35px;
+}
+
+/* VS 块保持 100px 高，上下突出于 92px 奶油色底板（配色与 page3 一致） */
+.page17-versus {
+    position: absolute;
+    left: 94px;
+    top: 0;
+    width: 80px;
+    height: 100px;
+    border-radius: 17px;
+    background: #0a0a0f;
+    color: #ffffff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.page17-versus-main {
+    font-family: "MiSans-Semibold", "Microsoft YaHei", sans-serif;
+    font-size: 36px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.page17-versus-sub {
+    margin-top: 4px;
+    font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: 20px;
+    line-height: 1;
+    opacity: 0.88;
+}
+
+.page17-player {
+    position: absolute;
+    top: 16px;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    color: #fff;
+}
+
+.page17-player-left {
+    left: 36px;
+    width: 330px;
+}
+
+.page17-player-right {
+    right: 36px;
+    width: 330px;
+    justify-content: flex-end;
+}
+
+.page17-player-name {
+    min-width: 0;
+    flex: 1;
+    font-family: "MiSans-Regular", "Microsoft YaHei", sans-serif;
+    font-size: var(--page17-name-size);
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.page17-player-right .page17-player-name {
+    text-align: right;
+}
+
+.page17-player-avatar {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    flex: none;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.page17-player-avatar img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+}
+
+.page17-player-avatar span {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 800;
+    color: #fff;
+}
+
+.page17-player-avatar-left span {
+    background: linear-gradient(135deg, #6db7ff 0%, #3973ff 100%);
+}
+
+.page17-player-avatar-right span {
+    background: linear-gradient(135deg, #ffb58b 0%, #ff7c6b 100%);
+}
+
+/* ===== 2. 双方阵容（petscard2 卡片直接挂画面，位置/层级由 page17-display.js 按排名注入内联样式） ===== */
+/* 纵向坐标表（与 6 个展示位一一对应）：y196 起步、卡高 120 + 间隔 8 = 步进 128；
+   首末位（第 1/6 位）x82，中间四位 x32；右侧镜像（距右缘同一组数值），
+   换算成 left 以便左右互换时走同一条 left 过渡。
+   z-index 与位置绑定（不随排名）：左侧序位 0-5 → 1-6，右侧镜像 6-1——换位时由脚本同步更新 */
+
+.page17-card {
+    position: absolute;
+    /* 排名重排平移过渡 */
+    transition: left 0.35s ease, top 0.35s ease;
+}
+
+/* 卡片投影：卡面是异形（斜切蒙版），用 drop-shadow 跟随轮廓，box-shadow 会出方框影子 */
+.page17-card.petscard2 {
+    filter: drop-shadow(-4px 4px 20px rgba(0, 0, 0, 0.25));
+}

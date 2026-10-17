@@ -115,8 +115,10 @@ roco-pvp-lineup/
 | page4-display.js | 推流页面4（MVP 结算画面）脚本（按 pet_id 索引 webm/头像，增量渲染最多 6 个精灵项与标签、MVP 角标） |
 | page5-display.js | 登场/胜率排行页（page5）脚本 |
 | page16-display.js | 阵容同步展示页（page16）脚本（panels/scoreboard/avatars 三接口，复用 petscard 组件渲染双方阵容与选手头像卡；卡片按双方 1-12 排名直接挂画面并做换位平移过渡，见 .agents/09） |
-| page16-rank.js | page16 排名纯函数（独立零依赖，`Page16Rank.assignRanks(entries, mode)`：双方 12 卡统一编排名次、同值同名次跳号、无值并列末位；可在 node:vm 单测，见 tests/pages/page16-rank.test.ts） |
+| page16-rank.js | page16 排名纯函数（独立零依赖，`Page16Rank.assignRanks(entries, mode)`：双方 12 卡统一编排名次、同值同名次跳号、无值并列末位；可在 node:vm 单测，见 tests/pages/page16-rank.test.ts；page17 序号编排同源复用） |
+| page17-display.js | 阵容展示5（page17）脚本（与 page16 同源：panels/scoreboard/avatars/stage 四接口 + Page16Rank 编 1-12，复用 petscard2 组件渲染双方阵容；比分栏复用 page3 几何换黑色主题；画面设置与 page16 共用 page16SpriteSource/page16CardLabel，排位排名图标共用 page3RankVisible，见 .agents/09） |
 | petscard.js | 精灵卡片组件（独立零依赖，`Petscard.render(容器, 参数)` 一次渲染一张卡 / `Petscard.update(卡片, 参数)` 就地改序号与标签条；标签条支持 stat 图标+数值（resources/base-stats/，sum 档橙色）；属性背景纹理在 resources/roco-bg/，属性图标复用 resources/attribute/，组件 assetBase 固定 /resources） |
+| petscard2.js | 精灵卡片组件 2（依赖 petscard.js 的 ATTR_BG/ATTR_NO 映射，`Petscard2.render(容器, 参数)` / `Petscard2.update(卡片, 参数)`；基准画布 214×238，`scale` 参数整体缩放（transform 原点左上，page17 用 108/214）；序号 40×40 黑底、异形蒙版卡面（形状源文件 src/assets/ui/petscard-Rectangle-03/04.svg）、双属性圈（32×32 圆底 #3E3E3E）、种族值条 110×36（sum 档图标 24×24+4px 间隔+FFC65F 文字，其余档图标 32×32+白字）；无名字条，见 .agents/09） |
 | petsicon.js | 精灵头像卡组件（独立零依赖，`Petsicon.render(槽位, 参数)` / `Petsicon.create(参数)`；圆形底托 + 头像优先失败回退立绘 + 阵亡渐变，page1/float/page4/7/10/11 共用，见 .agents/09） |
 | sprite-pet-card.js | 精灵立绘卡片组件（独立零依赖，`SpritePetCard.render(槽位, 参数)` / `SpritePetCard.create(参数)`；双属性徽章 + 底部名字条，名字支持 canvas 名字图（page3）与纯文本（page5）双模式，见 .agents/09） |
 | page15-display.js | 数据统计展示页（page15）脚本（GET /api/stats/ranking 拿全量后前端按 stage.page15SortBy + stage.page15SortOrder 排序取前 20，双列各 10 行；另含数据回放引擎——收 page15:replay 后默认不播放、直接静态渲染最终数据，stage.page15ReplayPlay 开启逐场播放时才播演化动画，见 .agents/09） |
@@ -140,13 +142,14 @@ roco-pvp-lineup/
 | 文件路径 | 说明 |
 |---------|------|
 | index.html | 推流载体页（加载 stage 配置对应页面；切换时播全屏过渡 blinds/wolf，新页面加载完成后通知入场动效） |
-| roco-pvp-page1.html | 推流页面1（Overlay 比分栏） |
+| roco-pvp-page1.html | 推流页面1（纯阵容展示：左右各 6 个精灵头像槽，无比分栏） |
 | roco-pvp-page2.html | 推流页面2（全局阵容展示） |
 | roco-pvp-page3.html | 推流页面3（头像比分阵容） |
 | roco-pvp-page4.html | 推流页面4（MVP 结算画面，公开免鉴权，由后台「结算画面」切屏控制） |
 | roco-pvp-page5.html | 登场/胜率排行页 |
 | roco-pvp-page15.html | 数据统计展示页（无标题；使用次数/登场/胜率排行，直播推流可选画面，后台「数据统计」控制） |
 | roco-pvp-page16.html | 阵容同步展示页（比分栏 + petscard 双方阵容 + 底部选手头像卡，直播推流可选画面） |
+| roco-pvp-page17.html | 阵容展示5（底部黑色比分栏复用 page3 几何 + petscard2 双方阵容，直播推流可选画面） |
 | roco-pvp-page6.html | 比赛结果展示页 |
 | roco-pvp-page7.html | 战绩详情展示页（直播推流可选画面） |
 | roco-pvp-page8.html | 比赛预告展示页（公开免鉴权，不进直播推流可选画面） |
