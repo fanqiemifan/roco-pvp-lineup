@@ -88,7 +88,8 @@
     }
     const label = document.createElement('div');
     label.className = 'petscard-name';
-    label.style.fontSize = (name.length > 6 ? 10 : 14) + 'px';
+    // 名字条 72 宽：超 5 字 14px（≈70px）放不下，降为 10px
+    label.style.fontSize = (name.length > 5 ? 10 : 14) + 'px';
     label.textContent = name;
     return label;
   }
@@ -103,7 +104,10 @@
     opts = opts || {};
     const numEl = card.querySelector('.petscard-num');
     if (numEl && opts.num != null) {
-      numEl.textContent = String(opts.num);
+      const text = String(opts.num);
+      numEl.textContent = text;
+      // 双位数序号左移防右溢（CSS .petscard-num.is-double）
+      numEl.classList.toggle('is-double', text.length > 1);
     }
     const mask = card.querySelector('.petscard-mask');
     if (!mask) {
@@ -123,8 +127,8 @@
    * 渲染一张精灵卡片
    * @param {HTMLElement|string} target 挂载容器（元素或选择器），卡片 append 进去
    * @param {{
-   *   name?: string,            // 名字（超 6 字自动降为 10px）
-   *   num?: string|number,      // 序号，默认 '1'
+   *   name?: string,            // 名字（超 5 字自动降为 10px）
+   *   num?: string|number,      // 序号，默认 '1'（双位数自动左移防右溢）
    *   image?: string,           // 精灵图 URL（立绘或头像），108×108 object-fit:contain
    *   useIcon?: boolean,        // true = 头像；配合 side:'右' 时水平镜像
    *   side?: '左'|'右',          // 站位，默认 '左'
@@ -159,7 +163,7 @@
 
     card.innerHTML = `
       <svg class="petscard-frame" viewBox="${FRAME.vb}"><path d="${FRAME.d}"/></svg>
-      <div class="petscard-num">${esc(num)}</div>
+      <div class="petscard-num${num.length > 1 ? ' is-double' : ''}">${esc(num)}</div>
       <div class="petscard-mask" style="--pc-top:${bg.top};--pc-light:${bg.light};--pc-bot:${bg.bot};--pc-pattern:url('${esc(state.assetBase + '/roco-bg/' + bg.file)}')">
         <div class="petscard-bg"><div class="petscard-bg-pattern"></div><div class="petscard-bg-fade"></div></div>
         ${opts.image ? `<img class="petscard-pet${mirror ? ' is-flip' : ''}" src="${esc(opts.image)}" alt="${esc(name || '精灵')}">` : ''}

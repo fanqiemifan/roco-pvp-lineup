@@ -11,8 +11,9 @@
 .petscard-frame{position:absolute;left:0;top:0;width:122px;height:150px;z-index:0;fill:var(--pc-frame-color,#ECECEC);stroke:#C5CCE6;}
 .petscard.is-dead .petscard-frame{fill:rgba(101,101,101,.5);}
 
-/* 序号（优设标题黑缺失时回退系统字体） */
+/* 序号（优设标题黑缺失时回退系统字体）；双位数左移防右溢 */
 .petscard-num{position:absolute;left:16px;top:20px;z-index:2;font-family:"YouSheBiaoTiHei","优设标题黑","MiSans",sans-serif;font-size:24px;line-height:1;color:#7E7E7E;}
+.petscard-num.is-double{left:10px;}
 
 /* 蒙版 Rectangle-02：异形 clip-path，嵌套内容不超出蒙版区域 */
 .petscard-mask{position:absolute;left:8px;top:9px;width:106px;height:132px;z-index:1;
@@ -29,14 +30,14 @@
 .petscard-pet.is-flip{transform:scaleX(-1);}
 .petscard.is-dead .petscard-pet{opacity:.5;filter:grayscale(1);}
 
-/* 标签条（名字 / stat 图标+数值）100×24 黑 50% 始终圆角，内容水平垂直居中、图标与文字 0 间隔；
-   名字超 6 字 JS 降为 10px；阵亡文字 #9F9F9F；stat 高亮（sum）#FFC65F，默认白色
+/* 标签条（名字 / stat 图标+数值）黑 50% 始终圆角，内容水平垂直居中、图标与文字 0 间隔；
+   名字条与 stat 标签条同宽 72×24；名字超 5 字 JS 降为 10px；阵亡文字 #9F9F9F；stat 高亮（sum）#FFC65F，默认白色
    （MiSans-Heavy @font-face 由引用页声明，缺失时回退 Semibold/系统字体） */
-.petscard-name{position:absolute;z-index:2;bottom:4px;left:calc(50% - 50px);width:100px;height:24px;background:rgba(0,0,0,.5);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;}
+.petscard-name{position:absolute;z-index:2;bottom:4px;left:calc(50% - 36px);width:72px;height:24px;background:rgba(0,0,0,.5);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;}
 .petscard.is-dead .petscard-name{color:#9F9F9F;}
 
-/* stat 标签条：图标 24×24 + 数值 14px MiSans Heavy，居中排布、零间隔；sum 模式高亮橙 */
-.petscard-tag{position:absolute;z-index:2;bottom:4px;left:calc(50% - 50px);width:100px;height:24px;background:rgba(0,0,0,.5);border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:"MiSans-Heavy","MiSans-Semibold","Microsoft YaHei",sans-serif;font-size:14px;line-height:1;color:#fff;white-space:nowrap;overflow:hidden;}
+/* stat 标签条：与名字条同宽 72；图标 24×24 + 数值 14px MiSans Heavy，居中排布、零间隔；sum 模式高亮橙 */
+.petscard-tag{position:absolute;z-index:2;bottom:4px;left:calc(50% - 36px);width:72px;height:24px;background:rgba(0,0,0,.5);border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:"MiSans-Heavy","MiSans-Semibold","Microsoft YaHei",sans-serif;font-size:14px;line-height:1;color:#fff;white-space:nowrap;overflow:hidden;}
 .petscard-tag img{width:24px;height:24px;object-fit:contain;flex:none;}
 .petscard-tag.is-highlight{color:#FFC65F;}
 .petscard.is-dead .petscard-tag{color:#9F9F9F;}
