@@ -15,7 +15,7 @@
 ### 目录结构
 
 - App.tsx — 主组件：Layout（Header/Sider/Content）、视图分发、顶栏按钮（阵容悬浮窗 + 倒计时 / 下一场预告 / 画面设置 三个弹窗入口）、「开一局」创建赛事弹窗（选手名/排位排名/头像/赛制/标签）
-- views/ — 各视图独立页面（RosterPanelEditor、StatsView、TournamentView、HistoryLineupEntryModal、MatchLineupDetailModal）
+- views/ — 各视图独立页面（RosterPanelEditor、StatsView、TournamentView、HistoryLineupEntryModal、MatchLineupDetailModal；SyncView 是从 App.tsx 拆出的第一个整视图，状态暂由 scope 传入）
 - components/ — 可复用小组件（SettingField、SpritePetCard、StageThumb、AttributeFilterChips、BracketBoard、TournamentNodeCard）
 - ui/ — UI 原语（Hint：12px 次要文字；StatusTag：比赛状态标签；Surface：四种卡片面；EmptyState：空态四段式）
 - lib/ — 无状态纯函数（请求、统计、格式化等；status.ts 为状态文案/颜色唯一映射）
