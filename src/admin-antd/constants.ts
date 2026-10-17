@@ -19,6 +19,9 @@ export const MVP_TAG_PRESETS = [
 export const PAGE6_MAX_MATCHES = 9;
 export const PAGE8_MAX_MATCHES = 9;
 
+/** 团队积分榜（page9）后台可录入的战队行数 */
+export const PAGE9_TEAM_COUNT = 4;
+
 export const PREVIEW_PAGES: Record<PreviewSlotKey, PreviewConfig> = {
   stage: {
     title: '直播推流（全局推流页面）',

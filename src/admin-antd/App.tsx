@@ -1,7 +1,7 @@
 /*
 This project uses Ant Design (https://ant.design), licensed under the MIT License.
 */
-import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   App,
@@ -20,18 +20,15 @@ import {
   Input,
   InputNumber,
   Layout,
-  List,
   Menu,
   Modal,
   Popconfirm,
-  Radio,
   Row,
   Segmented,
   Select,
   Slider,
   Space,
   Spin,
-  Statistic,
   Steps,
   Switch,
   Table,
@@ -66,8 +63,6 @@ import type {
   Page6State,
   Page7State,
   Page8State,
-  Page9State,
-  Page11State,
   Page14State,
   PanelState,
   PlayerProfile,
@@ -76,10 +71,8 @@ import type {
   SpriteSource,
   Page3RedLightMode,
   Page16CardLabel,
-  SlotState,
   SpriteRecord,
   StageConfig,
-  StagePageKey,
   StageStandings,
   StageTransitionType,
   TeamProfile,
@@ -87,19 +80,16 @@ import type {
 
 import {
   DEFAULT_TAGS,
-  EXCLUSIVE_FORM_FILTERS,
   MVP_TAG_PRESETS,
   PAGE6_MAX_MATCHES,
   PAGE8_MAX_MATCHES,
   STAGE_OPTIONS,
   STAGE_TRANSITION_OPTIONS,
-  normalizeStagePage,
   normalizeStageTransition,
 } from './constants';
 import { rocoTheme } from '../theme';
 import { AdminDataProvider } from './data/admin-data';
 import { useAdminData } from './data/use-admin-data';
-import { StageThumb } from './components/StageThumb';
 import { SettingField } from './components/SettingField';
 import { MatchPushCard } from './components/MatchPushCard';
 import type { MatchPushKind, MatchPushPayload } from './components/MatchPushCard';
@@ -110,7 +100,6 @@ import { formatDateTime } from './lib/format';
 import {
   buildHistoryBattleEntries,
   buildHistoryCsv,
-  buildHistoryLineupEntries,
   buildHistoryTags,
   buildHistoryTournamentFilters,
   filterLocallyRemovedMatches,
@@ -120,10 +109,7 @@ import {
   LINEUP_ENTRY_BLOCK_TEXT,
   PLAIN_HISTORY_MATCH_FILTER,
 } from './lib/history';
-import {
-  buildPushCandidateGroups,
-  formatStageRoundLabel,
-} from './lib/tournament';
+import { formatStageRoundLabel } from './lib/tournament';
 import {
   LIVE_WATCH_POLL_MS,
   clampNumber,
@@ -140,34 +126,28 @@ import {
   type LiveWatchSnapshot,
 } from './lib/live';
 import {
-  buildProgressItems,
   getActiveMatch,
   getCurrentGame,
   getGameResultLabel,
   getGameStatusLabel,
   getNoticeTagColor,
   getRecentWinnerLineup,
-  summarizeSeriesForBestOf,
 } from './lib/match';
-import {
-  buildPanelRequest,
-  cloneSelected,
-  createDefaultSpriteFilterState,
-  createEmptySlot,
-  createSpriteFilterState,
-} from './lib/panel';
-import { copyText, requestJson, requestQuickFillMatches, uploadSingleFile } from './lib/request';
+import { buildPanelRequest, cloneSelected } from './lib/panel';
+import { requestJson, uploadSingleFile } from './lib/request';
 import { renderProfileTemplateXlsx } from './lib/profile-template-xlsx';
 import type { ProfileXlsxImportResponse, ProfileXlsxPreviewResponse } from './types';
 import { buildSpriteLookup } from './lib/sprite';
-import { deriveMatchActionAvailability } from './lib/match-actions';
 import { buildMvpProgressItems } from './lib/mvp';
-import { CurrentMatchPanel } from './components/CurrentMatchPanel';
 import { AboutView } from './views/AboutView';
+import { Page11View } from './views/Page11View';
+import { RosterView } from './views/RosterView';
+import { StageView } from './views/StageView';
+import { CurrentMatchPanelContainer } from './views/CurrentMatchPanelContainer';
+import { RosterEditor } from './views/RosterEditor';
 import { PreviewView } from './views/PreviewView';
 import { MatchLineupDetailPanel } from './views/MatchLineupDetailModal';
 import { HistoryLineupEntryModal } from './views/HistoryLineupEntryModal';
-import { RosterPanelEditor } from './views/RosterPanelEditor';
 import { StatsView } from './views/StatsView';
 import { SyncView } from './views/SyncView';
 import { TournamentView } from './views/TournamentView';
@@ -197,13 +177,11 @@ import streamGuideHime3 from '../assets/stream-guide/hime-3.png';
 import type {
   CreateMatchValues,
   LiveField,
-  MatchFormValues,
   NoticeState,
   PanelEditorState,
   PanelSide,
   PlayerAvatarBatchResponse,
   PlayerProfileFormValues,
-  SpriteFilterState,
   TeamProfileFormValues,
   ViewKey,
 } from './types';
@@ -219,14 +197,6 @@ const { TextArea } = Input;
 
 /** 切换当前赛事确认弹窗的「不再提示」标记：按浏览器本地记忆（localStorage），跨会话保留 */
 const SELECT_MATCH_CONFIRM_SUPPRESSED_KEY = 'roco-pvp-lineup:selectMatchConfirmSuppressed';
-
-/** 比赛列表懒加载：一次渲染 6 条，滚动到底部再加载 6 条，赛事很多时避免全量渲染 */
-const MATCH_LIST_PAGE_SIZE = 6;
-
-/** 比赛列表行：分组标题行 或 比赛卡片行（扁平化后供懒加载切片） */
-type DashboardListRow =
-  | { rowType: 'group'; key: string; title: string; count: number }
-  | { rowType: 'match'; key: string; match: MatchRecord };
 
 function isSelectMatchConfirmSuppressed(): boolean {
   try {
@@ -310,8 +280,6 @@ const HISTORY_STATUS_RANK: Record<MatchRecord['status'], number> = {
   completed: 2,
 };
 
-/** 团队积分榜（page9）后台可录入的战队行数 */
-const PAGE9_TEAM_COUNT = 4;
 
 /** MVP 结算（推流页面4）空槽位：后台固定展示 MVP_MAX_ITEMS 行 */
 function createEmptyMvpSlots(): MvpSlotEntry[] {
@@ -384,10 +352,10 @@ function Dashboard() {
     pageError,
     scoreboard,
     matchStore,
-    avatars,
     panels,
     sprites,
     stage,
+    stageSaving,
     nextgame,
     countdown,
     countdownClockRef,
@@ -396,8 +364,6 @@ function Dashboard() {
     page6,
     page7,
     page8,
-    page9,
-    page11,
     page14,
     page14Standings,
     profiles,
@@ -410,16 +376,14 @@ function Dashboard() {
     cloudAckedMatchIds,
     setAvatars,
     setPanels,
-    setStage,
     setPage14,
     setPage14Standings,
     setProfiles,
     setHistoryNotice,
     setRosterNotice,
     applyServerState,
-    runMatchAction,
-    cloudRegisterGate,
-    cloudUndoGate,
+    savePanel,
+    saveStage,
     loadInitialData,
   } = useAdminData();
   const [view, setView] = useState<ViewKey>('roster');
@@ -435,10 +399,6 @@ function Dashboard() {
   const [createRightAvatar, setCreateRightAvatar] = useState<File | null>(null);
   const [createLeftAvatarUrl, setCreateLeftAvatarUrl] = useState<string | null>(null);
   const [createRightAvatarUrl, setCreateRightAvatarUrl] = useState<string | null>(null);
-  // 赛事面板阵容编辑器共享一份精灵筛选
-  const [spriteFilter, setSpriteFilter] = useState<SpriteFilterState>(createDefaultSpriteFilterState);
-  // 赛事面板共享精灵搜索（输入即时回显，过滤用 useDeferredValue 防抖）
-  const [rosterSearch, setRosterSearch] = useState('');
   const [createMatchOpen, setCreateMatchOpen] = useState(false);
   // 快速创建比赛：从「信息录入」选手多选后随机配对生成对局
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
@@ -447,12 +407,6 @@ function Dashboard() {
   const [quickCreateTags, setQuickCreateTags] = useState<string[]>([]);
   const [quickCreateSaving, setQuickCreateSaving] = useState(false);
   const [quickCreateKeyword, setQuickCreateKeyword] = useState('');
-  // 当前比赛战队修改：开一局创建时未选战队可在此补填
-  const [teamEditOpen, setTeamEditOpen] = useState(false);
-  const [teamEditSaving, setTeamEditSaving] = useState(false);
-  /** 战队修改的目标比赛（赛事面板即当前比赛；系列比赛 Drawer 里可能是别的场次） */
-  const [teamEditTargetId, setTeamEditTargetId] = useState<string | null>(null);
-  const [teamEditForm] = Form.useForm<{ leftTeam?: string; rightTeam?: string }>();
   /** 系列比赛对局卡片：右键菜单 / Drawer 弹窗正在操作的那一场（null = 未打开） */
   const [matchPanelTargetId, setMatchPanelTargetId] = useState<string | null>(null);
   const [editingHistoryTagMatchId, setEditingHistoryTagMatchId] = useState<string | null>(null);
@@ -473,7 +427,6 @@ function Dashboard() {
   const [statsTag, setStatsTag] = useState<string | null>(null);
   const [statsTournamentId, setStatsTournamentId] = useState<string | null>(null);
   const [statsSearch, setStatsSearch] = useState('');
-  const [stageSaving, setStageSaving] = useState(false);
   const [nextgameSaving, setNextgameSaving] = useState(false);
   const [countdownSaving, setCountdownSaving] = useState(false);
   const [mvpSaving, setMvpSaving] = useState(false);
@@ -483,17 +436,6 @@ function Dashboard() {
   // 三个推流选场弹窗的推送中状态（key: page6/page7/page8）
   const [matchPushLoading, setMatchPushLoading] = useState<Record<string, boolean>>({});
   const [page14Saving, setPage14Saving] = useState(false);
-  // 选手介绍手动填写草稿（左侧/右侧），source 切换时同步
-  const [page11LeftDraft, setPage11LeftDraft] = useState({ source: 'match' as 'manual' | 'match', name: '', rank: '', declaration: '', pets: '' });
-  const [page11RightDraft, setPage11RightDraft] = useState({ source: 'match' as 'manual' | 'match', name: '', rank: '', declaration: '', pets: '' });
-  const [page11Saving, setPage11Saving] = useState(false);
-  const [page11Notice, setPage11Notice] = useState<NoticeState>(null);
-  const [page9TitleDraft, setPage9TitleDraft] = useState('');
-  const [page9TeamsDraft, setPage9TeamsDraft] = useState<Array<{ name: string; r1: string; r2: string; r3: string }>>(
-    () => Array.from({ length: PAGE9_TEAM_COUNT }, () => ({ name: '', r1: '', r2: '', r3: '' })),
-  );
-  const [page9Saving, setPage9Saving] = useState(false);
-  const [page9SettingsNotice, setPage9SettingsNotice] = useState<NoticeState>(null);
   // 快速创建弹窗选手列表：按信息录入添加时间排序（档案 id 内嵌 base36 创建时间戳，先录者在前；
   // 数组顺序可能被手动编辑/导入/删后重录打乱，id 解析失败的按原数组顺序兜底排在末尾）
   const quickCreatePlayerList = useMemo(() => {
@@ -546,7 +488,6 @@ function Dashboard() {
   const avatarBatchInputRef = useRef<HTMLInputElement | null>(null);
   // 比赛管理「录入阵容」弹窗上下文：定位到某场比赛的当前小局（提前录入，不影响推流）
   const [lineupEntry, setLineupEntry] = useState<{ matchId: string; gameNumber: number } | null>(null);
-  const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_LIST_PAGE_SIZE);
   const [liveNotice, setLiveNotice] = useState<NoticeState>(null);
   const [liveFilePath, setLiveFilePath] = useState<string | null>(null);
   const [liveConfigEnabled, setLiveConfigEnabled] = useState(false);
@@ -584,11 +525,26 @@ function Dashboard() {
   const livePollBusyRef = useRef(false);
   /** 最新面板状态：轮询 / 250ms 回写定时器都是异步回调，不能闭包读 panels（会写回旧值） */
   const livePanelsRef = useRef(panels);
+  // 赛事面板阵容编辑统一自动保存（600ms 防抖）；始终挂载在 App，切走视图后异步填充仍会落盘
+  useEffect(() => {
+    if (panels.left.saving || !panels.left.dirty) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void savePanel('left', true);
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [panels.left]);
+  useEffect(() => {
+    if (panels.right.saving || !panels.right.dirty) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void savePanel('right', true);
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [panels.right]);
   const spriteMap = buildSpriteLookup(sprites);
-  // 「信息录入」选手常用精灵多选选项：去重后的精灵名（选手介绍页按名字匹配精灵图渲染）
-  const playerPetOptions = Array.from(
-    new Set(sprites.map((sprite) => sprite.displayName.trim()).filter(Boolean)),
-  ).map((name) => ({ value: name, label: name }));
   // 选手常用精灵「两列精灵网格」：按 displayName 去重（同一精灵多形态只显示一项）、用于名字+头像点选
   const playerPetGridItems = useMemo(() => {
     const seen = new Set<string>();
@@ -606,11 +562,8 @@ function Dashboard() {
   const playerPetEditorSelected = new Set(playerPetEditorValue);
   const [petEditorKeyword, setPetEditorKeyword] = useState('');
   const activeMatch = getActiveMatch(matchStore);
-  const currentGame = getCurrentGame(activeMatch);
   // 桌面版才有本地文件读写能力：浏览器 / 无头模式下实时监听不可用（只能上传一次 JSON）
   const liveDesktopSupported = Boolean(window.rocoDesktop?.readTextFile && window.rocoDesktop?.statFile);
-  const lineupLocked = activeMatch?.status === 'completed';
-  const progress = buildProgressItems(activeMatch);
   const allHistoryTags = buildHistoryTags(matchStore.matches);
   // 系列赛筛选组：id→名称映射 + 有效 id 集合（系列赛删除后残留的孤儿引用按普通对局处理）
   const tournamentNameMap = useMemo(
@@ -621,11 +574,6 @@ function Dashboard() {
   const tournamentRecordMap = useMemo(
     () => new Map(tournaments.map((tournament) => [tournament.id, tournament])),
     [tournaments],
-  );
-  // 系列赛对局的选手名 / 赛制由编排与档案决定（写回按选手名比对、赛制决定完赛局数），
-  // 当前比赛表单据此锁定这两个字段，只留战队 / 排位排名可改（与后端 PATCH 守卫同口径）
-  const activeMatchTournamentLocked = Boolean(
-    activeMatch?.tournamentRef && tournamentRecordMap.has(activeMatch.tournamentRef.tournamentId),
   );
   // 系列比赛卡片 Drawer 的目标对局（比赛被删 / 被同步替换掉时自动失效为空 → 抽屉自行关闭）
   const matchPanelTarget = matchPanelTargetId
@@ -741,358 +689,6 @@ function Dashboard() {
   const lineupEntryGame = lineupEntryMatch && lineupEntry
     ? lineupEntryMatch.games.find((game) => game.gameNumber === lineupEntry.gameNumber) ?? null
     : null;
-  // 赛事面板比赛列表：当前比赛置顶高亮（不参与懒加载计数），其余按「赛事 · 阶段 · 轮次」分组
-  const dashboardActiveMatch = activeMatch || null;
-  // 赛事面板快捷比赛列表：同口径隐藏「本机移除」系列赛的对局（当前比赛仍照常置顶展示，不打断在进行的推流）
-  const dashboardNonActiveMatches = adminVisibleMatches.filter(
-    (m) => m.id !== dashboardActiveMatch?.id,
-  );
-  const dashboardMatchGroups = buildPushCandidateGroups(dashboardNonActiveMatches, tournaments);
-  const dashboardListRows = ((): DashboardListRow[] => {
-    const rows: DashboardListRow[] = [];
-    dashboardMatchGroups.forEach((group) => {
-      rows.push({
-        rowType: 'group',
-        key: `group:${group.key}`,
-        title: group.title,
-        count: group.matches.length,
-      });
-      group.matches.forEach((match) => {
-        rows.push({ rowType: 'match', key: match.id, match });
-      });
-    });
-    return rows;
-  })();
-  const visibleDashboardRows = dashboardListRows.slice(0, visibleMatchCount);
-  const hasMoreMatches = dashboardListRows.length > visibleMatchCount;
-
-  /** 比赛列表滚动到底部（余量 32px）时追加一页卡片 */
-  function handleMatchListScroll(event: React.UIEvent<HTMLDivElement>) {
-    if (!hasMoreMatches) {
-      return;
-    }
-    const el = event.currentTarget;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 32) {
-      setVisibleMatchCount((count) => Math.min(count + MATCH_LIST_PAGE_SIZE, dashboardListRows.length));
-    }
-  }
-
-  /**
-   * 比赛列表卡片行（分组列表内使用）。
-   * 两行布局：第一行 = 状态点 + 选手名（单行截断，悬停看全名）；第二行 = 赛制/状态/比分胶囊 +「选择」按钮。
-   * 不用 List.Item 的 actions：按钮独占右列会挤掉名字宽度，窗口一窄名字就折行、行高也参差。
-   */
-  function renderDashboardMatchItem(match: MatchRecord) {
-    const title = `${match.leftPlayer || '左侧'} vs ${match.rightPlayer || '右侧'}`;
-    return (
-      <List.Item className="match-list-item">
-        <div className="match-list-item-main">
-          <Badge status={match.status === 'completed' ? 'success' : match.status === 'in_progress' ? 'processing' : 'default'} />
-          <Tooltip title={title}>
-            <span className="match-list-item-name">{title}</span>
-          </Tooltip>
-        </div>
-        <div className="match-list-item-foot">
-          <Space size={6} wrap>
-            <Tag color="gold">BO{match.bestOf}</Tag>
-            <MatchStatusTag status={match.status} />
-            <Tag bordered={false} className="match-list-score-tag">{match.leftScore} : {match.rightScore}</Tag>
-          </Space>
-          <Button size="small" onClick={() => void selectMatch(match.id)}>选择</Button>
-        </div>
-      </List.Item>
-    );
-  }
-
-  const deferredRosterSearch = useDeferredValue(rosterSearch);
-  const spriteFormOptions = EXCLUSIVE_FORM_FILTERS.filter((form) => (
-    sprites.some((sprite) => sprite.form.trim() === form)
-  ));
-
-  function setPanelState(side: PanelSide, nextState: PanelEditorState) {
-    setPanels((prev) => ({
-      ...prev,
-      [side]: nextState,
-    }));
-  }
-
-  function mutatePanel(side: PanelSide, updater: (panel: PanelEditorState) => PanelEditorState) {
-    setPanels((prev) => ({
-      ...prev,
-      [side]: updater(prev[side]),
-    }));
-  }
-
-  // 轮询 / 回写定时器在异步回调里读最新面板（闭包里的 panels 会是旧值，导致写回文件丢掉刚改的数值）
-  useEffect(() => {
-    livePanelsRef.current = panels;
-  }, [panels]);
-
-  useEffect(() => {
-    // 赛事面板阵容编辑统一自动保存（600ms 防抖）；saving 期间跳过调度，避免保存触发的 saving/dirty 状态变化导致重复 POST
-    if (panels.left.saving || !panels.left.dirty) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void savePanel('left', true);
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [panels.left]);
-
-  useEffect(() => {
-    if (panels.right.saving || !panels.right.dirty) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void savePanel('right', true);
-    }, 600);
-    return () => window.clearTimeout(timer);
-  }, [panels.right]);
-
-  async function savePanel(side: PanelSide, silent = false) {
-    if (lineupLocked) {
-      const nextText = '当前赛事已完赛，不能编辑阵容';
-      setRosterNotice({ tone: 'warning', text: nextText });
-      if (!silent) {
-        message.warning(nextText);
-      }
-      return;
-    }
-
-    const current = panels[side];
-    mutatePanel(side, (panel) => ({ ...panel, saving: true }));
-    try {
-      const data = await requestJson<{ success: boolean; panel?: PanelState; store?: MatchStoreState }>(`/api/panels/${side}`, {
-        method: 'POST',
-        json: {
-          selected: buildPanelRequest(current.selected),
-        },
-      });
-      applyServerState({
-        panel: data.panel,
-        store: data.store,
-      });
-      mutatePanel(side, (panel) => ({ ...panel, dirty: false, saving: false }));
-      if (!silent) {
-        const nextActiveMatch = data.store ? getActiveMatch(data.store) : activeMatch;
-        const nextCurrentGame = getCurrentGame(nextActiveMatch);
-        const nextText = nextCurrentGame?.status === 'in_progress'
-          ? `${side === 'left' ? '左侧' : '右侧'}阵容已同步到当前对局与推流页面`
-          : `${side === 'left' ? '左侧' : '右侧'}阵容草稿已保存，等待开始本局后同步前台`;
-        setRosterNotice({ tone: 'success', text: nextText });
-        message.success(nextText);
-      }
-    } catch (error) {
-      mutatePanel(side, (panel) => ({ ...panel, saving: false }));
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function deletePanel(side: PanelSide) {
-    try {
-      const data = await requestJson<{ success: boolean; panel?: PanelState; store?: MatchStoreState }>(`/api/panels/${side}`, {
-        method: 'DELETE',
-      });
-      applyServerState({
-        panel: data.panel,
-        store: data.store,
-      });
-      mutatePanel(side, (panel) => ({
-        ...panel,
-        selected: Array.from({ length: 6 }, (_, index) => createEmptySlot(index)),
-        quickFillMatches: [],
-        dirty: false,
-        activeSlot: 0,
-      }));
-      message.success(`${side === 'left' ? '左侧' : '右侧'}配置已删除`);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function runQuickFill(side: PanelSide) {
-    const text = panels[side].quickFillInput.trim();
-    if (!text) {
-      message.warning('先输入要匹配的精灵名称');
-      return;
-    }
-
-    try {
-      const matches = await requestQuickFillMatches(text);
-
-      const nextSelected = Array.from({ length: 6 }, (_, index) => createEmptySlot(index));
-      matches.forEach((match) => {
-        if (match.slot >= 0 && match.slot < 6 && match.sprite) {
-          nextSelected[match.slot] = {
-            ...nextSelected[match.slot],
-            sprite: match.sprite,
-          };
-        }
-      });
-
-      mutatePanel(side, (panel) => ({
-        ...panel,
-        selected: nextSelected,
-        quickFillMatches: matches,
-        dirty: true,
-      }));
-      message.success(`${side === 'left' ? '左侧' : '右侧'}快速填充已应用到本地草稿`);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  function chooseQuickFillCandidate(side: PanelSide, slotIndex: number, sprite: SpriteRecord) {
-    mutatePanel(side, (panel) => {
-      const selected = cloneSelected(panel.selected);
-      selected[slotIndex] = {
-        ...selected[slotIndex],
-        sprite,
-      };
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function updateSlot(side: PanelSide, updater: (slot: SlotState) => SlotState) {
-    mutatePanel(side, (panel) => {
-      const selected = cloneSelected(panel.selected);
-      const current = selected[panel.activeSlot] ?? createEmptySlot(panel.activeSlot);
-      selected[panel.activeSlot] = updater(current);
-      return {
-        ...panel,
-        selected,
-        dirty: true,
-      };
-    });
-  }
-
-  function clearPanel(side: PanelSide) {
-    mutatePanel(side, (panel) => ({
-      ...panel,
-      selected: Array.from({ length: 6 }, (_, index) => createEmptySlot(index)),
-      quickFillMatches: [],
-      dirty: true,
-    }));
-  }
-
-  function applySprite(side: PanelSide, sprite: SpriteRecord) {
-    updateSlot(side, (slot) => ({
-      ...slot,
-      sprite,
-    }));
-  }
-
-  function toggleAttributeFilter(attribute: string) {
-    const current = spriteFilter.selectedAttributes;
-    const isActive = current.includes(attribute);
-
-    if (!isActive && current.length >= 2) {
-      message.warning('精灵属性最多只能选择两个');
-      return;
-    }
-
-    setSpriteFilter((filter) => ({
-      ...filter,
-      selectedAttributes: isActive
-        ? filter.selectedAttributes.filter((item) => item !== attribute)
-        : [...filter.selectedAttributes, attribute],
-    }));
-  }
-
-  function toggleFormFilter(form: string) {
-    setSpriteFilter((filter) => {
-      if (filter.selectedFinalForm) {
-        return filter;
-      }
-
-      return {
-        ...filter,
-        selectedForms: filter.selectedForms.includes(form)
-          ? filter.selectedForms.filter((item) => item !== form)
-          : [...filter.selectedForms, form],
-      };
-    });
-  }
-
-  function toggleFinalFormFilter() {
-    setSpriteFilter((filter) => ({
-      ...filter,
-      selectedFinalForm: !filter.selectedFinalForm,
-      selectedForms: filter.selectedFinalForm ? filter.selectedForms : [],
-    }));
-  }
-
-  function clearSpriteFilters() {
-    setSpriteFilter(createSpriteFilterState());
-  }
-
-  async function saveMatchMeta(matchId: string, values: MatchFormValues) {
-    const target = matchStore.matches.find((match) => match.id === matchId);
-    if (!target) {
-      return;
-    }
-
-    const nextBestOf = Number(values.bestOf) || target.bestOf;
-    const bestOfChanged = nextBestOf !== target.bestOf;
-    const projection = bestOfChanged ? summarizeSeriesForBestOf(target, nextBestOf) : null;
-    const endsMatchAfterBestOfChange = Boolean(projection?.winner && target.status !== 'completed');
-
-    const save = async () => {
-      try {
-        const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState }>(`/api/matches/${encodeURIComponent(matchId)}`, {
-          method: 'PATCH',
-          json: values,
-        });
-        applyServerState({
-          store: data.store,
-          scoreboard: data.scoreboard,
-        });
-
-        if (endsMatchAfterBestOfChange && projection?.winner) {
-          const winnerText = projection.winner === 'left'
-            ? (values.leftPlayer || '左侧')
-            : (values.rightPlayer || '右侧');
-          const nextText = `BO 已改为 BO${nextBestOf}，本场比赛按已录入结果直接结束，${winnerText} 以 ${projection.leftScore}:${projection.rightScore} 获胜`;
-          setRosterNotice({ tone: 'warning', text: nextText });
-          message.success(nextText);
-          return;
-        }
-
-        if (bestOfChanged) {
-          const nextText = `比赛信息已保存，BO 已更新为 BO${nextBestOf}`;
-          setRosterNotice({ tone: 'success', text: nextText });
-          message.success(nextText);
-          return;
-        }
-
-        setRosterNotice({ tone: 'success', text: '比赛信息已保存' });
-        message.success('比赛信息已保存');
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : String(error));
-      }
-    };
-
-    if (endsMatchAfterBestOfChange && projection?.winner) {
-      const winnerText = projection.winner === 'left'
-        ? (values.leftPlayer || '左侧')
-        : (values.rightPlayer || '右侧');
-      modal.confirm({
-        title: '修改 BO 会直接结束本场比赛',
-        content: `当前已录入的战绩在 BO${nextBestOf} 下已经足以分出胜负。继续后会立即结束本场比赛，并按前 ${projection.completedGameCount} 局结算为 ${winnerText} ${projection.leftScore}:${projection.rightScore} 获胜。`,
-        okText: '确认并结束比赛',
-        cancelText: '取消',
-        onOk: save,
-      });
-      return;
-    }
-
-    await save();
-  }
-
   /** 切换当前赛事会把目标赛事的选手信息与当前小局阵容同步到推流画面（面板+比分栏被覆写），
    *  首次切换前弹窗确认，可勾选「不再提示」（按浏览器本地记忆）。
    *  options.navigate=false 供系列比赛 Drawer 用：切换但不离开当前视图（不跳赛事面板）。 */
@@ -1263,125 +859,6 @@ function Dashboard() {
     } finally {
       setQuickCreateSaving(false);
     }
-  }
-
-  // 战队修改：打开弹窗并回填目标比赛左右战队名称（系列比赛 Drawer 也能改非当前比赛）
-  function openTeamEdit(matchId: string) {
-    const target = matchStore.matches.find((match) => match.id === matchId);
-    if (!target) {
-      return;
-    }
-    setTeamEditTargetId(matchId);
-    teamEditForm.setFieldsValue({
-      leftTeam: target.leftTeamName || undefined,
-      rightTeam: target.rightTeamName || undefined,
-    });
-    setTeamEditOpen(true);
-  }
-
-  // 保存目标比赛所属战队：按名称匹配「信息录入」战队复用 id；手动输入则仅记名称
-  async function saveTeamEdit(values: { leftTeam?: string; rightTeam?: string }) {
-    const matchId = teamEditTargetId;
-    if (!matchId) {
-      return;
-    }
-    const teamList = profiles?.teams ?? [];
-    const leftTeamName = (values.leftTeam ?? '').trim();
-    const rightTeamName = (values.rightTeam ?? '').trim();
-    const leftTeam = leftTeamName ? teamList.find((team) => team.name === leftTeamName) : undefined;
-    const rightTeam = rightTeamName ? teamList.find((team) => team.name === rightTeamName) : undefined;
-    setTeamEditSaving(true);
-    try {
-      const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState }>(`/api/matches/${encodeURIComponent(matchId)}`, {
-        method: 'PATCH',
-        json: {
-          leftTeamName,
-          leftTeamId: leftTeam?.id ?? '',
-          rightTeamName,
-          rightTeamId: rightTeam?.id ?? '',
-        },
-      });
-      applyServerState({
-        store: data.store,
-        scoreboard: data.scoreboard,
-      });
-      setTeamEditOpen(false);
-      message.success('战队已更新');
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setTeamEditSaving(false);
-    }
-  }
-
-  function getAvatarPreviewSrc(side: PanelSide): string {
-    const avatar = avatars[side];
-    return avatar.exists
-      ? `${avatar.path}?t=${avatar.mtime ?? 0}`
-      : placeholderAvatarSrc(side);
-  }
-
-  /** 头像占位图：非当前比赛时用它（推流头像按当前比赛存储，不能借用别场的头像） */
-  function placeholderAvatarSrc(side: PanelSide): string {
-    return side === 'left' ? '/assets/ui/left-avatar.png' : '/assets/ui/right-avatar.png';
-  }
-
-  /**
-   * 阵容编辑器（赛事面板的卡片外那块）。它编辑的是**全局面板**，语义上属于当前比赛，
-   * 因此只在「目标比赛 = 当前比赛」时调用；match 为 null 时保持原样（空编辑器）。
-   */
-  function buildRosterEditor(match: MatchRecord | null): React.ReactElement {
-    return (
-      <RosterPanelEditor
-        panels={panels}
-        filter={spriteFilter}
-        locked={match?.status === 'completed'}
-        players={{ left: match?.leftPlayer, right: match?.rightPlayer }}
-        searchValue={rosterSearch}
-        deferredSearchValue={deferredRosterSearch}
-        sprites={sprites}
-        spriteFormOptions={spriteFormOptions}
-        onRosterSearchChange={setRosterSearch}
-        onMutatePanel={mutatePanel}
-        onRunQuickFill={runQuickFill}
-        onClearPanel={clearPanel}
-        onChooseQuickFillCandidate={chooseQuickFillCandidate}
-        onApplySprite={applySprite}
-        onToggleAttributeFilter={toggleAttributeFilter}
-        onToggleFinalFormFilter={toggleFinalFormFilter}
-        onToggleFormFilter={toggleFormFilter}
-        onClearSpriteFilters={clearSpriteFilters}
-      />
-    );
-  }
-
-  /**
-   * 「当前比赛」面板：赛事面板（inline，卡片外壳留在调用处）与系列比赛 Drawer（drawer）共用。
-   * 动作与云闸门都在这里按**目标比赛**绑定 —— headless 登记，不要求该场是当前比赛。
-   * 头像只对当前比赛可用（服务端按 activeMatchId 解析）；非当前比赛给占位图并禁用更换。
-   */
-  function buildCurrentMatchPanel(match: MatchRecord, variant: 'inline' | 'drawer'): React.ReactElement {
-    const availability = deriveMatchActionAvailability(match, matchStore.activeMatchId, matchStore.undo);
-    const isCurrent = availability.isCurrent;
-    return (
-      <CurrentMatchPanel
-        match={match}
-        variant={variant}
-        avatars={isCurrent ? avatars : null}
-        tournamentLocked={Boolean(match.tournamentRef && tournamentRecordMap.has(match.tournamentRef.tournamentId))}
-        canUndo={availability.canUndo}
-        canRedo={availability.canRedo}
-        registerGate={cloudRegisterGate(match.id)}
-        undoGate={cloudUndoGate(match.id)}
-        avatarPreviewSrc={isCurrent ? getAvatarPreviewSrc : placeholderAvatarSrc}
-        onUploadAvatar={(side, file) => void uploadAvatarFile(side, file)}
-        onDeleteAvatar={(side) => void deleteAvatarFile(side)}
-        onSaveMeta={(values) => void saveMatchMeta(match.id, values)}
-        onOpenTeamEdit={() => openTeamEdit(match.id)}
-        onAction={(action, extra) => void runMatchAction(match.id, action, extra)}
-        rosterEditor={isCurrent && variant === 'drawer' ? buildRosterEditor(match) : undefined}
-      />
-    );
   }
 
   /** 系列比赛卡片菜单：打开某一场的 Drawer 面板 */
@@ -2221,45 +1698,6 @@ function Dashboard() {
     setPage2EventTitleDraft(scoreboard?.eventTitle ?? '');
   }, [scoreboard?.eventTitle]);
 
-  useEffect(() => {
-    setPage9TitleDraft(page9?.title ?? '');
-    // 以服务端数据回填草稿行，不足 PAGE9_TEAM_COUNT 行则补空行
-    const serverTeams = Array.isArray(page9?.teams) ? page9.teams : [];
-    setPage9TeamsDraft(
-      Array.from({ length: PAGE9_TEAM_COUNT }, (_, index) => {
-        const team = serverTeams[index];
-        return {
-          name: team?.name ?? '',
-          r1: team?.r1 ?? '',
-          r2: team?.r2 ?? '',
-          r3: team?.r3 ?? '',
-        };
-      }),
-    );
-  }, [page9?.title, page9?.teams]);
-
-  // 选手介绍（page11-13）草稿：服务端状态变化时回填（避免编辑中频繁覆盖，仅在结构变化时同步）
-  useEffect(() => {
-    setPage11LeftDraft((prev) => {
-      const server = page11?.left;
-      if (!server) {
-        return prev;
-      }
-      return prev.source === server.source && prev.name === server.name && prev.rank === server.rank && prev.declaration === server.declaration && prev.pets === server.pets
-        ? prev
-        : { source: server.source, name: server.name, rank: server.rank, declaration: server.declaration, pets: server.pets };
-    });
-    setPage11RightDraft((prev) => {
-      const server = page11?.right;
-      if (!server) {
-        return prev;
-      }
-      return prev.source === server.source && prev.name === server.name && prev.rank === server.rank && prev.declaration === server.declaration && prev.pets === server.pets
-        ? prev
-        : { source: server.source, name: server.name, rank: server.rank, declaration: server.declaration, pets: server.pets };
-    });
-  }, [page11?.left, page11?.right]);
-
   // MVP 结算草稿：服务端状态变化时回填（内容一致时保持原引用，避免编辑中的标签被覆盖）
   useEffect(() => {
     setMvpSlotsDraft((prev) => {
@@ -2276,56 +1714,6 @@ function Dashboard() {
       return same ? prev : next;
     });
   }, [mvp?.slots]);
-
-  // 保存选手介绍配置（左右两侧数据来源与手动填写内容）
-  async function savePage11Settings(payload?: { left?: typeof page11LeftDraft; right?: typeof page11RightDraft }) {
-    setPage11Saving(true);
-    try {
-      const data = await requestJson<{ success: boolean; state: Page11State }>('/api/page11', {
-        method: 'POST',
-        json: {
-          left: payload?.left ?? page11LeftDraft,
-          right: payload?.right ?? page11RightDraft,
-        },
-      });
-      applyServerState({ page11: data.state });
-      setPage11Notice({ tone: 'success', text: '选手介绍设置已保存' });
-    } catch (error) {
-      setPage11Notice({ tone: 'error', text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setPage11Saving(false);
-    }
-  }
-
-  // 更新团队积分榜某一行的某个字段（战队名称 / R1 / R2 / R3；积分仅允许数字）
-  function updatePage9TeamDraft(rowIndex: number, field: 'name' | 'r1' | 'r2' | 'r3', value: string) {
-    const nextValue = field === 'name' ? value : value.replace(/\D/g, '');
-    setPage9TeamsDraft((prev) => prev.map((team, index) => (
-      index === rowIndex ? { ...team, [field]: nextValue } : team
-    )));
-  }
-
-  async function savePage9Settings() {
-    setPage9Saving(true);
-    try {
-      const data = await requestJson<{ success: boolean; state: Page9State }>('/api/page9', {
-        method: 'POST',
-        json: {
-          title: page9TitleDraft,
-          teams: page9TeamsDraft,
-        },
-      });
-      applyServerState({ page9: data.state });
-      setPage9SettingsNotice({ tone: 'success', text: '团队积分榜设置已保存，预览已更新' });
-      message.success('团队积分榜设置已保存');
-    } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
-      message.error(text);
-      setPage9SettingsNotice({ tone: 'error', text });
-    } finally {
-      setPage9Saving(false);
-    }
-  }
 
   /**
    * 保存晋级积分榜配置（卡片内联的阶段切换/翻页与弹窗确认共用）。
@@ -2346,59 +1734,6 @@ function Dashboard() {
       throw error;
     } finally {
       setPage14Saving(false);
-    }
-  }
-
-  async function saveStage(
-    nextPage: StagePageKey,
-    options?: { silent?: boolean; transition?: StageTransitionType; mirrorSides?: boolean; page3SpriteSource?: SpriteSource; page3RankVisible?: boolean; page3TeamVisible?: boolean; page3RedLightMode?: Page3RedLightMode; page3RedLightInstant?: boolean; page11RankVisible?: boolean; page5TournamentId?: string; page5Stage?: string; page15TournamentId?: string; page15Stage?: string; page15SortBy?: 'picks' | 'games' | 'winRate'; page15SortOrder?: 'asc' | 'desc'; page15ReplayPlay?: boolean; page16SpriteSource?: SpriteSource; page16RankVisible?: boolean; page16CardLabel?: Page16CardLabel; page7SwitchSeconds?: number; page10Duration?: number; page10DurationUnit?: 'seconds' | 'minutes' },
-  ) {
-    const silent = options?.silent ?? false;
-    const normalized = normalizeStagePage(nextPage);
-    const transition = normalizeStageTransition(options?.transition ?? stage?.transition);
-    const mirrorSides = options?.mirrorSides ?? stage?.mirrorSides ?? false;
-    const page3SpriteSource = options?.page3SpriteSource ?? stage?.page3SpriteSource ?? 'sprite';
-    const page3RankVisible = options?.page3RankVisible ?? stage?.page3RankVisible ?? false;
-    const page3TeamVisible = options?.page3TeamVisible ?? stage?.page3TeamVisible ?? false;
-    const page3RedLightMode = options?.page3RedLightMode ?? stage?.page3RedLightMode ?? 'off';
-    const page3RedLightInstant = options?.page3RedLightInstant ?? stage?.page3RedLightInstant ?? false;
-    const page11RankVisible = options?.page11RankVisible ?? stage?.page11RankVisible ?? true;
-    const page5TournamentId = options?.page5TournamentId ?? stage?.page5TournamentId ?? '';
-    const page5Stage = options?.page5Stage ?? stage?.page5Stage ?? '';
-    const page15TournamentId = options?.page15TournamentId ?? stage?.page15TournamentId ?? '';
-    const page15Stage = options?.page15Stage ?? stage?.page15Stage ?? '';
-    const page15SortBy = options?.page15SortBy ?? stage?.page15SortBy ?? 'picks';
-    const page15SortOrder = options?.page15SortOrder ?? stage?.page15SortOrder ?? 'desc';
-    const page15ReplayPlay = options?.page15ReplayPlay ?? stage?.page15ReplayPlay ?? false;
-    const page16SpriteSource = options?.page16SpriteSource ?? stage?.page16SpriteSource ?? 'sprite';
-    const page16RankVisible = options?.page16RankVisible ?? stage?.page16RankVisible ?? true;
-    const page16CardLabel: Page16CardLabel = options?.page16CardLabel ?? stage?.page16CardLabel ?? 'sum';
-    const page7SwitchSeconds = options?.page7SwitchSeconds ?? stage?.page7SwitchSeconds ?? DEFAULT_PAGE7_SWITCH_SECONDS;
-    const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
-    const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
-    // 乐观更新，避免切换回弹
-    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page16CardLabel, page7SwitchSeconds, page10Duration, page10DurationUnit } : prev));
-    setStageSaving(true);
-    try {
-      const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
-        method: 'POST',
-        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page16CardLabel, page7SwitchSeconds, page10Duration, page10DurationUnit },
-      });
-      applyServerState({ stage: data.stage });
-      if (!silent) {
-        message.success(`已切换到：${STAGE_OPTIONS.find((option) => option.value === data.stage.page)?.label ?? data.stage.page}`);
-      }
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-      // 失败时回滚到当前已知值
-      try {
-        const fresh = await requestJson<StageConfig>('/api/stage');
-        setStage(fresh);
-      } catch {
-        // ignore
-      }
-    } finally {
-      setStageSaving(false);
     }
   }
 
@@ -2660,40 +1995,6 @@ function Dashboard() {
     await saveMatchTags(record.id, tags);
     setHistoryNotice({ tone: 'success', text: `已从 ${record.id} 删除标签“${tagValue}”` });
     message.success('标签已删除');
-  }
-
-  async function uploadAvatarFile(side: PanelSide, file: File) {
-    try {
-      await uploadSingleFile(`/api/upload/avatar/${side}`, file);
-      const nextAvatars = await requestJson<AvatarCollectionState>('/api/avatars');
-      setAvatars(nextAvatars);
-      message.success(`${side === 'left' ? '左侧' : '右侧'}头像已更新`);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function deleteAvatarFile(side: PanelSide) {
-    try {
-      await requestJson(`/api/delete/avatar/${side}`, {
-        method: 'DELETE',
-      });
-      const nextAvatars = await requestJson<AvatarCollectionState>('/api/avatars');
-      setAvatars(nextAvatars);
-      message.success(`${side === 'left' ? '左侧' : '右侧'}头像已删除`);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function handleCopyStageLocalAddress() {
-    const host = window.location.port ? `127.0.0.1:${window.location.port}` : '127.0.0.1';
-    try {
-      await copyText(`${host}/`);
-      message.success('推流页地址已复制');
-    } catch {
-      message.error('复制失败，请手动复制');
-    }
   }
 
   function clearLivePollTimer() {
@@ -3558,89 +2859,11 @@ function Dashboard() {
           ) : null}
 
           {view === 'roster' ? (
-            <Space direction="vertical" size={18} className="page-stack">
-              <Row gutter={[18, 18]} className="roster-overview-row">
-                <Col xs={24} xl={7} className="roster-overview-col">
-                  <Card
-                    className="roster-overview-card roster-match-list-card"
-                    title="比赛列表"
-                    extra={
-                      <Space size={8}>
-                        <Button onClick={() => { setQuickCreateKeyword(''); setQuickCreateOpen(true); }}>快速创建比赛</Button>
-                        <Button type="primary" onClick={() => setCreateMatchOpen(true)}>开一局</Button>
-                      </Space>
-                    }
-                  >
-                    <div className="match-list-scroll" onScroll={handleMatchListScroll}>
-                      {dashboardActiveMatch ? (
-                        <div className="match-list-current">
-                          <div className="match-list-group-title">当前比赛</div>
-                          {/* 独立 markup：List.Item 的 actions 是 ul，脱离 List 上下文会丢样式 */}
-                          <Surface tone="highlight" className="match-list-current-card">
-                            <Badge status={dashboardActiveMatch.status === 'completed' ? 'success' : dashboardActiveMatch.status === 'in_progress' ? 'processing' : 'default'} />
-                            <span className="match-list-current-players">
-                              {dashboardActiveMatch.leftPlayer || '左侧'} vs {dashboardActiveMatch.rightPlayer || '右侧'}
-                            </span>
-                            <Space size={6} wrap>
-                              <Tag color="gold">BO{dashboardActiveMatch.bestOf}</Tag>
-                              <MatchStatusTag status={dashboardActiveMatch.status} />
-                              <Tag bordered={false} className="match-list-score-tag">{dashboardActiveMatch.leftScore} : {dashboardActiveMatch.rightScore}</Tag>
-                            </Space>
-                          </Surface>
-                        </div>
-                      ) : null}
-                      <List
-                        dataSource={visibleDashboardRows}
-                        className="match-list"
-                        locale={{ emptyText: dashboardActiveMatch ? '没有其他比赛了。' : '暂无赛事，先创建一场比赛吧。' }}
-                        renderItem={(row) => (row.rowType === 'group' ? (
-                          <div className="match-list-group-title">{row.title}（{row.count} 场）</div>
-                        ) : renderDashboardMatchItem(row.match))}
-                      />
-                      {hasMoreMatches ? (
-                        <div className="match-list-more">
-                          下滑加载更多（已显示 {visibleDashboardRows.filter((row) => row.rowType === 'match').length}/{dashboardNonActiveMatches.length}）
-                        </div>
-                      ) : null}
-                    </div>
-                  </Card>
-                </Col>
-                <Col xs={24} xl={17} className="roster-overview-col">
-                  <Card
-                    className="roster-overview-card roster-current-card"
-                    title="当前比赛"
-                    extra={(
-                      <Space wrap size={8} className="roster-card-head-extra">
-                        {rosterNotice ? (
-                          <Tag
-                            closable
-                            bordered={false}
-                            color={getNoticeTagColor(rosterNotice.tone)}
-                            className="roster-notice-tag"
-                            onClose={() => setRosterNotice(null)}
-                          >
-                            {rosterNotice.text}
-                          </Tag>
-                        ) : null}
-                        <MatchStatusTag status={activeMatch?.status} fallback="未创建" />
-                      </Space>
-                    )}
-                  >
-                    {activeMatch ? (
-                      buildCurrentMatchPanel(activeMatch, 'inline')
-                    ) : (
-                      <EmptyState title="先创建或选择一场赛事" />
-                    )}
-                  </Card>
-                </Col>
-              </Row>
-
-              <Row gutter={[18, 18]}>
-                <Col span={24}>
-                  {buildRosterEditor(activeMatch)}
-                </Col>
-              </Row>
-            </Space>
+            <RosterView
+              onOpenCreateMatch={() => setCreateMatchOpen(true)}
+              onOpenQuickCreate={() => { setQuickCreateKeyword(''); setQuickCreateOpen(true); }}
+              onSelectMatch={selectMatch}
+            />
           ) : null}
 
           {view === 'history' ? (
@@ -4194,150 +3417,7 @@ function Dashboard() {
           ) : null}
 
           {view === 'page11' ? (
-            <Space direction="vertical" size={18} className="page-stack">
-              <Card
-                title="选手介绍画面切换"
-                extra={<Button href="/roco-pvp-page11.html?mode=left" target="_blank">打开介绍页面</Button>}
-              >
-                <Space direction="vertical" size={16} className="page-stack">
-                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    切换选手介绍的三种推流画面；「选手介绍-左侧/右侧选手」依次展示单侧选手的立绘、头像、擅长精灵与比赛宣言，「对战页」展示双方头像与当前阵容。
-                  </Paragraph>
-                  <Row gutter={[16, 16]}>
-                    {([
-                      { value: 'page11', label: '介绍左侧选手', description: '立绘在左，介绍当前左侧选手' },
-                      { value: 'page12', label: '介绍右侧选手', description: '立绘在右，介绍当前右侧选手' },
-                      { value: 'page13', label: '对战页', description: '双方头像 + 当前阵容 + 分割线' },
-                    ] as Array<{ value: StagePageKey; label: string; description: string }>).map((option) => {
-                      const active = (stage?.page ?? null) === option.value;
-                      return (
-                        <Col xs={24} sm={8} key={option.value}>
-                          <Card
-                            size="small"
-                            hoverable
-                            className={`stage-card ${active ? 'stage-card-active' : ''}`}
-                            onClick={() => void saveStage(option.value)}
-                          >
-                            <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                              <Space style={{ justifyContent: 'space-between', width: '100%' }}>
-                                <Text strong>{option.label}</Text>
-                                {active ? <Tag color="green">当前画面</Tag> : null}
-                              </Space>
-                              <Hint>{option.description}</Hint>
-                            </Space>
-                          </Card>
-                        </Col>
-                      );
-                    })}
-                  </Row>
-                </Space>
-              </Card>
-
-              <Card
-                title="选手介绍数据"
-                extra={(
-                  <Button type="primary" loading={page11Saving} onClick={() => void savePage11Settings()}>
-                    保存选手介绍设置
-                  </Button>
-                )}
-              >
-                <Space direction="vertical" size={16} className="page-stack">
-                  {page11Notice ? (
-                    <Alert
-                      showIcon
-                      closable
-                      type={page11Notice.tone}
-                      message={page11Notice.text}
-                      onClose={() => setPage11Notice(null)}
-                    />
-                  ) : null}
-                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    数据来源可选「当前赛事」（选手名/排名取当前赛事，介绍内容按名字匹配「信息录入」自动补全）或「手动填写」（留空的字段同样回退「信息录入」匹配值）。当前赛事：{activeMatch ? `${activeMatch.leftPlayer || '左侧'} vs ${activeMatch.rightPlayer || '右侧'}` : '未选择'}。
-                  </Paragraph>
-                  {(['left', 'right'] as const).map((side) => {
-                    const draft = side === 'left' ? page11LeftDraft : page11RightDraft;
-                    const setDraft = side === 'left' ? setPage11LeftDraft : setPage11RightDraft;
-                    return (
-                      <Card
-                        key={side}
-                        size="small"
-                        className="subtle-card"
-                        title={side === 'left' ? '左侧选手' : '右侧选手'}
-                        extra={(
-                          <Segmented
-                            value={draft.source}
-                            options={[
-                              { value: 'match', label: '当前赛事' },
-                              { value: 'manual', label: '手动填写' },
-                            ]}
-                            onChange={(value) => setDraft({ ...draft, source: value as 'manual' | 'match' })}
-                          />
-                        )}
-                      >
-                        {draft.source === 'manual' ? (
-                          <Row gutter={[16, 16]}>
-                            <Col xs={24} md={6}>
-                              <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>选手名字：</Text>
-                              <AutoComplete
-                                style={{ width: '100%' }}
-                                value={draft.name}
-                                options={(profiles?.players ?? []).map((item) => ({ value: item.name }))}
-                                filterOption={(input, option) =>
-                                  String(option?.value ?? '').toLowerCase().includes(input.trim().toLowerCase())
-                                }
-                                onChange={(value) => setDraft({ ...draft, name: String(value ?? '') })}
-                              >
-                                <Input maxLength={32} placeholder="输入或联想「信息录入」选手" />
-                              </AutoComplete>
-                            </Col>
-                            <Col xs={24} md={4}>
-                              <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>排位排名：</Text>
-                              <Input
-                                maxLength={10}
-                                placeholder="仅数字，留空回退赛事/信息录入"
-                                value={draft.rank}
-                                onChange={(event) => setDraft({ ...draft, rank: event.target.value.replace(/\D/g, '') })}
-                              />
-                            </Col>
-                            <Col xs={24} md={14}>
-                              <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>擅长精灵：</Text>
-                              <Select
-                                mode="multiple"
-                                allowClear
-                                showSearch
-                                maxCount={6}
-                                popupMatchSelectWidth={false}
-                                style={{ width: '100%' }}
-                                placeholder="搜索并选择擅长精灵，最多 6 个"
-                                options={playerPetOptions}
-                                value={draft.pets.split(/[/、,，\s]+/).map((item) => item.trim()).filter(Boolean)}
-                                filterOption={(input, option) =>
-                                  String(option?.value ?? '').toLowerCase().includes(input.trim().toLowerCase())
-                                }
-                                onChange={(values) => setDraft({ ...draft, pets: Array.isArray(values) ? values.filter(Boolean).join('、') : '' })}
-                              />
-                            </Col>
-                            <Col xs={24}>
-                              <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>比赛宣言：</Text>
-                              <Input
-                                maxLength={120}
-                                placeholder="留空回退「信息录入」宣言"
-                                value={draft.declaration}
-                                onChange={(event) => setDraft({ ...draft, declaration: event.target.value })}
-                              />
-                            </Col>
-                          </Row>
-                        ) : (
-                          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                            使用当前赛事选手：{activeMatch ? (side === 'left' ? activeMatch.leftPlayer : activeMatch.rightPlayer) || '未填写' : '未选择赛事'}；排名取赛事录入，宣言/擅长精灵按名字匹配「信息录入」。
-                          </Paragraph>
-                        )}
-                      </Card>
-                    );
-                  })}
-                </Space>
-              </Card>
-            </Space>
+            <Page11View />
           ) : null}
 
           {view === 'stats' ? (
@@ -4636,137 +3716,7 @@ function Dashboard() {
           ) : null}
 
           {view === 'stage' ? (
-            <Space direction="vertical" size={18} className="page-stack">
-              <Card
-                className="stage-control-card"
-                title="推流画面"
-                extra={
-                  <Space wrap>
-                    <Button href="/" target="_blank">打开推流页面</Button>
-                    <Button onClick={handleCopyStageLocalAddress}>复制推流页地址</Button>
-                  </Space>
-                }
-              >
-                <Space direction="vertical" size={16} className="page-stack">
-                  <Row gutter={[16, 16]}>
-                    {STAGE_OPTIONS.map((option) => {
-                      const active = (stage?.page ?? null) === option.value;
-                      return (
-                        <Col xs={24} sm={12} md={8} key={option.value}>
-                          <Card
-                            size="small"
-                            hoverable
-                            className={`stage-card ${active ? 'stage-card-active' : ''}`}
-                            onClick={() => void saveStage(option.value)}
-                          >
-                            <Space direction="vertical" size={6} className="page-stack" style={{ width: '100%' }}>
-                              <Space style={{ justifyContent: 'space-between', width: '100%' }}>
-                                <Text strong>{option.label}</Text>
-                                {active ? <Tag color="green">当前画面</Tag> : null}
-                              </Space>
-                              <Hint>{option.description}</Hint>
-                              <StageThumb label={option.label} previewPath={option.previewPath} />
-                            </Space>
-                          </Card>
-                        </Col>
-                      );
-                    })}
-                  </Row>
-                  <Row gutter={[16, 16]} className="stage-config-cards">
-                    <Col xs={24}>
-                      <Card
-                        size="small"
-                        className="subtle-card stage-settings-card"
-                        title="团队积分榜设置（推流页面9）"
-                        extra={(
-                          <Button type="primary" loading={page9Saving} onClick={() => void savePage9Settings()}>
-                            保存页面9设置
-                          </Button>
-                        )}
-                      >
-                        <Space direction="vertical" size={12} className="page-stack" style={{ width: '100%' }}>
-                          {page9SettingsNotice ? (
-                            <Alert
-                              showIcon
-                              closable
-                              type={page9SettingsNotice.tone}
-                              message={page9SettingsNotice.text}
-                              onClose={() => setPage9SettingsNotice(null)}
-                            />
-                          ) : null}
-                          <Row gutter={[16, 16]}>
-                            <Col xs={24} md={8}>
-                              <Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>标题：</Text>
-                              <Input
-                                maxLength={40}
-                                placeholder="留空显示默认「团队积分榜」"
-                                value={page9TitleDraft}
-                                onChange={(event) => setPage9TitleDraft(event.target.value)}
-                              />
-                            </Col>
-                          </Row>
-                          <div>
-                            <Row gutter={[16, 8]}>
-                              <Col xs={24} md={12}><Text type="secondary">战队名称</Text></Col>
-                              <Col xs={8} md={4}><Text type="secondary">R1 积分</Text></Col>
-                              <Col xs={8} md={4}><Text type="secondary">R2 积分</Text></Col>
-                              <Col xs={8} md={4}><Text type="secondary">R3 积分</Text></Col>
-                            </Row>
-                            {page9TeamsDraft.map((team, index) => (
-                              <Row key={index} gutter={[16, 8]} style={{ marginTop: 8 }}>
-                                <Col xs={24} md={12}>
-                                  <AutoComplete
-                                    style={{ width: '100%' }}
-                                    value={team.name}
-                                    options={(profiles?.teams ?? []).map((item) => ({ value: item.name }))}
-                                    filterOption={(input, option) =>
-                                      String(option?.value ?? '').toLowerCase().includes(input.trim().toLowerCase())
-                                    }
-                                    onChange={(value) => updatePage9TeamDraft(index, 'name', String(value ?? ''))}
-                                  >
-                                    <Input
-                                      maxLength={40}
-                                      placeholder={`战队 ${index + 1} 名称，可联想「信息录入」战队`}
-                                    />
-                                  </AutoComplete>
-                                </Col>
-                                <Col xs={8} md={4}>
-                                  <Input
-                                    maxLength={3}
-                                    placeholder="-"
-                                    value={team.r1}
-                                    onChange={(event) => updatePage9TeamDraft(index, 'r1', event.target.value)}
-                                  />
-                                </Col>
-                                <Col xs={8} md={4}>
-                                  <Input
-                                    maxLength={3}
-                                    placeholder="-"
-                                    value={team.r2}
-                                    onChange={(event) => updatePage9TeamDraft(index, 'r2', event.target.value)}
-                                  />
-                                </Col>
-                                <Col xs={8} md={4}>
-                                  <Input
-                                    maxLength={3}
-                                    placeholder="-"
-                                    value={team.r3}
-                                    onChange={(event) => updatePage9TeamDraft(index, 'r3', event.target.value)}
-                                  />
-                                </Col>
-                              </Row>
-                            ))}
-                          </div>
-                          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                            积分留空显示「-」；排名与总积分按三轮积分之和自动降序计算（同分保持录入顺序）；名称与积分全空的行不展示；最多 {PAGE9_TEAM_COUNT} 支战队。
-                          </Paragraph>
-                        </Space>
-                      </Card>
-                    </Col>
-                  </Row>
-                </Space>
-              </Card>
-            </Space>
+            <StageView />
           ) : null}
 
           {view === 'preview' ? (
@@ -4862,7 +3812,11 @@ function Dashboard() {
                 </div>
               );
             })()}
-            {buildCurrentMatchPanel(matchPanelTarget, 'drawer')}
+            <CurrentMatchPanelContainer
+              match={matchPanelTarget}
+              variant="drawer"
+              rosterEditor={<RosterEditor match={matchPanelTarget} />}
+            />
             {/* 阵容区分两种形态（互斥）：
                 本场=当前比赛 → 上面 CurrentMatchPanel 的 rosterEditor 插槽已渲染可编辑的「当前阵容」面板；
                 本场≠当前比赛 → 渲染该场自己的 6v6 阵容快照（复用「查看阵容」正文）。
@@ -5417,52 +4371,6 @@ function Dashboard() {
           </Row>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
             确认后将把所选选手随机洗牌并两两配对，为每对生成一场比赛（同「开一局」创建），保证配对随机、避免固定对阵造成的公平性问题。
-          </Paragraph>
-        </Form>
-      </Modal>
-
-      <Modal
-        title={activeMatch ? `战队修改：${activeMatch.leftPlayer || '左侧'} vs ${activeMatch.rightPlayer || '右侧'}` : '战队修改'}
-        open={teamEditOpen}
-        onCancel={() => setTeamEditOpen(false)}
-        onOk={() => teamEditForm.submit()}
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={teamEditSaving}
-      >
-        <Form
-          form={teamEditForm}
-          layout="vertical"
-          onFinish={(values) => void saveTeamEdit(values)}
-        >
-          <Row gutter={[16, 16]}>
-            <Col xs={24} md={12}>
-              <Form.Item label="左侧所属战队（可选）" name="leftTeam">
-                <AutoComplete
-                  maxLength={40}
-                  style={{ width: '100%' }}
-                  placeholder="选择已录入战队复用，或手动输入"
-                  options={(profiles?.teams ?? []).map((team) => ({ value: team.name, label: team.name }))}
-                  filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
-                  allowClear
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item label="右侧所属战队（可选）" name="rightTeam">
-                <AutoComplete
-                  maxLength={40}
-                  style={{ width: '100%' }}
-                  placeholder="选择已录入战队复用，或手动输入"
-                  options={(profiles?.teams ?? []).map((team) => ({ value: team.name, label: team.name }))}
-                  filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
-                  allowClear
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            选择「信息录入」中的战队会自动复用其 id（推流页 3 可展示战队 logo）；手动输入则仅记录战队名称。
           </Paragraph>
         </Form>
       </Modal>

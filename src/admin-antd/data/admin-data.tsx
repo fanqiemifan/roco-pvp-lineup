@@ -4,6 +4,7 @@ import { App } from 'antd';
 import { io } from 'socket.io-client';
 
 import { SOCKET_EVENTS } from '../../../shared/events';
+import { DEFAULT_PAGE7_SWITCH_SECONDS } from '../../../shared/constants';
 import type {
   AvatarCollectionState,
   CloudSyncInboxEntry,
@@ -17,25 +18,57 @@ import type {
   MvpWinnerInfo,
   NextGamePayload,
   NextGameState,
+  Page3RedLightMode,
   Page6State,
   Page7State,
   Page8State,
   Page9State,
   Page11State,
   Page14State,
+  Page16CardLabel,
   PanelState,
   ProfileStoreState,
   ScoreboardState,
   SpriteRecord,
+  SpriteSource,
   StageConfig,
+  StagePageKey,
   StageStandings,
+  StageTransitionType,
   TournamentRecord,
 } from '../../../shared/types';
-import { getPendingDraftContext } from '../lib/match';
-import { createPanelEditorState, draftSlotsToSelected, panelStateToSelected } from '../lib/panel';
+import { STAGE_OPTIONS, normalizeStagePage, normalizeStageTransition } from '../constants';
+import { getActiveMatch, getCurrentGame, getPendingDraftContext } from '../lib/match';
+import { buildPanelRequest, createPanelEditorState, draftSlotsToSelected, panelStateToSelected } from '../lib/panel';
 import { requestJson } from '../lib/request';
 import { buildSpriteLookup } from '../lib/sprite';
 import type { NoticeState, PanelEditorState, PanelSide } from '../types';
+
+/** 切换推流画面 / 保存画面设置的可选覆盖项（缺省沿用当前 stage） */
+export interface SaveStageOptions {
+  silent?: boolean;
+  transition?: StageTransitionType;
+  mirrorSides?: boolean;
+  page3SpriteSource?: SpriteSource;
+  page3RankVisible?: boolean;
+  page3TeamVisible?: boolean;
+  page3RedLightMode?: Page3RedLightMode;
+  page3RedLightInstant?: boolean;
+  page11RankVisible?: boolean;
+  page5TournamentId?: string;
+  page5Stage?: string;
+  page15TournamentId?: string;
+  page15Stage?: string;
+  page15SortBy?: 'picks' | 'games' | 'winRate';
+  page15SortOrder?: 'asc' | 'desc';
+  page15ReplayPlay?: boolean;
+  page16SpriteSource?: SpriteSource;
+  page16RankVisible?: boolean;
+  page16CardLabel?: Page16CardLabel;
+  page7SwitchSeconds?: number;
+  page10Duration?: number;
+  page10DurationUnit?: 'seconds' | 'minutes';
+}
 
 /** applyServerState 的载荷：与各 REST 响应/ socket 广播一一对应，缺省字段表示本次不更新 */
 export interface ApplyServerStatePayload {
@@ -83,6 +116,8 @@ export interface AdminData {
   panels: Record<PanelSide, PanelEditorState>;
   sprites: SpriteRecord[];
   stage: StageConfig | null;
+  /** 画面切换 / 画面设置保存中（顶栏、数据统计、直播推流、选手介绍共用） */
+  stageSaving: boolean;
   nextgame: NextGameState | null;
   nextgameMatch: MatchRecord | null;
   countdown: CountdownState | null;
@@ -129,6 +164,10 @@ export interface AdminData {
 
   /** 统一应用服务端状态（REST 响应 / socket 广播共用） */
   applyServerState: (payload: ApplyServerStatePayload) => void;
+  /** 保存某侧阵容草稿（600ms 自动保存的落盘动作；silent=true 不弹成功提示） */
+  savePanel: (side: PanelSide, silent?: boolean) => Promise<void>;
+  /** 切换推流画面 / 保存画面设置（跨视图共用；silent=true 不弹 toast） */
+  saveStage: (nextPage: StagePageKey, options?: SaveStageOptions) => Promise<void>;
   /** 对某场执行流程动作（开始 / 登记胜负 / 撤回 / 取消撤回）：headless，不切当前比赛 */
   runMatchAction: (
     matchId: string,
@@ -178,6 +217,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
   });
   const [sprites, setSprites] = useState<SpriteRecord[]>([]);
   const [stage, setStage] = useState<StageConfig | null>(null);
+  const [stageSaving, setStageSaving] = useState(false);
   const [nextgame, setNextgame] = useState<NextGameState | null>(null);
   const [nextgameMatch, setNextgameMatch] = useState<MatchRecord | null>(null);
   const [countdown, setCountdown] = useState<CountdownState | null>(null);
@@ -307,6 +347,56 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     });
   }
 
+  /** 保存某侧阵容草稿：自动保存（silent）与手动调用共用；完赛时只提示不改数据 */
+  async function savePanel(side: PanelSide, silent = false) {
+    const activeMatch = getActiveMatch(matchStore);
+    if (activeMatch?.status === 'completed') {
+      const nextText = '当前赛事已完赛，不能编辑阵容';
+      setRosterNotice({ tone: 'warning', text: nextText });
+      if (!silent) {
+        message.warning(nextText);
+      }
+      return;
+    }
+
+    const current = panels[side];
+    setPanels((prev) => ({
+      ...prev,
+      [side]: { ...prev[side], saving: true },
+    }));
+    try {
+      const data = await requestJson<{ success: boolean; panel?: PanelState; store?: MatchStoreState }>(`/api/panels/${side}`, {
+        method: 'POST',
+        json: {
+          selected: buildPanelRequest(current.selected),
+        },
+      });
+      applyServerState({
+        panel: data.panel,
+        store: data.store,
+      });
+      setPanels((prev) => ({
+        ...prev,
+        [side]: { ...prev[side], dirty: false, saving: false },
+      }));
+      if (!silent) {
+        const nextActiveMatch = data.store ? getActiveMatch(data.store) : activeMatch;
+        const nextCurrentGame = getCurrentGame(nextActiveMatch);
+        const nextText = nextCurrentGame?.status === 'in_progress'
+          ? `${side === 'left' ? '左侧' : '右侧'}阵容已同步到当前对局与推流页面`
+          : `${side === 'left' ? '左侧' : '右侧'}阵容草稿已保存，等待开始本局后同步前台`;
+        setRosterNotice({ tone: 'success', text: nextText });
+        message.success(nextText);
+      }
+    } catch (error) {
+      setPanels((prev) => ({
+        ...prev,
+        [side]: { ...prev[side], saving: false },
+      }));
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   /**
    * 对某一场执行流程动作（开始 / 登记胜负 / 撤回 / 取消撤回）。
    * 服务端按 matchId 工作，因此**不必**先把该场设为当前比赛：系列比赛的右键菜单与 Drawer
@@ -371,6 +461,57 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** 切换推流画面 / 保存画面设置：乐观更新，失败回滚到服务端最新值 */
+  async function saveStage(nextPage: StagePageKey, options?: SaveStageOptions) {
+    const silent = options?.silent ?? false;
+    const normalized = normalizeStagePage(nextPage);
+    const transition = normalizeStageTransition(options?.transition ?? stage?.transition);
+    const mirrorSides = options?.mirrorSides ?? stage?.mirrorSides ?? false;
+    const page3SpriteSource = options?.page3SpriteSource ?? stage?.page3SpriteSource ?? 'sprite';
+    const page3RankVisible = options?.page3RankVisible ?? stage?.page3RankVisible ?? false;
+    const page3TeamVisible = options?.page3TeamVisible ?? stage?.page3TeamVisible ?? false;
+    const page3RedLightMode = options?.page3RedLightMode ?? stage?.page3RedLightMode ?? 'off';
+    const page3RedLightInstant = options?.page3RedLightInstant ?? stage?.page3RedLightInstant ?? false;
+    const page11RankVisible = options?.page11RankVisible ?? stage?.page11RankVisible ?? true;
+    const page5TournamentId = options?.page5TournamentId ?? stage?.page5TournamentId ?? '';
+    const page5Stage = options?.page5Stage ?? stage?.page5Stage ?? '';
+    const page15TournamentId = options?.page15TournamentId ?? stage?.page15TournamentId ?? '';
+    const page15Stage = options?.page15Stage ?? stage?.page15Stage ?? '';
+    const page15SortBy = options?.page15SortBy ?? stage?.page15SortBy ?? 'picks';
+    const page15SortOrder = options?.page15SortOrder ?? stage?.page15SortOrder ?? 'desc';
+    const page15ReplayPlay = options?.page15ReplayPlay ?? stage?.page15ReplayPlay ?? false;
+    const page16SpriteSource = options?.page16SpriteSource ?? stage?.page16SpriteSource ?? 'sprite';
+    const page16RankVisible = options?.page16RankVisible ?? stage?.page16RankVisible ?? true;
+    const page16CardLabel: Page16CardLabel = options?.page16CardLabel ?? stage?.page16CardLabel ?? 'sum';
+    const page7SwitchSeconds = options?.page7SwitchSeconds ?? stage?.page7SwitchSeconds ?? DEFAULT_PAGE7_SWITCH_SECONDS;
+    const page10Duration = options?.page10Duration ?? stage?.page10Duration ?? 10;
+    const page10DurationUnit = options?.page10DurationUnit ?? stage?.page10DurationUnit ?? 'seconds';
+    // 乐观更新，避免切换回弹
+    setStage((prev) => (prev ? { ...prev, page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page16CardLabel, page7SwitchSeconds, page10Duration, page10DurationUnit } : prev));
+    setStageSaving(true);
+    try {
+      const data = await requestJson<{ success: boolean; stage: StageConfig }>('/api/stage', {
+        method: 'POST',
+        json: { page: normalized, transition, mirrorSides, page3SpriteSource, page3RankVisible, page3TeamVisible, page3RedLightMode, page3RedLightInstant, page11RankVisible, page5TournamentId, page5Stage, page15TournamentId, page15Stage, page15SortBy, page15SortOrder, page15ReplayPlay, page16SpriteSource, page16RankVisible, page16CardLabel, page7SwitchSeconds, page10Duration, page10DurationUnit },
+      });
+      applyServerState({ stage: data.stage });
+      if (!silent) {
+        message.success(`已切换到：${STAGE_OPTIONS.find((option) => option.value === data.stage.page)?.label ?? data.stage.page}`);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+      // 失败时回滚到当前已知值
+      try {
+        const fresh = await requestJson<StageConfig>('/api/stage');
+        setStage(fresh);
+      } catch {
+        // ignore
+      }
+    } finally {
+      setStageSaving(false);
     }
   }
 
@@ -774,6 +915,7 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     panels,
     sprites,
     stage,
+    stageSaving,
     nextgame,
     nextgameMatch,
     countdown,
@@ -811,6 +953,8 @@ export function AdminDataProvider({ children }: { children: React.ReactNode }) {
     setHistoryNotice,
     setRosterNotice,
     applyServerState,
+    savePanel,
+    saveStage,
     runMatchAction,
     cloudRegisterGate,
     cloudUndoGate,

@@ -27,6 +27,13 @@ export function buildSpriteLookup(records: SpriteRecord[]): Map<string, SpriteRe
   return lookup;
 }
 
+/** 「信息录入」选手常用精灵多选选项：按 displayName 去重（选手介绍页按名字匹配精灵图渲染） */
+export function buildPlayerPetOptions(records: SpriteRecord[]): Array<{ value: string; label: string }> {
+  return Array.from(
+    new Set(records.map((sprite) => sprite.displayName.trim()).filter(Boolean)),
+  ).map((name) => ({ value: name, label: name }));
+}
+
 export function splitSpriteAttributes(value: string | null | undefined): string[] {
   return String(value ?? '')
     .split(/[、/,，\s]+/u)

@@ -82,6 +82,26 @@ const CONTROL_FILES = [
     file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'PreviewView.tsx'),
     start: 'export function PreviewView(',
   },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'Page11View.tsx'),
+    start: 'export function Page11View(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'StageView.tsx'),
+    start: 'export function StageView(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'RosterView.tsx'),
+    start: 'export function RosterView(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'RosterEditor.tsx'),
+    start: 'export function RosterEditor(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'CurrentMatchPanelContainer.tsx'),
+    start: 'export function CurrentMatchPanelContainer(',
+  },
 ];
 
 function scanHooksAfterTopLevelReturn(source: string, startPrefix: string): { returnLine: number; hooksAfter: string[] } {

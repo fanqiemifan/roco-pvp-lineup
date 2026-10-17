@@ -18,7 +18,7 @@
 
 - App.tsx — 主组件：Layout（Header/Sider/Content）、视图分发、顶栏按钮（阵容悬浮窗 + 倒计时 / 下一场预告 / 画面设置 三个弹窗入口）、「开一局」创建赛事弹窗（选手名/排位排名/头像/赛制/标签）；服务端状态与订阅已由 `data/` 的 Provider 持有（M1），App 只留自己的 UI 状态
 - data/ — 共享数据层（`AdminDataProvider` + `useAdminData`）：服务端状态（比赛/系列赛/档案/面板/记分牌/各推流页）、`applyServerState`、初始加载、socket 订阅、云同步轮询；`useAdminData()` 目前供 Dashboard 读取，M2 起视图直接调用、不再逐层传 scope
-- views/ — 各视图独立页面（AboutView、PreviewView、RosterPanelEditor、StatsView、TournamentView、HistoryLineupEntryModal、MatchLineupDetailModal；About / Preview 无 props，TournamentView 只剩 onOpenMatchPanel / onJumpToRoster 两个 App 壳交互，数据与对局动作/云闸门都走 `useAdminData()`；SyncView 的本地状态 / 处理器在 views/sync/，组件不再接收 scope）
+- views/ — 各视图独立页面：AboutView / PreviewView / Page11View / StageView（无 props，数据与动作走 `useAdminData()`）、RosterView（3 个 App 壳回调）、TournamentView（2 个 App 壳回调）、SyncView（无 props，控制器在 views/sync/）；RosterEditor / CurrentMatchPanelContainer 是赛事面板与系列比赛 Drawer 共用的容器；另有 RosterPanelEditor、StatsView、HistoryLineupEntryModal、MatchLineupDetailModal
 - views/sync/ — SyncView 的本地控制器与纯逻辑：`use-sync-controller.ts`（同步包、云同步草稿、预览勾选、确认台、指派工作台及全部处理函数；共享数据走 `useAdminData()`）、`sync-helpers.ts`（排序 / 默认勾选 / 分组行构建，单测在 `tests/admin-antd/sync-view.test.ts`）。**视图本地草稿的生命周期随视图**：离开「数据同步」会重置未保存草稿与未确认预览，已保存配置与服务端数据不受影响。
 - components/ — 可复用小组件（SettingField、SpritePetCard、StageThumb、AttributeFilterChips、BracketBoard、TournamentNodeCard）
 - ui/ — UI 原语（Hint：12px 次要文字；StatusTag：比赛状态标签；Surface：四种卡片面；EmptyState：空态四段式）
@@ -37,7 +37,7 @@
 
 ### 视图页面（ViewKey）
 
-- roster - 阵容编辑（RosterPanelEditor，单卡片合并编辑器）
+- roster - 阵容编辑（**M4 起拆为 RosterView + RosterEditor + CurrentMatchPanelContainer；筛选/搜索/懒加载页码是视图本地状态，离开视图重置；600ms 自动保存仍挂常驻 App，落盘走数据层 `savePanel`，异步快速填充后切走也不会丢**；RosterPanelEditor，单卡片合并编辑器）
   - 左右槽位并排（2×3 镜像布局）+ 左右双列快速填充（各带高亮「快速填充」/「选中清除」/「清除全部」与候选精灵）+ 共享精灵选择（一份属性/形态筛选与搜索，Segmented「点击精灵填入 左侧/右侧」决定目标侧，点槽位同样会切换目标侧）。
   - 保存全部自动：600ms 防抖静默 POST /api/panels/:side（无手动保存按钮，头部仅显「保存中」标签）；精灵筛选为全局面板单份状态（spriteFilter），搜索为共享 rosterSearch（useDeferredValue 防抖）。
   - 顶部「当前比赛」表单含左右选手名 + 排位排名（仅数字，PATCH 保存比赛信息时一并提交）。**系列赛对局锁字段**：当前比赛带 tournamentRef 且该系列赛仍可见（非墓碑 / 非本机移除）时，左右选手名与「比赛赛制」置灰只读并在表单下方给一行说明（改名去「信息录入」、改赛制去阶段规则），战队与排位排名仍可保存；判定 `activeMatchTournamentLocked` 取自 `tournamentRecordMap`，与后端 PATCH 守卫同口径——选手名是系列赛写回的比对依据（改了登记胜负会被拒），赛制改小会让比赛按已有比分直接完赛却不写回系列赛。原样回填这三个字段会通过守卫（保存战队 / 排名时表单会一并带上），不必特判。这张「当前比赛」面板已抽成共享组件 `CurrentMatchPanel`：赛事面板（variant='inline'，本视图）与系列比赛卡片 Drawer（variant='drawer'）两处复用，本视图行为与外观保持不变；Drawer 侧细节见「tournament」条目。
@@ -51,13 +51,13 @@
   - 「批量头像」：隐藏 file input 多选图片后先本地按文件名（去扩展名）匹配已录入选手，弹出「原头像 vs 新头像」左右对比预览（未设置显示默认占位图，未匹配文件警告列出且不上传），点确认才提交 `POST /api/upload/player-avatars/batch`；文件名列表随表单 `names` 字段以 JSON 传递规避 multipart 中文乱码；后端未命中/失败弹结果窗提醒。
   - 批量删除：选手/战队表格均带 `rowSelection` 复选框，「删除所选（N）」一键删除（确认弹窗列出名称清单，删除时按钮 loading 并禁用复选框）。
   - 新增/编辑选手弹窗「常用精灵」：固定两列网格——按 displayName 去重显示精灵头像（iconUrl 缺省回退立绘）+ 名字卡片点选，上限 6 个，顶部搜索框实时过滤，`Form.useWatch('pets')` 双向绑定、打开弹窗时按原 pets 拆分回显。
-- stage - 直播推流（**2026-10 起精简为「画面切换 + 团队积分榜」**，设置项全部移出本页）：OBS 固定捕获根路径 `/`；主体 = STAGE_OPTIONS 画面卡片网格（点击即 `saveStage` 切画面、当前画面绿标）；卡片右上保留「打开推流页面 / 复制推流页地址」两个按钮。**卡片标题为语意化名称**（阵容展示1/2/3、MVP结算展示、精灵出场胜率、比赛结果展示、战绩详情、比赛预告展示、团队赛积分展示、胜者结算画面、系列赛晋级积分榜；页面11-13 沿用「选手介绍-左侧/右侧/对战页」）——label 只用于展示（卡片标题、缩略图水印、切画面提示文案），**页面身份一律以 value（page1-overlay/page2/…）为准**，别拿 label 当 key 或反查页面。
+- stage - 直播推流（**M4 起拆为 StageView：page9 草稿/保存是视图本地状态，离开视图重置；画面切换走数据层 `saveStage`**；**2026-10 起精简为「画面切换 + 团队积分榜」**，设置项全部移出本页）：OBS 固定捕获根路径 `/`；主体 = STAGE_OPTIONS 画面卡片网格（点击即 `saveStage` 切画面、当前画面绿标）；卡片右上保留「打开推流页面 / 复制推流页地址」两个按钮。**卡片标题为语意化名称**（阵容展示1/2/3、MVP结算展示、精灵出场胜率、比赛结果展示、战绩详情、比赛预告展示、团队赛积分展示、胜者结算画面、系列赛晋级积分榜；页面11-13 沿用「选手介绍-左侧/右侧/对战页」）——label 只用于展示（卡片标题、缩略图水印、切画面提示文案），**页面身份一律以 value（page1-overlay/page2/…）为准**，别拿 label 当 key 或反查页面。
   - 顶栏弹窗「倒计时」：时长/主题/显隐操作，走 `/api/countdown`（原「倒计时插件」卡片）。
   - 顶栏弹窗「下一场预告」：选择待开始比赛 + 停留时长（page3 下场对局展示；原「下场对局」卡片，仅入口名改为「下一场预告」，按钮仍叫「显示下场对局」）。
   - 顶栏弹窗「画面设置」（一个弹窗内 Tabs 四组）：推流页面2设置（赛事标题/阵容展示）；推流页面3设置（精灵图片来源 sprite/icon、排位图标开关、战队标识开关、红光特效：关闭/自动开启 + 「立即显示」一次性触发）；选手介绍显示（page11-13 排位开关 page11RankVisible）；画面切换行为（过渡效果 none/blinds/wolf；胜者结算自动切入与停留时长 page10Duration；**战绩详情切屏间隔 page7SwitchSeconds，秒、默认 10**）。全部即时保存生效。
   - 顶栏「镜像反转」（stage.mirrorSides，导播切视角用）：**页面1-3 主画面与阵容悬浮窗（float.js）的左右展示互换**——四个脚本渲染时按「视图侧 → 数据侧」映射（各自实现 `mapSide`：overlay.js / roco-pvp-page2.js / page3-display.js / float.js），page1/page2/float 为此订阅 stage:update 与首连快照携带 stage；**不改数据、胜负登记、头像解析与统计口径**，下场对局浮层 / 结算页保持真实左右。float.js 的槽位点击（阵亡）与右键更换菜单按视图侧反查实际侧再调接口，右键菜单的文案用视图侧（viewSide 查询参数）、接口用实际侧（side）。**禁止用 CSS 翻转整页实现（立绘与文字会倒置）**；切换时清空渲染签名并按新映射增量重渲染（避免整页重载闪烁）。
   - 「推流页面5-统计口径」移入「数据统计」视图（见 stats 条目）；「团队积分榜设置（page9）」因批量录入 + 保存按钮保留在本页。
-- page11 - 选手介绍（画面切换 left/right/versus；「选手介绍数据」按侧配置来源 manual/match，手动填写字段留空回退「信息录入」按名字匹配值）
+- page11 - 选手介绍（**M4 起拆为 Page11View：左右手动草稿是视图本地状态，离开视图重置；画面切换走数据层 `saveStage`**；画面切换 left/right/versus；「选手介绍数据」按侧配置来源 manual/match，手动填写字段留空回退「信息录入」按名字匹配值）
 - live - 实时控制（左右各 6 个槽位的 HP / 能量滑块 + 「监听目标 JSON」本地文件桥：外部计分工具写 JSON → 后台每秒读取 → 更新面板并回写）
   - 监听状态必须可见：卡片（components/LiveWatchCard.tsx）展示状态标签（监听中 / 正在连接 / 监听停滞 / 监听异常 / 未监听）、完整文件路径（可复制、悬停看全路径）、心跳（已监听时长 / 最近检查 x 秒前 / 最近回写 / 最近同步了几个槽位）与错误横幅；监听开着时导航「实时控制」项带蓝色呼吸点（Badge status="processing"，悬停显示文件名），切到别的视图也能看出还开着。**「监听停滞」= 心跳超过 LIVE_WATCH_STALL_MS 没更新**，用来暴露「看着在监听、其实轮询已经死了」。
   - 轮询只能读 ref：`liveWatchRef`（enabled / filePath / lastContent / lastModified）+ `livePanelsRef`（最新面板）。**踩过的坑**：旧实现 `setInterval(() => pollLiveConfigFile())` 捕获的是开启监听之前那次渲染的闭包，里面 `liveConfigEnabled=false` / `liveFilePath=null` → 每秒直接 return，界面显示「监听中」但文件从未被读取。同理回写定时器读闭包 `panels` 会写回旧值。心跳 `liveHeartbeatRef` 由轮询写入，状态卡自己每秒 tick 刷新相对时间（**别让 App 每秒 setState**，整个后台会跟着重渲染）。
