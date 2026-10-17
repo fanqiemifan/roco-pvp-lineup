@@ -93,7 +93,7 @@ function makeSprite(id: string, displayName: string, patch: Partial<Omit<SpriteR
     form: '',
     petForm: '',
     isFinalForm: false,
-    stats: {
+    baseStats: {
       hp: null,
       physical_attack: null,
       physical_defense: null,

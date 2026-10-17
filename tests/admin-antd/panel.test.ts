@@ -20,7 +20,7 @@ function makeSprite(id: string): SpriteRecord {
     form: '',
     petForm: '',
     isFinalForm: true,
-    stats: {
+    baseStats: {
       hp: null,
       physical_attack: null,
       physical_defense: null,

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { MAX_SELECTION_COUNT, SUPPORTED_IMAGE_EXTENSIONS } from '../../shared/constants.js';
-import type { QuickFillPreview, SpriteRecord, SpriteStats } from '../../shared/types.js';
+import type { QuickFillPreview, SpriteBaseStats, SpriteRecord } from '../../shared/types.js';
 import type { AppPaths } from './path-service.js';
 
 const SPRITE_RESOURCE_BASE = '/resources/sprites-img';
@@ -145,7 +145,7 @@ function buildSpriteEntry(filename: string, paths: AppPaths): SpriteRecord {
     petForm: '',
     isFinalForm: false,
     // 目录扫描兜底没有 pets.json 数据源，种族值不可知，全部记 null
-    stats: {
+    baseStats: {
       hp: null,
       physical_attack: null,
       physical_defense: null,
@@ -249,8 +249,8 @@ function resolveIconUrl(petId: string, name: string, paths: AppPaths): string {
   return fallback ? `${SPRITE_ICON_RESOURCE_BASE}/${fallback}` : '';
 }
 
-// pets.json profile.attributes → 种族值（字段缺失/非法记 null，展示端按「无数据」排在末位）
-function normalizePetStats(profile: unknown): SpriteStats {
+// pets.json profile.attributes → 种族值 base stats（字段缺失/非法记 null，展示端按「无数据」排在末位）
+function normalizePetBaseStats(profile: unknown): SpriteBaseStats {
   const attributes = profile && typeof profile === 'object'
     ? (profile as Record<string, unknown>).attributes
     : null;
@@ -340,7 +340,7 @@ function normalizePetRecord(record: unknown, paths: AppPaths): SpriteRecord | nu
     form,
     petForm: formText,
     isFinalForm: finalFormIds.has(petId),
-    stats: normalizePetStats(item.profile),
+    baseStats: normalizePetBaseStats(item.profile),
   };
 }
 

@@ -70,12 +70,12 @@ describe('listSprites', () => {
     }
   });
 
-  it('种族值：profile.attributes 解析为 stats，缺失/非法字段记 null', () => {
+  it('种族值：profile.attributes 解析为 baseStats，缺失/非法字段记 null', () => {
     const sprites = listSprites(paths);
-    expect(sprites[0].stats).toMatchObject({ hp: 120, speed: 92, sum: 582 });
-    expect(sprites[0].stats.magic_attack).toBeNull();
+    expect(sprites[0].baseStats).toMatchObject({ hp: 120, speed: 92, sum: 582 });
+    expect(sprites[0].baseStats.magic_attack).toBeNull();
     // 无 profile 的条目全部字段为 null
-    for (const value of Object.values(sprites[2].stats)) {
+    for (const value of Object.values(sprites[2].baseStats)) {
       expect(value).toBeNull();
     }
   });

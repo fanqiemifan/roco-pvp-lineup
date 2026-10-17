@@ -1,5 +1,5 @@
-/** pets.json profile.attributes 种族值（上游缺失的字段记 null；page16 卡片标签与 1-12 排名用） */
-export interface SpriteStats {
+/** pets.json profile.attributes 种族值 base stats（上游缺失的字段记 null；page16 卡片标签与 1-12 排名用） */
+export interface SpriteBaseStats {
   hp: number | null;
   physical_attack: number | null;
   physical_defense: number | null;
@@ -28,8 +28,8 @@ export interface SpriteRecord {
   /** pets.json 原始 form 字段（如 春天的样子，空字符串 = 无特殊形态），持久化快照用 */
   petForm: string;
   isFinalForm: boolean;
-  /** 种族值（来自 pets.json profile.attributes） */
-  stats: SpriteStats;
+  /** 种族值 base stats（来自 pets.json profile.attributes） */
+  baseStats: SpriteBaseStats;
 }
 
 export interface SlotState {
@@ -196,7 +196,7 @@ export type SpriteSource = 'sprite' | 'icon';
 export type Page3RedLightMode = 'off' | 'auto';
 /**
  * 推流页面16卡片标签与序号排序依据：
- * SpriteStats 的任意字段（sum = 种族值总和，默认，橙色标签；hp/physical_attack/physical_defense/
+ * SpriteBaseStats 的任意字段（sum = 种族值总和，默认，橙色标签；hp/physical_attack/physical_defense/
  * magic_attack/magic_defense/speed = 对应种族值项，白色标签）或 name = 只显精灵名（排序仍按种族值总和）。
  */
 export type Page16CardLabel =

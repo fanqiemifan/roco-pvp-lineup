@@ -81,7 +81,7 @@ export const DEFAULT_PAGE3_RED_LIGHT_INSTANT = false;
  */
 export const DEFAULT_PAGE16_RANK_VISIBLE = true;
 /**
- * page16 卡片标签选项（value = SpriteStats 字段，label = 后台中文文案，与游戏内属性名一致）：
+ * page16 卡片标签选项（value = SpriteBaseStats 字段，label = 后台中文文案，与游戏内属性名一致）：
  * 白名单与后台选项共用这一份，别在 stage-service 或前端再各写一份。
  */
 export const PAGE16_CARD_LABEL_OPTIONS: ReadonlyArray<{ value: Page16CardLabel; label: string }> = [

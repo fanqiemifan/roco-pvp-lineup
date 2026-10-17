@@ -25,7 +25,7 @@ function loadPage16Rank(): Page16Rank {
 }
 
 function makeSprite(
-  stats: { sum?: number; hp?: number; speed?: number; physical_attack?: number } | null,
+  baseStats: { sum?: number; hp?: number; speed?: number; physical_attack?: number } | null,
 ): SpriteRecord {
   return {
     id: '1001',
@@ -43,14 +43,14 @@ function makeSprite(
     form: '',
     petForm: '',
     isFinalForm: true,
-    stats: {
-      hp: stats ? stats.hp ?? null : null,
-      physical_attack: stats ? stats.physical_attack ?? null : null,
+    baseStats: {
+      hp: baseStats ? baseStats.hp ?? null : null,
+      physical_attack: baseStats ? baseStats.physical_attack ?? null : null,
       physical_defense: null,
       magic_attack: null,
       magic_defense: null,
-      speed: stats ? stats.speed ?? null : null,
-      sum: stats ? stats.sum ?? null : null,
+      speed: baseStats ? baseStats.speed ?? null : null,
+      sum: baseStats ? baseStats.sum ?? null : null,
     },
   };
 }
