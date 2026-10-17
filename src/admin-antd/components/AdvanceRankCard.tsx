@@ -5,6 +5,7 @@ import { formatStageBestOf, PAGE14_ROWS_PER_PAGE } from '../../../shared/constan
 import type { Page14State, StageStandings, TournamentRecord } from '../../../shared/types';
 import { getStagePlayerCount, summarizeStageMatches } from '../lib/tournament';
 import { Hint } from '../ui/Hint';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Text } = Typography;
 
@@ -223,7 +224,7 @@ export function AdvanceRankCard({ tournaments, state, standings, saving, onSave 
       <Modal
         title="晋级积分榜 · 选择系列赛与阶段"
         open={open}
-        width={880}
+        width={MODAL_WIDTH.lg}
         destroyOnClose
         onCancel={() => setOpen(false)}
         footer={(

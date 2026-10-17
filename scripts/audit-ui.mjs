@@ -52,7 +52,12 @@ const decls = css.match(/[a-z-]+:\s*[^;{}]+;/g) ?? [];
 const uniqueDecls = uniq(decls);
 const antSelectors = count(css, /\.ant-/g);
 const important = count(css, /!important/g);
-const modalWidths = uniq(tsx.match(/<Modal\b[^>]*?\bwidth=(?:"(\d+)"|\{(\d+)\})/g) ?? []).length;
+// 弹窗宽度：契约后只统计 MODAL_WIDTH.* 的档位；残留的裸数字额外计入，方便发现回潮
+const widthKeys = new Set((tsx.match(/MODAL_WIDTH\.(\w+)/g) ?? []).map((s) => s.split('.')[1]));
+const rawWidths = new Set(
+  (tsx.match(/<Modal\b[\s\S]{0,400}?\bwidth=\{(\d+)\}/g) ?? []).map((s) => s.match(/width=\{(\d+)\}/)[1]),
+);
+const modalWidths = widthKeys.size + rawWidths.size;
 
 const rows = [
   ['唯一色值', colors.length, 24],

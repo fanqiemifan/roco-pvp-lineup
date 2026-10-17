@@ -8,6 +8,7 @@ import { CHINESE_ORDINALS, computeScheduleTimes, normalizeHHmm } from '../../../
 import { countPushRows } from '../lib/history';
 import { buildPushCandidateGroups, type PushCandidateGroup } from '../lib/tournament';
 import { Hint } from '../ui/Hint';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Text } = Typography;
 
@@ -512,7 +513,7 @@ export function MatchPushCard({ kind, cardTitle, maxCount, matches, allMatches, 
       <Modal
         title={`${cardTitle} · 选择比赛`}
         open={open}
-        width={1080}
+        width={MODAL_WIDTH.xl}
         destroyOnClose
         onCancel={() => setOpen(false)}
         footer={(

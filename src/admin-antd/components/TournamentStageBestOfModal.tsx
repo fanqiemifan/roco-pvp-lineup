@@ -14,6 +14,7 @@ import {
 import type { StageBestOfChange, StageBestOfReviewRow } from '../lib/tournament';
 import { updateTournamentStagesApi } from '../lib/tournament-api';
 import { StageWaveBestOfRow } from './StageWaveBestOfRow';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Paragraph } = Typography;
 
@@ -292,7 +293,7 @@ export function TournamentStageBestOfModal({
   return (
     <Modal
       title={`编辑赛制 · ${record.name}`}
-      width={600}
+      width={MODAL_WIDTH.md}
       open={open}
       okText="保存更改"
       cancelText="取消"

@@ -24,6 +24,7 @@ import { parseLineupJsonText, parseLineupSheetTable, parseLineupSheetText, type 
 import { formatStageRoundLabel } from '../lib/tournament';
 import { applyLineupImportApi, parseLineupXlsxApi, previewLineupImportApi } from '../lib/tournament-api';
 import { Hint } from '../ui/Hint';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Text, Paragraph } = Typography;
 
@@ -322,7 +323,7 @@ export function TournamentLineupImportModal({
     <Modal
       open={open}
       // 预览行要在一行里放下「元信息 + 左右各 6 个精灵格」，窗口需要足够宽；窄屏由 antd 的 max-width 自动收缩
-      width={1400}
+      width={MODAL_WIDTH.xl}
       title={`导入阵容 · ${record.name}`}
       onCancel={onClose}
       mask={{ closable: !previewing && !applying }}

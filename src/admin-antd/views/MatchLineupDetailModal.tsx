@@ -14,6 +14,7 @@ import {
 } from '../lib/match';
 import { buildSpriteLookup } from '../lib/sprite';
 import { MatchStatusTag } from '../ui/StatusTag';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Text } = Typography;
 
@@ -176,7 +177,7 @@ export function MatchLineupDetailModal({
       onCancel={onClose}
       footer={null}
       centered
-      width={960}
+      width={MODAL_WIDTH.lg}
       styles={{ body: { maxHeight: '62vh', overflowY: 'auto' } }}
       title={match ? `阵容详情 · ${match.id}` : '阵容详情'}
     >

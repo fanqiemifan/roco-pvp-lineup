@@ -4,6 +4,7 @@ import { Alert, App, Modal, Space, Spin, Tag, Typography } from 'antd';
 import type { RollbackWavePreview, RollbackWavePreviewRow, TournamentRecord } from '../../../shared/types';
 import { previewRollbackWaveApi, rollbackWaveApi } from '../lib/tournament-api';
 import { Hint } from '../ui/Hint';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Text } = Typography;
 
@@ -100,7 +101,7 @@ export function RollbackWavePreviewModal({ open, record, onClose }: RollbackWave
     <Modal
       title={`↺ 回退上一波 · ${record.name}`}
       open={open}
-      width={640}
+      width={MODAL_WIDTH.md}
       okText={preview?.executable ? '确认回退（此操作不可撤回）' : '我知道了'}
       okButtonProps={preview?.executable ? { danger: true, loading: confirming } : undefined}
       onOk={() => {

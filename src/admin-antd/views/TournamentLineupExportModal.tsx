@@ -4,6 +4,7 @@ import type { MatchRecord, SpriteRecord, TournamentRecord } from '../../../share
 import { buildLineupTemplate, type LineupTemplateMatchRow, type LineupTemplateScope } from '../lib/lineup-sheet';
 import { renderLineupTemplateXlsx } from '../lib/lineup-template-xlsx';
 import { Hint } from '../ui/Hint';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Text } = Typography;
 
@@ -78,7 +79,7 @@ export function TournamentLineupExportModal({
   return (
     <Modal
       open={open}
-      width={720}
+      width={MODAL_WIDTH.md}
       title={`导出阵容模板 · ${record.name}`}
       onCancel={onClose}
       footer={[

@@ -9,6 +9,7 @@ import type { PanelSide } from '../types';
 import { SpritePetCard } from '../components/SpritePetCard';
 import { AttributeFilterChips } from '../components/AttributeFilterChips';
 import { FormFilterChips } from '../components/FormFilterChips';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Text } = Typography;
 
@@ -216,7 +217,7 @@ export function HistoryLineupEntryModal({
     <Modal
       open={open}
       onCancel={saving ? undefined : onClose}
-      width={1120}
+      width={MODAL_WIDTH.xl}
       centered
       className="lineup-entry-modal"
       title={(

@@ -31,6 +31,7 @@ import {
   STATS_METRIC_OPTIONS,
 } from '../lib/stats';
 import type { SpriteUsageRow, StatsMetricKey } from '../lib/stats';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Text } = Typography;
 
@@ -410,7 +411,7 @@ export function StatsView({
           <Modal
             title="推流页面5 显示设置"
             open={page5SettingsOpen}
-            width={640}
+            width={MODAL_WIDTH.md}
             onCancel={() => setPage5SettingsOpen(false)}
             footer={(
               <Space>
@@ -483,7 +484,7 @@ export function StatsView({
           <Modal
             title="推流页面15 显示设置"
             open={page15SettingsOpen}
-            width={760}
+            width={MODAL_WIDTH.md}
             onCancel={() => setPage15SettingsOpen(false)}
             footer={<Button onClick={() => setPage15SettingsOpen(false)}>关闭</Button>}
           >

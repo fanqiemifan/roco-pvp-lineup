@@ -238,6 +238,7 @@ import type {
 } from './types';
 import { Hint } from './ui/Hint';
 import { MatchStatusTag } from './ui/StatusTag';
+import { MODAL_WIDTH } from './ui/modal';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Paragraph, Text, Link } = Typography;
@@ -5336,7 +5337,7 @@ function Dashboard() {
               <Modal
                 title="♻ 比赛回收站"
                 open={recycleBinOpen}
-                width={560}
+                width={MODAL_WIDTH.sm}
                 okText={`恢复选中（${recycleSelectedKeys.length}）`}
                 okButtonProps={{ disabled: !recycleSelectedKeys.length, loading: recycleRestoring }}
                 onOk={() => void restoreRecycleMatches()}
@@ -6402,7 +6403,7 @@ function Dashboard() {
               <Modal
                 title="安排由哪台电脑登记"
                 open={cloudAssignOpen}
-                width={980}
+                width={MODAL_WIDTH.lg}
                 style={{ top: 24 }}
                 onCancel={() => setCloudAssignOpen(false)}
                 okText="保存安排"
@@ -7476,7 +7477,7 @@ function Dashboard() {
           ? `对局面板 · ${matchPanelTarget.leftPlayer || '左侧'} vs ${matchPanelTarget.rightPlayer || '右侧'}`
           : '对局面板'}
         placement="right"
-        width={860}
+        width={MODAL_WIDTH.lg}
         open={view === 'tournament' && Boolean(matchPanelTarget)}
         onClose={() => setMatchPanelTargetId(null)}
         mask={false}
@@ -7580,7 +7581,7 @@ function Dashboard() {
         open={countdownModalOpen}
         onCancel={() => setCountdownModalOpen(false)}
         footer={null}
-        width={420}
+        width={MODAL_WIDTH.sm}
       >
         <Space direction="vertical" size={12} className="control-stack">
           <SettingField label="倒计时时长（分钟）：">
@@ -7636,7 +7637,7 @@ function Dashboard() {
         open={nextgameModalOpen}
         onCancel={() => setNextgameModalOpen(false)}
         footer={null}
-        width={460}
+        width={MODAL_WIDTH.sm}
       >
         <Space direction="vertical" size={12} className="control-stack">
           <Text type="secondary">开启后仅在「阵容展示3」显示下场对局预告，其他展示页面不受影响。</Text>
@@ -7699,7 +7700,7 @@ function Dashboard() {
         open={screenSettingsModalOpen}
         onCancel={() => setScreenSettingsModalOpen(false)}
         footer={null}
-        width={900}
+        width={MODAL_WIDTH.lg}
       >
         {/* 左侧竖向导航：分组名保留「对哪个页面设置」的语义；固定内容高度避免切换跳动 */}
         <Tabs
@@ -7945,7 +7946,7 @@ function Dashboard() {
         open={streamGuideOpen}
         onCancel={() => setStreamGuideOpen(false)}
         footer={null}
-        width={880}
+        width={MODAL_WIDTH.lg}
       >
         <Space direction="vertical" size={16} className="control-stack" style={{ width: '100%' }}>
           <div>
@@ -7995,7 +7996,7 @@ function Dashboard() {
         okText="随机配对创建"
         cancelText="取消"
         confirmLoading={quickCreateSaving}
-        width={640}
+        width={MODAL_WIDTH.md}
       >
         <Form layout="vertical">
           <Form.Item
@@ -8461,7 +8462,7 @@ function Dashboard() {
         okText="确认导入"
         cancelText="取消"
         confirmLoading={playerImporting}
-        width={640}
+        width={MODAL_WIDTH.md}
       >
         {playerImportSource === 'xlsx' ? (
           <>
@@ -8533,7 +8534,7 @@ function Dashboard() {
           setPlayerImportReview([]);
           setPetReviewSelection({});
         }}
-        width={560}
+        width={MODAL_WIDTH.sm}
       >
         <Paragraph>
           有 <Text strong>{playerImportReview.length}</Text> 个常用精灵未在 pets.json 中命中，选手的其它信息已正常导入。请在下方选择正确的精灵以录入（每条最多 5 个候选），或忽略。
@@ -8573,7 +8574,7 @@ function Dashboard() {
         okText={`确认覆盖（${avatarBatchPreview.length} 张）`}
         cancelText="取消"
         confirmLoading={avatarBatchUploading}
-        width={620}
+        width={MODAL_WIDTH.md}
       >
         <Paragraph>
           已按文件名匹配 <Text strong>{avatarBatchPreview.length}</Text> 位选手，确认后覆盖原头像（统一压缩为 480×480 PNG）；未匹配的文件不会上传。
@@ -8627,7 +8628,7 @@ function Dashboard() {
         open={avatarBatchResultOpen}
         onCancel={() => setAvatarBatchResultOpen(false)}
         footer={null}
-        width={520}
+        width={MODAL_WIDTH.sm}
       >
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           {(avatarBatchResult?.matched ?? 0) > 0 ? (

@@ -98,6 +98,7 @@ import { MatchLineupDetailModal } from './MatchLineupDetailModal';
 import { TournamentLineupExportModal } from './TournamentLineupExportModal';
 import { TournamentLineupImportModal } from './TournamentLineupImportModal';
 import { Hint } from '../ui/Hint';
+import { MODAL_WIDTH } from '../ui/modal';
 
 const { Text, Paragraph } = Typography;
 
@@ -1895,7 +1896,7 @@ function CreateTournamentModal({
     <Modal
       title="创建系列赛"
       open={open}
-      width={860}
+      width={MODAL_WIDTH.lg}
       onCancel={onClose}
       footer={null}
       destroyOnHidden
