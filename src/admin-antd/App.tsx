@@ -12,7 +12,6 @@ import {
   Checkbox,
   Col,
   ConfigProvider,
-  Divider,
   Drawer,
   Form,
   Image,
@@ -27,7 +26,6 @@ import {
   Space,
   Spin,
   Switch,
-  Table,
   Tabs,
   Tag,
   Tooltip,
@@ -36,7 +34,6 @@ import {
 } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import type { MenuProps } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
 
 import {
   DEFAULT_PAGE7_SWITCH_SECONDS,
@@ -48,27 +45,18 @@ import type {
   AvatarCollectionState,
   CountdownPayload,
   CountdownState,
-  MatchRecord,
   MatchStoreState,
   NextGamePayload,
-  Page6State,
-  Page7State,
-  Page8State,
-  Page14State,
   PanelState,
   PlayerProfile,
   ScoreboardState,
   SpriteSource,
   Page3RedLightMode,
   Page16CardLabel,
-  StageStandings,
   StageTransitionType,
 } from '../../shared/types';
 
 import {
-  DEFAULT_TAGS,
-  PAGE6_MAX_MATCHES,
-  PAGE8_MAX_MATCHES,
   STAGE_TRANSITION_OPTIONS,
   normalizeStageTransition,
 } from './constants';
@@ -76,35 +64,18 @@ import { rocoTheme } from '../theme';
 import { AdminDataProvider } from './data/admin-data';
 import { useAdminData } from './data/use-admin-data';
 import { SettingField } from './components/SettingField';
-import { MatchPushCard } from './components/MatchPushCard';
-import type { MatchPushKind, MatchPushPayload } from './components/MatchPushCard';
-import { AdvanceRankCard } from './components/AdvanceRankCard';
-import type { AdvanceRankPayload } from './components/AdvanceRankCard';
-import { formatDateTime } from './lib/format';
 
 import {
-  buildHistoryBattleEntries,
-  buildHistoryCsv,
   buildHistoryTags,
-  buildHistoryTournamentFilters,
-  filterLocallyRemovedMatches,
-  getEffectiveTournamentId,
-  getHistoryVisibleGames,
-  getLineupEntryBlockReason,
-  LINEUP_ENTRY_BLOCK_TEXT,
-  PLAIN_HISTORY_MATCH_FILTER,
+  getAdminVisibleMatches,
 } from './lib/history';
 import { formatStageRoundLabel } from './lib/tournament';
 import { getLiveConfigFileName } from './lib/live';
 import {
   getActiveMatch,
-  getCurrentGame,
-  getGameResultLabel,
-  getGameStatusLabel,
   getNoticeTagColor,
 } from './lib/match';
 import { requestJson, uploadSingleFile } from './lib/request';
-import { buildSpriteLookup } from './lib/sprite';
 import { AboutView } from './views/AboutView';
 import { Page11View } from './views/Page11View';
 import { RosterView } from './views/RosterView';
@@ -120,6 +91,7 @@ import { TournamentView } from './views/TournamentView';
 import { LiveView } from './views/LiveView';
 import { MvpView } from './views/MvpView';
 import { ProfilesView } from './views/ProfilesView';
+import { HistoryView } from './views/HistoryView';
 
 import rosterIcon from '../assets/ui/赛事面板.svg?raw';
 import stageIcon from '../assets/ui/直播推流.svg?raw';
@@ -223,48 +195,6 @@ function NavIcon({ name, size = 20 }: { name: NavIconName; size?: number }) {
   );
 }
 
-type HistorySortKey = 'updatedAt' | 'score' | 'bestOf' | 'status';
-
-type HistorySortState = {
-  key: HistorySortKey | null;
-  order: 'asc' | 'desc' | null;
-};
-
-const UNCATEGORIZED_HISTORY_TAG = '__uncategorized__';
-
-const HISTORY_STATUS_RANK: Record<MatchRecord['status'], number> = {
-  in_progress: 0,
-  pending: 1,
-  completed: 2,
-};
-
-function HistorySortHeader({ text, sortKey, activeOrder, onSort }: {
-  text: string;
-  sortKey: HistorySortKey;
-  activeOrder: 'asc' | 'desc' | null;
-  onSort: (key: HistorySortKey) => void;
-}) {
-  return (
-    <span
-      className="history-sort-header"
-      role="button"
-      tabIndex={0}
-      onClick={() => onSort(sortKey)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSort(sortKey);
-        }
-      }}
-    >
-      {text}
-      <span className={`history-sort-triangle${activeOrder ? ` is-${activeOrder}` : ''}`}>
-        {activeOrder === 'asc' ? '▲' : activeOrder === 'desc' ? '▼' : ''}
-      </span>
-    </span>
-  );
-}
-
 /**
  * 倒计时剩余时间显示：把 running 时的 500ms 节拍下沉在这个小组件内部，
  * 避免节拍每 0.5 秒触发整个 Dashboard（6000+ 行单组件）协调一遍。
@@ -311,23 +241,13 @@ function Dashboard() {
     nextgame,
     countdown,
     countdownClockRef,
-    page6,
-    page7,
-    page8,
-    page14,
-    page14Standings,
     profiles,
     tournaments,
     locallyRemoved,
     recycleBin,
-    historyNotice,
     rosterNotice,
     cloudStatus,
-    cloudAckedMatchIds,
     setAvatars,
-    setPage14,
-    setPage14Standings,
-    setHistoryNotice,
     setRosterNotice,
     applyServerState,
     savePanel,
@@ -357,25 +277,9 @@ function Dashboard() {
   const [quickCreateKeyword, setQuickCreateKeyword] = useState('');
   /** 系列比赛对局卡片：右键菜单 / Drawer 弹窗正在操作的那一场（null = 未打开） */
   const [matchPanelTargetId, setMatchPanelTargetId] = useState<string | null>(null);
-  const [editingHistoryTagMatchId, setEditingHistoryTagMatchId] = useState<string | null>(null);
-  const [editingHistoryTagValues, setEditingHistoryTagValues] = useState<string[]>([]);
-  const [savingHistoryTagMatchId, setSavingHistoryTagMatchId] = useState<string | null>(null);
-  const [selectedHistoryKeys, setSelectedHistoryKeys] = useState<React.Key[]>([]);
-  const [expandedHistoryKeys, setExpandedHistoryKeys] = useState<React.Key[]>([]);
-  const [historyTagFilter, setHistoryTagFilter] = useState<string | null>(null);
-  // 系列赛维度筛选（独立于标签）：PLAIN_HISTORY_MATCH_FILTER=普通对局，或具体系列赛 id
-  const [historyTournamentFilter, setHistoryTournamentFilter] = useState<string | null>(null);
-  const [historySearch, setHistorySearch] = useState('');
-  const [historySort, setHistorySort] = useState<HistorySortState>({ key: 'updatedAt', order: 'desc' });
-  const [batchTagOpen, setBatchTagOpen] = useState(false);
-  const [batchTagValue, setBatchTagValue] = useState<string | null>(null);
-  const [batchTagSaving, setBatchTagSaving] = useState(false);
   const [nextgameSaving, setNextgameSaving] = useState(false);
   const [countdownSaving, setCountdownSaving] = useState(false);
   const [page2EventTitleDraft, setPage2EventTitleDraft] = useState('');
-  // 三个推流选场弹窗的推送中状态（key: page6/page7/page8）
-  const [matchPushLoading, setMatchPushLoading] = useState<Record<string, boolean>>({});
-  const [page14Saving, setPage14Saving] = useState(false);
   // 快速创建弹窗选手列表：按信息录入添加时间排序（档案 id 内嵌 base36 创建时间戳，先录者在前；
   // 数组顺序可能被手动编辑/导入/删后重录打乱，id 解析失败的按原数组顺序兜底排在末尾）
   const quickCreatePlayerList = useMemo(() => {
@@ -410,14 +314,8 @@ function Dashboard() {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [panels.right]);
-  const spriteMap = buildSpriteLookup(sprites);
   const activeMatch = getActiveMatch(matchStore);
   const allHistoryTags = buildHistoryTags(matchStore.matches);
-  // 系列赛筛选组：id→名称映射 + 有效 id 集合（系列赛删除后残留的孤儿引用按普通对局处理）
-  const tournamentNameMap = useMemo(
-    () => new Map(tournaments.map((tournament) => [tournament.id, tournament.name])),
-    [tournaments],
-  );
   // 比赛管理标签列派生「阶段 · 轮次」只读 Tag 用：id → 完整系列赛记录
   const tournamentRecordMap = useMemo(
     () => new Map(tournaments.map((tournament) => [tournament.id, tournament])),
@@ -436,7 +334,6 @@ function Dashboard() {
     const tournament = tournamentRecordMap.get(ref.tournamentId);
     return tournament ? formatStageRoundLabel(tournament, ref) : null;
   })();
-  const tournamentIdSet = useMemo(() => new Set(tournamentNameMap.keys()), [tournamentNameMap]);
   // 本机已「本机移除」的系列赛 id 集合：管理端操作面（比赛管理 / 推流选场）据此一并隐藏其关联对局
   const locallyRemovedIdSet = useMemo(
     () => new Set(locallyRemoved.map((tournament) => tournament.id)),
@@ -448,70 +345,11 @@ function Dashboard() {
     [recycleBin],
   );
   const adminVisibleMatches = useMemo(
-    () => filterLocallyRemovedMatches(matchStore.matches, locallyRemovedIdSet)
-      .filter((match) => {
-        const tournamentId = match.tournamentRef?.tournamentId;
-        return !tournamentId || !recycleBinIdSet.has(tournamentId);
-      }),
+    () => getAdminVisibleMatches(matchStore.matches, locallyRemovedIdSet, recycleBinIdSet),
     [matchStore.matches, locallyRemovedIdSet, recycleBinIdSet],
-  );
-  const historyTournamentFilters = useMemo(
-    () => buildHistoryTournamentFilters(matchStore.matches, tournaments),
-    [matchStore.matches, tournaments],
   );
   // 「实时控制 → 下场对局」待开始下拉：同口径隐藏「本机移除」系列赛的对局（adminVisibleMatches）
   const pendingMatches = adminVisibleMatches.filter((match) => match.status === 'pending');
-  const normalizedHistorySearch = historySearch.trim().toLowerCase();
-  const filteredMatches = adminVisibleMatches.filter((match) => {
-    if (historyTagFilter === UNCATEGORIZED_HISTORY_TAG) {
-      if ((match.tags ?? []).length > 0) {
-        return false;
-      }
-    } else if (historyTagFilter && !(match.tags ?? []).includes(historyTagFilter)) {
-      return false;
-    }
-    // 系列赛维度与标签维度 AND 叠加：普通对局=无有效归属；否则按系列赛 id 精确过滤
-    if (historyTournamentFilter) {
-      const effectiveTournamentId = getEffectiveTournamentId(match, tournamentIdSet);
-      if (historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER) {
-        if (effectiveTournamentId) {
-          return false;
-        }
-      } else if (effectiveTournamentId !== historyTournamentFilter) {
-        return false;
-      }
-    }
-    if (!normalizedHistorySearch) {
-      return true;
-    }
-    return [
-      String(match.leftPlayer || ''),
-      String(match.rightPlayer || ''),
-      String(match.id || ''),
-    ].some((value) => value.toLowerCase().includes(normalizedHistorySearch));
-  });
-  const sortedMatches = [...filteredMatches].sort(compareHistoryMatches);
-  /** 筛选状态提示：被筛掉多少场、当前按什么筛（避免「同步来的比赛看不见」被误判成丢数据） */
-  const historyFilterSummary = (() => {
-    const parts: string[] = [];
-    if (historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER) {
-      parts.push('只看普通对局');
-    } else if (historyTournamentFilter) {
-      parts.push(`只看系列赛「${tournamentNameMap.get(historyTournamentFilter) ?? historyTournamentFilter}」`);
-    }
-    if (historyTagFilter) {
-      parts.push(historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? '只看无标签' : `只看标签「${historyTagFilter}」`);
-    }
-    if (normalizedHistorySearch) {
-      parts.push(`搜索「${historySearch.trim()}」`);
-    }
-    if (!parts.length) {
-      return '';
-    }
-    const hidden = adminVisibleMatches.length - filteredMatches.length;
-    return `当前${parts.join(' + ')}：显示 ${filteredMatches.length} / 共 ${adminVisibleMatches.length} 场`
-      + (hidden > 0 ? `（有 ${hidden} 场被筛选条件隐藏，刚同步来的比赛可能在其中）` : '');
-  })();
   // 「录入阵容」弹窗的当前上下文：从最新 store 里解析比赛与小局（socket 更新后自动跟随）
   const lineupEntryMatch = lineupEntry ? matchStore.matches.find((match) => match.id === lineupEntry.matchId) ?? null : null;
   const lineupEntryGame = lineupEntryMatch && lineupEntry
@@ -742,202 +580,6 @@ function Dashboard() {
     }
   }
 
-  async function deleteHistoryMatches(matchIds: string[]) {
-    if (!matchIds.length) {
-      return;
-    }
-
-    try {
-      const data = await requestJson<{ success: boolean; store?: MatchStoreState; scoreboard?: ScoreboardState; panels?: PanelState[] }>('/api/matches/batch-delete', {
-        method: 'POST',
-        json: { matchIds },
-      });
-      applyServerState({
-        store: data.store,
-        scoreboard: data.scoreboard,
-        panels: data.panels,
-      });
-      setSelectedHistoryKeys([]);
-      setHistoryNotice({ tone: 'success', text: `已删除 ${matchIds.length} 场赛事` });
-      message.success(`已删除 ${matchIds.length} 场赛事`);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  // === 比赛回收站（普通删除 7 天内逐条恢复） ===
-  interface RecycleBinRow {
-    matchId: string;
-    leftPlayer: string;
-    rightPlayer: string;
-    bestOf: number;
-    status: 'pending' | 'in_progress' | 'completed';
-    deletedAt: string;
-  }
-  const [recycleBinOpen, setRecycleBinOpen] = useState(false);
-  const [recycleBinRows, setRecycleBinRows] = useState<RecycleBinRow[]>([]);
-  const [recycleSelectedKeys, setRecycleSelectedKeys] = useState<string[]>([]);
-  const [recycleLoading, setRecycleLoading] = useState(false);
-  const [recycleRestoring, setRecycleRestoring] = useState(false);
-
-  async function openMatchRecycleBin(): Promise<void> {
-    setRecycleBinOpen(true);
-    setRecycleLoading(true);
-    try {
-      const data = await requestJson<{ entries: RecycleBinRow[] }>('/api/matches/recycle-bin');
-      setRecycleBinRows(data.entries);
-      setRecycleSelectedKeys([]);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setRecycleLoading(false);
-    }
-  }
-
-  async function restoreRecycleMatches(): Promise<void> {
-    if (!recycleSelectedKeys.length) {
-      return;
-    }
-    setRecycleRestoring(true);
-    try {
-      const data = await requestJson<{ success: boolean; store?: MatchStoreState; pagePush?: { page6?: Page6State; page7?: Page7State; page8?: Page8State } }>('/api/matches/restore-deleted', {
-        method: 'POST',
-        json: { matchIds: recycleSelectedKeys },
-      });
-      applyServerState({
-        store: data.store,
-        ...(data.pagePush ?? {}),
-      });
-      message.success(`已恢复 ${recycleSelectedKeys.length} 场赛事`);
-      // 刷新回收站清单（被恢复的条目已移出）
-      await openMatchRecycleBin();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setRecycleRestoring(false);
-    }
-  }
-
-  // 比赛管理上方三个功能卡片的统一推送：选场弹窗确认后调用，失败时抛错以保持弹窗打开
-  async function pushMatchesForPage(kind: MatchPushKind, payload: MatchPushPayload): Promise<void> {
-    setMatchPushLoading((prev) => ({ ...prev, [kind]: true }));
-    let nextText = '';
-    try {
-      if (kind === 'page6') {
-        const data = await requestJson<{ success: boolean; state: Page6State }>('/api/page6', {
-          method: 'POST',
-          json: payload,
-        });
-        applyServerState({ page6: data.state });
-        nextText = data.state.matchIds.length
-          ? `已推送 ${data.state.matchIds.length} 场比赛结果到推流页面6`
-          : '已清空推流页面6 的比赛结果';
-      } else if (kind === 'page8') {
-        const data = await requestJson<{ success: boolean; state: Page8State }>('/api/page8', {
-          method: 'POST',
-          json: payload,
-        });
-        applyServerState({ page8: data.state });
-        nextText = data.state.matchIds.length
-          ? `已推送 ${data.state.matchIds.length} 场对局预告到推流页面8`
-          : '已清空推流页面8 的对局预告';
-      } else {
-        const data = await requestJson<{ success: boolean; state: Page7State }>('/api/page7', {
-          method: 'POST',
-          json: payload,
-        });
-        applyServerState({ page7: data.state });
-        nextText = data.state.matchIds.length
-          ? `已推送 ${data.state.matchIds.length} 场对局到推流页面7（战绩详情）`
-          : '已清空推流页面7 的战绩详情';
-      }
-      setHistoryNotice({ tone: 'success', text: nextText });
-      message.success(nextText);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-      throw error;
-    } finally {
-      setMatchPushLoading((prev) => ({ ...prev, [kind]: false }));
-    }
-  }
-
-  function compareHistoryMatches(a: MatchRecord, b: MatchRecord): number {
-    if (!historySort.key || !historySort.order) {
-      return 0;
-    }
-    let value = 0;
-    switch (historySort.key) {
-      case 'updatedAt': {
-        const ta = new Date(a.updatedAt).getTime() || 0;
-        const tb = new Date(b.updatedAt).getTime() || 0;
-        value = ta - tb;
-        break;
-      }
-      case 'score': {
-        const da = Math.abs((a.leftScore ?? 0) - (a.rightScore ?? 0));
-        const db = Math.abs((b.leftScore ?? 0) - (b.rightScore ?? 0));
-        value = da - db;
-        break;
-      }
-      case 'bestOf': {
-        value = (a.bestOf ?? 0) - (b.bestOf ?? 0);
-        break;
-      }
-      case 'status': {
-        value = HISTORY_STATUS_RANK[a.status] - HISTORY_STATUS_RANK[b.status];
-        break;
-      }
-    }
-    return historySort.order === 'asc' ? value : -value;
-  }
-
-  function cycleHistorySort(key: HistorySortKey) {
-    setHistorySort((prev) => {
-      if (prev.key !== key) {
-        return { key, order: 'asc' };
-      }
-      if (prev.order === 'asc') {
-        return { key, order: 'desc' };
-      }
-      return { key: null, order: null };
-    });
-  }
-
-  async function handleBatchTag() {
-    const ids = selectedHistoryKeys.map(String);
-    const selected = matchStore.matches.filter((match) => ids.includes(match.id));
-    if (!selected.length) {
-      return;
-    }
-    setBatchTagValue(null);
-    setBatchTagOpen(true);
-  }
-
-  async function submitBatchTag() {
-    const ids = selectedHistoryKeys.map(String);
-    if (!ids.length || !batchTagValue) {
-      return;
-    }
-    setBatchTagSaving(true);
-    try {
-      const data = await requestJson<{ success: boolean; store?: MatchStoreState }>('/api/matches/batch-tags', {
-        method: 'POST',
-        json: { matchIds: ids, tags: [batchTagValue] },
-      });
-      applyServerState({ store: data.store });
-      const added = batchTagValue;
-      setSelectedHistoryKeys([]);
-      setBatchTagOpen(false);
-      setBatchTagValue(null);
-      setHistoryNotice({ tone: 'success', text: `已为 ${ids.length} 场赛事添加标签「${added}」` });
-      message.success(`已为 ${ids.length} 场赛事添加标签「${added}」`);
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBatchTagSaving(false);
-    }
-  }
-
   // 即时保存：推流页面2字段（赛事标题失焦触发、阵容展示选择即存）
   async function savePage2FieldNow(patch: { eventTitle?: string; page2LineupDisplayMode?: 'default' | 'avatar-only' }) {
     if (!scoreboard) {
@@ -963,28 +605,6 @@ function Dashboard() {
   useEffect(() => {
     setPage2EventTitleDraft(scoreboard?.eventTitle ?? '');
   }, [scoreboard?.eventTitle]);
-
-  /**
-   * 保存晋级积分榜配置（卡片内联的阶段切换/翻页与弹窗确认共用）。
-   * 失败时抛错给调用方（弹窗据此保持打开），此处负责提示与 saving 标记。
-   */
-  async function savePage14Settings(payload: AdvanceRankPayload): Promise<void> {
-    setPage14Saving(true);
-    try {
-      const data = await requestJson<{ success: boolean; state: Page14State; standings: StageStandings | null }>('/api/page14', {
-        method: 'POST',
-        json: payload,
-      });
-      setPage14(data.state);
-      setPage14Standings(data.standings);
-      message.success('晋级积分榜已更新');
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-      throw error;
-    } finally {
-      setPage14Saving(false);
-    }
-  }
 
   async function saveNextGame(payload: {
     matchId?: string | null;
@@ -1071,40 +691,6 @@ function Dashboard() {
     }
   }
 
-  async function saveMatchTags(matchId: string, tags: string[]) {
-    const nextTags = Array.from(new Set(tags.map((item) => item.trim()).filter(Boolean))).slice(0, 10);
-
-    setSavingHistoryTagMatchId(matchId);
-    try {
-      const data = await requestJson<{ success: boolean; store?: MatchStoreState }>(`/api/matches/${encodeURIComponent(matchId)}/tags`, {
-        method: 'PATCH',
-        json: { tags: nextTags },
-      });
-      applyServerState({ store: data.store });
-      setEditingHistoryTagMatchId(null);
-      setEditingHistoryTagValues([]);
-      setHistoryNotice({ tone: 'success', text: '标签已更新' });
-      message.success('标签已保存');
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSavingHistoryTagMatchId(null);
-    }
-  }
-
-  function beginInlineTagEdit(match: MatchRecord) {
-    setEditingHistoryTagMatchId(match.id);
-    setEditingHistoryTagValues(match.tags ?? []);
-  }
-
-  async function commitInlineTagEdit(matchId: string) {
-    if (savingHistoryTagMatchId === matchId) {
-      return;
-    }
-
-    await saveMatchTags(matchId, editingHistoryTagValues);
-  }
-
   /**
    * 导航「数据同步」角标：入口从「比赛管理」底部搬到导航后，云同步的待办状态必须仍然一眼可见
    * （口径与卡片里的 cloudLiveBadge 一致：主控看待确认场次，分控看待交回场次 + 云端有新版本）。
@@ -1170,218 +756,6 @@ function Dashboard() {
         <Text>正在加载新的 Ant Design 后台...</Text>
       </div>
     );
-  }
-
-  const cloudPendingIdSet = new Set(cloudStatus?.pending.matches.map((item) => item.matchId) ?? []);
-  const cloudAckedSet = new Set(cloudAckedMatchIds);
-
-  const historyColumns: ColumnsType<MatchRecord> = [
-    {
-      title: '左侧选手',
-      dataIndex: 'leftPlayer',
-      key: 'leftPlayer',
-      render: (value: MatchRecord['leftPlayer']) => <Text strong>{value || '左侧'}</Text>,
-    },
-    {
-      title: (
-        <HistorySortHeader
-          text="比分"
-          sortKey="score"
-          activeOrder={historySort.key === 'score' ? historySort.order : null}
-          onSort={cycleHistorySort}
-        />
-      ),
-      key: 'score',
-      render: (_: unknown, record: MatchRecord) => (
-        <Text strong>{record.leftScore} : {record.rightScore}</Text>
-      ),
-    },
-    {
-      title: '右侧选手',
-      dataIndex: 'rightPlayer',
-      key: 'rightPlayer',
-      render: (value: MatchRecord['rightPlayer']) => <Text strong>{value || '右侧'}</Text>,
-    },
-    {
-      title: (
-        <HistorySortHeader
-          text="赛制"
-          sortKey="bestOf"
-          activeOrder={historySort.key === 'bestOf' ? historySort.order : null}
-          onSort={cycleHistorySort}
-        />
-      ),
-      dataIndex: 'bestOf',
-      key: 'bestOf',
-      render: (value: MatchRecord['bestOf']) => <Tag color="gold">BO{value}</Tag>,
-    },
-    {
-      title: '标签',
-      dataIndex: 'tags',
-      key: 'tags',
-      render: (tags: string[], record: MatchRecord) => (
-        editingHistoryTagMatchId === record.id ? (
-          <Select
-            mode="multiple"
-            autoFocus
-            value={editingHistoryTagValues}
-            options={allHistoryTags.map((tag) => ({ value: tag, label: tag }))}
-            placeholder="选择标签"
-            className="history-tag-select"
-            open
-            loading={savingHistoryTagMatchId === record.id}
-            onChange={(values) => setEditingHistoryTagValues(values)}
-            onBlur={() => void commitInlineTagEdit(record.id)}
-            onDropdownVisibleChange={(open) => {
-              if (!open) {
-                void commitInlineTagEdit(record.id);
-              }
-            }}
-          />
-        ) : (
-          <div className="history-tag-cell" onClick={() => beginInlineTagEdit(record)} role="button" tabIndex={0} onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              beginInlineTagEdit(record);
-            }
-          }}>
-            <Space wrap>
-              {record.tournamentRef && tournamentNameMap.has(record.tournamentRef.tournamentId) ? (
-                <Tag
-                  color="purple"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setHistoryTournamentFilter(record.tournamentRef?.tournamentId ?? null);
-                  }}
-                >
-                  🏆 {tournamentNameMap.get(record.tournamentRef.tournamentId)}
-                </Tag>
-              ) : null}
-              {/* 派生「阶段 · 轮次」只读 Tag：由 tournamentRef + 编排实时计算，不落 tags、不参与筛选 */}
-              {(() => {
-                const ref = record.tournamentRef;
-                const tournament = ref ? tournamentRecordMap.get(ref.tournamentId) : undefined;
-                const stageRound = ref && tournament ? formatStageRoundLabel(tournament, ref) : null;
-                if (!stageRound) {
-                  return null;
-                }
-                return (
-                  <Tag
-                    color="geekblue"
-                    style={{ cursor: 'default' }}
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    {stageRound}
-                  </Tag>
-                );
-              })()}
-              {tags?.length ? tags.map((tag) => (
-                <Tag
-                  key={`${record.id}-${tag}`}
-                  color={historyTagFilter === tag ? 'processing' : DEFAULT_TAGS.includes(tag) ? 'gold' : 'default'}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setHistoryTagFilter(tag);
-                  }}
-                >
-                  {tag}
-                </Tag>
-              )) : <Text type="secondary">点击选择标签</Text>}
-            </Space>
-          </div>
-        )
-      ),
-    },
-    {
-      title: (
-        <HistorySortHeader
-          text="状态"
-          sortKey="status"
-          activeOrder={historySort.key === 'status' ? historySort.order : null}
-          onSort={cycleHistorySort}
-        />
-      ),
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: MatchRecord['status'], record: MatchRecord) => (
-        <Space size={4} wrap>
-          <MatchStatusTag status={status} />
-          {cloudPendingIdSet.has(record.id) ? <Tag color="purple">待交回</Tag> : null}
-          {cloudAckedSet.has(record.id) && cloudStatus?.config.role === 'sub' ? <Tag color="green">已确认</Tag> : null}
-        </Space>
-      ),
-    },
-    {
-      title: (
-        <HistorySortHeader
-          text="更新时间"
-          sortKey="updatedAt"
-          activeOrder={historySort.key === 'updatedAt' ? historySort.order : null}
-          onSort={cycleHistorySort}
-        />
-      ),
-      dataIndex: 'updatedAt',
-      key: 'updatedAt',
-      render: (value: MatchRecord['updatedAt']) => formatDateTime(value),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      render: (_: unknown, record: MatchRecord) => {
-        // 行内直接录入：自动定位到该场比赛的当前小局，免展开操作
-        const entryGame = getCurrentGame(record);
-        const entryReason = entryGame
-          ? getLineupEntryBlockReason(record, entryGame)
-          : 'match-completed';
-        return (
-          <Space wrap>
-            <Tooltip
-              title={entryReason
-                ? LINEUP_ENTRY_BLOCK_TEXT[entryReason]
-                : `提前录入第 ${entryGame?.gameNumber ?? 1} 局双方阵容，开始对局时自动生效`}
-            >
-              <span>
-                <Button
-                  size="small"
-                  type={entryReason ? 'default' : 'primary'}
-                  ghost={!entryReason}
-                  disabled={Boolean(entryReason)}
-                  onClick={() => setLineupEntry({ matchId: record.id, gameNumber: entryGame?.gameNumber ?? 1 })}
-                >
-                  录入阵容
-                </Button>
-              </span>
-            </Tooltip>
-            <Button size="small" onClick={() => void selectMatch(record.id)}>进入管理</Button>
-            <Button
-              size="small"
-              danger
-              onClick={() => {
-                modal.confirm({
-                  title: '删除这场赛事？',
-                  content: `${record.leftPlayer || '左侧'} vs ${record.rightPlayer || '右侧'}`,
-                  onOk: () => deleteHistoryMatches([record.id]),
-                });
-              }}
-            >
-              删除
-            </Button>
-          </Space>
-        );
-      },
-    },
-  ];
-
-  function exportHistoryCsv() {
-    const csv = buildHistoryCsv(sortedMatches, spriteMap, tournaments);
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = '比赛管理.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-    message.success(`已导出 ${sortedMatches.length} 场赛事历史`);
   }
 
   return (
@@ -1477,346 +851,10 @@ function Dashboard() {
           ) : null}
 
           {view === 'history' ? (
-            <Space direction="vertical" size={18} className="page-stack">
-              {/* 四张推流功能卡片单独一行（不再内嵌进比赛管理卡片）；四卡等高，见 styles.css .match-push-card-row */}
-              <Row gutter={[16, 16]} className="match-push-card-row">
-                {page6 ? (
-                  <Col xs={24} md={6}>
-                    <MatchPushCard
-                      kind="page6"
-                      cardTitle="推送比赛结果"
-                      maxCount={PAGE6_MAX_MATCHES}
-                      matches={adminVisibleMatches}
-                      allMatches={matchStore.matches}
-                      tournaments={tournaments}
-                      state={page6}
-                      pushing={Boolean(matchPushLoading.page6)}
-                      onPush={(payload) => pushMatchesForPage('page6', payload)}
-                    />
-                  </Col>
-                ) : null}
-                {page7 ? (
-                  <Col xs={24} md={6}>
-                    <MatchPushCard
-                      kind="page7"
-                      cardTitle="推送战绩详情"
-                      matches={adminVisibleMatches}
-                      allMatches={matchStore.matches}
-                      tournaments={tournaments}
-                      state={page7}
-                      pushing={Boolean(matchPushLoading.page7)}
-                      onPush={(payload) => pushMatchesForPage('page7', payload)}
-                    />
-                  </Col>
-                ) : null}
-                {page8 ? (
-                  <Col xs={24} md={6}>
-                    <MatchPushCard
-                      kind="page8"
-                      cardTitle="推送比赛预告"
-                      maxCount={PAGE8_MAX_MATCHES}
-                      matches={adminVisibleMatches}
-                      allMatches={matchStore.matches}
-                      tournaments={tournaments}
-                      state={page8}
-                      pushing={Boolean(matchPushLoading.page8)}
-                      onPush={(payload) => pushMatchesForPage('page8', payload)}
-                    />
-                  </Col>
-                ) : null}
-                {page14 ? (
-                  <Col xs={24} md={6}>
-                    <AdvanceRankCard
-                      tournaments={tournaments}
-                      state={page14}
-                      standings={page14Standings}
-                      saving={page14Saving}
-                      onSave={savePage14Settings}
-                    />
-                  </Col>
-                ) : null}
-              </Row>
-
-              {/* 比赛回收站：普通删除 7 天内逐条恢复（purged 批次——回退上一波等不可恢复删除——不在列） */}
-              <Modal
-                title="♻ 比赛回收站"
-                open={recycleBinOpen}
-                width={MODAL_WIDTH.sm}
-                okText={`恢复选中（${recycleSelectedKeys.length}）`}
-                okButtonProps={{ disabled: !recycleSelectedKeys.length, loading: recycleRestoring }}
-                onOk={() => void restoreRecycleMatches()}
-                onCancel={() => setRecycleBinOpen(false)}
-              >
-                <div style={{ maxHeight: 380, overflowY: 'auto' }}>
-                  {recycleLoading ? (
-                    <Text type="secondary">加载中…</Text>
-                  ) : recycleBinRows.length ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {recycleBinRows.map((row) => (
-                        <div
-                          key={row.matchId}
-                          style={{
-                            border: '1px solid #f0f0f0',
-                            borderRadius: 8,
-                            padding: '6px 10px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 10,
-                          }}
-                        >
-                          <div style={{ minWidth: 0 }}>
-                            <Text strong>{row.leftPlayer} vs {row.rightPlayer}</Text>
-                            <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                              {row.matchId} · BO{row.bestOf} · 删除于 {row.deletedAt.slice(0, 16).replace('T', ' ')}
-                            </Text>
-                          </div>
-                          <Checkbox
-                            checked={recycleSelectedKeys.includes(row.matchId)}
-                            onChange={(event) => {
-                              setRecycleSelectedKeys((prev) => (
-                                event.target.checked
-                                  ? [...prev, row.matchId]
-                                  : prev.filter((id) => id !== row.matchId)
-                              ));
-                            }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <Text type="secondary">回收站是空的（普通删除的比赛保留 7 天，过期自动清理）</Text>
-                  )}
-                </div>
-              </Modal>
-
-              <Card
-                title="比赛管理"
-                extra={(
-                  <Space wrap>
-                    <Button onClick={exportHistoryCsv} disabled={!filteredMatches.length}>导出 CSV</Button>
-                    {selectedHistoryKeys.length > 1 ? (
-                      <Button onClick={() => void handleBatchTag()}>批量添加标签</Button>
-                    ) : null}
-                    <Button danger disabled={!selectedHistoryKeys.length} onClick={() => void deleteHistoryMatches(selectedHistoryKeys.map(String))}>
-                      删除选中赛事
-                    </Button>
-                    <Button onClick={() => void openMatchRecycleBin()} disabled={matchStore.undo.deleteUndoCount === 0}>
-                      ♻ 回收站 ({matchStore.undo.deleteUndoCount})
-                    </Button>
-                  </Space>
-                )}
-              >
-                {historyNotice ? (
-                  <Alert
-                    showIcon
-                    closable
-                    type={historyNotice.tone}
-                    message={historyNotice.text}
-                    className="history-notice"
-                    onClose={() => setHistoryNotice(null)}
-                  />
-                ) : null}
-                <Space wrap className="history-filter-row">
-                  <Input.Search
-                    placeholder="搜索选手名或赛事ID"
-                    value={historySearch}
-                    onChange={(event) => setHistorySearch(event.target.value)}
-                    allowClear
-                    className="history-search-input"
-                  />
-                  <Text type="secondary" className="history-filter-group-label">系列赛</Text>
-                  <Tag
-                    color={historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER ? 'purple' : 'default'}
-                    onClick={() => setHistoryTournamentFilter(
-                      historyTournamentFilter === PLAIN_HISTORY_MATCH_FILTER ? null : PLAIN_HISTORY_MATCH_FILTER,
-                    )}
-                  >
-                    普通对局
-                  </Tag>
-                  {historyTournamentFilters.map((item) => (
-                    <Tag
-                      key={item.id}
-                      color={historyTournamentFilter === item.id ? 'purple' : 'default'}
-                      onClick={() => setHistoryTournamentFilter(historyTournamentFilter === item.id ? null : item.id)}
-                    >
-                      🏆 {item.name}（{item.count}）
-                    </Tag>
-                  ))}
-                  <Divider type="vertical" className="history-filter-divider" />
-                  <Text type="secondary" className="history-filter-group-label">标签</Text>
-                  <Tag
-                    color={historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? 'processing' : 'default'}
-                    onClick={() => setHistoryTagFilter(historyTagFilter === UNCATEGORIZED_HISTORY_TAG ? null : UNCATEGORIZED_HISTORY_TAG)}
-                  >
-                    无标签
-                  </Tag>
-                  <Tag color={!historyTagFilter ? 'processing' : 'default'} onClick={() => setHistoryTagFilter(null)}>全部</Tag>
-                  {allHistoryTags.map((tag) => (
-                    <Tag key={tag} color={historyTagFilter === tag ? 'processing' : 'default'} onClick={() => setHistoryTagFilter(historyTagFilter === tag ? null : tag)}>
-                      {tag}
-                    </Tag>
-                  ))}
-                </Space>
-                {/* 筛选状态要让用户看见：否则「刚同步过来的比赛没出现在列表里」会被当成丢失 */}
-                {historyFilterSummary ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    className="history-filter-hint"
-                    message={historyFilterSummary}
-                    action={(
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          setHistoryTournamentFilter(null);
-                          setHistoryTagFilter(null);
-                          setHistorySearch('');
-                        }}
-                      >
-                        清除筛选
-                      </Button>
-                    )}
-                  />
-                ) : null}
-                <Table
-                  rowKey={(record) => record.id}
-                  columns={historyColumns}
-                  dataSource={sortedMatches}
-                  pagination={{
-                    defaultPageSize: 10,
-                    pageSizeOptions: ['10', '20', '50', '100'],
-                    showSizeChanger: {
-                      // 下拉挂到 body：表格在卡片底部，触发器父链上的层叠上下文/包含块会让下拉算错位置或被裁掉
-                      getPopupContainer: () => document.body,
-                      // 下拉宽度按选项内容自适应：跟随「10 条/页」这个很窄的触发器会把选项文字裁没
-                      popupMatchSelectWidth: false,
-                    },
-                    showTotal: (total, range) => `${range[0]}-${range[1]} / 共 ${total} 条`,
-                  }}
-                  rowSelection={{
-                    selectedRowKeys: selectedHistoryKeys,
-                    onChange: (keys) => setSelectedHistoryKeys(keys),
-                  }}
-                  expandable={{
-                    expandedRowRender: (record) => (
-                      <Space direction="vertical" size={16} className="history-detail">
-                        <Text type="secondary">
-                          {record.id} · BO{record.bestOf} · 已记录 {record.games.filter((game) => game.status === 'completed').length} 局
-                          {record.completedAt ? ` · 完成于 ${formatDateTime(record.completedAt)}` : ''}
-                        </Text>
-                        {getHistoryVisibleGames(record).map((game) => {
-                          const battleEntries = buildHistoryBattleEntries(game, spriteMap);
-                          const leftLost = game.winner === 'right';
-                          const rightLost = game.winner === 'left';
-                          const lineupBlockReason = getLineupEntryBlockReason(record, game);
-
-                          return (
-                          <Card key={`${record.id}-${game.gameNumber}`} size="small" className="subtle-card">
-                            <Space direction="vertical" size={12} className="control-stack">
-                              <Space wrap>
-                                <Tag color="gold">第 {game.gameNumber} 局</Tag>
-                                <Tag color={game.status === 'completed' ? 'success' : game.status === 'in_progress' ? 'processing' : 'default'}>
-                                  {getGameStatusLabel(game.status)}
-                                </Tag>
-                                <Tag color={game.winner === 'left' ? 'success' : game.winner === 'right' ? 'volcano' : 'default'}>
-                                  {getGameResultLabel(game)}
-                                </Tag>
-                                <Text type="secondary">左侧 1-6 · 右侧 7-12</Text>
-                                <Tooltip
-                                  title={lineupBlockReason
-                                    ? LINEUP_ENTRY_BLOCK_TEXT[lineupBlockReason]
-                                    : `提前录入第 ${game.gameNumber} 局双方阵容，开始对局时自动生效`}
-                                >
-                                  <Button
-                                    size="small"
-                                    type={lineupBlockReason ? 'default' : 'primary'}
-                                    ghost={!lineupBlockReason}
-                                    disabled={Boolean(lineupBlockReason)}
-                                    onClick={() => setLineupEntry({ matchId: record.id, gameNumber: game.gameNumber })}
-                                  >
-                                    录入阵容
-                                  </Button>
-                                </Tooltip>
-                              </Space>
-                              <div className="history-battle-grid">
-                                {battleEntries.map((entry, index) => {
-                                  const isLeft = index < 6;
-                                  const lost = isLeft ? leftLost : rightLost;
-
-                                  return (
-                                    <Card
-                                      key={`${record.id}-${game.gameNumber}-${isLeft ? 'left' : 'right'}-${index}`}
-                                      size="small"
-                                      className={`history-slot-card history-slot-card-${isLeft ? 'left' : 'right'}${lost ? ' is-lost' : ''}${!entry ? ' is-empty' : ''}`}
-                                    >
-                                      <Space direction="vertical" size={6} className="history-slot-stack">
-                                        {entry?.path ? (
-                                          <Image
-                                            preview={false}
-                                            src={entry.path}
-                                            alt={entry.name}
-                                            className="history-slot-image"
-                                            fallback="/assets/ui/back.png"
-                                          />
-                                        ) : (
-                                          <div className="history-slot-fallback">{index + 1}</div>
-                                        )}
-                                        <Text ellipsis className="history-slot-name">{entry?.name ?? `空位 ${index + 1}`}</Text>
-                                      </Space>
-                                    </Card>
-                                  );
-                                })}
-                              </div>
-                            </Space>
-                          </Card>
-                          );
-                        })}
-                      </Space>
-                    ),
-                    expandedRowKeys: expandedHistoryKeys,
-                    // 不显示左侧 + 号展开列，改为点击整行展开（见 Table onRow）
-                    showExpandColumn: false,
-                  }}
-                  onRow={(record) => ({
-                    style: { cursor: 'pointer' },
-                    onClick: (event: React.MouseEvent<HTMLElement>) => {
-                      // 点行内交互控件（勾选框 / 标签 / 按钮 / 行内编辑等）时不触发展开
-                      if ((event.target as HTMLElement).closest(
-                        'button, a, input, label, .ant-select, .ant-tag, .history-tag-cell',
-                      )) {
-                        return;
-                      }
-                      setExpandedHistoryKeys((prev) => (prev.includes(record.id) ? [] : [record.id]));
-                    },
-                  })}
-                  locale={{ emptyText: '暂无历史赛事' }}
-                />
-              </Card>
-
-              <Modal
-                title="批量添加标签"
-                open={batchTagOpen}
-                onCancel={() => setBatchTagOpen(false)}
-                onOk={() => void submitBatchTag()}
-                okButtonProps={{ disabled: !batchTagValue }}
-                confirmLoading={batchTagSaving}
-              >
-                <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  <Text>已选中 {selectedHistoryKeys.length} 场赛事，选择要添加的标签（仅可选择一个）：</Text>
-                  <Select
-                    showSearch
-                    autoFocus
-                    value={batchTagValue ?? undefined}
-                    placeholder="选择标签"
-                    options={allHistoryTags.map((tag) => ({ value: tag, label: tag }))}
-                    onChange={setBatchTagValue}
-                    className="history-tag-select"
-                    optionFilterProp="label"
-                  />
-                </Space>
-              </Modal>
-            </Space>
+            <HistoryView
+              onEnterLineup={(matchId, gameNumber) => setLineupEntry({ matchId, gameNumber })}
+              onSelectMatch={selectMatch}
+            />
           ) : null}
 
           {view === 'sync' ? (

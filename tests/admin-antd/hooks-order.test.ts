@@ -119,6 +119,14 @@ const CONTROL_FILES = [
     start: 'export function ProfilesView(',
   },
   {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'HistoryView.tsx'),
+    start: 'export function HistoryView(',
+  },
+  {
+    file: path.join(process.cwd(), 'src', 'admin-antd', 'views', 'history', 'use-history-controller.ts'),
+    start: 'export function useHistoryController(',
+  },
+  {
     file: path.join(process.cwd(), 'src', 'admin-antd', 'data', 'use-live-control.ts'),
     start: 'export function useLiveControl(',
   },

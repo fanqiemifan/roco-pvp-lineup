@@ -151,6 +151,22 @@ export function filterLocallyRemovedMatches(
   });
 }
 
+/**
+ * 管理端可见对局：在「本机移除」过滤的基础上，再剔除回收站（grace 墓碑）系列赛的对局。
+ * 比赛管理列表 / 推流选场 / 实时控制「下场对局」下拉共用同一口径——视图层隐藏，
+ * 对局数据本身保留（统计、回传与展示页不受影响）。
+ */
+export function getAdminVisibleMatches(
+  matches: MatchRecord[],
+  locallyRemovedIds: ReadonlySet<string>,
+  recycleBinIds: ReadonlySet<string>,
+): MatchRecord[] {
+  return filterLocallyRemovedMatches(matches, locallyRemovedIds).filter((match) => {
+    const tournamentId = match.tournamentRef?.tournamentId;
+    return !tournamentId || !recycleBinIds.has(tournamentId);
+  });
+}
+
 /** 历史页系列赛筛选项 */
 export interface HistoryTournamentFilter {
   id: string;

@@ -21,6 +21,7 @@
 ## 测试
 
 - Vitest（node 环境）。测试文件放 `tests/`，按 `tests/electron/`（服务与 HTTP/socket 层）、`tests/admin-antd/`（前端纯函数）、`tests/pages/`（展示页原生脚本，用极简假 DOM + `node:vm` 跑真实脚本）镜像源码结构。
+- 组件层用例（`tests/**/*.test.tsx`，如 `tests/admin-antd/history-view.test.tsx`）：文件顶部用 `// @vitest-environment jsdom` **局部**切换环境（vitest 全局保持 node，切勿全局改，否则影响现有 node 用例）；依赖 `@testing-library/react` + `@testing-library/user-event` + `jsdom`。用 `vi.mock` 打桩 `data/use-admin-data` 与 `lib/request` 构造夹具，**不依赖真实 socket**（jsdom 需自行 stub `window.matchMedia` / `ResizeObserver` / `IntersectionObserver`）。
 - 服务层测试**不需要 Electron**：服务全部经 `AppPaths` 读写文件，`mkdtempSync` 临时目录 + `createAppPaths(root, root)`（补一句 `mkdirSync(paths.dataDir)`）即得完全隔离环境。精灵库夹具 = 往 `dataDir/pets.json` 写索引 + 在 `spritesDir` 放 `{pet_id}_{name}.png` 空文件（索引会过滤缺图条目）。
 - HTTP/socket 层测试：`createLocalServer(paths, 0, '127.0.0.1')` 起真实服务器（**不传 authConfig = 关闭鉴权**），用 `fetch` 打路由、`socket.io-client` 订阅广播。socket 事件名以 `shared/events.ts` 的 `SOCKET_EVENTS` **值**为准（是 `matches:update` 这类带冒号的字符串，不是 TS 属性名 `matchesUpdate`）。
 - 提交前验证：`npm test` + `npm run typecheck:tests`；改了 electron 源码再加 `npm run build:electron`。
